@@ -1,0 +1,8 @@
+compile_commands.json
+.cache/
+.vscode/
+build/
+
+# Third-party dependencies - built from source using setup-deps.sh
+third_party/
+NEED_OPTIMIZE.txt

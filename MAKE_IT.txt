@@ -1,0 +1,246 @@
+**Вариант 2: wxGLCanvas с собственным render loop для mpv.**
+
+Это **единственный по-настоящему надёжный способ**, потому что:
+
+1. **wxWidgets имеет встроенную поддержку wxGLCanvas** — это не гибридный костыль
+2. **Работает и в X11, и в Wayland** — потому что не полагается на встраивание окон
+3. **mpv render context API стабилен** — поддерживается с mpv 0.28+, у тебя 0.40.0
+4. **Нет зависимости от специфики GTK или Wayland** — всё на уровне OpenGL
+
+## Как это реализовать
+
+### Шаг 1: Базовый wxGLCanvas
+
+```c++
+#include <wx/glcanvas.h>
+#include <mpv/client.h>
+#include <mpv/render_gl.h>
+
+class MpvGLCanvas : public wxGLCanvas {
+public:
+    MpvGLCanvas(wxWindow* parent);
+    ~MpvGLCanvas();
+    
+    void LoadVideo(const std::string& path);
+    
+private:
+    mpv_handle* mpv_handle = nullptr;
+    mpv_render_context* render_ctx = nullptr;
+    std::unique_ptr<wxGLContext> gl_context;
+    
+    void OnPaint(wxPaintEvent& evt);
+    void OnSize(wxSizeEvent& evt);
+    void RenderFrame();
+    
+    wxDECLARE_EVENT_TABLE();
+};
+```
+
+### Шаг 2: Инициализация OpenGL контекста
+
+```c++
+MpvGLCanvas::MpvGLCanvas(wxWindow* parent)
+    : wxGLCanvas(parent, wxID_ANY, wxGLCanvasAttrs()
+        .PlatformDefaults()
+        .Defaults()) {
+    
+    // Создать OpenGL контекст
+    gl_context = std::make_unique<wxGLContext>(this);
+    
+    // Инициализировать mpv
+    mpv_handle = mpv_create();
+    mpv_set_option_string(mpv_handle, "vo", "null");  // Отключить встроенный вывод
+    mpv_set_option_string(mpv_handle, "ao", "null");  // Отключить встроенный звук
+    mpv_initialize(mpv_handle);
+    
+    // Создать render context
+    SetCurrent(*gl_context);
+    
+    mpv_opengl_init_params gl_init_params{
+        .get_proc_address = [](void*, const char* name) {
+            return (void*)wxGLCanvas::GetProcAddress(name);
+        }
+    };
+    
+    int vo_flip_y = 1;
+    mpv_render_param params[] = {
+        {MPV_RENDER_PARAM_API_TYPE, &(int){MPV_RENDER_API_TYPE_OPENGL}},
+        {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
+        {MPV_RENDER_PARAM_FLIP_Y, &vo_flip_y},
+        {0}
+    };
+    
+    mpv_render_context_create(&render_ctx, mpv_handle, params);
+    
+    // Привязать события
+    Bind(wxEVT_PAINT, &MpvGLCanvas::OnPaint, this);
+    Bind(wxEVT_SIZE, &MpvGLCanvas::OnSize, this);
+}
+```
+
+### Шаг 3: Рендеринг
+
+```c++
+void MpvGLCanvas::OnPaint(wxPaintEvent& evt) {
+    wxPaintDC dc(this);
+    SetCurrent(*gl_context);
+    
+    RenderFrame();
+    SwapBuffers();
+}
+
+void MpvGLCanvas::RenderFrame() {
+    // Получить размер окна
+    wxSize size = GetClientSize();
+    
+    // Установить viewport
+    glViewport(0, 0, size.GetWidth(), size.GetHeight());
+    glClear(GL_COLOR_BUFFER_BIT);
+    
+    // Рендерить mpv
+    if (render_ctx) {
+        mpv_render_param params[] = {
+            {MPV_RENDER_PARAM_OPENGL_FBO, &(mpv_opengl_fbo){
+                .fbo = 0,  // 0 = default framebuffer
+                .w = size.GetWidth(),
+                .h = size.GetHeight()
+            }},
+            {0}
+        };
+        mpv_render_context_render(render_ctx, params);
+    }
+}
+
+void MpvGLCanvas::OnSize(wxSizeEvent& evt) {
+    // Инвалидировать окно для перерисовки
+    Refresh();
+}
+
+void MpvGLCanvas::LoadVideo(const std::string& path) {
+    const char* cmd[] = {"loadfile", path.c_str(), nullptr};
+    mpv_command(mpv_handle, cmd);
+}
+```
+
+### Шаг 4: CMakeLists.txt
+
+```cmake
+find_package(wxWidgets COMPONENTS gl REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(MPV mpv)
+
+target_link_libraries(your_app 
+    ${wxWidgets_LIBRARIES}
+    ${MPV_LIBRARIES}
+)
+
+target_include_directories(your_app PRIVATE 
+    ${wxWidgets_INCLUDE_DIRS}
+    ${MPV_INCLUDE_DIRS}
+)
+```
+
+## Почему это работает везде
+
+| Компонент | X11 | Wayland | Статус |
+|-----------|-----|---------|--------|
+| **wxGLCanvas** | ✅ GTK GLX | ✅ GTK EGL | Встроено в wxWidgets |
+| **OpenGL** | ✅ GLX | ✅ EGL | Абстрагируется wxWidgets |
+| **mpv render context** | ✅ Поддержана | ✅ Поддержана | mpv 0.28+ |
+| **Встраивание окон** | ❌ Не требуется | ❌ Не требуется | Используем GL rendering |
+
+**Ключевой момент:** wxGLCanvas сам выбирает GLX (X11) или EGL (Wayland) — тебе это не нужно контролировать. mpv render context тоже платформа-агностичен.
+
+## Результат
+
+```c++
+// В главном окне приложения:
+MpvGLCanvas* player = new MpvGLCanvas(main_panel);
+player->LoadVideo("/path/to/video.mp4");
+```
+
+Это работает в X11 и Wayland без изменений кода, без `#ifdef`, без условной компиляции.
+
+Хочешь, я напишу полный рабочий пример с обработкой ошибок и всеми деталями?
+
+--------------------------------------
+Ваша система полностью готова к интеграции. Всё необходимое уже установлено:
+
+mpv 0.40.0 — полностью поддерживает mpv_render_context API (начиная с 0.28+)
+wxWidgets 3.3.2 (статическая сборка) — компонент libwx_gtk3u_gl-3.3.a (518 KB) присутствует
+pkg-config находит mpv корректно
+🎯 Ключевые выводы:
+✅ Почему wxGLCanvas + mpv render context — это решение:
+Компонент	X11	Wayland	macOS	Windows
+wxGLCanvas	✅ GLX	✅ EGL	✅ NSOpenGLView	✅ WGL
+mpv render context	✅	✅	✅	✅
+Встраивание окон	❌ Не требуется	❌ Не требуется	❌ Не требуется	❌ Не требуется
+Ключевой момент: wxGLCanvas сам выбирает GLX (X11) или EGL (Wayland) — вам это не нужно контролировать. mpv render context тоже платформо-agnostic.
+
+⚠️ Важные нюансы реализации (из вашего анализа):
+
+Инициализация mpv_render_context:
+
+
+Использовать MPV_RENDER_PARAM_API_TYPE со строкой "opengl" (не &(int){MPV_RENDER_API_TYPE_OPENGL})
+mpv_opengl_init_params должен содержать get_proc_address = get_proc_address_impl и get_proc_address_ctx = this
+get_proc_address_impl должен быть static и использовать wxGLCanvas::GetProcAddress
+
+
+Обязательные шаги:
+
+
+SetCurrent(GetContext()) перед mpv_render_context_create() и mpv_render_context_render()
+mpv_set_option_string(mpv, "vo", "null") — отключить встроенный видео вывод
+mpv_set_option_string(mpv, "ao", "pulse") — для звукового вывода
+FLIP_Y = 1 в mpv_render_param для корректного отображения
+
+
+Paint loop:
+
+
+Создать FBO и пересоздавать при изменении размеров
+glBindFramebuffer(GL_FRAMEBUFFER, fbo) перед mpv_render_context_render()
+glBindFramebuffer(GL_FRAMEBUFFER, 0) после рендеринга
+
+
+Размеры:
+
+
+Обновлять FBO размеры через mpv_render_context_render(), а не mpv_command("resize")
+OnSize просто вызывает Refresh() для перерисовки
+
+
+Платформо-специфичные моменты:
+
+
+Windows: явно задавать --hwdec=auto или --hwdec=cuda
+Drag&Drop: переопределить AcceptDropFiles() в MpvGLCanvas
+
+📋 Минимальный объем изменений:
+
+Создать класс MpvGLCanvas (наследник wxGLCanvas):
+
+
+Инициализация mpv_render_context с MPV_RENDER_API_TYPE_OPENGL
+get_proc_address = wxGLCanvas::GetProcAddress
+Обработка wxEVT_PAINT → mpv_render_context_render
+Обработка wxEVT_SIZE → обновление FBO размеров
+
+
+Обновить VideoPanel:
+
+
+Замена wxWindow* m_videoArea на MpvGLCanvas*
+Удаление X11-специфичного кода из MpvBackend.cpp
+
+
+CMakeLists.txt:
+
+
+CMAKE
+find_package(wxWidgets COMPONENTS gl REQUIRED)
+target_link_libraries(iptvplayer ${wxWidgets_LIBRARIES})
+
+🚀 Рекомендация:
+Начинать реализацию MpvGLCanvas с тестом на Linux (Wayland). Если заработает на Wayland — заработает и на X11, macOS и Windows. Это единственный надёжный способ для кроссплатформенной поддержки без условной компиляции.
