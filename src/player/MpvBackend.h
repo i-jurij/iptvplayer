@@ -1,14 +1,13 @@
 #pragma once
 #include "IPlayerBackend.h"
-#include <X11/X.h>
+#include "MpvGLCanvas.h"
 #include <atomic>
 #include <mpv/client.h>
 #include <thread>
 
 class MpvBackend : public IPlayerBackend {
-
 public:
-  MpvBackend();
+  explicit MpvBackend(wxWindow *parentWindow);
   ~MpvBackend() override;
 
   bool AttachToWindow(wxWindow *window) override;
@@ -32,9 +31,7 @@ public:
     m_progressCallback = std::move(cb);
   }
 
-  void SetStateCallback(StateCallback cb) override {
-    m_stateCallback = cb;
-  }
+  void SetStateCallback(StateCallback cb) override { m_stateCallback = cb; }
 
   void *GetBackendHandle() const override;
   std::string GetBackendName() const override;
@@ -57,21 +54,23 @@ public:
   void PrevSubtitleTrack() override;
 
 private:
-  Window GetX11WindowID(wxWindow *window);
-  std::string m_lastUrl;
   mpv_handle *m_mpv = nullptr;
+  wxWindow *m_parentWindow = nullptr;
+  
+  std::string m_lastUrl;
   wxWindow *m_window = nullptr;
-  std::thread m_eventThread;
-  std::atomic<bool> m_stopEventLoop{false};
 
   ProgressCallback m_progressCallback;
   StreamInfoCallback m_streamInfoCallback;
   StateCallback m_stateCallback;
 
-  // Event loop
-  void EventLoop();
+  static void WakeupCallback(void *ctx);
+  void ProcessMpvEvents();
+  void HandleEvent(mpv_event *ev);
   void EmitStreamInfo();
-  void EmitProgress(); // ← новый метод
+  void EmitProgress();
+  std::atomic<bool> m_wakeupPending{false};
+  bool m_processingEvents = false;
 
   // Вспомогательные для получения данных
   double GetTimePos() const;

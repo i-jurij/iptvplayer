@@ -1,4 +1,5 @@
 #include "VideoPanel.h"
+#include "BackendFactory.h"
 #include "ConfigManager.h"
 #include "EventIDs.h"
 #include "LogControl.h"
@@ -27,9 +28,8 @@ public:
   }
 };
 
-VideoPanel::VideoPanel(wxWindow *parent, PlayerController *player)
+VideoPanel::VideoPanel(wxWindow *parent)
     : wxPanel(parent, wxID_ANY) {
-  m_playerController = player;
 
   auto *rootSizer = new wxBoxSizer(wxHORIZONTAL);
 
@@ -124,7 +124,7 @@ VideoPanel::VideoPanel(wxWindow *parent, PlayerController *player)
   m_tempPlaylistList->Bind(wxEVT_KEY_DOWN, &VideoPanel::OnTempPlaylistKeyDown,
                            this);
   m_tempPlaylistList->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &evt) {
-    evt.Skip(); 
+    evt.Skip();
     this->CallAfter([this]() {
       if (m_tempPlaylistList)
         m_tempPlaylistList->SetFocus();
@@ -145,7 +145,7 @@ VideoPanel::VideoPanel(wxWindow *parent, PlayerController *player)
   });
 
   m_btnClear->Bind(wxEVT_BUTTON,
-                 [this](wxCommandEvent &) { ClearTempPlaylist(); });
+                   [this](wxCommandEvent &) { ClearTempPlaylist(); });
 
   m_btnPrev->Bind(wxEVT_BUTTON,
                   [this](wxCommandEvent &) { PlayPrevTempItem(); });
@@ -162,23 +162,28 @@ VideoPanel::VideoPanel(wxWindow *parent, PlayerController *player)
   m_mainPanel = new wxPanel(m_splitter, wxID_ANY);
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  // Video frame
-  m_videoArea = new wxWindow(m_mainPanel, wxID_ANY);
-  m_videoArea->SetBackgroundColour(*wxBLACK);
-  m_videoArea->SetBackgroundStyle(wxBG_STYLE_PAINT);
-  /*
-m_videoArea->Bind(wxEVT_KILL_FOCUS, [this](wxFocusEvent &) {
-  if (m_focusManager)
-    m_focusManager->EnsureFocus();
-});
-*/
-  m_videoArea->Bind(wxEVT_SIZE, &VideoPanel::OnVideoAreaResize, this);
-  m_videoArea->Bind(wxEVT_PAINT, &VideoPanel::OnVideoAreaPaint, this);
-  m_videoArea->Bind(wxEVT_KEY_DOWN, &VideoPanel::OnKey, this);
+  // 1. backend
+  m_playerController =
+      std::make_unique<PlayerController>(CreateBackend(nullptr));
 
-  m_videoArea->SetFocus();
+  // 2. canvas
+  MpvGLCanvas *videoCanvas = new MpvGLCanvas(m_mainPanel, nullptr);
+  mainSizer->Add(videoCanvas, 1, wxEXPAND);
+  m_videoArea = videoCanvas;
 
-  mainSizer->Add(m_videoArea, 1, wxEXPAND);
+  // 3. attach backend
+  m_playerController->AttachToWindow(videoCanvas);
+
+  // 4. передаём mpv
+  mpv_handle *mpv =
+      static_cast<mpv_handle *>(m_playerController->GetMpvHandle());
+  videoCanvas->SetMpvHandle(mpv);
+
+  // 5. КРИТИЧНО: принудительно вызвать OnPaint ДО PlayUrl
+  videoCanvas->Show();    // даже если родитель скрыт — это нормально
+  videoCanvas->Update();  // заставляет wx вызвать OnPaint
+  videoCanvas->Refresh(); // помечает область для перерисовки
+  wxYield();              // даёт wx выполнить OnPaint прямо сейчас
 
   // Progress bar
   auto *progressPanel = new wxPanel(m_mainPanel, wxID_ANY);
@@ -222,13 +227,19 @@ m_videoArea->Bind(wxEVT_KILL_FOCUS, [this](wxFocusEvent &) {
   // Cache indicator
   auto *cacheSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  m_cacheGauge = new wxGauge(progressPanel, wxID_ANY, 100, wxDefaultPosition,
-                             wxSize(150, 16), wxGA_HORIZONTAL | wxGA_SMOOTH);
-  m_cacheGauge->SetValue(0);
-  cacheSizer->Add(m_cacheGauge, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT,
-                  5);
+  // DPI-aware высота: ~6-8 пикселей на базовом DPI (96)
+  int gaugeHeight = wxRound(6 * GetDPIScaleFactor());
 
-  progressSizer->Add(cacheSizer, 0, wxEXPAND | wxTOP, 3);
+  m_cacheGauge =
+      new wxGauge(progressPanel, wxID_ANY, 100, wxDefaultPosition,
+                  wxSize(-1, gaugeHeight), wxGA_HORIZONTAL | wxGA_SMOOTH);
+  m_cacheGauge->SetValue(0);
+
+  // Растягиваем на полную ширину (proportion=1, wxEXPAND)
+  cacheSizer->Add(m_cacheGauge, 1, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(5));
+
+  progressSizer->Add(cacheSizer, 0, wxEXPAND | wxTOP, FromDIP(3));
+
   progressPanel->SetSizer(progressSizer);
   mainSizer->Add(progressPanel, 0, wxEXPAND);
 
@@ -413,30 +424,33 @@ m_videoArea->Bind(wxEVT_KILL_FOCUS, [this](wxFocusEvent &) {
 
   Bind(wxEVT_SHOW, &VideoPanel::OnWindowCreated, this);
 
-  m_playerController->SetStreamInfoCallback([this](const StreamInfo &info) {
-    wxString streamInfo = wxString::Format(
-        "%s | %dx%d @ %d fps | %s / %s", wxString::FromUTF8(m_currentName),
-        info.width, info.height, info.fps, wxString::FromUTF8(info.videoCodec),
-        wxString::FromUTF8(info.audioCodec));
+  if (m_playerController) {
+    m_playerController->SetStreamInfoCallback([this](const StreamInfo &info) {
+      wxString streamInfo = wxString::Format(
+          "%s | %dx%d @ %d fps | %s / %s", wxString::FromUTF8(m_currentName),
+          info.width, info.height, info.fps,
+          wxString::FromUTF8(info.videoCodec),
+          wxString::FromUTF8(info.audioCodec));
 
-    if (m_onStreamInfo) {
-      wxTheApp->CallAfter(
-          [cb = m_onStreamInfo, streamInfo]() { cb(streamInfo); });
-    }
-  });
-
-  m_playerController->SetProgressCallback([this](const ProgressInfo &info) {
-    wxTheApp->CallAfter([this, info]() {
-      m_lastProgress = info;
-      OnProgressInfo(info);
+      if (m_onStreamInfo) {
+        wxTheApp->CallAfter(
+            [cb = m_onStreamInfo, streamInfo]() { cb(streamInfo); });
+      }
     });
-  });
 
-  m_playerController->SetStateCallback([this](PlayerState st) {
-    wxCommandEvent evt(wxEVT_PLAYER_STATE);
-    evt.SetInt((int)st);
-    wxPostEvent(this, evt);
-  });
+    m_playerController->SetProgressCallback([this](const ProgressInfo &info) {
+      wxTheApp->CallAfter([this, info]() {
+        m_lastProgress = info;
+        OnProgressInfo(info);
+      });
+    });
+
+    m_playerController->SetStateCallback([this](PlayerState st) {
+      wxCommandEvent evt(wxEVT_PLAYER_STATE);
+      evt.SetInt((int)st);
+      wxPostEvent(this, evt);
+    });
+  }
 
   Bind(wxEVT_PLAYER_STATE, &VideoPanel::OnPlayerState, this);
 
@@ -450,10 +464,6 @@ m_videoArea->Bind(wxEVT_KILL_FOCUS, [this](wxFocusEvent &) {
 
 VideoPanel::~VideoPanel() {
   try {
-    if (m_playerController) {
-      m_playerController->Detach();
-    }
-
     m_pendingTempPlay = false;
     m_pendingTempIndex = -1;
 
@@ -516,13 +526,17 @@ void VideoPanel::UpdateCacheDisplay(const ProgressInfo &info) {
   bool isStream = (info.duration <= 0 || info.duration > 1000000);
 
   if (isStream && (info.cachePercent > 0 || info.cacheDuration > 0)) {
-    m_cacheGauge->Show();
+    if (!m_cacheGauge->IsShown()) {
+      m_cacheGauge->Show();
+      m_cacheGauge->GetParent()->Layout(); // ← только при смене видимости
+    }
     m_cacheGauge->SetValue(info.cachePercent);
   } else {
-    m_cacheGauge->Hide();
+    if (m_cacheGauge->IsShown()) {
+      m_cacheGauge->Hide();
+      m_cacheGauge->GetParent()->Layout(); // ← только при смене видимости
+    }
   }
-
-  m_cacheGauge->GetParent()->Layout(); // ← здесь
 }
 
 void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
@@ -598,7 +612,7 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     // просто очищаем pending.
     if (m_pendingTempPlay) {
       LOG_DEBUG("OnPlayerState: Stopped received while pending -> clear "
-                 "pending and ignore");
+                "pending and ignore");
       m_pendingTempPlay = false;
       m_pendingTempIndex = -1;
       // Не делаем автопереход
@@ -614,7 +628,7 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
                        .count();
       if (delta >= 0 && delta < kStoppedDebounceMs) {
         LOG_DEBUG("OnPlayerState: Ignoring Stopped (delta %d ms < %d ms)",
-                   (int)delta, kStoppedDebounceMs);
+                  (int)delta, kStoppedDebounceMs);
         break;
       }
     }
@@ -623,7 +637,7 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     // Playing
     if (!m_wasPlayingBeforeStop) {
       LOG_DEBUG("OnPlayerState: Ignoring Stopped because wasPlayingBeforeStop "
-                 "== false");
+                "== false");
       break;
     }
 

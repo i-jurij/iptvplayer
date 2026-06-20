@@ -13,8 +13,6 @@ void MainFrame::onSettings(wxCommandEvent &WXUNUSED(event)) {
 }
 
 void MainFrame::onQuit(wxCommandEvent &WXUNUSED(event)) {
-  if (m_playerController)
-    m_playerController->Shutdown();
   IconManager::Shutdown();
   m_closing = true;
   Close(true);

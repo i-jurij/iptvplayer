@@ -11,6 +11,11 @@
 #include <functional>
 #include <string>
 
+bool IsWindowsPlatform();
+bool IsMacPlatform();
+bool IsLinuxPlatform();
+bool IsWaylandSession();
+bool IsX11Session();
 wxString FindExecutableInPath(const wxString &name);
 bool IsFileExecutable(const wxString &path);
 bool IsSafeSubpath(const wxString &base, const wxString &candidate);

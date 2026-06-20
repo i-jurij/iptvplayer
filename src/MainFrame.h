@@ -40,11 +40,10 @@ enum class ChannelsViewState { Uninitialized, Initializing, Ready, Paused };
 
 class MainFrame : public wxFrame {
 public:
-  explicit MainFrame(Application *app, PlayerController *player);
+  explicit MainFrame(Application *app);
   ~MainFrame() override;
 
   Application *getApplication() const { return m_application; }
-  PlayerController *m_playerController = nullptr;
 
   bool isClosing() const { return m_closing; }
   void SetApplication(Application *app) { m_application = app; }

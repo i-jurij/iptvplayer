@@ -97,24 +97,26 @@ bool Application::OnInit() {
     //  }
 
     if (!m_locale->Init(wxLANGUAGE_DEFAULT)) {
-      wxLogError("Failed to initialize locale");
+      LOG_ERROR("Failed to initialize locale");
     } else {
       m_locale->AddCatalog("iptvplayer");
     }
 
-    if (!start()) {
-      wxLogError("Failed to initialize application", "Error",
-                 wxOK | wxICON_ERROR);
-      return false;
-    }
-
+    // СНАЧАЛА инициализируем GUI (создаём главное окно)
     if (!m_guiManager->initialize()) {
-      wxLogError("Failed to initialize GUI", "Error", wxOK | wxICON_ERROR);
+      LOG_ERROR("Failed to initialize GUI", "Error", wxOK | wxICON_ERROR);
       return false;
     }
 
     MainFrame *mf = m_guiManager->getMainFrame();
     mf->Show(true);
+
+    if (!start()) {
+      LOG_ERROR("Failed to initialize application", "Error",
+                 wxOK | wxICON_ERROR);
+      return false;
+    }
+
     CallAfter([mf]() {
       if (mf) {
         mf->RefreshPlaylistView();
@@ -125,10 +127,10 @@ bool Application::OnInit() {
     return true;
 
   } catch (const std::exception &e) {
-    wxLogError(wxString::Format("OnInit std::exception: %s", e.what()));
+    LOG_ERROR(wxString::Format("OnInit std::exception: %s", e.what()));
     return false;
   } catch (...) {
-    wxLogError("OnInit unknown exception");
+    LOG_ERROR("OnInit unknown exception");
     return false;
   }
 }
@@ -149,11 +151,6 @@ bool Application::start() {
     std::cerr << "Failed to load playlists: "
               << m_playlistManager->getLastError() << std::endl;
   }
-
-  auto backend = CreateBackend();
-  m_playerController = std::make_unique<PlayerController>(std::move(backend));
-  std::cout << "Backend initialized: " << m_playerController->GetBackendName()
-            << std::endl;
 
   std::cout << "Application started successfully" << std::endl;
   return true;

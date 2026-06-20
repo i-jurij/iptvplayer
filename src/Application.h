@@ -2,7 +2,6 @@
 
 #include "GUIManager.h"
 #include "FavoritesManager.h"
-#include "player/PlayerController.h"
 
 #include <wx/app.h>
 
@@ -30,16 +29,12 @@ public:
     PlaylistManager* getPlaylistManager() const noexcept;
     GUIManager*      getGUIManager()      const noexcept;
     FavoritesManager& getFavoritesManager() { return *m_favoritesManager; }
-    PlayerController *GetPlayerController() const noexcept {
-      return m_playerController.get();
-    }
 
 private:
     std::unique_ptr<ConfigManager>   m_configManager;
     std::unique_ptr<PlaylistManager> m_playlistManager;
     std::unique_ptr<GUIManager>      m_guiManager;
     std::unique_ptr<FavoritesManager> m_favoritesManager;
-    std::unique_ptr<PlayerController> m_playerController;
 };
 
 wxDECLARE_APP(Application);

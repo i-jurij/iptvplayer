@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include <wx/window.h>
+#include <wx/wx.h>
 
 struct StreamInfo {
   int width = 0;

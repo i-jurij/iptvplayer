@@ -2,6 +2,8 @@
 
 #include "Application.h"
 #include "Channel.h"
+#include "PlayerController.h"
+#include "player/MpvGLCanvas.h"
 
 #include <wx/event.h>
 #include <wx/listctrl.h>
@@ -11,6 +13,7 @@
 #include <wx/wx.h>
 
 #include <chrono>
+#include <memory>
 
 struct ProgressInfo;
 
@@ -51,9 +54,9 @@ wxDECLARE_EVENT(wxEVT_PLAYER_INFO, wxCommandEvent);
 
 class VideoPanel : public wxPanel {
 public:
-  VideoPanel(wxWindow *parent, PlayerController *player);
+  VideoPanel(wxWindow *parent);
   ~VideoPanel();
-  PlayerController *m_playerController = nullptr;
+  std::unique_ptr<PlayerController> m_playerController;
 
   int GetLastVolume() const { return m_lastVolume; };
 

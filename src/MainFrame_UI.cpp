@@ -284,7 +284,7 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   // VIDEO PAGE
   // -------------------------------
-  m_videoPanel = new VideoPanel(m_notebook, m_playerController);
+  m_videoPanel = new VideoPanel(m_notebook);
   m_videoPanel->SetUIElementsToHide(headerPanel, m_gaugeTop);
   m_videoPanel->m_onRequestTabSwitch = [this](int index) {
     m_notebook->SetSelection(index);

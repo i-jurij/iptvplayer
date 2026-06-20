@@ -34,7 +34,7 @@ wxDEFINE_EVENT(EVT_UPDATE_ALL_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_ONE_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_PROGRESS, wxCommandEvent);
 
-MainFrame::MainFrame(Application* app, PlayerController* player)
+MainFrame::MainFrame(Application* app)
     : wxFrame(nullptr, wxID_ANY, "IPTV Player", wxDefaultPosition,
               wxSize(800, 600)),
       m_application(app), m_mainPanel(nullptr), m_notebook(nullptr),
@@ -46,8 +46,6 @@ MainFrame::MainFrame(Application* app, PlayerController* player)
   const int minH = 600;
 
   auto *cfg = getConfigManager();
-
-  m_playerController = player;
 
   std::string mode = "grid";
   if (cfg) {
@@ -222,9 +220,6 @@ MainFrame::~MainFrame() {
 
       cfg->setRecentFiles(recentRaw);
     }
-
-    if (m_playerController)
-      m_playerController->Shutdown();
 
     IconManager::Shutdown();
     m_closing = true;

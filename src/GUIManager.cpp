@@ -14,11 +14,14 @@ GUIManager::~GUIManager() {
 bool GUIManager::initialize() {
   if (m_mainFrame)
     return true;
+  
+  m_mainFrame = new MainFrame(m_application);
 
-  m_mainFrame =
-      new MainFrame(m_application, m_application->GetPlayerController());
+  if (!m_mainFrame) {
+    return false;
+  }
 
-  return m_mainFrame != nullptr;
+  return true;
 }
 
 void GUIManager::setApplication(Application *app) {

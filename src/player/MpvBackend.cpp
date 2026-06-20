@@ -1,15 +1,17 @@
 #include "MpvBackend.h"
 #include "../LogControl.h"
+#include "MpvGLCanvas.h"
+#include "../Utils.h"
 
-#include <X11/Xlib.h>
-#include <dlfcn.h>
-#include <locale.h>
 #include <wx/log.h>
 
-MpvBackend::MpvBackend() {
+#include <locale.h>
+
+MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   LOG_DEBUG("MpvBackend::MpvBackend()");
 
   setlocale(LC_NUMERIC, "C");
+  unsetenv("WINDOWID");
 
   m_mpv = mpv_create();
   if (!m_mpv) {
@@ -17,129 +19,91 @@ MpvBackend::MpvBackend() {
     return;
   }
 
-  // Минимальный, чистый mpv без пользовательских конфигов
+  // Базовые опции
   mpv_set_option_string(m_mpv, "config", "no");
-  mpv_set_option_string(m_mpv, "force-window", "no");
   mpv_set_option_string(m_mpv, "terminal", "no");
+  mpv_set_option_string(m_mpv, "msg-level", "all");
 
-  // Лог только предупреждений
-  mpv_set_option_string(m_mpv, "msg-level", "warn");
+  // Критично для render API: vo=libmpv, без собственного окна
+  mpv_set_option_string(m_mpv, "vo", "libmpv");
+  mpv_set_option_string(m_mpv, "force-window", "no");
+  mpv_set_option_string(m_mpv, "keep-open", "no");
+  mpv_set_option_string(m_mpv, "idle", "yes");
+
+  // gpu-context оставляем как было
+  if (IsWaylandSession()) {
+    mpv_set_option_string(m_mpv, "gpu-context", "wayland");
+    LOG_DEBUG("MpvBackend: gpu-context set to 'wayland'");
+  } else if (IsX11Session()) {
+    mpv_set_option_string(m_mpv, "gpu-context", "x11egl");
+    LOG_DEBUG("MpvBackend: gpu-context set to 'x11egl'");
+  } else {
+    mpv_set_option_string(m_mpv, "gpu-context", "auto");
+    LOG_DEBUG("MpvBackend: gpu-context set to 'auto'");
+  }
 
   int st = mpv_initialize(m_mpv);
   LOG_DEBUG("mpv_initialize returned %d", st);
-  m_eventThread = std::thread(&MpvBackend::EventLoop, this);
+
+  // ВАЖНО: вместо отдельного потока — wakeup callback
+  mpv_set_wakeup_callback(m_mpv, &MpvBackend::WakeupCallback, this);
 }
 
-MpvBackend::~MpvBackend() {
-  Shutdown();
-}
+MpvBackend::~MpvBackend() { Shutdown(); }
 
 bool MpvBackend::AttachToWindow(wxWindow *window) {
+  // For GL canvas rendering we do not set WID here.
+  // Keep pointer to window for potential UI-related queries (focus/fullscreen).
   if (!window) {
-    LOG_ERROR("MpvBackend: window is null");
+    LOG_ERROR("MpvBackend: AttachToWindow called with null window");
     return false;
-  }
-
-  if (!window->IsShown()) {
-    LOG_ERROR("MpvBackend: window is not visible");
-    return false;
-  }
-
-  // Получаем X11 XID
-  Window xid = GetX11WindowID(window);
-  if (!xid) {
-    LOG_ERROR("MpvBackend: failed to get X11 window ID");
-    return false;
-  }
-
-  LOG_DEBUG("MpvBackend: attaching to window XID=0x%lx", (unsigned long)xid);
-
-  // Проверяем, что окно живо
-  Display *disp = XOpenDisplay(nullptr);
-  if (disp) {
-    XWindowAttributes attrs;
-    if (!XGetWindowAttributes(disp, xid, &attrs)) {
-      LOG_ERROR("MpvBackend: X11 window 0x%lx is invalid", (unsigned long)xid);
-      XCloseDisplay(disp);
-      return false;
-    }
-    LOG_DEBUG("MpvBackend: window is valid, size=%dx%d", attrs.width,
-              attrs.height);
-    XCloseDisplay(disp);
   }
 
   m_window = window;
+  LOG_DEBUG("MpvBackend: AttachToWindow stored wxWindow pointer (no WID)");
 
-  if (!m_mpv)
-    return false;
-
-  int64_t wid = (int64_t)xid;
-  int ret = mpv_set_option(m_mpv, "wid", MPV_FORMAT_INT64, &wid);
-  if (ret < 0) {
-    LOG_ERROR("MpvBackend: mpv_set_option failed: %s", mpv_error_string(ret));
-    return false;
+  // Если mpv уже инициализирован и окно — MpvGLCanvas, передаём mpv_handle
+  if (m_mpv) {
+    MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(window);
+    if (canvas) {
+      canvas->SetMpvHandle(m_mpv);
+      LOG_DEBUG("MpvBackend: passed mpv_handle to MpvGLCanvas (%p)",
+                (void *)canvas);
+    }
   }
 
-  LOG_DEBUG("MpvBackend: attached to WID=%lld", (long long)wid);
   return true;
 }
 
-Window MpvBackend::GetX11WindowID(wxWindow *window) {
-  if (!window) {
-    LOG_ERROR("ExternalPlayerBackend: window is null");
-    return 0;
-  }
-
-#ifdef __WXGTK__
-  void *gtk_widget = window->GetHandle();
-  if (!gtk_widget) {
-    LOG_ERROR("ExternalPlayerBackend: no GTK widget");
-    return 0;
-  }
-
-  static auto gtk_widget_realize =
-      (void (*)(void *))dlsym(RTLD_DEFAULT, "gtk_widget_realize");
-  static auto gtk_widget_get_window =
-      (void *(*)(void *))dlsym(RTLD_DEFAULT, "gtk_widget_get_window");
-  static auto gdk_x11_window_get_xid =
-      (unsigned long (*)(void *))dlsym(RTLD_DEFAULT, "gdk_x11_window_get_xid");
-
-  if (!gtk_widget_get_window || !gdk_x11_window_get_xid) {
-    LOG_ERROR("ExternalPlayerBackend: GTK symbols not found (no X11?)");
-    return 0;
-  }
-
-  if (gtk_widget_realize) {
-    gtk_widget_realize(gtk_widget);
-  }
-
-  void *gdk_win = gtk_widget_get_window(gtk_widget);
-  if (!gdk_win) {
-    LOG_ERROR("ExternalPlayerBackend: gtk_widget_get_window failed");
-    return 0;
-  }
-
-  Window xid = gdk_x11_window_get_xid(gdk_win);
-  if (!xid) {
-    LOG_ERROR("ExternalPlayerBackend: gdk_x11_window_get_xid returned 0");
-    return 0;
-  }
-
-  LOG_DEBUG("ExternalPlayerBackend: GTK widget -> X11 XID=0x%lx",
-            (unsigned long)xid);
-  return xid;
-
-#else
-  Window xid = (Window)(uintptr_t)window->GetHandle();
-  if (!xid) {
-    LOG_ERROR("ExternalPlayerBackend: cannot extract window handle");
-    return 0;
-  }
-  return xid;
-#endif
-}
-
 void MpvBackend::Detach() { m_window = nullptr; }
+
+void MpvBackend::Shutdown() {
+  if (!m_mpv)
+    return;
+
+  LOG_DEBUG("MpvBackend::Shutdown()");
+
+  // 0. Сначала отцепляем canvas и уничтожаем render_context
+  if (m_window) {
+    MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_window);
+    if (canvas) {
+      canvas->SetMpvHandle(nullptr); // внутри DestroyRenderContext()
+      LOG_DEBUG(
+          "MpvBackend::Shutdown: cleared mpv_handle from MpvGLCanvas (%p)",
+          (void *)canvas);
+    }
+  }
+
+  // 1. Сбрасываем wakeup callback
+  mpv_set_wakeup_callback(m_mpv, nullptr, nullptr);
+
+  // 2. Мягкий выход
+  mpv_command_string(m_mpv, "quit");
+
+  // 3. Гарантированное уничтожение
+  mpv_terminate_destroy(m_mpv);
+  m_mpv = nullptr;
+}
 
 bool MpvBackend::PlayFile(const std::string &path) {
   if (!m_mpv)
@@ -151,13 +115,103 @@ bool MpvBackend::PlayFile(const std::string &path) {
   return r >= 0;
 }
 
+void MpvBackend::WakeupCallback(void *ctx) {
+  MpvBackend *self = static_cast<MpvBackend *>(ctx);
+  if (!self || !self->m_mpv)
+    return;
+
+  // Коалесцируем вызовы: пока один ProcessMpvEvents уже запланирован/идёт —
+  // новые не ставим.
+  bool expected = false;
+  if (!self->m_wakeupPending.compare_exchange_strong(expected, true)) {
+    // уже есть запланированный вызов
+    return;
+  }
+
+  wxTheApp->CallAfter([self]() { self->ProcessMpvEvents(); });
+}
+
+void MpvBackend::ProcessMpvEvents() {
+  if (!m_mpv)
+    return;
+
+  m_wakeupPending.store(false, std::memory_order_relaxed);
+
+  if (m_processingEvents)
+    return;
+
+  m_processingEvents = true;
+
+  LOG_DEBUG("ProcessMpvEvents: enter (thread=%p)", (void *)wxThread::This());
+
+  while (true) {
+    mpv_event *ev = mpv_wait_event(m_mpv, 0);
+    if (!ev || ev->event_id == MPV_EVENT_NONE)
+      break;
+
+    LOG_DEBUG("ProcessMpvEvents: event_id=%d", ev->event_id);
+    HandleEvent(ev);
+  }
+
+  LOG_DEBUG("ProcessMpvEvents: leave");
+  m_processingEvents = false;
+}
+
+void MpvBackend::HandleEvent(mpv_event *ev) {
+  if (!ev)
+    return;
+
+  if (ev->event_id == MPV_EVENT_SHUTDOWN)
+    return;
+
+  switch (ev->event_id) {
+  case MPV_EVENT_FILE_LOADED: {
+    LOG_DEBUG("MpvBackend: FILE_LOADED");
+    EmitStreamInfo();
+    EmitProgress();
+
+    // ЯВНО снимаем паузу на всякий случай
+    mpv_set_property_string(m_mpv, "pause", "no");
+    LOG_DEBUG("MpvBackend: pause=no after FILE_LOADED");
+
+    if (m_stateCallback) {
+      m_stateCallback(2); // 2 = FILE_LOADED
+    }
+    break;
+  }
+  case MPV_EVENT_PLAYBACK_RESTART: {
+    LOG_DEBUG("MpvBackend: PLAYBACK_RESTART");
+    EmitStreamInfo();
+    EmitProgress();
+    if (m_stateCallback) {
+      m_stateCallback(1); // 1 = Playing
+    }
+    break;
+  }
+  case MPV_EVENT_PROPERTY_CHANGE: {
+    auto *prop = static_cast<mpv_event_property *>(ev->data);
+    if (prop && std::string(prop->name) == "video-params") {
+      EmitStreamInfo();
+    }
+    break;
+  }
+  case MPV_EVENT_END_FILE: {
+    LOG_DEBUG("MpvBackend: END_FILE");
+    if (m_stateCallback) {
+      m_stateCallback(0); // 0 = Stopped
+    }
+    break;
+  }
+  default:
+    break;
+  }
+}
+
 bool MpvBackend::PlayUrl(const std::string &url) {
   if (!m_mpv)
     return false;
 
-  // ВАРИАНТ 1: Сохранить URL в member переменную (самый надежный)
   m_lastUrl = url;
-
   const char *cmd[] = {"loadfile", m_lastUrl.c_str(), nullptr};
   int r = mpv_command(m_mpv, cmd);
   LOG_DEBUG("mpv loadurl '%s' -> %d", m_lastUrl.c_str(), r);
@@ -200,32 +254,12 @@ void MpvBackend::SetFullscreen(bool) {
   // fullscreen делает wxWidgets
 }
 
-void MpvBackend::Shutdown() {
-  if (!m_mpv)
-    return;
-
-  LOG_DEBUG("MpvBackend::Shutdown()");
-
-  // 1. Остановить event-loop
-  m_stopEventLoop = true;
-  if (m_eventThread.joinable())
-    m_eventThread.join();
-
-  // 2. Мягкий выход
-  mpv_command_string(m_mpv, "quit");
-
-  // 3. Гарантированное уничтожение
-  mpv_terminate_destroy(m_mpv);
-  m_mpv = nullptr;
-}
-
 std::string MpvBackend::GetBackendName() const { return "mpv"; }
 
 void *MpvBackend::GetBackendHandle() const { return m_mpv; }
 
 void MpvBackend::ResizeEmbeddedWindow(int width, int height) {
-  // Your implementation here
-  // e.g., mpv_render_context_set_size() or equivalent
+  // No-op for GL canvas renderer; canvas handles viewport and FBO sizes.
 }
 
 void MpvBackend::SeekRelative(int seconds) {
@@ -238,7 +272,6 @@ void MpvBackend::SeekRelative(int seconds) {
 void MpvBackend::SeekAbsolute(int percent) {
   if (!m_mpv)
     return;
-  // percent от 0 до 100
   std::string cmd = "seek " + std::to_string(percent) + " absolute-percent";
   mpv_command_string(m_mpv, cmd.c_str());
 }
@@ -246,7 +279,6 @@ void MpvBackend::SeekAbsolute(int percent) {
 void MpvBackend::AdjustSpeed(double delta) {
   if (!m_mpv)
     return;
-  // add speed <delta>
   std::string cmd = "add speed " + std::to_string(delta);
   mpv_command_string(m_mpv, cmd.c_str());
 }
@@ -287,78 +319,6 @@ void MpvBackend::PrevSubtitleTrack() {
   mpv_command_string(m_mpv, "cycle sub down");
 }
 
-// В EventLoop(), регулярно вызываем EmitProgress:
-void MpvBackend::EventLoop() {
-  if (!m_mpv)
-    return;
-
-  int update_counter = 0;
-  const int UPDATE_INTERVAL = 5; // каждые 500ms (0.1s * 5)
-
-  while (!m_stopEventLoop.load()) {
-    mpv_event *ev = mpv_wait_event(m_mpv, 0.1);
-
-    // Регулярное обновление прогресса
-    if (++update_counter >= UPDATE_INTERVAL) {
-      update_counter = 0;
-      EmitProgress();
-    }
-
-    if (ev->event_id == MPV_EVENT_NONE)
-      continue;
-
-    if (ev->event_id == MPV_EVENT_SHUTDOWN)
-      break;
-
-    switch (ev->event_id) {
-    case MPV_EVENT_FILE_LOADED: {
-      LOG_DEBUG("MpvBackend: FILE_LOADED");
-      EmitStreamInfo();
-      EmitProgress();
-
-      // Проброс события FILE_LOADED через state callback как специальный код
-      // (2).
-      if (m_stateCallback) {
-        m_stateCallback(2); // 2 = FILE_LOADED
-      }
-      break;
-    }
-    case MPV_EVENT_PLAYBACK_RESTART: {
-      LOG_DEBUG("MpvBackend: PLAYBACK_RESTART");
-      EmitStreamInfo();
-      EmitProgress();
-
-      // mpv фактически начал воспроизведение/рестарт — считаем это Playing
-      if (m_stateCallback) {
-        m_stateCallback(1); // 1 = Playing
-      }
-      break;
-    }
-    case MPV_EVENT_PROPERTY_CHANGE: {
-      auto *prop = static_cast<mpv_event_property *>(ev->data);
-      if (prop && std::string(prop->name) == "video-params") {
-        EmitStreamInfo();
-      }
-      break;
-    }
-    case MPV_EVENT_END_FILE: {
-      LOG_DEBUG("MpvBackend: END_FILE");
-
-      if (m_stateCallback) {
-        m_stateCallback(0); // 0 = Stopped
-      }
-      break;
-    }
-    case MPV_EVENT_SHUTDOWN:
-      break;
-      
-    default:
-      break;
-    }
-  }
-}
-
-// Новый метод
 void MpvBackend::EmitProgress() {
   if (!m_progressCallback) {
     return;
@@ -372,10 +332,14 @@ void MpvBackend::EmitProgress() {
   info.cachePercent = GetCachePercent();
   info.pausedForCache = IsPausedForCache();
 
+  LOG_DEBUG("EmitProgress: t=%.2f dur=%.2f %%=%.1f cache=%.1fs %d%% "
+            "pausedForCache=%d",
+            info.timePos, info.duration, info.percentPos, info.cacheDuration,
+            info.cachePercent, info.pausedForCache ? 1 : 0);
+
   m_progressCallback(info);
 }
 
-// Вспомогательные методы (из предыдущего ответа)
 template <typename T>
 static bool SafeGetProperty(mpv_handle *mpv, const char *prop, mpv_format fmt,
                             T *out) {
@@ -439,36 +403,36 @@ void MpvBackend::EmitStreamInfo() {
     LOG_DEBUG("MpvBackend: m_streamInfoCallback is NULL");
     return;
   }
+  
+    StreamInfo info;
 
-  StreamInfo info;
+    int64_t w = 0, h = 0;
+    mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &w);
+    mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &h);
+    info.width = static_cast<int>(w);
+    info.height = static_cast<int>(h);
 
-  int64_t w = 0, h = 0;
-  mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &w);
-  mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &h);
-  info.width = static_cast<int>(w);
-  info.height = static_cast<int>(h);
+    double fps = 0.0;
+    mpv_get_property(m_mpv, "container-fps", MPV_FORMAT_DOUBLE, &fps);
+    info.fps = static_cast<int>(fps);
 
-  double fps = 0.0;
-  mpv_get_property(m_mpv, "container-fps", MPV_FORMAT_DOUBLE, &fps);
-  info.fps = static_cast<int>(fps);
+    char *vcodec = nullptr;
+    mpv_get_property(m_mpv, "video-codec", MPV_FORMAT_STRING, &vcodec);
+    if (vcodec) {
+      info.videoCodec = std::string(vcodec);
+      mpv_free(vcodec);
+    }
 
-  char *vcodec = nullptr;
-  mpv_get_property(m_mpv, "video-codec", MPV_FORMAT_STRING, &vcodec);
-  if (vcodec) {
-    info.videoCodec = std::string(vcodec);
-    mpv_free(vcodec);
-  }
+    char *acodec = nullptr;
+    mpv_get_property(m_mpv, "audio-codec-name", MPV_FORMAT_STRING, &acodec);
+    if (acodec) {
+      info.audioCodec = std::string(acodec);
+      mpv_free(acodec);
+    }
 
-  char *acodec = nullptr;
-  mpv_get_property(m_mpv, "audio-codec-name", MPV_FORMAT_STRING, &acodec);
-  if (acodec) {
-    info.audioCodec = std::string(acodec);
-    mpv_free(acodec);
-  }
+    LOG_DEBUG("MpvBackend: StreamInfo %dx%d@%dfps | %s/%s", info.width,
+              info.height, info.fps, info.videoCodec.c_str(),
+              info.audioCodec.c_str());
 
-  LOG_DEBUG("MpvBackend: StreamInfo %dx%d@%dfps | %s/%s", info.width,
-            info.height, info.fps, info.videoCodec.c_str(),
-            info.audioCodec.c_str());
-
-  m_streamInfoCallback(info);
+    m_streamInfoCallback(info);
 }
