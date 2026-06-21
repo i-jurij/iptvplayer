@@ -95,19 +95,20 @@ public:
   void OnProgressInfo(const ProgressInfo &info);
 
 private:
+  double m_lastTimePos = -1.0;
+  int m_stillFramesCount = 0;
+
   wxSplitterWindow *m_splitter = nullptr;
   wxPanel *m_mainPanel = nullptr;
 
   wxStaticText *m_timeCurrentLabel = nullptr;   // "1:23:45"
   wxStaticText *m_timeDurationLabel = nullptr;  // "/ 2:30:00"
   wxStaticText *m_timeRemainingLabel = nullptr; // "-1:06:15"
-  wxGauge *m_cacheGauge = nullptr;              // индикатор буфера
   wxStaticText *m_statusLabel = nullptr;        // "Buffering...", etc.
   bool m_isDraggingProgress = false;
 
   static wxString FormatTime(double seconds);
   void UpdateProgressDisplay(const ProgressInfo &info);
-  void UpdateCacheDisplay(const ProgressInfo &info);
 
   std::string m_currentName;
   int m_channelSourceTab = -1;
@@ -239,5 +240,5 @@ private:
   int m_pendingTempIndex = -1;
 
   // debounce threshold (ms)
-  const int kStoppedDebounceMs = 900;
+  const int kStoppedDebounceMs = 500;
 };

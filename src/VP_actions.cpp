@@ -125,6 +125,15 @@ void VideoPanel::Play() {
   if (!m_playerController)
     return;
 
+  // 🔥 Сброс EOF-состояния перед началом воспроизведения
+  m_waitingForNext = false;
+  m_lastTimePos = -1.0;
+  m_stillFramesCount = 0;
+
+  // 🔥 Сброс m_lastPlayedFile — гарантирует, что OnProgressInfo() сбросит
+  // m_waitingForNext при смене файла
+  m_lastPlayedFile = wxEmptyString;
+
   m_playerController->Play();
 
   if (m_onPlayerState)
@@ -136,10 +145,9 @@ void VideoPanel::Play() {
 }
 
 void VideoPanel::Pause() {
-  if (m_playerController->GetState() != PlayerState::Playing) {
-    return;
-  }
-
+ // if (m_playerController->GetState() != PlayerState::Playing) 
+   // return;
+  
   m_playerController->Pause();
 
   if (m_onPlayerState)
@@ -156,6 +164,11 @@ void VideoPanel::Stop() {
 
   m_pendingTempPlay = false;
   m_pendingTempIndex = -1;
+
+  // сброс EOF-состояния
+  m_waitingForNext = false;
+  m_lastTimePos = -1.0;
+  m_stillFramesCount = 0;
 
   if (m_onPlayerState)
     m_onPlayerState("Stopped");
@@ -180,7 +193,6 @@ void VideoPanel::Stop() {
   m_channelSourceTab = -1;
   m_tempCurrentIndex = -1;
 }
-
 // ============================================================================
 // Mute / Unmute logic
 // ============================================================================

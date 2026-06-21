@@ -28,8 +28,7 @@ public:
   }
 };
 
-VideoPanel::VideoPanel(wxWindow *parent)
-    : wxPanel(parent, wxID_ANY) {
+VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   auto *rootSizer = new wxBoxSizer(wxHORIZONTAL);
 
@@ -201,13 +200,19 @@ VideoPanel::VideoPanel(wxWindow *parent)
                             wxDefaultPosition, wxDefaultSize, wxSL_HORIZONTAL);
   m_progress->Bind(wxEVT_LEFT_DOWN,
                    [this](wxMouseEvent &) { m_isDraggingProgress = true; });
-  m_progress->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent &) {
+  m_progress->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent &evt) {
+    evt.Skip();
     m_isDraggingProgress = false;
     if (m_playerController) {
       int percent = m_progress->GetValue() / 10;
       m_playerController->SeekAbsolute(percent);
     }
+    this->CallAfter([this]() {
+      if (m_videoArea)
+        m_videoArea->SetFocus();
+    });
   });
+
   progressTimeSizer->Add(m_progress, 1, wxEXPAND | wxLEFT | wxRIGHT, 5);
 
   m_timeRemainingLabel = new wxStaticText(progressPanel, wxID_ANY, "-00:00:00");
@@ -223,22 +228,6 @@ VideoPanel::VideoPanel(wxWindow *parent)
                          wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
 
   progressSizer->Add(progressTimeSizer, 0, wxEXPAND);
-
-  // Cache indicator
-  auto *cacheSizer = new wxBoxSizer(wxHORIZONTAL);
-
-  // DPI-aware высота: ~6-8 пикселей на базовом DPI (96)
-  int gaugeHeight = wxRound(6 * GetDPIScaleFactor());
-
-  m_cacheGauge =
-      new wxGauge(progressPanel, wxID_ANY, 100, wxDefaultPosition,
-                  wxSize(-1, gaugeHeight), wxGA_HORIZONTAL | wxGA_SMOOTH);
-  m_cacheGauge->SetValue(0);
-
-  // Растягиваем на полную ширину (proportion=1, wxEXPAND)
-  cacheSizer->Add(m_cacheGauge, 1, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(5));
-
-  progressSizer->Add(cacheSizer, 0, wxEXPAND | wxTOP, FromDIP(3));
 
   progressPanel->SetSizer(progressSizer);
   mainSizer->Add(progressPanel, 0, wxEXPAND);
@@ -357,55 +346,82 @@ VideoPanel::VideoPanel(wxWindow *parent)
   // ------------------------------------------------------------
   // Focus manager
   // ------------------------------------------------------------
+  // ------------------------------------------------------------
+  // Focus manager — финальная оптимизированная версия
+  // ------------------------------------------------------------
   m_focusManager = new FocusManager(m_videoArea, this);
-  /*
-    auto preventFocus = [this](wxWindow *w) {
-      w->Bind(wxEVT_SET_FOCUS, [this](wxFocusEvent &) {
-        if (m_focusManager)
-          m_focusManager->EnsureFocus();
-      });
-    };
-  */
-  auto preventFocus = [this](wxWindow *w) {
-    w->Bind(wxEVT_SET_FOCUS, [this, w](wxFocusEvent &e) {
-      // Если фокус уже в плейлисте или пользователь явно кликнул в плейлист —
-      // не мешаем
-      if (m_tempPlaylistList && m_tempPlaylistList->HasFocus()) {
-        e.Skip();
-        return;
-      }
 
-      // Если фокус переходит на сам плейлист (например, дочерний элемент) — не
-      // мешаем
+  // --- Контролы, которым разрешён фокус (кнопки) ---
+  std::vector<wxWindow *> focusAllowedButtons = {
+      m_btnOpen, m_btnPlay, m_btnPause, m_btnStop, m_btnMute, m_btnFullscreen};
+
+  // --- Контролы, которым запрещён фокус (кроме drag) ---
+  std::vector<wxWindow *> focusPreventControls = {
+      m_btnOpen,       m_btnPlay,      m_btnPause, m_btnStop,      m_btnMute,
+      m_btnFullscreen, m_volumeSlider, m_progress, m_controlsPanel};
+
+  // --- 1) Автоматическая регистрация restoreFocus для кнопок ---
+  for (wxWindow *w : focusAllowedButtons) {
+    w->Bind(wxEVT_BUTTON, [this](wxCommandEvent &evt) {
+      evt.Skip();
+      this->CallAfter([this]() {
+        if (m_videoArea)
+          m_videoArea->SetFocus();
+      });
+    });
+  }
+
+  // --- 2) Автоматическая регистрация preventFocus ---
+  for (wxWindow *w : focusPreventControls) {
+    w->Bind(wxEVT_SET_FOCUS, [this, w, focusAllowedButtons](wxFocusEvent &e) {
       wxWindow *focused = wxWindow::FindFocus();
+
+      // 1) Плейлист — разрешаем полностью
       if (m_tempPlaylistPanel && m_tempPlaylistPanel->IsDescendant(focused)) {
         e.Skip();
         return;
       }
 
-      // Если это слайдер и он захвачен мышью (перетаскивание) — не мешаем
+      // 2) Volume slider — разрешаем только во время drag
       if (w == m_volumeSlider && m_volumeSlider->HasCapture()) {
         e.Skip();
         return;
       }
 
-      // В остальных случаях — поведение прежнее
+      // 3) Прогресс-бар — разрешаем только во время drag
+      if (w == m_progress && m_isDraggingProgress) {
+        e.Skip();
+        return;
+      }
+
+      // 4) Кнопки — разрешаем фокус (restoreFocus вернёт его позже)
+      if (std::find(focusAllowedButtons.begin(), focusAllowedButtons.end(),
+                    w) != focusAllowedButtons.end()) {
+        e.Skip();
+        return;
+      }
+
+      // 5) Всё остальное — вернуть фокус на видео
       if (m_focusManager)
         m_focusManager->EnsureFocus();
 
       e.Skip();
     });
-  };
+  }
 
-  preventFocus(m_btnOpen);
-  preventFocus(m_btnPlay);
-  preventFocus(m_btnPause);
-  preventFocus(m_btnStop);
-  preventFocus(m_btnMute);
-  preventFocus(m_btnFullscreen);
-  preventFocus(m_volumeSlider);
-  preventFocus(m_progress);
-  preventFocus(m_controlsPanel);
+  // --- 3) Прогресс-бар: возврат фокуса после отпускания мыши ---
+  m_progress->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent &evt) {
+    evt.Skip();
+    m_isDraggingProgress = false;
+    if (m_playerController) {
+      int percent = m_progress->GetValue() / 10;
+      m_playerController->SeekAbsolute(percent);
+    }
+    this->CallAfter([this]() {
+      if (m_videoArea)
+        m_videoArea->SetFocus();
+    });
+  });
 
   // Начальное состояние кнопок
   m_btnPlay->Enable();
@@ -489,14 +505,22 @@ wxString VideoPanel::FormatTime(double seconds) {
 }
 
 void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
-  // Сохраняем последний прогресс для таймера автоперехода
   m_lastProgress = info;
 
-  // Отслеживаем смену файла — при новом треке сбрасываем флаг ожидания перехода
+  // 🔥 Сброс EOF-состояния при начале нового трека
+  // (timePos < 0.3 — почти всегда означает начало файла)
+  if (info.timePos >= 0 && info.timePos < 0.3) {
+    m_waitingForNext = false;
+    m_stillFramesCount = 0;
+  }
+
+  // 🔁 Резервный механизм: сброс при смене имени файла
+  // (только если m_currentName обновляется — например, при OpenFile)
   wxString currentName = wxString::FromUTF8(m_currentName);
   if (currentName != m_lastPlayedFile) {
     m_lastPlayedFile = currentName;
     m_waitingForNext = false;
+    m_stillFramesCount = 0; // ← добавлено!
   }
 
   if (!m_progress || !m_timeCurrentLabel)
@@ -504,12 +528,13 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
 
   // Не обновляем, если пользователь тянет слайдер
   if (!m_isDraggingProgress) {
-    m_progress->SetValue(
-        static_cast<int>(info.percentPos * 10)); // 0-100 -> 0-1000
+    bool isStream = (info.duration <= 0 || info.duration > 1000000);
+    int value = isStream ? static_cast<int>(info.cachePercent * 10)
+                         : static_cast<int>(info.percentPos * 10);
+    m_progress->SetValue(value);
   }
 
   UpdateProgressDisplay(info);
-  UpdateCacheDisplay(info);
 }
 
 void VideoPanel::UpdateProgressDisplay(const ProgressInfo &info) {
@@ -520,23 +545,6 @@ void VideoPanel::UpdateProgressDisplay(const ProgressInfo &info) {
   if (remaining < 0)
     remaining = 0;
   m_timeRemainingLabel->SetLabel("-" + FormatTime(remaining));
-}
-
-void VideoPanel::UpdateCacheDisplay(const ProgressInfo &info) {
-  bool isStream = (info.duration <= 0 || info.duration > 1000000);
-
-  if (isStream && (info.cachePercent > 0 || info.cacheDuration > 0)) {
-    if (!m_cacheGauge->IsShown()) {
-      m_cacheGauge->Show();
-      m_cacheGauge->GetParent()->Layout(); // ← только при смене видимости
-    }
-    m_cacheGauge->SetValue(info.cachePercent);
-  } else {
-    if (m_cacheGauge->IsShown()) {
-      m_cacheGauge->Hide();
-      m_cacheGauge->GetParent()->Layout(); // ← только при смене видимости
-    }
-  }
 }
 
 void VideoPanel::OnPlayerState(wxCommandEvent &evt) {

@@ -45,6 +45,9 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   int st = mpv_initialize(m_mpv);
   LOG_DEBUG("mpv_initialize returned %d", st);
 
+  mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG);
+  LOG_DEBUG("MpvBackend: observing property 'pause'");
+
   // ВАЖНО: вместо отдельного потока — wakeup callback
   mpv_set_wakeup_callback(m_mpv, &MpvBackend::WakeupCallback, this);
 }
@@ -190,6 +193,27 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
   }
   case MPV_EVENT_PROPERTY_CHANGE: {
     auto *prop = static_cast<mpv_event_property *>(ev->data);
+    if (!prop || !prop->name)
+      break;
+
+    std::string name(prop->name);
+
+    if (name == "pause") {
+      // Для MPV_FORMAT_FLAG prop->data приходит как int64_t
+      int64_t val = 0;
+      if (prop->data) {
+        // prop->data указывает на значение в формате mpv, безопасно читать как
+        // int64_t
+        val = *static_cast<int64_t *>(prop->data);
+      }
+      bool paused = (val != 0);
+      LOG_DEBUG("MpvBackend: property change pause=%d", paused ? 1 : 0);
+      if (m_stateCallback) {
+        m_stateCallback(paused ? 3 : 1); // 3 = Paused, 1 = Playing
+      }
+      break;
+    }
+
     if (prop && std::string(prop->name) == "video-params") {
       EmitStreamInfo();
     }
@@ -436,3 +460,17 @@ void MpvBackend::EmitStreamInfo() {
 
     m_streamInfoCallback(info);
 }
+
+bool MpvBackend::GetPropertyBool(const char *name, bool &out) {
+  if (!m_mpv || !name)
+    return false;
+
+  int64_t val = 0;
+  int ret = mpv_get_property(m_mpv, name, MPV_FORMAT_INT64, &val);
+  if (ret < 0)
+    return false;
+
+  out = (val != 0);
+  return true;
+}
+

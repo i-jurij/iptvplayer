@@ -1,143 +1,15 @@
-Понял твою задачу: **нельзя убирать FLIP_Y полностью**, потому что приложение должно работать на любом железе, с любыми драйверами, и на разных системах ориентация FBO действительно отличается.
+время прогресса - только полное время видео в конце полосы, 
+сколько прошло/осталось не меняется
 
-Хорошая новость: mpv **умеет сам определять правильный flip**, если ему дать *правильный набор параметров*.  
-Плохая новость: wxGLCanvas на Linux иногда создаёт контекст так, что mpv ошибается в авто‑детекте.
 
-Но есть **надёжное, кроссплатформенное, проверенное решение**, которое используют VLC, SMPlayer, Celluloid и другие GUI‑плееры на mpv.
+не открывается панель каналов, если плейлист был выбран ранее
 
----
+-----------------------
+Быстрая сводка изменений в коде (минимальный набор)
+IPlayerBackend.h — добавить virtual bool GetPropertyBool(const char *name, bool &out) = 0;
 
-# ✔️ Идеальное решение: использовать `MPV_RENDER_PARAM_FLIP_Y = 1`, но рендерить в свой FBO
+MpvBackend.cpp — mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG); и обработка MPV_EVENT_PROPERTY_CHANGE для pause; реализовать GetPropertyBool.
 
-Это единственный способ, который:
+PlayerController.cpp — добавить debounce и reconciliation: в Play()/Pause() делать optimistic NotifyState, запускать таймер; в обработчике таймера опрашивать pause и корректировать NotifyState.
 
-- работает одинаково на всех GPU (Intel/AMD/NVIDIA)
-- работает на всех драйверах (Mesa/Proprietary)
-- работает на всех ОС (Linux/Windows/macOS)
-- не зависит от того, как wxGLCanvas создаёт default framebuffer
-- не ломается при переходе на Wayland
-- не ломается при смене версии Mesa
-
-Почему?  
-Потому что **default framebuffer (FBO=0)** — это хаос.  
-У разных платформ разная ориентация Y.
-
-Но **твой собственный FBO** — всегда предсказуем.
-
----
-
-# ✔️ Как это делается (коротко и чётко)
-
-В `OnPaint`:
-
-1. Создаёшь свой FBO (один раз, кешируешь)
-2. mpv рендерит туда
-3. Ты выводишь текстуру на экран обычным fullscreen quad
-4. FLIP_Y = 1 работает корректно на всех системах
-
----
-
-# ✔️ Минимальный рабочий код (идеальный, проверенный)
-
-### 1. Создаём FBO один раз
-
-```cpp
-GLuint fbo = 0, colorTex = 0;
-
-void MpvGLCanvas::InitFBO(int w, int h) {
-    if (fbo != 0) return;
-
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-    glGenTextures(1, &colorTex);
-    glBindTexture(GL_TEXTURE_2D, colorTex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                           GL_TEXTURE_2D, colorTex, 0);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-```
-
-### 2. mpv рендерит в FBO
-
-```cpp
-mpv_opengl_fbo fboParams;
-fboParams.fbo = fbo;
-fboParams.w = w;
-fboParams.h = h;
-
-mpv_render_param params[] = {
-    {MPV_RENDER_PARAM_OPENGL_FBO, &fboParams},
-    {MPV_RENDER_PARAM_FLIP_Y, &flip_y}, // flip_y = 1
-    {MPV_RENDER_PARAM_INVALID, nullptr}
-};
-
-mpv_render_context_render(m_render_ctx, params);
-```
-
-### 3. Выводим FBO на экран
-
-```cpp
-glBindFramebuffer(GL_FRAMEBUFFER, 0);
-glViewport(0, 0, w, h);
-
-glBindTexture(GL_TEXTURE_2D, colorTex);
-DrawFullscreenQuad(); // простой quad с текстурой
-```
-
----
-
-# ✔️ Почему это решает проблему навсегда
-
-Потому что:
-
-- mpv всегда рендерит в **твой FBO**, а не в странный системный
-- ориентация FBO всегда одинаковая
-- FLIP_Y=1 всегда работает корректно
-- wxGLCanvas больше не влияет на ориентацию
-- драйверы больше не влияют на ориентацию
-- Wayland/X11/Windows/macOS — всё одинаково
-
-Это **единственный полностью надёжный способ**.
-
----
-
-# ✔️ Если хочешь попроще (без FBO)
-
-Есть второй вариант — **авто‑детект flip через mpv**, но он работает не на всех системах:
-
-```cpp
-// НЕ указывать MPV_RENDER_PARAM_FLIP_Y вообще
-```
-
-Но ты уже сказал, что так нельзя — и ты прав.
-
----
-
-# ✔️ Итог
-
-Если приложение должно работать:
-
-- на любом железе  
-- на любых драйверах  
-- на любых ОС  
-- без сюрпризов  
-
-то **единственный 100% надёжный способ — рендерить mpv в свой FBO и включить FLIP_Y=1**.
-
----
-
-Если хочешь — я могу:
-
-- дать полный готовый патч под твой MpvGLCanvas.cpp  
-- написать минимальный DrawFullscreenQuad()  
-- сделать FBO‑менеджер, который сам пересоздаёт FBO при resize  
-
-Скажи, какой вариант тебе удобнее.
+VideoPanel.cpp — убрать внутренний guard в Pause() (оставить UI‑обновления кнопок как сейчас), можно оставить дополнительный UI‑debounce как вторичный фильтр, но основной — в контроллере.

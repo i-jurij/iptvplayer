@@ -1,21 +1,23 @@
 #pragma once
 
 #include "IPlayerBackend.h"
-#include <functional>
-#include <memory>
-#include <string>
+
 #include <wx/app.h>
 #include <wx/window.h>
 
-enum class PlayerState {
-  Stopped,
-  Playing,
-  Paused,
-  FileLoaded
-};
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <string>
 
-class PlayerController {
+enum class PlayerState { Stopped, Playing, Paused, FileLoaded };
+
+class PlayerController : public wxEvtHandler {
 public:
+  PlayerController(std::unique_ptr<IPlayerBackend> backend);
+  ~PlayerController();
+
   void SetStreamInfoCallback(IPlayerBackend::StreamInfoCallback cb) {
     if (m_backend)
       m_backend->SetStreamInfoCallback(cb);
@@ -24,8 +26,6 @@ public:
   using StateCallback = std::function<void(PlayerState)>;
   using InfoCallback = std::function<void(const std::string &)>;
   using ProgressCallback = std::function<void(const ProgressInfo &)>;
-
-  PlayerController(std::unique_ptr<IPlayerBackend> backend);
 
   bool AttachToWindow(wxWindow *window);
   void Detach();
@@ -59,7 +59,7 @@ public:
   void ResizeEmbeddedWindow(int width, int height);
 
   PlayerState GetState() const { return m_state; }
-  
+
   void Shutdown();
   void SeekRelative(int seconds);
   void SeekAbsolute(int percent);
@@ -75,6 +75,17 @@ public:
   void PrevSubtitleTrack();
 
 private:
+  // Debounce / reconciliation
+  wxTimer m_reconcileTimer; // инициализируется в конструкторе
+  std::atomic<bool> m_reconcilePending{false};
+  std::chrono::steady_clock::time_point m_lastToggleTime =
+      std::chrono::steady_clock::time_point::min();
+  std::chrono::milliseconds m_debounceMs{200};  // можно настроить
+  std::chrono::milliseconds m_reconcileMs{500}; // можно настроить
+
+  // Запуск reconciliation
+  void StartReconcileTimer();
+  void OnReconcileTimer(wxTimerEvent &evt);
   void NotifyState(PlayerState st);
   void NotifyInfo(const std::string &info);
   void NotifyProgress(const ProgressInfo &info) {

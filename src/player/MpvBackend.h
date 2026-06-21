@@ -35,6 +35,7 @@ public:
 
   void *GetBackendHandle() const override;
   std::string GetBackendName() const override;
+  bool GetPropertyBool(const char *name, bool &out) override;
 
   void ResizeEmbeddedWindow(int width, int height) override;
   void SetFullscreen(bool fullscreen) override;

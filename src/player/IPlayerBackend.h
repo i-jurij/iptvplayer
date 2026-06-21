@@ -45,6 +45,7 @@ public:
 
   virtual void *GetBackendHandle() const = 0;
   virtual std::string GetBackendName() const = 0;
+  virtual bool GetPropertyBool(const char *name, bool &out) = 0;
 
   virtual void ResizeEmbeddedWindow(int, int) {}
 

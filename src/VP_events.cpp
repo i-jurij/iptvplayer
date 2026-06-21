@@ -52,210 +52,254 @@ void VideoPanel::OnVolume(wxCommandEvent &) {
 void VideoPanel::OnFullscreen(wxCommandEvent &) { ToggleFullscreen(); }
 
 void VideoPanel::OnFrameKey(wxKeyEvent &evt) {
+  if (!this->IsShownOnScreen()) {
+    evt.Skip();
+    return;
+  }
+
+  LOG_DEBUG("OnFrameKey: key=%d", evt.GetKeyCode());
+
   OnKey(evt);
-  evt.Skip();
+  evt.StopPropagation();
 }
 
 void VideoPanel::OnKey(wxKeyEvent &evt) {
-    // Если фокус внутри панели плейлиста — не перехватываем клавиши
-    wxWindow *focused = wxWindow::FindFocus();
-    if (m_tempPlaylistList &&
-        (focused == m_tempPlaylistList ||
-         (m_tempPlaylistPanel && m_tempPlaylistPanel->IsDescendant(focused)))) {
-      evt.Skip();
-      return;
-    }
+  LOG_DEBUG("OnKey: key=%d", evt.GetKeyCode());
 
-    int code = evt.GetKeyCode();
-    int mods = evt.GetModifiers(); // для Ctrl/Shift
+  wxWindow *focused = wxWindow::FindFocus();
+  int code = evt.GetKeyCode();
+  int mods = evt.GetModifiers(); // для Ctrl/Shift
 
-    switch (code) {
-    // ======= Play / Pause (как было) =======
-    case WXK_SPACE:
-      if (m_playerController &&
-          m_playerController->GetState() == PlayerState::Playing) {
-        Pause();
-      } else {
-        Play();
-      }
-      evt.Skip(false);
-      return;
-
-    // ======= Mute (как было) =======
-    case 'm':
-    case 'M':
-      if (m_playerController) {
-        m_playerController->SetMuted(!m_isMuted);
-        m_isMuted = !m_isMuted;
-        m_btnMute->SetValue(m_isMuted);
-      }
-      evt.Skip(false);
-      return;
-
-    // ======= Fullscreen (как было) =======
-    case 'f':
-    case 'F':
-      ToggleFullscreen();
-      evt.Skip(false);
-      return;
-
-    // ======= ESC: выход из fullscreen =======
-    case WXK_ESCAPE:
-      if (m_isFullscreen) {
-        ToggleFullscreen();
-        evt.Skip(false);
-        return;
-      }
-      break;
-
-    // ======= Перемотка =======
-    case WXK_LEFT:
-      if (m_playerController) {
-        if (mods & wxMOD_SHIFT)
-          m_playerController->SeekRelative(-30);
-        else if (mods & wxMOD_CONTROL)
-          m_playerController->SeekRelative(-1);
-        else
-          m_playerController->SeekRelative(-5);
-      }
-      evt.Skip(false);
-      return;
-
-    case WXK_RIGHT:
-      if (m_playerController) {
-        if (mods & wxMOD_SHIFT)
-          m_playerController->SeekRelative(+30);
-        else if (mods & wxMOD_CONTROL)
-          m_playerController->SeekRelative(+1);
-        else
-          m_playerController->SeekRelative(+5);
-      }
-      evt.Skip(false);
-      return;
-
-    case WXK_HOME:
-      if (m_playerController) {
-        m_playerController->SeekAbsolute(0); // 0%
-      }
-      evt.Skip(false);
-      return;
-
-    case WXK_END:
-      if (m_playerController) {
-        m_playerController->SeekAbsolute(100); // 100%
-      }
-      evt.Skip(false);
-      return;
-
-    // ======= Громкость =======
-    case WXK_UP:
-      if (m_playerController) {
-        int step = (mods & wxMOD_CONTROL) ? 1 : 5;
-        int newVol = std::clamp(m_lastVolume + step, 0, 100);
-        m_volumeSlider->SetValue(newVol);
-        SetVolume(newVol);
-      }
-      evt.Skip(false);
-      return;
-
-    case WXK_DOWN:
-      if (m_playerController) {
-        int step = (mods & wxMOD_CONTROL) ? 1 : 5;
-        int newVol = std::clamp(m_lastVolume - step, 0, 100);
-        m_volumeSlider->SetValue(newVol);
-        SetVolume(newVol);
-      }
-      evt.Skip(false);
-      return;
-
-    // ======= Скорость =======
-    case '[':
-      if (m_playerController) {
-        m_playerController->AdjustSpeed(-0.1);
-      }
-      evt.Skip(false);
-      return;
-
-    case ']':
-      if (m_playerController) {
-        m_playerController->AdjustSpeed(+0.1);
-      }
-      evt.Skip(false);
-      return;
-
-    case '{':
-      if (m_playerController) {
-        m_playerController->AdjustSpeed(-0.5);
-      }
-      evt.Skip(false);
-      return;
-
-    case '}':
-      if (m_playerController) {
-        m_playerController->AdjustSpeed(+0.5);
-      }
-      evt.Skip(false);
-      return;
-
-    case WXK_BACK: // Backspace — сброс скорости
-      if (m_playerController) {
-        m_playerController->ResetSpeed();
-      }
-      evt.Skip(false);
-      return;
-
-    // ======= Аудиодорожки =======
-    case '+': // next audio
-      if (m_playerController) {
-        m_playerController->NextAudioTrack();
-      }
-      evt.Skip(false);
-      return;
-
-    case '_': // prev audio (Shift + '-')
-      if (m_playerController) {
-        m_playerController->PrevAudioTrack();
-      }
-      evt.Skip(false);
-      return;
-
-    // ======= Субтитры =======
-    case 'v':
-    case 'V':
-      if (m_playerController) {
-        m_playerController->ToggleSubtitles();
-      }
-      evt.Skip(false);
-      return;
-
-    case 'j':
-    case 'J':
-      if (m_playerController) {
-        m_playerController->NextSubtitleTrack();
-      }
-      evt.Skip(false);
-      return;
-
-    case 'h':
-    case 'H':
-      if (m_playerController) {
-        m_playerController->PrevSubtitleTrack();
-      }
-      evt.Skip(false);
-      return;
-
-    case 'q':
-    case 'Q':
-      Stop();
-      evt.Skip(false);
-      return;
-
-    default:
-      break;
-    }
-
+  // ------------------------------------------------------------
+  // 1) ФОКУС ВО ВРЕМЕННОМ ПЛЕЙЛИСТЕ → VideoPanel НЕ трогает клавиши
+  // ------------------------------------------------------------
+  if (m_tempPlaylistPanel && m_tempPlaylistPanel->IsDescendant(focused)) {
     evt.Skip();
+    return;
   }
+
+  // ------------------------------------------------------------
+  // 2) ФОКУС В КОНТРОЛАХ → ↑↓ = громкость
+  // ------------------------------------------------------------
+  if (m_controlsPanel && m_controlsPanel->IsDescendant(focused)) {
+
+    if (code == WXK_UP) {
+      int v = std::clamp(m_volumeSlider->GetValue() + 5, 0, 100);
+      m_volumeSlider->SetValue(v);
+      if (m_playerController)
+        m_playerController->SetVolume(v);
+
+      // evt.Skip(false); // вариант 1
+      evt.StopPropagation(); // вариант 2 (надёжнее)
+      return;
+    }
+
+    if (code == WXK_DOWN) {
+      int v = std::clamp(m_volumeSlider->GetValue() - 5, 0, 100);
+      m_volumeSlider->SetValue(v);
+      if (m_playerController)
+        m_playerController->SetVolume(v);
+
+      // evt.Skip(false);
+      evt.StopPropagation();
+      return;
+    }
+
+    // остальные клавиши → по общей логике ниже
+  }
+
+  // ------------------------------------------------------------
+  // 3) ОБЩИЕ ХОТКЕИ ВИДЕО (GLCanvas, прогресс, кнопки и т.д.)
+  // ------------------------------------------------------------
+  switch (code) {
+    // ======= Play / Pause =======
+  case WXK_SPACE:
+    if (m_playerController &&
+        m_playerController->GetState() == PlayerState::Playing) {
+      Pause();
+    } else {
+      Play();
+    }
+    evt.StopPropagation();
+    return;
+
+  // ======= Перемотка =======
+  case WXK_LEFT:
+    if (m_playerController) {
+      if (mods & wxMOD_SHIFT)
+        m_playerController->SeekRelative(-30);
+      else if (mods & wxMOD_CONTROL)
+        m_playerController->SeekRelative(-1);
+      else
+        m_playerController->SeekRelative(-5);
+    }
+    evt.Skip(false);
+    return;
+
+  case WXK_RIGHT:
+    if (m_playerController) {
+      if (mods & wxMOD_SHIFT)
+        m_playerController->SeekRelative(+30);
+      else if (mods & wxMOD_CONTROL)
+        m_playerController->SeekRelative(+1);
+      else
+        m_playerController->SeekRelative(+5);
+    }
+    evt.Skip(false);
+    return;
+
+  case WXK_HOME:
+    if (m_playerController) {
+      m_playerController->SeekAbsolute(0); // 0%
+    }
+    evt.Skip(false);
+    return;
+
+  case WXK_END:
+    if (m_playerController) {
+      m_playerController->SeekAbsolute(100); // 100%
+    }
+    evt.Skip(false);
+    return;
+
+  // ======= Fullscreen  =======
+  case 'f':
+  case 'F':
+    ToggleFullscreen();
+    // evt.Skip(false);
+    evt.StopPropagation();
+    return;
+
+  // ======= ESC: выход из fullscreen =======
+  case WXK_ESCAPE:
+    if (m_isFullscreen) {
+      ToggleFullscreen();
+      // evt.Skip(false);
+      evt.StopPropagation();
+      return;
+    }
+    break;
+
+  case 'M':
+  case 'm':
+    if (m_playerController) {
+      m_playerController->SetMuted(!m_isMuted);
+      m_isMuted = !m_isMuted;
+      m_btnMute->SetValue(m_isMuted);
+    }
+    // evt.Skip(false);
+    evt.StopPropagation();
+    return;
+
+  // ======= Громкость =======
+  case WXK_UP:
+    if (m_playerController) {
+      int step = (mods & wxMOD_CONTROL) ? 1 : 5;
+      int newVol = std::clamp(m_lastVolume + step, 0, 100);
+      m_volumeSlider->SetValue(newVol);
+      SetVolume(newVol);
+    }
+    evt.Skip(false);
+    return;
+
+  case WXK_DOWN:
+    if (m_playerController) {
+      int step = (mods & wxMOD_CONTROL) ? 1 : 5;
+      int newVol = std::clamp(m_lastVolume - step, 0, 100);
+      m_volumeSlider->SetValue(newVol);
+      SetVolume(newVol);
+    }
+    evt.Skip(false);
+    return;
+
+  // ======= Скорость =======
+  case '[':
+    if (m_playerController) {
+      m_playerController->AdjustSpeed(-0.1);
+    }
+    evt.Skip(false);
+    return;
+
+  case ']':
+    if (m_playerController) {
+      m_playerController->AdjustSpeed(+0.1);
+    }
+    evt.Skip(false);
+    return;
+
+  case '{':
+    if (m_playerController) {
+      m_playerController->AdjustSpeed(-0.5);
+    }
+    evt.Skip(false);
+    return;
+
+  case '}':
+    if (m_playerController) {
+      m_playerController->AdjustSpeed(+0.5);
+    }
+    evt.Skip(false);
+    return;
+
+  case WXK_BACK: // Backspace — сброс скорости
+    if (m_playerController) {
+      m_playerController->ResetSpeed();
+    }
+    evt.Skip(false);
+    return;
+
+  // ======= Аудиодорожки =======
+  case '+': // next audio
+    if (m_playerController) {
+      m_playerController->NextAudioTrack();
+    }
+    evt.Skip(false);
+    return;
+
+  case '_': // prev audio (Shift + '-')
+    if (m_playerController) {
+      m_playerController->PrevAudioTrack();
+    }
+    evt.Skip(false);
+    return;
+
+  // ======= Субтитры =======
+  case 'v':
+  case 'V':
+    if (m_playerController) {
+      m_playerController->ToggleSubtitles();
+    }
+    evt.Skip(false);
+    return;
+
+  case 'j':
+  case 'J':
+    if (m_playerController) {
+      m_playerController->NextSubtitleTrack();
+    }
+    evt.Skip(false);
+    return;
+
+  case 'h':
+  case 'H':
+    if (m_playerController) {
+      m_playerController->PrevSubtitleTrack();
+    }
+    evt.Skip(false);
+    return;
+
+  case 'q':
+  case 'Q':
+    Stop();
+    evt.Skip(false);
+    return;
+
+  default:
+    break;
+  }
+
+  evt.Skip();
+}
 
 void VideoPanel::OnOpen(wxCommandEvent &) {
   // Пересоздаём меню каждый раз
@@ -352,47 +396,66 @@ void VideoPanel::OnVideoAreaResize(wxSizeEvent &event) {
 }
 
 void VideoPanel::OnEofTimer(wxTimerEvent &) {
-  // 1) Плейлист не активен
-  if (!m_isTempPlaylistPlaying)
-    return;
-
-  // 2) Во временном плейлисте меньше двух файлов → переход не нужен
-  if (m_tempPlaylist.size() < 2)
-    return;
-
-  const ProgressInfo &info = m_lastProgress;
-
-  // 3) Поток без duration (IPTV, радио)
-  if (info.duration <= 0) {
-    // Если time-pos не меняется 3 секунды → поток "кончился"
-    static double lastPos = -1;
-    static int stillCount = 0;
-
-    if (info.timePos == lastPos) {
-      stillCount++;
-      if (stillCount >= 15) { // 15 * 200ms = 3 секунды
-        stillCount = 0;
-        PlayNextTempItem();
-      }
-    } else {
-      stillCount = 0;
-    }
-
-    lastPos = info.timePos;
+  // 1) Защита
+  if (!m_playerController || !m_progress) {
     return;
   }
 
-  // 4) Локальный файл — проверяем оставшееся время
-  double remaining = info.duration - info.timePos;
+  const ProgressInfo &info = m_lastProgress;
 
-  if (remaining < 0.3 && !m_waitingForNext) {
+  // 2) Обновление UI прогресса
+  if (m_btnPause->IsEnabled() && !m_btnPlay->IsEnabled() &&
+      !m_isDraggingProgress) {
+    bool isStream = (info.duration <= 0 || info.duration > 1000000);
+    int value = isStream ? static_cast<int>(info.cachePercent * 10)
+                         : static_cast<int>(info.percentPos * 10);
+    m_progress->SetValue(value);
+    UpdateProgressDisplay(info);
+  }
+
+  // 3) Плейлист не активен — выходим
+  if (!m_isTempPlaylistPlaying)
+    return;
+
+  // 4) Плейлист < 2 треков
+  if (m_tempPlaylist.size() < 2)
+    return;
+
+  // 5) Сброс EOF-состояния при старте нового трека:
+  // Если timePos близко к 0 — значит, начинается новый трек
+  if (info.timePos >= 0 && info.timePos < 0.3) {
+    m_waitingForNext = false;
+    m_stillFramesCount = 0;
+  }
+
+  // 6) Поток без duration (IPTV, радио)
+  if (info.duration <= 0) {
+    if (info.timePos == m_lastTimePos && !m_waitingForNext) {
+      ++m_stillFramesCount;
+      if (m_stillFramesCount >= 15) { // 3 секунды
+        m_stillFramesCount = 0;
+        m_waitingForNext = true;
+        PlayNextTempItem();
+      }
+    } else if (info.timePos != m_lastTimePos) {
+      m_stillFramesCount = 0; // сброс при движении времени
+    }
+    m_lastTimePos = info.timePos;
+    return;
+  }
+
+  // 7) Локальный файл — срабатывает EOF
+  double remaining = info.duration - info.timePos;
+  static constexpr double kEOFThreshold = 0.3;
+
+  if (remaining <= kEOFThreshold && !m_waitingForNext) {
     m_waitingForNext = true;
     PlayNextTempItem();
     return;
   }
 
-  // 5) Новый трек → сброс флага
-  if (info.timePos < 0.5) {
+  // 8) Сброс флага "вручную" при сбросе времени (резервный)
+  if (info.timePos < 0.1) {
     m_waitingForNext = false;
   }
 }

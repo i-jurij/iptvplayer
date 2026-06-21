@@ -76,6 +76,12 @@ void VideoPanel::LoadTempPlaylistFromConfig() {
   if (!m_tempPlaylist.IsEmpty()) {
     ShowTempPlaylist();
   }
+  // восстанавливаем выделение после загрузки
+  if (m_tempCurrentIndex >= 0) {
+    m_tempPlaylistList->SetItemState(m_tempCurrentIndex, wxLIST_STATE_SELECTED,
+                                     wxLIST_STATE_SELECTED);
+    m_tempPlaylistList->EnsureVisible(m_tempCurrentIndex);
+  }
 }
 
 void VideoPanel::SaveTempPlaylistToConfig() {
@@ -333,10 +339,13 @@ void VideoPanel::PlayNextTempItem() {
     return;
   }
 
-  // pending относится к ручной инициации; при автоматическом переходе очищаем
-  // pending
   m_pendingTempPlay = false;
   m_pendingTempIndex = -1;
+
+  // 🔥 ДОБАВЛЕНО: сброс EOF-состояния перед воспроизведением нового трека
+  m_waitingForNext = false;
+  m_lastTimePos = -1.0;
+  m_stillFramesCount = 0;
 
   Play();
 }
@@ -372,6 +381,14 @@ void VideoPanel::OnTempPlaylistRemove() {
   if (m_tempPlaylist.IsEmpty()) {
     ClearTempPlaylist();
     return;
+  }
+  // 🔥 ДОБАВЛЕНО: пересчитываем индекс после удаления
+  if (m_tempCurrentIndex >= (int)m_tempPlaylist.size())
+    m_tempCurrentIndex = m_tempPlaylist.size() - 1;
+
+  if (m_tempCurrentIndex >= 0) {
+    m_tempPlaylistList->SetItemState(m_tempCurrentIndex, wxLIST_STATE_SELECTED,
+                                     wxLIST_STATE_SELECTED);
   }
 
   // Сохраняем изменения
@@ -435,7 +452,7 @@ void VideoPanel::OnTempPlaylistListActivate(wxListEvent &evt) {
   int sel = evt.GetIndex();
   if (sel < 0 || sel >= (int)m_tempPlaylist.size())
     return;
-  
+
   wxString path = m_tempPlaylist[sel];
 
   // Помечаем pending запуск из temp playlist и сохраняем индекс
@@ -448,7 +465,7 @@ void VideoPanel::OnTempPlaylistListActivate(wxListEvent &evt) {
   m_isChannelPlaying = false;
 
   LOG_DEBUG("OnTempPlaylistListActivate: pending set idx=%d",
-             m_pendingTempIndex);
+            m_pendingTempIndex);
 
   if (!m_playerController->PlayFile(path.ToStdString())) {
     LOG_ERROR("Temp playlist: failed to play file");
@@ -505,17 +522,21 @@ void VideoPanel::OnTempPlaylistContextMenu(wxContextMenuEvent &evt) {
   menu.AppendSeparator();
   menu.Append(idOpenFolder, "Open containing folder");
 
-  Bind(wxEVT_MENU, [this](wxCommandEvent &) { TempPlaylistPlay(); }, idPlay);
-  Bind(wxEVT_MENU, [this](wxCommandEvent &) { TempPlaylistMoveUp(); }, idUp);
-  Bind(
+  menu.Bind(
+      wxEVT_MENU, [this](wxCommandEvent &) { TempPlaylistPlay(); }, idPlay);
+  menu.Bind(
+      wxEVT_MENU, [this](wxCommandEvent &) { TempPlaylistMoveUp(); }, idUp);
+  menu.Bind(
       wxEVT_MENU, [this](wxCommandEvent &) { TempPlaylistMoveDown(); }, idDown);
-  Bind(
+  menu.Bind(
       wxEVT_MENU, [this](wxCommandEvent &) { TempPlaylistRename(); }, idRename);
-  Bind(
+  menu.Bind(
       wxEVT_MENU, [this](wxCommandEvent &) { OnTempPlaylistRemove(); },
       idRemove);
-  Bind(wxEVT_MENU, [this](wxCommandEvent &) { ClearTempPlaylist(); }, idClear);
-  Bind(wxEVT_MENU, &VideoPanel::OnTempPlaylistOpenFolder, this, idOpenFolder);
+  menu.Bind(
+      wxEVT_MENU, [this](wxCommandEvent &) { ClearTempPlaylist(); }, idClear);
+  menu.Bind(wxEVT_MENU, &VideoPanel::OnTempPlaylistOpenFolder, this,
+            idOpenFolder);
 
   PopupMenu(&menu);
 }
@@ -547,8 +568,11 @@ void VideoPanel::TempPlaylistPlay() {
     return;
   }
 
-  // Запрос на воспроизведение отправлен; окончательное включение плейлиста
-  // произойдёт при PlayerState::Playing
+  // 🔥 ДОБАВЛЕНО: сброс EOF-состояния перед воспроизведением
+  m_waitingForNext = false;
+  m_lastTimePos = -1.0;
+  m_stillFramesCount = 0;
+
   Play();
 
   // Обновляем выделение в UI (UX), но не меняем m_tempCurrentIndex пока нет
@@ -627,7 +651,7 @@ void VideoPanel::RefreshTempPlaylistWithoutSorting() {
 
 void VideoPanel::OnTempPlaylistKeyDown(wxKeyEvent &evt) {
   LOG_DEBUG("OnTempPlaylistKeyDown: key=%d id=%d obj=%p", evt.GetKeyCode(),
-             evt.GetId(), evt.GetEventObject());
+            evt.GetId(), evt.GetEventObject());
 
   /*
   if (evt.GetId() != ID_VP_TEMP_PLAYLIST_LIST) {
@@ -816,6 +840,11 @@ void VideoPanel::ToggleShuffleTempPlaylist(bool enable) {
   if (enable) {
     // сохраняем оригинальный порядок
     m_tempPlaylistOriginalOrder = m_tempPlaylist;
+    // 🔥 ДОБАВЛЕНО: сохраняем путь текущего файла перед shuffle
+    wxString currentPath;
+    if (m_tempCurrentIndex >= 0 &&
+        m_tempCurrentIndex < (int)m_tempPlaylist.size())
+      currentPath = m_tempPlaylist[m_tempCurrentIndex];
 
     // современный shuffle
     static std::random_device rd;
@@ -823,6 +852,12 @@ void VideoPanel::ToggleShuffleTempPlaylist(bool enable) {
     std::shuffle(m_tempPlaylist.begin(), m_tempPlaylist.end(), g);
 
     m_shuffleActive = true;
+    // 🔥 ДОБАВЛЕНО: восстанавливаем текущий индекс после shuffle
+    if (!currentPath.IsEmpty()) {
+      int newIndex = m_tempPlaylist.Index(currentPath);
+      if (newIndex != wxNOT_FOUND)
+        m_tempCurrentIndex = newIndex;
+    }
   } else {
     // восстановление
     if (!m_tempPlaylistOriginalOrder.IsEmpty())

@@ -3,7 +3,20 @@
 #include "MpvBackend.h"
 
 PlayerController::PlayerController(std::unique_ptr<IPlayerBackend> backend)
-    : m_backend(std::move(backend)) {}
+    : m_backend(std::move(backend)), m_reconcileTimer(this),
+      m_reconcilePending(false),
+      m_lastToggleTime(std::chrono::steady_clock::time_point::min()) {
+  // Привязываем обработчик таймера
+  m_reconcileTimer.Bind(wxEVT_TIMER, &PlayerController::OnReconcileTimer, this);
+  m_reconcilePending.store(false);
+}
+
+PlayerController::~PlayerController() {
+  if (m_reconcileTimer.IsRunning())
+    m_reconcileTimer.Stop();
+  m_reconcileTimer.Unbind(wxEVT_TIMER, &PlayerController::OnReconcileTimer,
+                          this);
+}
 
 bool PlayerController::AttachToWindow(wxWindow *window) {
   if (!window) {
@@ -13,7 +26,7 @@ bool PlayerController::AttachToWindow(wxWindow *window) {
 
   LOG_DEBUG("PlayerController: attaching to window");
 
-  m_attachedWindow = window; 
+  m_attachedWindow = window;
 
   if (!m_backend)
     return false;
@@ -72,25 +85,49 @@ bool PlayerController::PlayUrl(const std::string &url) {
     LOG_ERROR("PlayerController: backend player failed play url");
   }
 
-  // НЕ нотифицируем Playing здесь синхронно.
-  // Подтверждение Playing будет приходить от backend через SetStateCallback
-  // (код 1).
-
   return ok;
 }
 
 void PlayerController::Play() {
   if (!m_backend)
     return;
+
+  auto now = std::chrono::steady_clock::now();
+  if (m_lastToggleTime != std::chrono::steady_clock::time_point::min() &&
+      now - m_lastToggleTime < m_debounceMs) {
+    LOG_DEBUG("PlayerController::Play debounced");
+    return;
+  }
+  m_lastToggleTime = now;
+
   m_backend->Play();
-  //NotifyState(PlayerState::Playing);
+
+  // Optimistic update
+  NotifyState(PlayerState::Playing);
+
+  // Запускаем reconciliation
+  StartReconcileTimer();
 }
 
+// Pause с debounce и optimistic update
 void PlayerController::Pause() {
   if (!m_backend)
     return;
+
+  auto now = std::chrono::steady_clock::now();
+  if (m_lastToggleTime != std::chrono::steady_clock::time_point::min() &&
+      now - m_lastToggleTime < m_debounceMs) {
+    LOG_DEBUG("PlayerController::Pause debounced");
+    return;
+  }
+  m_lastToggleTime = now;
+
   m_backend->Pause();
+
+  // Optimistic update
   NotifyState(PlayerState::Paused);
+
+  StartReconcileTimer();
 }
 
 void PlayerController::Stop() {
@@ -127,6 +164,8 @@ void PlayerController::SetStateCallback(StateCallback cb) {
         NotifyState(PlayerState::Playing);
       } else if (code == 2) {
         NotifyState(PlayerState::FileLoaded);
+      } else if (code == 3) {
+        NotifyState(PlayerState::Paused);
       } else {
         LOG_DEBUG("PlayerController: backend state code %d (unhandled)", code);
       }
@@ -212,4 +251,40 @@ void PlayerController::NextSubtitleTrack() {
 void PlayerController::PrevSubtitleTrack() {
   if (m_backend)
     m_backend->PrevSubtitleTrack();
+}
+
+// Запуск reconciliation таймера
+void PlayerController::StartReconcileTimer() {
+  m_reconcilePending.store(true);
+  if (m_reconcileTimer.IsRunning())
+    m_reconcileTimer.Stop();
+  m_reconcileTimer.Start(static_cast<int>(m_reconcileMs.count()),
+                         wxTIMER_ONE_SHOT);
+}
+
+// Обработчик таймера: опрашиваем backend и корректируем состояние
+void PlayerController::OnReconcileTimer(wxTimerEvent &evt) {
+  m_reconcilePending.store(false);
+
+  if (!m_backend)
+    return;
+
+  bool paused = false;
+  bool ok = m_backend->GetPropertyBool("pause", paused);
+  if (!ok) {
+    LOG_DEBUG("PlayerController::OnReconcileTimer: GetPropertyBool failed");
+    return;
+  }
+
+  if (paused) {
+    if (m_state != PlayerState::Paused) {
+      NotifyState(PlayerState::Paused);
+      LOG_DEBUG("PlayerController::OnReconcileTimer: reconciled -> Paused");
+    }
+  } else {
+    if (m_state != PlayerState::Playing) {
+      NotifyState(PlayerState::Playing);
+      LOG_DEBUG("PlayerController::OnReconcileTimer: reconciled -> Playing");
+    }
+  }
 }

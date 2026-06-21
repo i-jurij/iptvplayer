@@ -59,6 +59,11 @@ void FavoritesList::OnFavoriteToggled(const Channel &ch, bool isFav) {
 }
 
 void FavoritesList::OnKeyDown(wxKeyEvent &evt) {
+  if (!this->IsShownOnScreen()) {
+    evt.Skip();
+    return;
+  }
+  
   int key = evt.GetKeyCode();
 
   wxDataViewItem item = GetSelection();

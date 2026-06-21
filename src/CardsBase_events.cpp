@@ -295,7 +295,7 @@ void CardsBase::UpdateHoverAtPoint(const wxPoint &clientPos) {
 }
 
 void CardsBase::OnKeyDown(wxKeyEvent &evt) {
-  if (m_channels.empty()) {
+  if (!this->IsShownOnScreen() || m_channels.empty()) {
     evt.Skip();
     return;
   }
