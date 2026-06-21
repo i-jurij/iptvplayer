@@ -403,8 +403,9 @@ void VideoPanel::OnEofTimer(wxTimerEvent &) {
 
   const ProgressInfo &info = m_lastProgress;
 
-  // 2) Обновление UI прогресса
-  if (m_btnPause->IsEnabled() && !m_btnPlay->IsEnabled() &&
+  // 2) Обновление UI прогресса, когда идёт воспроизведение
+  if (m_playerController &&
+      m_playerController->GetState() == PlayerState::Playing &&
       !m_isDraggingProgress) {
     bool isStream = (info.duration <= 0 || info.duration > 1000000);
     int value = isStream ? static_cast<int>(info.cachePercent * 10)

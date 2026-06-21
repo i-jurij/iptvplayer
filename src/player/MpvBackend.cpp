@@ -48,6 +48,10 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG);
   LOG_DEBUG("MpvBackend: observing property 'pause'");
 
+  // Enable tick events for regular progress updates
+  mpv_request_event(m_mpv, MPV_EVENT_TICK, 1);
+  LOG_DEBUG("MpvBackend: requested MPV_EVENT_TICK");
+
   // ВАЖНО: вместо отдельного потока — wakeup callback
   mpv_set_wakeup_callback(m_mpv, &MpvBackend::WakeupCallback, this);
 }
@@ -211,6 +215,7 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
       if (m_stateCallback) {
         m_stateCallback(paused ? 3 : 1); // 3 = Paused, 1 = Playing
       }
+      EmitProgress(); // Update progress on pause/play
       break;
     }
 
@@ -219,8 +224,14 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
     }
     break;
   }
+  case MPV_EVENT_TICK: {
+    // Regular progress update during playback
+    EmitProgress();
+    break;
+  }
   case MPV_EVENT_END_FILE: {
     LOG_DEBUG("MpvBackend: END_FILE");
+    EmitProgress(); // Final progress snapshot
     if (m_stateCallback) {
       m_stateCallback(0); // 0 = Stopped
     }
