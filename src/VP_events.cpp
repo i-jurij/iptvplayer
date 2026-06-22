@@ -57,14 +57,14 @@ void VideoPanel::OnFrameKey(wxKeyEvent &evt) {
     return;
   }
 
-  LOG_DEBUG("OnFrameKey: key=%d", evt.GetKeyCode());
+  //LOG_DEBUG("OnFrameKey: key=%d", evt.GetKeyCode());
 
   OnKey(evt);
   evt.StopPropagation();
 }
 
 void VideoPanel::OnKey(wxKeyEvent &evt) {
-  LOG_DEBUG("OnKey: key=%d", evt.GetKeyCode());
+  //LOG_DEBUG("OnKey: key=%d", evt.GetKeyCode());
 
   wxWindow *focused = wxWindow::FindFocus();
   int code = evt.GetKeyCode();
@@ -363,14 +363,14 @@ void VideoPanel::OnOpen(wxCommandEvent &) {
 
 void VideoPanel::OnWindowCreated(wxShowEvent &event) {
   if (event.IsShown() && !m_isAttached) {
-    LOG_DEBUG("VideoPanel: window shown, attaching backend");
+    //LOG_DEBUG("VideoPanel: window shown, attaching backend");
 
     // Привязываем к m_videoArea (видео-окно), а не к this
     if (m_playerController->AttachToWindow(m_videoArea)) {
       m_isAttached = true;
-      LOG_DEBUG("VideoPanel: backend attached successfully");
+      //LOG_DEBUG("VideoPanel: backend attached successfully");
     } else {
-      LOG_ERROR("VideoPanel: failed to attach backend");
+      //LOG_ERROR("VideoPanel: failed to attach backend");
     }
   }
 }
@@ -396,67 +396,109 @@ void VideoPanel::OnVideoAreaResize(wxSizeEvent &event) {
 }
 
 void VideoPanel::OnEofTimer(wxTimerEvent &) {
-  // 1) Защита
   if (!m_playerController || !m_progress) {
     return;
   }
 
   const ProgressInfo &info = m_lastProgress;
 
-  // 2) Обновление UI прогресса, когда идёт воспроизведение
-  if (m_playerController &&
-      m_playerController->GetState() == PlayerState::Playing &&
-      !m_isDraggingProgress) {
-    bool isStream = (info.duration <= 0 || info.duration > 1000000);
-    int value = isStream ? static_cast<int>(info.cachePercent * 10)
-                         : static_cast<int>(info.percentPos * 10);
-    m_progress->SetValue(value);
-    UpdateProgressDisplay(info);
+  // ========== ОБРАБОТКА PENDING SEEK ==========
+  if (m_pendingSeekPercent >= 0) {
+    int backendPercent = static_cast<int>(std::round(info.percentPos));
+    wxLongLong now = wxGetLocalTimeMillis();
+    long elapsedMs = (now - m_seekRequestTime).GetLo();
+
+    // Проверяем подтверждение от backend (с допуском ±1%)
+    if (std::abs(backendPercent - m_pendingSeekPercent) <= 1) {
+      LOG_DEBUG("Seek confirmed: requested=%d%%, backend=%d%%",
+                m_pendingSeekPercent, backendPercent);
+      m_pendingSeekPercent = -1;
+      m_progress->SetValue(backendPercent * 10);
+    }
+    // Timeout — повторный seek или отмена
+    else if (elapsedMs > kSeekConfirmTimeoutMs) {
+      LOG_WARN("Seek timeout (requested=%d%%, backend=%d%%), retrying...",
+               m_pendingSeekPercent, backendPercent);
+      m_playerController->SeekAbsolute(m_pendingSeekPercent);
+      m_seekRequestTime = now;
+    }
+    // Ещё ждём подтверждения — не трогаем UI
+    else {
+      LOG_DEBUG("Waiting for seek confirmation: requested=%d%%, backend=%d%%, "
+                "elapsed=%ld ms",
+                m_pendingSeekPercent, backendPercent, elapsedMs);
+    }
+
+    m_lastTimePos = info.timePos;
+
+    // Не обновляем остальное пока ждём seek
+    if (m_pendingSeekPercent >= 0) {
+      return;
+    }
   }
 
-  // 3) Плейлист не активен — выходим
-  if (!m_isTempPlaylistPlaying)
-    return;
+  // ========== ОБНОВЛЕНИЕ UI ПРОГРЕССА ==========
+  // Обновляем ТОЛЬКО если не dragging и нет pending seek
+  if (!m_progress->IsDragging() && m_pendingSeekPercent < 0) {
+    if (m_playerController->GetState() == PlayerState::Playing) {
+      m_isLiveStream = (info.duration <= 0 || info.duration > 1000000);
 
-  // 4) Плейлист < 2 треков
-  if (m_tempPlaylist.size() < 2)
-    return;
+      int value;
+      if (m_isLiveStream) {
+        // Для live: показываем буфер
+        value = static_cast<int>(info.cachePercent * 10);
+      } else {
+        // Для файлов: показываем позицию
+        value = static_cast<int>(info.percentPos * 10);
+      }
 
-  // 5) Сброс EOF-состояния при старте нового трека:
-  // Если timePos близко к 0 — значит, начинается новый трек
+      m_progress->SetValue(value);
+      UpdateProgressDisplay(info);
+    }
+  }
+
+  // ========== ЛОГИКА ПЛЕЙЛИСТА ==========
+  if (!m_isTempPlaylistPlaying) {
+    return;
+  }
+
+  if (m_tempPlaylist.size() < 2) {
+    return;
+  }
+
   if (info.timePos >= 0 && info.timePos < 0.3) {
     m_waitingForNext = false;
     m_stillFramesCount = 0;
   }
 
-  // 6) Поток без duration (IPTV, радио)
   if (info.duration <= 0) {
     if (info.timePos == m_lastTimePos && !m_waitingForNext) {
       ++m_stillFramesCount;
-      if (m_stillFramesCount >= 15) { // 3 секунды
+      if (m_stillFramesCount >= 15) {
         m_stillFramesCount = 0;
         m_waitingForNext = true;
         PlayNextTempItem();
       }
     } else if (info.timePos != m_lastTimePos) {
-      m_stillFramesCount = 0; // сброс при движении времени
+      m_stillFramesCount = 0;
     }
     m_lastTimePos = info.timePos;
     return;
   }
 
-  // 7) Локальный файл — срабатывает EOF
   double remaining = info.duration - info.timePos;
   static constexpr double kEOFThreshold = 0.3;
 
   if (remaining <= kEOFThreshold && !m_waitingForNext) {
     m_waitingForNext = true;
     PlayNextTempItem();
+    m_lastTimePos = info.timePos;
     return;
   }
 
-  // 8) Сброс флага "вручную" при сбросе времени (резервный)
   if (info.timePos < 0.1) {
     m_waitingForNext = false;
   }
+
+  m_lastTimePos = info.timePos;
 }

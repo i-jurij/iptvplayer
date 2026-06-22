@@ -212,7 +212,7 @@ void VideoPanel::HandleDroppedFiles(const wxArrayString &files) {
       m_tempCurrentIndex = -1;
       m_isChannelPlaying = false;
 
-      LOG_DEBUG("HandleDroppedFiles: pending set idx=0");
+      //LOG_DEBUG("HandleDroppedFiles: pending set idx=0");
 
       if (m_playerController->PlayFile(first.ToStdString())) {
         Play();
@@ -226,8 +226,8 @@ void VideoPanel::HandleDroppedFiles(const wxArrayString &files) {
         LOG_ERROR("Failed to play first dropped file");
         m_pendingTempPlay = false;
         m_pendingTempIndex = -1;
-        LOG_DEBUG(
-            "HandleDroppedFiles: pending cleared due to PlayFile failure");
+        //LOG_DEBUG(
+          //  "HandleDroppedFiles: pending cleared due to PlayFile failure");
       }
     }
   }
@@ -283,7 +283,7 @@ bool VideoPanel::LoadPlaylistFile(const wxString &path, wxArrayString &out) {
 
     out.Add(w);
 
-    LOG_DEBUG("LoadPlaylistFile: add '%s'", w);
+    //LOG_DEBUG("LoadPlaylistFile: add '%s'", w);
 
     lastExtinf.clear();
   }
@@ -464,15 +464,15 @@ void VideoPanel::OnTempPlaylistListActivate(wxListEvent &evt) {
   m_tempCurrentIndex = -1;
   m_isChannelPlaying = false;
 
-  LOG_DEBUG("OnTempPlaylistListActivate: pending set idx=%d",
-            m_pendingTempIndex);
+  //LOG_DEBUG("OnTempPlaylistListActivate: pending set idx=%d",
+    //        m_pendingTempIndex);
 
   if (!m_playerController->PlayFile(path.ToStdString())) {
     LOG_ERROR("Temp playlist: failed to play file");
     m_pendingTempPlay = false;
     m_pendingTempIndex = -1;
-    LOG_DEBUG(
-        "OnTempPlaylistListActivate: pending cleared due to PlayFile failure");
+    //LOG_DEBUG(
+      //  "OnTempPlaylistListActivate: pending cleared due to PlayFile failure");
     return;
   }
 
@@ -558,13 +558,13 @@ void VideoPanel::TempPlaylistPlay() {
   m_tempCurrentIndex = -1;
   m_isChannelPlaying = false;
 
-  LOG_DEBUG("TempPlaylistPlay: pending set idx=%d", m_pendingTempIndex);
+  //LOG_DEBUG("TempPlaylistPlay: pending set idx=%d", m_pendingTempIndex);
 
   if (!m_playerController->PlayFile(path.ToStdString())) {
     LOG_ERROR("Temp playlist: failed to play file");
     m_pendingTempPlay = false;
     m_pendingTempIndex = -1;
-    LOG_DEBUG("TempPlaylistPlay: pending cleared due to PlayFile failure");
+    //LOG_DEBUG("TempPlaylistPlay: pending cleared due to PlayFile failure");
     return;
   }
 
@@ -650,15 +650,8 @@ void VideoPanel::RefreshTempPlaylistWithoutSorting() {
 }
 
 void VideoPanel::OnTempPlaylistKeyDown(wxKeyEvent &evt) {
-  LOG_DEBUG("OnTempPlaylistKeyDown: key=%d id=%d obj=%p", evt.GetKeyCode(),
-            evt.GetId(), evt.GetEventObject());
-
-  /*
-  if (evt.GetId() != ID_VP_TEMP_PLAYLIST_LIST) {
-    evt.Skip();
-    return;
-  }
-    */
+  //LOG_DEBUG("OnTempPlaylistKeyDown: key=%d id=%d obj=%p", evt.GetKeyCode(),
+    //        evt.GetId(), evt.GetEventObject());
   // helper: снять текущее выделение
   auto clearCurrentSelection = [this]() {
     long cur = m_tempPlaylistList->GetNextItem(-1, wxLIST_NEXT_ALL,

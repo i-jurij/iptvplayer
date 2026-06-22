@@ -8,7 +8,7 @@
 #include <locale.h>
 
 MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
-  LOG_DEBUG("MpvBackend::MpvBackend()");
+  //LOG_DEBUG("MpvBackend::MpvBackend()");
 
   setlocale(LC_NUMERIC, "C");
   unsetenv("WINDOWID");
@@ -33,24 +33,24 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   // gpu-context оставляем как было
   if (IsWaylandSession()) {
     mpv_set_option_string(m_mpv, "gpu-context", "wayland");
-    LOG_DEBUG("MpvBackend: gpu-context set to 'wayland'");
+    //LOG_DEBUG("MpvBackend: gpu-context set to 'wayland'");
   } else if (IsX11Session()) {
     mpv_set_option_string(m_mpv, "gpu-context", "x11egl");
-    LOG_DEBUG("MpvBackend: gpu-context set to 'x11egl'");
+    //LOG_DEBUG("MpvBackend: gpu-context set to 'x11egl'");
   } else {
     mpv_set_option_string(m_mpv, "gpu-context", "auto");
-    LOG_DEBUG("MpvBackend: gpu-context set to 'auto'");
+    //LOG_DEBUG("MpvBackend: gpu-context set to 'auto'");
   }
 
   int st = mpv_initialize(m_mpv);
-  LOG_DEBUG("mpv_initialize returned %d", st);
+  //LOG_DEBUG("mpv_initialize returned %d", st);
 
   mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG);
-  LOG_DEBUG("MpvBackend: observing property 'pause'");
+  //LOG_DEBUG("MpvBackend: observing property 'pause'");
 
   // Enable tick events for regular progress updates
   mpv_request_event(m_mpv, MPV_EVENT_TICK, 1);
-  LOG_DEBUG("MpvBackend: requested MPV_EVENT_TICK");
+  //LOG_DEBUG("MpvBackend: requested MPV_EVENT_TICK");
 
   // ВАЖНО: вместо отдельного потока — wakeup callback
   mpv_set_wakeup_callback(m_mpv, &MpvBackend::WakeupCallback, this);
@@ -67,15 +67,15 @@ bool MpvBackend::AttachToWindow(wxWindow *window) {
   }
 
   m_window = window;
-  LOG_DEBUG("MpvBackend: AttachToWindow stored wxWindow pointer (no WID)");
+  //LOG_DEBUG("MpvBackend: AttachToWindow stored wxWindow pointer (no WID)");
 
   // Если mpv уже инициализирован и окно — MpvGLCanvas, передаём mpv_handle
   if (m_mpv) {
     MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(window);
     if (canvas) {
       canvas->SetMpvHandle(m_mpv);
-      LOG_DEBUG("MpvBackend: passed mpv_handle to MpvGLCanvas (%p)",
-                (void *)canvas);
+      //LOG_DEBUG("MpvBackend: passed mpv_handle to MpvGLCanvas (%p)",
+        //        (void *)canvas);
     }
   }
 
@@ -88,16 +88,16 @@ void MpvBackend::Shutdown() {
   if (!m_mpv)
     return;
 
-  LOG_DEBUG("MpvBackend::Shutdown()");
+  //LOG_DEBUG("MpvBackend::Shutdown()");
 
   // 0. Сначала отцепляем canvas и уничтожаем render_context
   if (m_window) {
     MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_window);
     if (canvas) {
       canvas->SetMpvHandle(nullptr); // внутри DestroyRenderContext()
-      LOG_DEBUG(
-          "MpvBackend::Shutdown: cleared mpv_handle from MpvGLCanvas (%p)",
-          (void *)canvas);
+      //LOG_DEBUG(
+        //  "MpvBackend::Shutdown: cleared mpv_handle from MpvGLCanvas (%p)",
+          //(void *)canvas);
     }
   }
 
@@ -118,7 +118,7 @@ bool MpvBackend::PlayFile(const std::string &path) {
 
   const char *cmd[] = {"loadfile", path.c_str(), nullptr};
   int r = mpv_command(m_mpv, cmd);
-  LOG_DEBUG("mpv loadfile '%s' -> %d", path.c_str(), r);
+  //LOG_DEBUG("mpv loadfile '%s' -> %d", path.c_str(), r);
   return r >= 0;
 }
 
@@ -149,18 +149,18 @@ void MpvBackend::ProcessMpvEvents() {
 
   m_processingEvents = true;
 
-  LOG_DEBUG("ProcessMpvEvents: enter (thread=%p)", (void *)wxThread::This());
+  //LOG_DEBUG("ProcessMpvEvents: enter (thread=%p)", (void *)wxThread::This());
 
   while (true) {
     mpv_event *ev = mpv_wait_event(m_mpv, 0);
     if (!ev || ev->event_id == MPV_EVENT_NONE)
       break;
 
-    LOG_DEBUG("ProcessMpvEvents: event_id=%d", ev->event_id);
+    //LOG_DEBUG("ProcessMpvEvents: event_id=%d", ev->event_id);
     HandleEvent(ev);
   }
 
-  LOG_DEBUG("ProcessMpvEvents: leave");
+  //LOG_DEBUG("ProcessMpvEvents: leave");
   m_processingEvents = false;
 }
 
@@ -173,13 +173,13 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
 
   switch (ev->event_id) {
   case MPV_EVENT_FILE_LOADED: {
-    LOG_DEBUG("MpvBackend: FILE_LOADED");
+    //LOG_DEBUG("MpvBackend: FILE_LOADED");
     EmitStreamInfo();
     EmitProgress();
 
     // ЯВНО снимаем паузу на всякий случай
     mpv_set_property_string(m_mpv, "pause", "no");
-    LOG_DEBUG("MpvBackend: pause=no after FILE_LOADED");
+    //LOG_DEBUG("MpvBackend: pause=no after FILE_LOADED");
 
     if (m_stateCallback) {
       m_stateCallback(2); // 2 = FILE_LOADED
@@ -187,7 +187,7 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
     break;
   }
   case MPV_EVENT_PLAYBACK_RESTART: {
-    LOG_DEBUG("MpvBackend: PLAYBACK_RESTART");
+    //LOG_DEBUG("MpvBackend: PLAYBACK_RESTART");
     EmitStreamInfo();
     EmitProgress();
     if (m_stateCallback) {
@@ -211,7 +211,7 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
         val = *static_cast<int64_t *>(prop->data);
       }
       bool paused = (val != 0);
-      LOG_DEBUG("MpvBackend: property change pause=%d", paused ? 1 : 0);
+      //LOG_DEBUG("MpvBackend: property change pause=%d", paused ? 1 : 0);
       if (m_stateCallback) {
         m_stateCallback(paused ? 3 : 1); // 3 = Paused, 1 = Playing
       }
@@ -230,7 +230,7 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
     break;
   }
   case MPV_EVENT_END_FILE: {
-    LOG_DEBUG("MpvBackend: END_FILE");
+    //LOG_DEBUG("MpvBackend: END_FILE");
     EmitProgress(); // Final progress snapshot
     if (m_stateCallback) {
       m_stateCallback(0); // 0 = Stopped
@@ -249,7 +249,7 @@ bool MpvBackend::PlayUrl(const std::string &url) {
   m_lastUrl = url;
   const char *cmd[] = {"loadfile", m_lastUrl.c_str(), nullptr};
   int r = mpv_command(m_mpv, cmd);
-  LOG_DEBUG("mpv loadurl '%s' -> %d", m_lastUrl.c_str(), r);
+  //LOG_DEBUG("mpv loadurl '%s' -> %d", m_lastUrl.c_str(), r);
   return r >= 0;
 }
 
@@ -367,10 +367,10 @@ void MpvBackend::EmitProgress() {
   info.cachePercent = GetCachePercent();
   info.pausedForCache = IsPausedForCache();
 
-  LOG_DEBUG("EmitProgress: t=%.2f dur=%.2f %%=%.1f cache=%.1fs %d%% "
-            "pausedForCache=%d",
-            info.timePos, info.duration, info.percentPos, info.cacheDuration,
-            info.cachePercent, info.pausedForCache ? 1 : 0);
+  //LOG_DEBUG("EmitProgress: t=%.2f dur=%.2f %%=%.1f cache=%.1fs %d%% "
+    //        "pausedForCache=%d",
+      //      info.timePos, info.duration, info.percentPos, info.cacheDuration,
+        //    info.cachePercent, info.pausedForCache ? 1 : 0);
 
   m_progressCallback(info);
 }
@@ -465,9 +465,9 @@ void MpvBackend::EmitStreamInfo() {
       mpv_free(acodec);
     }
 
-    LOG_DEBUG("MpvBackend: StreamInfo %dx%d@%dfps | %s/%s", info.width,
-              info.height, info.fps, info.videoCodec.c_str(),
-              info.audioCodec.c_str());
+    //LOG_DEBUG("MpvBackend: StreamInfo %dx%d@%dfps | %s/%s", info.width,
+      //        info.height, info.fps, info.videoCodec.c_str(),
+        //      info.audioCodec.c_str());
 
     m_streamInfoCallback(info);
 }

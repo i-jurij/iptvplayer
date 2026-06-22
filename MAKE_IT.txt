@@ -3,13 +3,3 @@
 
 
 не открывается панель каналов, если плейлист был выбран ранее
-
------------------------
-Быстрая сводка изменений в коде (минимальный набор)
-IPlayerBackend.h — добавить virtual bool GetPropertyBool(const char *name, bool &out) = 0;
-
-MpvBackend.cpp — mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG); и обработка MPV_EVENT_PROPERTY_CHANGE для pause; реализовать GetPropertyBool.
-
-PlayerController.cpp — добавить debounce и reconciliation: в Play()/Pause() делать optimistic NotifyState, запускать таймер; в обработчике таймера опрашивать pause и корректировать NotifyState.
-
-VideoPanel.cpp — убрать внутренний guard в Pause() (оставить UI‑обновления кнопок как сейчас), можно оставить дополнительный UI‑debounce как вторичный фильтр, но основной — в контроллере.

@@ -28,7 +28,7 @@ void VideoPanel::OpenFile() {
 
   wxString path = dlg.GetPath();
   wxFileName fn(path);
-  LOG_DEBUG("VideoPanel: OpenFile() -> %s", path);
+  //LOG_DEBUG("VideoPanel: OpenFile() -> %s", path);
 
   bool isPlaylist = IsPlaylist(path);
 
@@ -37,8 +37,8 @@ void VideoPanel::OpenFile() {
     wxArrayString list;
 
     bool ok = LoadPlaylistFile(path, list);
-    LOG_DEBUG("OpenFile: isPlaylist=%d, loadOk=%d, entries=%zu",
-              (int)isPlaylist, (int)ok, list.size());
+    //LOG_DEBUG("OpenFile: isPlaylist=%d, loadOk=%d, entries=%zu",
+      //        (int)isPlaylist, (int)ok, list.size());
 
     if (ok) {
       LoadAndPlayPlaylist(path);
@@ -353,7 +353,7 @@ void VideoPanel::ShowControls() {
     Layout();
     m_controlsVisible = true;
 
-    LOG_DEBUG("ShowControls: visible=true, fullscreen=%d", m_isFullscreen);
+    //LOG_DEBUG("ShowControls: visible=true, fullscreen=%d", m_isFullscreen);
   }
 }
 
@@ -366,7 +366,7 @@ void VideoPanel::HideControls() {
     Layout();
     m_controlsVisible = false;
 
-    LOG_DEBUG("HideControls: visible=false");
+    //LOG_DEBUG("HideControls: visible=false");
   }
 }
 
@@ -401,7 +401,7 @@ std::vector<wxString> VideoPanel::GetRecentFiles() const {
 }
 
 void VideoPanel::AddToRecent(const wxString &path) {
-  LOG_DEBUG("VideoPanel: AddToRecent(%s)", path);
+  //LOG_DEBUG("VideoPanel: AddToRecent(%s)", path);
 
   // Удаляем дубликат
   auto it = std::find(m_recentFiles.begin(), m_recentFiles.end(), path);

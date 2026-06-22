@@ -3,6 +3,7 @@
 #include "Application.h"
 #include "Channel.h"
 #include "PlayerController.h"
+#include "VP_progressSlider.h"
 #include "player/MpvGLCanvas.h"
 
 #include <wx/event.h>
@@ -95,7 +96,6 @@ public:
   void OnProgressInfo(const ProgressInfo &info);
 
 private:
-  double m_lastTimePos = -1.0;
   int m_stillFramesCount = 0;
 
   wxSplitterWindow *m_splitter = nullptr;
@@ -138,7 +138,6 @@ private:
   wxGauge *m_gaugeTop = nullptr;
   wxWindow *m_videoArea;
   wxPanel *m_controlsPanel = nullptr;
-  wxSlider *m_progress = nullptr;
   wxTimer m_eofTimer;
   ProgressInfo m_lastProgress;
   bool m_waitingForNext = false;
@@ -241,4 +240,16 @@ private:
 
   // debounce threshold (ms)
   const int kStoppedDebounceMs = 500;
+
+  wxLongLong m_lastSeekTime = 0;
+  double m_lastTimePos = 0.0;
+  // константа: как долго блокируем таймер после seek (мс)
+  static constexpr long kSeekBlockMs = 400;
+  int m_lastSeekSliderValue = 0; // позиция слайдера при последнем seek
+
+  ProgressSlider *m_progress = nullptr;
+  int m_pendingSeekPercent = -1;
+  wxLongLong m_seekRequestTime = 0;
+  static constexpr long kSeekConfirmTimeoutMs = 1200;
+  bool m_isLiveStream = false;
 };

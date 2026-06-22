@@ -24,7 +24,7 @@ bool PlayerController::AttachToWindow(wxWindow *window) {
     return false;
   }
 
-  LOG_DEBUG("PlayerController: attaching to window");
+  //LOG_DEBUG("PlayerController: attaching to window");
 
   m_attachedWindow = window;
 
@@ -95,7 +95,7 @@ void PlayerController::Play() {
   auto now = std::chrono::steady_clock::now();
   if (m_lastToggleTime != std::chrono::steady_clock::time_point::min() &&
       now - m_lastToggleTime < m_debounceMs) {
-    LOG_DEBUG("PlayerController::Play debounced");
+    //LOG_DEBUG("PlayerController::Play debounced");
     return;
   }
   m_lastToggleTime = now;
@@ -272,19 +272,19 @@ void PlayerController::OnReconcileTimer(wxTimerEvent &evt) {
   bool paused = false;
   bool ok = m_backend->GetPropertyBool("pause", paused);
   if (!ok) {
-    LOG_DEBUG("PlayerController::OnReconcileTimer: GetPropertyBool failed");
+    //LOG_DEBUG("PlayerController::OnReconcileTimer: GetPropertyBool failed");
     return;
   }
 
   if (paused) {
     if (m_state != PlayerState::Paused) {
       NotifyState(PlayerState::Paused);
-      LOG_DEBUG("PlayerController::OnReconcileTimer: reconciled -> Paused");
+      //LOG_DEBUG("PlayerController::OnReconcileTimer: reconciled -> Paused");
     }
   } else {
     if (m_state != PlayerState::Playing) {
       NotifyState(PlayerState::Playing);
-      LOG_DEBUG("PlayerController::OnReconcileTimer: reconciled -> Playing");
+      //LOG_DEBUG("PlayerController::OnReconcileTimer: reconciled -> Playing");
     }
   }
 }

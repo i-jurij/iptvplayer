@@ -418,7 +418,7 @@ void MpvGLCanvas::DestroyRenderContext() {
 }
 
 void MpvGLCanvas::SetMpvHandle(mpv_handle *mpv) {
-  LOG_DEBUG("MpvGLCanvas::SetMpvHandle mpv=%p", (void *)mpv);
+  //LOG_DEBUG("MpvGLCanvas::SetMpvHandle mpv=%p", (void *)mpv);
 
   // Отцепляем старый mpv
   if (!mpv) {

@@ -187,7 +187,6 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   // Progress bar
   auto *progressPanel = new wxPanel(m_mainPanel, wxID_ANY);
   auto *progressSizer = new wxBoxSizer(wxVERTICAL);
-
   auto *progressTimeSizer = new wxBoxSizer(wxHORIZONTAL);
 
   m_timeCurrentLabel = new wxStaticText(progressPanel, wxID_ANY, "00:00:00");
@@ -196,22 +195,25 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   progressTimeSizer->Add(m_timeCurrentLabel, 0,
                          wxALIGN_CENTER_VERTICAL | wxLEFT, 5);
 
-  m_progress = new wxSlider(progressPanel, wxID_ANY, 0, 0, 1000,
-                            wxDefaultPosition, wxDefaultSize, wxSL_HORIZONTAL);
-  m_progress->Bind(wxEVT_LEFT_DOWN,
-                   [this](wxMouseEvent &) { m_isDraggingProgress = true; });
-  m_progress->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent &evt) {
-    evt.Skip();
-    m_isDraggingProgress = false;
-    if (m_playerController) {
-      int percent = m_progress->GetValue() / 10;
-      m_playerController->SeekAbsolute(percent);
+  m_progress = new ProgressSlider(progressPanel);
+  m_progress->SetMax(1000);
+  m_progress->m_seekCallback = [this](int val) {
+    if (m_playerController->GetState() == PlayerState::Stopped) {
+      return;
     }
-    this->CallAfter([this]() {
-      if (m_videoArea)
-        m_videoArea->SetFocus();
-    });
-  });
+
+    int percent = val / 10;
+    LOG_DEBUG("Seeking to %d%% (value=%d)", percent, val);
+
+    // Для live потоков seek может не поддерживаться
+    if (m_isLiveStream) {
+      LOG_DEBUG("Live stream detected, seek may not be supported");
+    }
+
+    m_pendingSeekPercent = percent;
+    m_seekRequestTime = wxGetLocalTimeMillis();
+    m_playerController->SeekAbsolute(percent);
+  };
 
   progressTimeSizer->Add(m_progress, 1, wxEXPAND | wxLEFT | wxRIGHT, 5);
 
@@ -219,7 +221,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_timeRemainingLabel->SetFont(
       m_timeRemainingLabel->GetFont().MakeSmaller().MakeSmaller());
   progressTimeSizer->Add(m_timeRemainingLabel, 0,
-                         wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+                         wxALIGN_CENTER_VERTICAL | wxLEFT, 5);
 
   m_timeDurationLabel = new wxStaticText(progressPanel, wxID_ANY, "/ 00:00:00");
   m_timeDurationLabel->SetFont(
@@ -388,8 +390,11 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
         return;
       }
 
-      // 3) Прогресс-бар — разрешаем только во время drag
-      if (w == m_progress && m_isDraggingProgress) {
+      // 3) Прогресс-бар
+      // разрешаем только во время drag
+      // if (w == m_progress && m_isDraggingProgress) {
+      // Разрешаем фокус слайдеру ВСЕГДА
+      if (w == m_progress) {
         e.Skip();
         return;
       }
@@ -408,20 +413,6 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       e.Skip();
     });
   }
-
-  // --- 3) Прогресс-бар: возврат фокуса после отпускания мыши ---
-  m_progress->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent &evt) {
-    evt.Skip();
-    m_isDraggingProgress = false;
-    if (m_playerController) {
-      int percent = m_progress->GetValue() / 10;
-      m_playerController->SeekAbsolute(percent);
-    }
-    this->CallAfter([this]() {
-      if (m_videoArea)
-        m_videoArea->SetFocus();
-    });
-  });
 
   // Начальное состояние кнопок
   m_btnPlay->Enable();
@@ -559,7 +550,7 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     // Запоминаем время FILE_LOADED — используем для debounce ложных Stopped
     m_lastFileLoadedTime = std::chrono::steady_clock::now();
     m_wasPlayingBeforeStop = false; // ещё не было Playing
-    LOG_DEBUG("OnPlayerState: FileLoaded recorded time");
+    //LOG_DEBUG("OnPlayerState: FileLoaded recorded time");
     break;
   }
 
@@ -583,9 +574,9 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
         m_tempCurrentIndex = m_pendingTempIndex;
       m_pendingTempPlay = false;
       m_pendingTempIndex = -1;
-      LOG_DEBUG(
-          "OnPlayerState: Playing confirmed -> temp playlist mode ON, idx=%d",
-          m_tempCurrentIndex);
+      //LOG_DEBUG(
+        //  "OnPlayerState: Playing confirmed -> temp playlist mode ON, idx=%d",
+          //m_tempCurrentIndex);
     }
     break;
   }
@@ -619,8 +610,8 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     // и пришёл Stopped до подтверждения — считаем это неудачным стартом и
     // просто очищаем pending.
     if (m_pendingTempPlay) {
-      LOG_DEBUG("OnPlayerState: Stopped received while pending -> clear "
-                "pending and ignore");
+      //LOG_DEBUG("OnPlayerState: Stopped received while pending -> clear "
+        //        "pending and ignore");
       m_pendingTempPlay = false;
       m_pendingTempIndex = -1;
       // Не делаем автопереход
@@ -635,8 +626,8 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
                        now - m_lastFileLoadedTime)
                        .count();
       if (delta >= 0 && delta < kStoppedDebounceMs) {
-        LOG_DEBUG("OnPlayerState: Ignoring Stopped (delta %d ms < %d ms)",
-                  (int)delta, kStoppedDebounceMs);
+        //LOG_DEBUG("OnPlayerState: Ignoring Stopped (delta %d ms < %d ms)",
+          //        (int)delta, kStoppedDebounceMs);
         break;
       }
     }
@@ -644,8 +635,8 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     // 3) Дополнительная проверка: автопереход только если до Stopped был
     // Playing
     if (!m_wasPlayingBeforeStop) {
-      LOG_DEBUG("OnPlayerState: Ignoring Stopped because wasPlayingBeforeStop "
-                "== false");
+      //LOG_DEBUG("OnPlayerState: Ignoring Stopped because wasPlayingBeforeStop "
+        //        "== false");
       break;
     }
 
