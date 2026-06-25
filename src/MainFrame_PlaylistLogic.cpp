@@ -432,3 +432,34 @@ void MainFrame::startAutoUpdateFromSavedPlaylists() {
     showError(this, "Unable to start auto-update thread.");
   }
 }
+
+void MainFrame::HighlightLoadedPlaylistInList() {
+  if (!m_playlistList)
+    return;
+
+  if (m_loadedPlaylistIndex < 0)
+    return;
+
+  long count = m_playlistList->GetItemCount();
+  if (m_loadedPlaylistIndex >= count)
+    return;
+
+  // выделяем строку
+  m_playlistList->SetItemState(m_loadedPlaylistIndex, wxLIST_STATE_SELECTED,
+                               wxLIST_STATE_SELECTED);
+
+  m_playlistList->EnsureVisible(m_loadedPlaylistIndex);
+
+  // обновляем статусбар
+  SetStatusText(wxString::Format("Playlist selected: %s",
+                                 wxString::FromUTF8(m_loadedPlaylistName)),
+                1);
+}
+
+void MainFrame::HandlePlaylistPageChanged(int sel) {
+  int playlistPage = m_notebook->FindPage(m_playlistPanel);
+  if (sel != playlistPage)
+    return;
+
+  HighlightLoadedPlaylistInList();
+}

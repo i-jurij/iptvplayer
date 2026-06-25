@@ -133,59 +133,19 @@ MainFrame::MainFrame(Application* app)
   createMainPanel();
   createStatusBar();
 
-  auto *mgr = getPlaylistManager();
-
   RefreshPlaylistView();
 
-  std::string lastOpenedName =
-      cfg ? cfg->getSetting("last_opened_playlist", "") : std::string();
-
-  bool loadedFromConfig = false;
-
-  if (mgr && !mgr->getPlaylists().empty() && !lastOpenedName.empty()) {
-    const auto &pls = mgr->getPlaylists();
-    for (size_t i = 0; i < pls.size(); ++i) {
-      Playlist *pl = pls[i].get();
-      if (!pl)
-        continue;
-
-      if (pl->getTitle() == lastOpenedName) {
-        m_loadedPlaylistIndex = static_cast<int>(i);
-        m_loadedPlaylistName = lastOpenedName;
-        m_selectedPlaylistIndex = static_cast<int>(i);
-
-        if (m_playlistList &&
-            i < static_cast<size_t>(m_playlistList->GetItemCount())) {
-          m_playlistList->SetItemState(static_cast<long>(i),
-                                       wxLIST_STATE_SELECTED,
-                                       wxLIST_STATE_SELECTED);
-        }
-
-        const auto &channels = pl->getChannels();
-        wxString titleWx = wxString::FromUTF8(pl->getTitle());
-        loadPlaylistChannels(channels, titleWx);
-
-        if (m_channelsPageIdx != wxNOT_FOUND) {
-          m_notebook->SetSelection(m_channelsPageIdx);
-          ToggleHeaderGroup(m_btnChannels);
-        }
-        
-        loadedFromConfig = true;
-        break;
-      }
-    }
-  }
-
-  if (!loadedFromConfig) {
-    SetStatusText("No playlist selected", 1);
-    m_notebook->ChangeSelection(m_notebook->FindPage(m_playlistPanel));
-    m_channelsHeader->SetLabel(
-        "No playlist loaded. Please add one using the Playlists tab.");
-    if (m_channelCards)
-      m_channelCards->SetChannels({}, "empty");
-  }
-
   Centre();
+
+  m_notebook->Bind(wxEVT_AUINOTEBOOK_PAGE_CHANGED,
+                   [this](wxAuiNotebookEvent &evt) {
+                     evt.Skip();
+
+                     int sel = evt.GetSelection();
+
+                     HandleChannelPageChanged(sel);
+                     HandlePlaylistPageChanged(sel);
+                   });
 }
 
 PlaylistManager *MainFrame::getPlaylistManager() const {

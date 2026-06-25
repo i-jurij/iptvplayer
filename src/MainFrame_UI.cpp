@@ -4,6 +4,8 @@
 #include "IconManager.h"
 #include "LogControl.h"
 #include "MainFrame.h"
+#include "Playlist.h"
+#include "PlaylistManager.h"
 #include "Profiler.h"
 #include "Utils.h"
 #include "VP_SvgIcon.h"
@@ -320,6 +322,7 @@ void MainFrame::createMainPanel() {
 
     ToggleHeaderGroup(m_btnPlaylists);
     m_notebook->SetSelection(0);
+    HighlightLoadedPlaylistInList();
   });
 
   m_btnChannels->Bind(wxEVT_TOGGLEBUTTON,
@@ -614,6 +617,8 @@ void MainFrame::createMainPanel() {
   m_mainPanel->SetSizer(mainSizer);
 
   ToggleHeaderGroup(m_btnPlaylists);
+
+  CallAfter([this]() { RestoreLastOpenedPlaylist(); });
 }
 
 void MainFrame::createStatusBar() {
@@ -622,6 +627,48 @@ void MainFrame::createStatusBar() {
   SetStatusWidths(2, widths);
   SetStatusText("Ready", 0);
   SetStatusText("No playlist loaded", 1);
+}
+
+void MainFrame::RestoreLastOpenedPlaylist() {
+  auto *cfg = getConfigManager();
+  auto *mgr = getPlaylistManager();
+  if (!cfg || !mgr)
+    return;
+
+  std::string lastOpened = cfg->getSetting("last_opened_playlist", "");
+  if (lastOpened.empty())
+    return;
+
+  const auto &pls = mgr->getPlaylists();
+  if (pls.empty())
+    return;
+
+  for (size_t i = 0; i < pls.size(); ++i) {
+    Playlist *pl = pls[i].get();
+    if (!pl)
+      continue;
+
+    if (pl->getTitle() == lastOpened) {
+
+      m_loadedPlaylistIndex = static_cast<int>(i);
+      m_loadedPlaylistName = lastOpened;
+      m_selectedPlaylistIndex = static_cast<int>(i);
+
+      // загружаем каналы
+      loadPlaylistChannels(pl->getChannels(),
+                           wxString::FromUTF8(pl->getTitle()));
+
+      // переключаем вкладку Channels
+      ToggleHeaderGroup(m_btnChannels);
+      m_notebook->SetSelection(m_channelsPageIdx);
+
+      SetStatusText(wxString::Format("Playlist selected: %s",
+                                     wxString::FromUTF8(pl->getTitle())),
+                    1);
+
+      return;
+    }
+  }
 }
 
 void MainFrame::showPanel(wxWindow *child) {

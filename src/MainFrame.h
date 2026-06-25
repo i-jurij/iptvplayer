@@ -189,10 +189,14 @@ private:
   void createFavoritesUI();
   void showPanel(wxWindow *panel);
   void UpdateFilterPanelVisibility();
+  void RestoreLastOpenedPlaylist();
+  void HighlightLoadedPlaylistInList();
+  void HandleChannelPageChanged(int sel);
+  void HandlePlaylistPageChanged(int sel);
 
-  // ----------------------------------------------------------------
-  // Thread‑related UI callbacks
-  void onUpdateAllDone(wxCommandEvent &ev);
+      // ----------------------------------------------------------------
+      // Thread‑related UI callbacks
+      void onUpdateAllDone(wxCommandEvent &ev);
   void onUpdateOneDone(wxCommandEvent &ev);
   void onUpdateProgress(wxCommandEvent &ev);
 

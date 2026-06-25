@@ -69,24 +69,19 @@ void MainFrame::createChannelsView() {
                             }
                             evt.Skip();
                           });
+}
 
-  if (m_notebook) {
-    m_notebook->Bind(
-        wxEVT_AUINOTEBOOK_PAGE_CHANGED, [this](wxAuiNotebookEvent &evt) {
-          evt.Skip();
-          if (evt.GetSelection() != m_channelsPageIdx)
-            return;
+void MainFrame::HandleChannelPageChanged(int sel) {
+  if (sel != m_channelsPageIdx)
+    return;
 
-          if (m_channelViewBook->GetSelection() == 0 && m_channelList) {
-            m_channelList->SetFocusFromKbd();
-            return;
-          }
-
-          if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
-            m_channelCards->SetFocusIgnoringChildren();
-            return;
-          }
-        });
+  if (m_channelViewBook->GetSelection() == 0 && m_channelList) {
+    m_channelList->SetFocusFromKbd();
+  } else if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
+    CallAfter([this]() {
+      if (m_channelCards)
+        m_channelCards->SetFocusIgnoringChildren();
+    });
   }
 }
 
