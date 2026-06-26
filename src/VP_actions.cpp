@@ -1,5 +1,6 @@
 #include "ConfigManager.h"
 #include "LogControl.h"
+#include "MainFrame.h"
 #include "VP_SvgIcon.h"
 #include "VideoPanel.h"
 
@@ -10,6 +11,8 @@
 #include <wx/filedlg.h>
 #include <wx/notebook.h>
 #include <wx/textdlg.h>
+
+#include <cassert>
 
 void VideoPanel::OpenFile() {
   const wxString wildcard =
@@ -28,7 +31,7 @@ void VideoPanel::OpenFile() {
 
   wxString path = dlg.GetPath();
   wxFileName fn(path);
-  //LOG_DEBUG("VideoPanel: OpenFile() -> %s", path);
+  // LOG_DEBUG("VideoPanel: OpenFile() -> %s", path);
 
   bool isPlaylist = IsPlaylist(path);
 
@@ -37,8 +40,8 @@ void VideoPanel::OpenFile() {
     wxArrayString list;
 
     bool ok = LoadPlaylistFile(path, list);
-    //LOG_DEBUG("OpenFile: isPlaylist=%d, loadOk=%d, entries=%zu",
-      //        (int)isPlaylist, (int)ok, list.size());
+    // LOG_DEBUG("OpenFile: isPlaylist=%d, loadOk=%d, entries=%zu",
+    //         (int)isPlaylist, (int)ok, list.size());
 
     if (ok) {
       LoadAndPlayPlaylist(path);
@@ -95,10 +98,6 @@ void VideoPanel::OpenUrl() {
 void VideoPanel::PlayChannel(const Channel &ch) {
   ClearTempPlaylist();
 
-  wxNotebook *notebook = static_cast<wxNotebook *>(GetParent());
-  m_channelSourceTab = notebook->GetSelection(); // ← запоминаем вкладку
-  m_isChannelPlaying = true;
-
   std::string url = ch.getUrl();
   m_currentName = ch.getName();
   m_playerController->PlayUrl(url);
@@ -145,9 +144,9 @@ void VideoPanel::Play() {
 }
 
 void VideoPanel::Pause() {
- // if (m_playerController->GetState() != PlayerState::Playing) 
-   // return;
-  
+  // if (m_playerController->GetState() != PlayerState::Playing)
+  // return;
+
   m_playerController->Pause();
 
   if (m_onPlayerState)
@@ -165,7 +164,6 @@ void VideoPanel::Stop() {
   m_pendingTempPlay = false;
   m_pendingTempIndex = -1;
 
-  // сброс EOF-состояния
   m_waitingForNext = false;
   m_lastTimePos = -1.0;
   m_stillFramesCount = 0;
@@ -181,309 +179,324 @@ void VideoPanel::Stop() {
   m_btnPause->Disable();
   m_btnStop->Disable();
 
-  // Канал → вернуть на вкладку
-  if (m_isChannelPlaying && m_channelSourceTab >= 0) {
-    if (m_onRequestTabSwitch)
-      m_onRequestTabSwitch(m_channelSourceTab);
+  // Инвалидация отложенных showPanel через публичный метод MainFrame
+  MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+  uint64_t newToken = 0;
+  if (mf) {
+    newToken = mf->InvalidateShowPanelToken();
+    LOG_DEBUG("VideoPanel::Stop: invalidated MainFrame showPanel token -> %llu",
+              (unsigned long long)newToken);
+  } else {
+    LOG_DEBUG("VideoPanel::Stop: top-level parent is not MainFrame");
   }
 
-  // Temp playlist → остаёмся в VideoPanel (ничего не делаем)
+  int idx = m_channelSourceTab;
+  auto cb = m_onRequestTabSwitch;
+
+  wxTheApp->CallAfter([cb, idx]() {
+    LOG_DEBUG("VideoPanel::Stop: calling m_onRequestTabSwitch with idx=%d",
+              idx);
+    cb(idx);
+  });
+
   m_isChannelPlaying = false;
   m_isTempPlaylistPlaying = false;
   m_channelSourceTab = -1;
   m_tempCurrentIndex = -1;
 }
-// ============================================================================
-// Mute / Unmute logic
-// ============================================================================
 
-void VideoPanel::Mute() {
-  m_isMuted = true;
-  m_btnMute->SetValue(true);
+  // ============================================================================
+  // Mute / Unmute logic
+  // ============================================================================
 
-  {
-    wxBitmapBundle icon = LoadSvgIcon("mute", this);
-    if (icon.IsOk())
-      m_btnMute->SetBitmap(icon);
-    else
-      m_btnMute->SetLabel("Mute");
+  void VideoPanel::Mute() {
+    m_isMuted = true;
+    m_btnMute->SetValue(true);
+
+    {
+      wxBitmapBundle icon = LoadSvgIcon("mute", this);
+      if (icon.IsOk())
+        m_btnMute->SetBitmap(icon);
+      else
+        m_btnMute->SetLabel("Mute");
+    }
+
+    m_lastVolume = m_volumeSlider->GetValue();
+    m_volumeSlider->Disable();
+    m_volumeSlider->SetValue(0);
+
+    m_playerController->SetVolume(0);
   }
 
-  m_lastVolume = m_volumeSlider->GetValue();
-  m_volumeSlider->Disable();
-  m_volumeSlider->SetValue(0);
+  void VideoPanel::Unmute() {
+    m_isMuted = false;
+    m_btnMute->SetValue(false);
 
-  m_playerController->SetVolume(0);
-}
+    {
+      wxBitmapBundle icon = LoadSvgIcon("unmute", this);
+      if (icon.IsOk())
+        m_btnMute->SetBitmap(icon);
+      else
+        m_btnMute->SetLabel("Vol");
+    }
 
-void VideoPanel::Unmute() {
-  m_isMuted = false;
-  m_btnMute->SetValue(false);
+    m_volumeSlider->Enable();
+    m_volumeSlider->SetValue(m_lastVolume);
 
-  {
-    wxBitmapBundle icon = LoadSvgIcon("unmute", this);
-    if (icon.IsOk())
-      m_btnMute->SetBitmap(icon);
-    else
-      m_btnMute->SetLabel("Vol");
+    m_playerController->SetVolume(m_lastVolume);
   }
 
-  m_volumeSlider->Enable();
-  m_volumeSlider->SetValue(m_lastVolume);
-
-  m_playerController->SetVolume(m_lastVolume);
-}
-
-void VideoPanel::ToggleMute() {
-  if (m_btnMute->GetValue()) {
-    m_playerController->SetMuted(true);
-  } else {
-    m_playerController->SetMuted(false);
-  }
-}
-
-// ============================================================================
-// Volume
-// ============================================================================
-
-void VideoPanel::SetVolume(int vol) {
-  if (!m_isMuted) {
-    m_lastVolume = vol;
-    m_playerController->SetVolume(vol);
-  }
-}
-
-// ============================================================================
-// Fullscreen logic
-// ============================================================================
-void VideoPanel::SetUIElementsToHide(wxPanel *headerPanel, wxGauge *gaugeTop) {
-  m_headerPanel = headerPanel;
-  m_gaugeTop = gaugeTop;
-}
-
-void VideoPanel::ToggleFullscreen() {
-  m_isFullscreen = !m_isFullscreen;
-
-  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
-  if (!frame)
-    return;
-
-  frame->ShowFullScreen(m_isFullscreen, wxFULLSCREEN_ALL);
-
-  wxWindow *parent = GetParent();               // это m_notebook
-  wxWindow *grandparent = parent->GetParent();  // это m_mainPanel
-  wxSizer *mainSizer = grandparent->GetSizer(); // сизер MainFrame
-
-  if (m_isFullscreen) {
-    // Убираем отступы у notebook в fullscreen
-    mainSizer->Detach(parent);
-    mainSizer->Add(parent, 1,
-                   wxEXPAND); // убираем wxLEFT | wxRIGHT | wxBOTTOM, 6
-    grandparent->Layout();
-    // Скрываем курсор
-    wxCursor blankCursor(wxCURSOR_BLANK);
-    m_videoArea->SetCursor(blankCursor);
-
-    // Скрываем header и gauge
-    if (m_headerPanel)
-      m_headerPanel->Hide();
-    if (m_gaugeTop)
-      m_gaugeTop->Hide();
-
-    m_controlsPanel->Hide();
-    m_progress->Hide();
-
-    wxBitmapBundle icon = LoadSvgIcon("compress", this);
-    if (icon.IsOk())
-      m_btnFullscreen->SetBitmap(icon);
-    else
-      m_btnFullscreen->SetLabel("Exit");
-
-    if (m_videoArea)
-      m_videoArea->SetFocus();
-
-    m_isFullscreen = true;
-  } else {
-    // Восстанавливаем отступы при выходе из fullscreen
-    mainSizer->Detach(parent);
-    mainSizer->Add(parent, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
-    grandparent->Layout();
-    // Восстанавливаем обычный курсор
-    m_videoArea->SetCursor(wxCURSOR_DEFAULT);
-
-    // Показываем обратно
-    if (m_headerPanel)
-      m_headerPanel->Show();
-    // if (m_gaugeTop)
-    // m_gaugeTop->Show();
-
-    m_controlsPanel->Show();
-    m_progress->Show();
-    Layout();
-    m_controlsVisible = true;
-
-    wxBitmapBundle icon = LoadSvgIcon("expand", this);
-    if (icon.IsOk())
-      m_btnFullscreen->SetBitmap(icon);
-    else
-      m_btnFullscreen->SetLabel("Full");
-
-    m_isFullscreen = false;
+  void VideoPanel::ToggleMute() {
+    if (m_btnMute->GetValue()) {
+      m_playerController->SetMuted(true);
+    } else {
+      m_playerController->SetMuted(false);
+    }
   }
 
-  // Перепроверь Layout на родителе
-  if (parent)
-    parent->Layout();
+  // ============================================================================
+  // Volume
+  // ============================================================================
 
-  // 🔥 Автоматический возврат фокуса на видео,
-  // но только если панель активна и видима
-  if (m_focusManager)
-    m_focusManager->EnsureFocus();
-}
-
-// ============================================================================
-// Autohide controls
-// ============================================================================
-void VideoPanel::ShowControls() {
-  if (!m_controlsVisible) {
-    m_controlsPanel->Show();
-    m_progress->Show();
-    m_controlsPanel->Refresh();
-    m_progress->Refresh();
-    Layout();
-    m_controlsVisible = true;
-
-    //LOG_DEBUG("ShowControls: visible=true, fullscreen=%d", m_isFullscreen);
-  }
-}
-
-void VideoPanel::HideControls() {
-  if (m_controlsVisible && m_isFullscreen) {
-    m_controlsPanel->Hide();
-    m_progress->Hide();
-    m_controlsPanel->Refresh();
-    m_progress->Refresh();
-    Layout();
-    m_controlsVisible = false;
-
-    //LOG_DEBUG("HideControls: visible=false");
-  }
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-bool VideoPanel::IsVideoFile(const wxString &path) {
-  wxString ext = path.AfterLast('.').Lower();
-
-  static const wxArrayString videoExt = {"mp4", "mkv",  "avi", "mov",
-                                         "ts",  "mpeg", "mpg", "webm"};
-
-  return videoExt.Index(ext) != wxNOT_FOUND;
-}
-
-bool VideoPanel::IsPlaylist(const wxString &path) {
-  wxString ext = path.AfterLast('.').Lower();
-  return ext == "m3u" || ext == "m3u8";
-}
-
-bool VideoPanel::IsDvdFolder(const wxString &path) {
-  return wxDirExists(path + "/VIDEO_TS");
-}
-
-void VideoPanel::SetRecentFiles(const std::vector<wxString> &files) {
-  m_recentFiles = files;
-}
-
-std::vector<wxString> VideoPanel::GetRecentFiles() const {
-  return m_recentFiles;
-}
-
-void VideoPanel::AddToRecent(const wxString &path) {
-  //LOG_DEBUG("VideoPanel: AddToRecent(%s)", path);
-
-  // Удаляем дубликат
-  auto it = std::find(m_recentFiles.begin(), m_recentFiles.end(), path);
-  if (it != m_recentFiles.end()) {
-    m_recentFiles.erase(it);
+  void VideoPanel::SetVolume(int vol) {
+    if (!m_isMuted) {
+      m_lastVolume = vol;
+      m_playerController->SetVolume(vol);
+    }
   }
 
-  // Добавляем в начало
-  m_recentFiles.insert(m_recentFiles.begin(), path);
-
-  // Ограничиваем размер MRU
-  const size_t MAX_RECENT = 10;
-  if (m_recentFiles.size() > MAX_RECENT) {
-    m_recentFiles.resize(MAX_RECENT);
-  }
-}
-
-void VideoPanel::OpenRecent(size_t index) {
-  if (index >= m_recentFiles.size())
-    return;
-
-  wxString item = m_recentFiles[index];
-
-  bool isUrl = item.StartsWith("http://") || item.StartsWith("https://") ||
-               item.StartsWith("rtsp://");
-
-  bool isPlaylist = IsPlaylist(item);
-
-  // --- Плейлист ---
-  if (isPlaylist) {
-    LoadAndPlayPlaylist(item);
-    return;
+  // ============================================================================
+  // Fullscreen logic
+  // ============================================================================
+  void VideoPanel::SetUIElementsToHide(wxPanel * headerPanel,
+                                       wxGauge * gaugeTop) {
+    m_headerPanel = headerPanel;
+    m_gaugeTop = gaugeTop;
   }
 
-  // --- URL ---
-  if (isUrl) {
-    bool isPlaylistUrl = IsPlaylist(item);
-    if (isPlaylistUrl) {
+  void VideoPanel::ToggleFullscreen() {
+    m_isFullscreen = !m_isFullscreen;
+
+    wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+    if (!frame)
+      return;
+
+    frame->ShowFullScreen(m_isFullscreen, wxFULLSCREEN_ALL);
+
+    wxWindow *parent = GetParent();               // это m_notebook
+    wxWindow *grandparent = parent->GetParent();  // это m_mainPanel
+    wxSizer *mainSizer = grandparent->GetSizer(); // сизер MainFrame
+
+    if (m_isFullscreen) {
+      // Убираем отступы у notebook в fullscreen
+      mainSizer->Detach(parent);
+      mainSizer->Add(parent, 1,
+                     wxEXPAND); // убираем wxLEFT | wxRIGHT | wxBOTTOM, 6
+      grandparent->Layout();
+      // Скрываем курсор
+      wxCursor blankCursor(wxCURSOR_BLANK);
+      m_videoArea->SetCursor(blankCursor);
+
+      // Скрываем header и gauge
+      if (m_headerPanel)
+        m_headerPanel->Hide();
+      if (m_gaugeTop)
+        m_gaugeTop->Hide();
+
+      m_controlsPanel->Hide();
+      m_progress->Hide();
+
+      wxBitmapBundle icon = LoadSvgIcon("compress", this);
+      if (icon.IsOk())
+        m_btnFullscreen->SetBitmap(icon);
+      else
+        m_btnFullscreen->SetLabel("Exit");
+
+      if (m_videoArea)
+        m_videoArea->SetFocus();
+
+      m_isFullscreen = true;
+    } else {
+      // Восстанавливаем отступы при выходе из fullscreen
+      mainSizer->Detach(parent);
+      mainSizer->Add(parent, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
+      grandparent->Layout();
+      // Восстанавливаем обычный курсор
+      m_videoArea->SetCursor(wxCURSOR_DEFAULT);
+
+      // Показываем обратно
+      if (m_headerPanel)
+        m_headerPanel->Show();
+      // if (m_gaugeTop)
+      // m_gaugeTop->Show();
+
+      m_controlsPanel->Show();
+      m_progress->Show();
+      Layout();
+      m_controlsVisible = true;
+
+      wxBitmapBundle icon = LoadSvgIcon("expand", this);
+      if (icon.IsOk())
+        m_btnFullscreen->SetBitmap(icon);
+      else
+        m_btnFullscreen->SetLabel("Full");
+
+      m_isFullscreen = false;
+    }
+
+    // Перепроверь Layout на родителе
+    if (parent)
+      parent->Layout();
+
+    // 🔥 Автоматический возврат фокуса на видео,
+    // но только если панель активна и видима
+    if (m_focusManager)
+      m_focusManager->EnsureFocus();
+  }
+
+  // ============================================================================
+  // Autohide controls
+  // ============================================================================
+  void VideoPanel::ShowControls() {
+    if (!m_controlsVisible) {
+      m_controlsPanel->Show();
+      m_progress->Show();
+      m_controlsPanel->Refresh();
+      m_progress->Refresh();
+      Layout();
+      m_controlsVisible = true;
+
+      // LOG_DEBUG("ShowControls: visible=true, fullscreen=%d", m_isFullscreen);
+    }
+  }
+
+  void VideoPanel::HideControls() {
+    if (m_controlsVisible && m_isFullscreen) {
+      m_controlsPanel->Hide();
+      m_progress->Hide();
+      m_controlsPanel->Refresh();
+      m_progress->Refresh();
+      Layout();
+      m_controlsVisible = false;
+
+      // LOG_DEBUG("HideControls: visible=false");
+    }
+  }
+
+  // ============================================================================
+  // Helpers
+  // ============================================================================
+
+  bool VideoPanel::IsVideoFile(const wxString &path) {
+    wxString ext = path.AfterLast('.').Lower();
+
+    static const wxArrayString videoExt = {"mp4", "mkv",  "avi", "mov",
+                                           "ts",  "mpeg", "mpg", "webm"};
+
+    return videoExt.Index(ext) != wxNOT_FOUND;
+  }
+
+  bool VideoPanel::IsPlaylist(const wxString &path) {
+    wxString ext = path.AfterLast('.').Lower();
+    return ext == "m3u" || ext == "m3u8";
+  }
+
+  bool VideoPanel::IsDvdFolder(const wxString &path) {
+    return wxDirExists(path + "/VIDEO_TS");
+  }
+
+  void VideoPanel::SetRecentFiles(const std::vector<wxString> &files) {
+    m_recentFiles = files;
+  }
+
+  std::vector<wxString> VideoPanel::GetRecentFiles() const {
+    return m_recentFiles;
+  }
+
+  void VideoPanel::AddToRecent(const wxString &path) {
+    // LOG_DEBUG("VideoPanel: AddToRecent(%s)", path);
+
+    // Удаляем дубликат
+    auto it = std::find(m_recentFiles.begin(), m_recentFiles.end(), path);
+    if (it != m_recentFiles.end()) {
+      m_recentFiles.erase(it);
+    }
+
+    // Добавляем в начало
+    m_recentFiles.insert(m_recentFiles.begin(), path);
+
+    // Ограничиваем размер MRU
+    const size_t MAX_RECENT = 10;
+    if (m_recentFiles.size() > MAX_RECENT) {
+      m_recentFiles.resize(MAX_RECENT);
+    }
+  }
+
+  void VideoPanel::OpenRecent(size_t index) {
+    if (index >= m_recentFiles.size())
+      return;
+
+    wxString item = m_recentFiles[index];
+
+    bool isUrl = item.StartsWith("http://") || item.StartsWith("https://") ||
+                 item.StartsWith("rtsp://");
+
+    bool isPlaylist = IsPlaylist(item);
+
+    // --- Плейлист ---
+    if (isPlaylist) {
       LoadAndPlayPlaylist(item);
       return;
     }
 
-    // обычный URL
+    // --- URL ---
+    if (isUrl) {
+      bool isPlaylistUrl = IsPlaylist(item);
+      if (isPlaylistUrl) {
+        LoadAndPlayPlaylist(item);
+        return;
+      }
+
+      // обычный URL
+      ClearTempPlaylist();
+      m_playerController->PlayUrl(item.ToStdString());
+      Play();
+      return;
+    }
+
+    // --- Обычный файл ---
     ClearTempPlaylist();
-    m_playerController->PlayUrl(item.ToStdString());
+    m_playerController->PlayFile(item.ToStdString());
     Play();
-    return;
   }
 
-  // --- Обычный файл ---
-  ClearTempPlaylist();
-  m_playerController->PlayFile(item.ToStdString());
-  Play();
-}
+  void VideoPanel::LoadAndPlayPlaylist(const wxString &path) {
+    wxArrayString list;
+    if (!LoadPlaylistFile(path, list) || list.IsEmpty())
+      return;
 
-void VideoPanel::LoadAndPlayPlaylist(const wxString &path) {
-  wxArrayString list;
-  if (!LoadPlaylistFile(path, list) || list.IsEmpty())
-    return;
+    ClearTempPlaylist();
+    AddToTempPlaylist(list);
+    ShowTempPlaylist();
 
-  ClearTempPlaylist();
-  AddToTempPlaylist(list);
-  ShowTempPlaylist();
+    // выделяем первый
+    m_tempPlaylistList->SetItemState(0, wxLIST_STATE_SELECTED,
+                                     wxLIST_STATE_SELECTED);
+    m_tempPlaylistList->EnsureVisible(0);
 
-  // выделяем первый
-  m_tempPlaylistList->SetItemState(0, wxLIST_STATE_SELECTED,
-                                   wxLIST_STATE_SELECTED);
-  m_tempPlaylistList->EnsureVisible(0);
+    m_isChannelPlaying = false;
 
-  m_isChannelPlaying = false;
+    // Помечаем pending запуск из temp playlist и сохраняем индекс 0
+    m_pendingTempPlay = true;
+    m_pendingTempIndex = 0;
 
-  // Помечаем pending запуск из temp playlist и сохраняем индекс 0
-  m_pendingTempPlay = true;
-  m_pendingTempIndex = 0;
+    // НЕ включаем m_isTempPlaylistPlaying здесь — дождёмся PlayerState::Playing
+    if (!m_playerController->PlayFile(list[0].ToStdString())) {
+      LOG_ERROR("Failed to play first item of playlist");
+      m_pendingTempPlay = false;
+      m_pendingTempIndex = -1;
+      return;
+    }
 
-  // НЕ включаем m_isTempPlaylistPlaying здесь — дождёмся PlayerState::Playing
-  if (!m_playerController->PlayFile(list[0].ToStdString())) {
-    LOG_ERROR("Failed to play first item of playlist");
-    m_pendingTempPlay = false;
-    m_pendingTempIndex = -1;
-    return;
+    Play();
   }
-
-  Play();
-}

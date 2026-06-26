@@ -461,5 +461,8 @@ void MainFrame::HandlePlaylistPageChanged(int sel) {
   if (sel != playlistPage)
     return;
 
-  HighlightLoadedPlaylistInList();
+  LOG_DEBUG("HandlePlaylistPageChanged: sel=%d (playlistPage=%d)", sel,
+            playlistPage);
+
+  CallAfter([this]() { HighlightLoadedPlaylistInList(); });
 }

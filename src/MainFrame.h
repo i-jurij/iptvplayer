@@ -99,7 +99,11 @@ public:
 
   void ApplyFullscreen(bool fs);
 
+  uint64_t InvalidateShowPanelToken();
+
 private:
+  std::atomic<bool> m_ignoreNotebookEvents{false};
+  
   wxToggleButton *m_btnPlaylists = nullptr;
   wxToggleButton *m_btnChannels = nullptr;
   wxToggleButton *m_btnFavorites = nullptr;
@@ -140,6 +144,7 @@ private:
   ChannelCards *m_channelCards{nullptr};
   wxPanel *m_channelsPage{nullptr};
   int m_channelsPageIdx = wxNOT_FOUND;
+  int m_favoritesPageIdx = -1;
 
   wxToolBar *m_viewToolBar{nullptr};
 
@@ -192,6 +197,7 @@ private:
   void RestoreLastOpenedPlaylist();
   void HighlightLoadedPlaylistInList();
   void HandleChannelPageChanged(int sel);
+  void HandleFavPageChanged(int sel);
   void HandlePlaylistPageChanged(int sel);
 
       // ----------------------------------------------------------------
@@ -246,6 +252,8 @@ private:
   void onToggleFavoritesView(wxCommandEvent &evt);
   void onChannelSelected(const Channel &ch, size_t index, const wxRect &rect);
   void onFavoriteSelected(const Channel &ch, size_t index, const wxRect &rect);
+
+  std::atomic<uint64_t> m_showPanelToken{0};
 };
 
 #endif // MAINFRAME_H

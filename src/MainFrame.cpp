@@ -137,15 +137,20 @@ MainFrame::MainFrame(Application* app)
 
   Centre();
 
-  m_notebook->Bind(wxEVT_AUINOTEBOOK_PAGE_CHANGED,
-                   [this](wxAuiNotebookEvent &evt) {
-                     evt.Skip();
-
-                     int sel = evt.GetSelection();
-
-                     HandleChannelPageChanged(sel);
-                     HandlePlaylistPageChanged(sel);
-                   });
+  m_notebook->Bind(
+      wxEVT_AUINOTEBOOK_PAGE_CHANGED, [this](wxAuiNotebookEvent &evt) {
+        if (m_ignoreNotebookEvents.load()) {
+          LOG_DEBUG("Notebook change ignored due to guard");
+          return;
+        }
+        
+        int sel = evt.GetSelection();
+        LOG_DEBUG("Notebook page changed event: new selection=%d", sel);
+        evt.Skip();
+        HandleChannelPageChanged(sel);
+        HandleFavPageChanged(sel);
+        HandlePlaylistPageChanged(sel);
+      });
 }
 
 PlaylistManager *MainFrame::getPlaylistManager() const {

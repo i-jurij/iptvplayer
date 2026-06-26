@@ -281,6 +281,7 @@ void MainFrame::createMainPanel() {
   favSizer->Add(m_favViewBook, 1, wxEXPAND | wxALL, 4);
   favoritesPage->SetSizer(favSizer);
   m_notebook->AddPage(favoritesPage, "Favorites");
+  m_favoritesPageIdx = m_notebook->FindPage(favoritesPage);
   CallAfter([this]() { refreshFavorites(); });
 
   // -------------------------------
@@ -288,9 +289,56 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   m_videoPanel = new VideoPanel(m_notebook);
   m_videoPanel->SetUIElementsToHide(headerPanel, m_gaugeTop);
+
   m_videoPanel->m_onRequestTabSwitch = [this](int index) {
+    LOG_DEBUG("m_onRequestTabSwitch: requested index=%d", index);
+
+    // Если уже идёт программное переключение — игнорируем новый запрос
+    if (m_ignoreNotebookEvents.load()) {
+      LOG_DEBUG("m_onRequestTabSwitch: ignored because m_ignoreNotebookEvents "
+                "is set");
+      return;
+    }
+
+    // Захватываем токен, чтобы отложённые/асинхронные вызовы могли быть
+    // инвалидацированы
+    uint64_t token = m_showPanelToken.load();
+
+    // Поднимаем флаг, чтобы синхронные обработчики страницы не выполняли
+    // побочную логику
+    m_ignoreNotebookEvents.store(true);
+
+    // Выполняем переключение вкладки
     m_notebook->SetSelection(index);
-    ToggleHeaderGroup(index);
+    LOG_DEBUG("m_onRequestTabSwitch: SetSelection(%d) done, current=%d", index,
+              m_notebook->GetSelection());
+
+    // Асинхронно выполняем пост‑действия и снимаем флаг; проверяем токен на
+    // инвалидацию
+    CallAfter([this, index, token]() {
+      // Если токен изменился — кто-то инвалидировал показ панели, пропускаем
+      // пост‑действия
+      if (token != m_showPanelToken.load()) {
+        LOG_DEBUG("m_onRequestTabSwitch(CallAfter): token invalidated, "
+                  "skipping post actions (index=%d)",
+                  index);
+        m_ignoreNotebookEvents.store(false);
+        return;
+      }
+
+      // Вызываем те же обработчики, что обычно срабатывают на событие страницы
+      HandleChannelPageChanged(index);
+      HandleFavPageChanged(index);
+      HandlePlaylistPageChanged(index);
+
+      // Обновляем заголовок
+      ToggleHeaderGroup(index);
+
+      // Снимаем блокировку — теперь внешние события снова обрабатываются
+      m_ignoreNotebookEvents.store(false);
+      LOG_DEBUG("m_onRequestTabSwitch(CallAfter): finished for index=%d",
+                index);
+    });
   };
 
   m_videoPageIdx = m_notebook->AddPage(m_videoPanel, "Video");
@@ -688,3 +736,5 @@ void MainFrame::showPanel(wxWindow *child) {
 
   Layout();
 }
+
+uint64_t MainFrame::InvalidateShowPanelToken() { return ++m_showPanelToken; }

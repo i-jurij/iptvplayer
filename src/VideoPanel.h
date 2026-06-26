@@ -57,6 +57,9 @@ class VideoPanel : public wxPanel {
 public:
   VideoPanel(wxWindow *parent);
   ~VideoPanel();
+
+  wxWindow *GetVideoArea() const { return m_videoArea; }
+
   std::unique_ptr<PlayerController> m_playerController;
 
   int GetLastVolume() const { return m_lastVolume; };
@@ -90,7 +93,9 @@ public:
     m_onProgress = std::move(cb);
   }
 
+  void SetChannelSourceTab(int tab) { m_channelSourceTab = tab; }
   void SetIsChannelPlaying(bool is_channel) { m_isChannelPlaying = is_channel; }
+  void SetIsFavoritePlaying(bool is_fav) { m_isFavoritePlaying = is_fav; }
 
   // Обработчик прогресса из PlayerController
   void OnProgressInfo(const ProgressInfo &info);
@@ -113,6 +118,7 @@ private:
   std::string m_currentName;
   int m_channelSourceTab = -1;
   bool m_isChannelPlaying = false;
+  bool m_isFavoritePlaying = false;
 
   FocusManager *m_focusManager = nullptr;
 

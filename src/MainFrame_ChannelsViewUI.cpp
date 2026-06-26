@@ -75,9 +75,15 @@ void MainFrame::HandleChannelPageChanged(int sel) {
   if (sel != m_channelsPageIdx)
     return;
 
+  LOG_DEBUG("HandleChannelPageChanged: sel=%d", sel);
+
   if (m_channelViewBook->GetSelection() == 0 && m_channelList) {
+    // немедленная фокусировка безопасна
     m_channelList->SetFocusFromKbd();
-  } else if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
+    return;
+  }
+
+  if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
     CallAfter([this]() {
       if (m_channelCards)
         m_channelCards->SetFocusIgnoringChildren();
