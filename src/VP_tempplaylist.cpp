@@ -213,6 +213,8 @@ void VideoPanel::HandleDroppedFiles(const wxArrayString &files) {
       m_isChannelPlaying = false;
 
       //LOG_DEBUG("HandleDroppedFiles: pending set idx=0");
+      m_uiState = UiState::Loading;
+      UpdateUiButtons();
 
       if (m_playerController->PlayFile(first.ToStdString())) {
         Play();
@@ -331,6 +333,9 @@ void VideoPanel::PlayNextTempItem() {
                                    wxLIST_STATE_SELECTED);
 
   m_tempPlaylistList->EnsureVisible(next);
+
+  m_uiState = UiState::Loading;
+  UpdateUiButtons();
 
   // 8) Запускаем файл
   if (!m_playerController->PlayFile(path.ToStdString())) {
@@ -466,6 +471,8 @@ void VideoPanel::OnTempPlaylistListActivate(wxListEvent &evt) {
 
   //LOG_DEBUG("OnTempPlaylistListActivate: pending set idx=%d",
     //        m_pendingTempIndex);
+  m_uiState = UiState::Loading;
+  UpdateUiButtons();
 
   if (!m_playerController->PlayFile(path.ToStdString())) {
     LOG_ERROR("Temp playlist: failed to play file");
@@ -559,6 +566,8 @@ void VideoPanel::TempPlaylistPlay() {
   m_isChannelPlaying = false;
 
   //LOG_DEBUG("TempPlaylistPlay: pending set idx=%d", m_pendingTempIndex);
+  m_uiState = UiState::Loading;
+  UpdateUiButtons();
 
   if (!m_playerController->PlayFile(path.ToStdString())) {
     LOG_ERROR("Temp playlist: failed to play file");
@@ -809,6 +818,9 @@ void VideoPanel::PlayPrevTempItem() {
   m_tempCurrentIndex = prev;
   wxString path = m_tempPlaylist[prev];
 
+  m_uiState = UiState::Loading;
+  UpdateUiButtons();
+  
   if (!m_playerController->PlayFile(path.ToStdString())) {
     LOG_ERROR("Failed to play previous temp playlist item");
     return;

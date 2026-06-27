@@ -415,9 +415,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   }
 
   // Начальное состояние кнопок
-  m_btnPlay->Enable();
-  m_btnPause->Disable();
-  m_btnStop->Disable();
+  m_uiState = UiState::Idle;
+  UpdateUiButtons();
 
   // Keyboard
   Bind(wxEVT_CHAR_HOOK, &VideoPanel::OnKey, this);
@@ -547,10 +546,10 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   // FILE_LOADED (mpv сообщил, что файл загружен)
   // -------------------------
   case PlayerState::FileLoaded: {
-    // Запоминаем время FILE_LOADED — используем для debounce ложных Stopped
+    m_uiState = UiState::Loading;
+    UpdateUiButtons();
     m_lastFileLoadedTime = std::chrono::steady_clock::now();
-    m_wasPlayingBeforeStop = false; // ещё не было Playing
-    //LOG_DEBUG("OnPlayerState: FileLoaded recorded time");
+    m_wasPlayingBeforeStop = false;
     break;
   }
 
@@ -558,15 +557,10 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   // PLAYING
   // -------------------------
   case PlayerState::Playing: {
-    m_btnPlay->Disable();
-    m_btnPause->Enable();
-    m_btnStop->Enable();
-
-    // Подтверждаем, что файл действительно начал играть
+    m_uiState = UiState::Playing;
+    UpdateUiButtons();
     m_wasPlayingBeforeStop = true;
 
-    // Если запуск был инициирован из temp playlist — теперь включаем режим
-    // плейлиста
     if (m_pendingTempPlay) {
       m_isChannelPlaying = false;
       m_isTempPlaylistPlaying = true;
@@ -574,9 +568,6 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
         m_tempCurrentIndex = m_pendingTempIndex;
       m_pendingTempPlay = false;
       m_pendingTempIndex = -1;
-      //LOG_DEBUG(
-        //  "OnPlayerState: Playing confirmed -> temp playlist mode ON, idx=%d",
-          //m_tempCurrentIndex);
     }
     break;
   }
@@ -585,9 +576,8 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   // PAUSED
   // -------------------------
   case PlayerState::Paused: {
-    m_btnPlay->Enable();
-    m_btnPause->Disable();
-    m_btnStop->Enable();
+    m_uiState = UiState::Paused;
+    UpdateUiButtons();
     break;
   }
 
@@ -595,56 +585,42 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   // STOPPED (END_FILE или ручной стоп)
   // -------------------------
   case PlayerState::Stopped: {
-    // Обновляем UI
-    m_btnPlay->Enable();
-    m_btnPause->Disable();
-    m_btnStop->Disable();
+    m_uiState = UiState::Idle;
+    UpdateUiButtons();
 
-    // --- Автопереход ---
-    // 1) Плейлист не активен → просто стоп
-    if (!m_isTempPlaylistPlaying)
-      break;
-
-    // Если мы в состоянии pending (запуск из temp playlist ожидает
-    // подтверждения Playing),
-    // и пришёл Stopped до подтверждения — считаем это неудачным стартом и
-    // просто очищаем pending.
-    if (m_pendingTempPlay) {
-      //LOG_DEBUG("OnPlayerState: Stopped received while pending -> clear "
-        //        "pending and ignore");
-      m_pendingTempPlay = false;
-      m_pendingTempIndex = -1;
-      // Не делаем автопереход
+    // Если плейлист неактивен или нет pending — просто стоп
+    if (!m_isTempPlaylistPlaying) {
       break;
     }
 
-    // 2) Debounce: игнорируем Stopped, если он пришёл слишком быстро после
-    // FILE_LOADED
+    // Если был pending запуск — значит загрузка не удалась, очищаем
+    if (m_pendingTempPlay) {
+      m_pendingTempPlay = false;
+      m_pendingTempIndex = -1;
+      break;
+    }
+
+    // Debounce: игнорируем Stopped, если слишком быстро после FILE_LOADED
     {
       auto now = std::chrono::steady_clock::now();
       auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(
                        now - m_lastFileLoadedTime)
                        .count();
       if (delta >= 0 && delta < kStoppedDebounceMs) {
-        //LOG_DEBUG("OnPlayerState: Ignoring Stopped (delta %d ms < %d ms)",
-          //        (int)delta, kStoppedDebounceMs);
         break;
       }
     }
 
-    // 3) Дополнительная проверка: автопереход только если до Stopped был
-    // Playing
+    // Автопереход только если был реальный Playing до этого
     if (!m_wasPlayingBeforeStop) {
-      //LOG_DEBUG("OnPlayerState: Ignoring Stopped because wasPlayingBeforeStop "
-        //        "== false");
       break;
     }
 
-    // 4) Меньше двух файлов → переход не нужен
-    if (m_tempPlaylist.size() < 2)
+    // Минимум два трека для автопехода
+    if (m_tempPlaylist.size() < 2) {
       break;
+    }
 
-    // 5) Переход к следующему треку
     PlayNextTempItem();
     break;
   }
@@ -653,3 +629,75 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     break;
   }
 }
+
+void VideoPanel::UpdateUiButtons() {
+  if (!m_btnPlay || !m_btnPause || !m_btnStop)
+    return;
+
+  switch (m_uiState) {
+  case UiState::Idle:
+    m_btnPlay->Enable();
+    m_btnPause->Disable();
+    m_btnStop->Disable();
+    break;
+
+  case UiState::Loading:
+    m_btnPlay->Disable();
+    m_btnPause->Disable();
+    m_btnStop->Enable();
+    break;
+
+  case UiState::Playing:
+    m_btnPlay->Disable();
+    m_btnPause->Enable();
+    m_btnStop->Enable();
+    break;
+
+  case UiState::Paused:
+    m_btnPlay->Enable();
+    m_btnPause->Disable();
+    m_btnStop->Enable();
+    break;
+  }
+
+  // Опционально: индикатор Loading в статусбаре
+  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+  if (frame && frame->GetStatusBar()) {
+    if (m_uiState == UiState::Loading) {
+      frame->SetStatusText("Loading...", 0);
+    } else {
+      frame->SetStatusText("", 0);
+    }
+  }
+}
+
+// SetTabActive: вызывается из MainFrame при смене вкладки
+void VideoPanel::SetTabActive(bool active) {
+  // active == false: уход со вкладки Video
+  if (!active) {
+    // Если сейчас играет — ставим системную паузу
+    if (m_playerController &&
+        m_playerController->GetState() == PlayerState::Playing) {
+      m_autoPausedByTabSwitch = true;
+      // вызываем Pause() — не меняем кнопки напрямую
+      Pause();
+      // OnPlayerState() получит Paused и вызовет UpdateUiButtons()
+    }
+    return;
+  }
+
+  // active == true: возврат на вкладку Video
+  if (m_autoPausedByTabSwitch) {
+    // Если плеер сейчас в Paused (и пауза была системной) — возобновляем
+    if (m_playerController &&
+        m_playerController->GetState() == PlayerState::Paused) {
+      m_autoPausedByTabSwitch = false;
+      Play();
+      // OnPlayerState() -> Playing -> UpdateUiButtons()
+    } else {
+      // Сброс флага, если состояние не Paused
+      m_autoPausedByTabSwitch = false;
+    }
+  }
+}
+

@@ -140,13 +140,26 @@ MainFrame::MainFrame(Application* app)
   m_notebook->Bind(
       wxEVT_AUINOTEBOOK_PAGE_CHANGED, [this](wxAuiNotebookEvent &evt) {
         if (m_ignoreNotebookEvents.load()) {
-          LOG_DEBUG("Notebook change ignored due to guard");
+          //LOG_DEBUG("Notebook change ignored due to guard");
           return;
         }
         
         int sel = evt.GetSelection();
-        LOG_DEBUG("Notebook page changed event: new selection=%d", sel);
+        //LOG_DEBUG("Notebook page changed event: new selection=%d", sel);
         evt.Skip();
+
+        // Если уходим с Video
+        if (m_videoPageIdx != wxNOT_FOUND && sel != m_videoPageIdx) {
+          if (m_videoPanel)
+            m_videoPanel->SetTabActive(false);
+        }
+
+        // Если возвращаемся на Video
+        if (m_videoPageIdx != wxNOT_FOUND && sel == m_videoPageIdx) {
+          if (m_videoPanel)
+            m_videoPanel->SetTabActive(true);
+        }
+
         HandleChannelPageChanged(sel);
         HandleFavPageChanged(sel);
         HandlePlaylistPageChanged(sel);

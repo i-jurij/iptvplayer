@@ -74,8 +74,6 @@ public:
   std::function<void(const wxString &)> m_onStreamInfo;
   std::function<void(const ProgressInfo &)> m_onProgress;
 
-  void PauseIfPlaying();
-
   void SetRecentFiles(const std::vector<wxString> &files);
   std::vector<wxString> GetRecentFiles() const;
   void AddToRecent(const wxString &path);
@@ -100,7 +98,21 @@ public:
   // Обработчик прогресса из PlayerController
   void OnProgressInfo(const ProgressInfo &info);
 
+  // API для уведомления о видимости вкладки
+  void SetTabActive(bool active);
+
 private:
+  wxPanel *m_loadingOverlay = nullptr;
+  wxStaticText *m_loadingLabel = nullptr;
+
+  enum class UiState { Idle, Loading, Playing, Paused };
+
+  UiState m_uiState = UiState::Idle;
+  bool m_autoPausedByTabSwitch = false;
+
+  // Метод для централизованного обновления кнопок
+  void UpdateUiButtons();
+
   int m_stillFramesCount = 0;
 
   wxSplitterWindow *m_splitter = nullptr;

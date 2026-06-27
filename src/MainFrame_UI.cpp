@@ -366,7 +366,7 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   m_btnPlaylists->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
     if (m_videoPanel)
-      m_videoPanel->PauseIfPlaying();
+      m_videoPanel->SetTabActive(false);
 
     ToggleHeaderGroup(m_btnPlaylists);
     m_notebook->SetSelection(0);
@@ -388,7 +388,7 @@ void MainFrame::createMainPanel() {
                         }
 
                         if (m_videoPanel)
-                          m_videoPanel->PauseIfPlaying();
+                          m_videoPanel->SetTabActive(false);
 
                         ToggleHeaderGroup(m_btnChannels);
                         m_notebook->SetSelection(m_channelsPageIdx);
@@ -396,7 +396,7 @@ void MainFrame::createMainPanel() {
 
   m_btnFavorites->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
     if (m_videoPanel)
-      m_videoPanel->PauseIfPlaying();
+      m_videoPanel->SetTabActive(false);
 
     ToggleHeaderGroup(m_btnFavorites);
     m_notebook->SetSelection(2);
@@ -410,7 +410,7 @@ void MainFrame::createMainPanel() {
 
   btnMenu->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
     if (m_videoPanel)
-      m_videoPanel->PauseIfPlaying();
+      m_videoPanel->SetTabActive(false);
 
     wxMenu menu;
     menu.Append(ID_MENU_SETTINGS, "Settings");
@@ -421,7 +421,7 @@ void MainFrame::createMainPanel() {
 
   Bind(wxEVT_ICONIZE, [this](wxIconizeEvent &) {
     if (m_videoPanel)
-      m_videoPanel->PauseIfPlaying();
+      m_videoPanel->SetTabActive(false);
   });
 
   Bind(wxEVT_MENU, &MainFrame::onSettings, this, ID_MENU_SETTINGS);

@@ -59,6 +59,10 @@ void VideoPanel::OpenFile() {
   m_isTempPlaylistPlaying = false;
   m_tempCurrentIndex = -1;
 
+  // Переводим UI в Loading до подтверждения backend
+  m_uiState = UiState::Loading;
+  UpdateUiButtons();
+
   bool ok = m_playerController->PlayFile(path.ToStdString());
   if (!ok) {
     LOG_ERROR("Failed to play file");
@@ -84,6 +88,9 @@ void VideoPanel::OpenUrl() {
     LoadAndPlayPlaylist(url);
     return;
   }
+  // Переводим UI в Loading до подтверждения backend
+  m_uiState = UiState::Loading;
+  UpdateUiButtons();
 
   // 🔥 Обычный URL (не плейлист)
   m_playerController->PlayUrl(url.ToStdString());
@@ -100,67 +107,55 @@ void VideoPanel::PlayChannel(const Channel &ch) {
 
   std::string url = ch.getUrl();
   m_currentName = ch.getName();
+  
+  m_uiState = UiState::Loading;
+  UpdateUiButtons();
+
   m_playerController->PlayUrl(url);
 
   Play();
 }
 
-void VideoPanel::PauseIfPlaying() {
-  if (m_btnPause->IsEnabled()) { // значит сейчас Playing
-    if (m_onPlayerState)
-      m_onPlayerState("Paused");
-
-    m_btnPlay->Enable();
-    m_btnPause->Disable();
-    m_playerController->Pause();
-  }
-}
-
 // ============================================================================
 // Playback logic
 // ============================================================================
-
 void VideoPanel::Play() {
   if (!m_playerController)
     return;
 
-  // 🔥 Сброс EOF-состояния перед началом воспроизведения
+  // Сброс EOF/статусов перед началом воспроизведения
   m_waitingForNext = false;
   m_lastTimePos = -1.0;
   m_stillFramesCount = 0;
 
-  // 🔥 Сброс m_lastPlayedFile — гарантирует, что OnProgressInfo() сбросит
-  // m_waitingForNext при смене файла
+  // Сбрасываем вспомогательные поля, чтобы OnPlayerState корректно обработал
+  // переход
   m_lastPlayedFile = wxEmptyString;
 
+  // Запрос к backend — окончательное состояние UI будет установлено в
+  // OnPlayerState
   m_playerController->Play();
 
   if (m_onPlayerState)
     m_onPlayerState("Playing");
-
-  m_btnPlay->Disable();
-  m_btnPause->Enable();
-  m_btnStop->Enable();
 }
 
 void VideoPanel::Pause() {
-  // if (m_playerController->GetState() != PlayerState::Playing)
-  // return;
+  if (!m_playerController)
+    return;
 
+  // Запрос к backend; UI обновится через OnPlayerState(Paused)
   m_playerController->Pause();
 
   if (m_onPlayerState)
     m_onPlayerState("Paused");
-
-  m_btnPlay->Enable();
-  m_btnPause->Disable();
-  m_btnStop->Enable();
 }
 
 void VideoPanel::Stop() {
   if (m_playerController)
     m_playerController->Stop();
 
+  // Сброс внутренних флагов плейлиста / pending
   m_pendingTempPlay = false;
   m_pendingTempIndex = -1;
 
@@ -171,38 +166,18 @@ void VideoPanel::Stop() {
   if (m_onPlayerState)
     m_onPlayerState("Stopped");
 
-  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
-  if (frame)
-    frame->SetStatusText("", 1);
-
-  m_btnPlay->Enable();
-  m_btnPause->Disable();
-  m_btnStop->Disable();
-
-  // Инвалидация отложенных showPanel через публичный метод MainFrame
+  // Инвалидация токена MainFrame и запрос переключения вкладки остаются
   MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
-  uint64_t newToken = 0;
   if (mf) {
-    newToken = mf->InvalidateShowPanelToken();
-    LOG_DEBUG("VideoPanel::Stop: invalidated MainFrame showPanel token -> %llu",
-              (unsigned long long)newToken);
-  } else {
-    LOG_DEBUG("VideoPanel::Stop: top-level parent is not MainFrame");
+    mf->InvalidateShowPanelToken();
   }
 
+  // Запрос на переключение вкладки (если был)
   int idx = m_channelSourceTab;
   auto cb = m_onRequestTabSwitch;
-
-  wxTheApp->CallAfter([cb, idx]() {
-    LOG_DEBUG("VideoPanel::Stop: calling m_onRequestTabSwitch with idx=%d",
-              idx);
-    cb(idx);
-  });
-
-  m_isChannelPlaying = false;
-  m_isTempPlaylistPlaying = false;
-  m_channelSourceTab = -1;
-  m_tempCurrentIndex = -1;
+  if (cb) {
+    wxTheApp->CallAfter([cb, idx]() { cb(idx); });
+  }
 }
 
   // ============================================================================
@@ -459,13 +434,23 @@ void VideoPanel::Stop() {
 
       // обычный URL
       ClearTempPlaylist();
+
+      m_uiState = UiState::Loading;
+      UpdateUiButtons();
+
       m_playerController->PlayUrl(item.ToStdString());
+
       Play();
+
       return;
     }
 
     // --- Обычный файл ---
     ClearTempPlaylist();
+
+    m_uiState = UiState::Loading;
+    UpdateUiButtons();
+
     m_playerController->PlayFile(item.ToStdString());
     Play();
   }
@@ -489,6 +474,9 @@ void VideoPanel::Stop() {
     // Помечаем pending запуск из temp playlist и сохраняем индекс 0
     m_pendingTempPlay = true;
     m_pendingTempIndex = 0;
+
+    m_uiState = UiState::Loading;
+    UpdateUiButtons();
 
     // НЕ включаем m_isTempPlaylistPlaying здесь — дождёмся PlayerState::Playing
     if (!m_playerController->PlayFile(list[0].ToStdString())) {
