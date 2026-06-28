@@ -291,7 +291,9 @@ void MainFrame::createMainPanel() {
   m_videoPanel->SetUIElementsToHide(headerPanel, m_gaugeTop);
 
   m_videoPanel->m_onRequestTabSwitch = [this](int index) {
-    LOG_DEBUG("m_onRequestTabSwitch: requested index=%d", index);
+    LOG_DEBUG("MainFrame: m_onRequestTabSwitch requested index=%d, current "
+              "token=%llu",
+              index, (unsigned long long)m_showPanelToken.load());
 
     // Если уже идёт программное переключение — игнорируем новый запрос
     if (m_ignoreNotebookEvents.load()) {
@@ -316,6 +318,10 @@ void MainFrame::createMainPanel() {
     // Асинхронно выполняем пост‑действия и снимаем флаг; проверяем токен на
     // инвалидацию
     CallAfter([this, index, token]() {
+      LOG_DEBUG("MainFrame(CallAfter): handling requestTabSwitch index=%d, "
+                "token=%llu",
+                index, (unsigned long long)token);
+
       // Если токен изменился — кто-то инвалидировал показ панели, пропускаем
       // пост‑действия
       if (token != m_showPanelToken.load()) {
@@ -341,8 +347,11 @@ void MainFrame::createMainPanel() {
     });
   };
 
-  m_videoPageIdx = m_notebook->AddPage(m_videoPanel, "Video");
-  
+  m_notebook->AddPage(m_videoPanel, "Video");
+  m_videoPageIdx = m_notebook->FindPage(m_videoPanel);
+  LOG_DEBUG("MainFrame: added Video page; m_videoPageIdx=%d (m_videoPanel=%p)",
+            m_videoPageIdx, (void *)m_videoPanel);
+
   auto *cfg = getConfigManager();
   std::vector<std::string> recentRaw = cfg->getRecentFiles();
 
@@ -352,22 +361,20 @@ void MainFrame::createMainPanel() {
     recentWx.push_back(wxString::FromUTF8(s));
 
   m_videoPanel->SetRecentFiles(recentWx);
-  
-  m_videoPanel->m_onPlayerState = [this](const wxString &state) {
-    wxTheApp->CallAfter([this, state]() {
-      if (!GetStatusBar())
-        return;
 
-      SetStatusText(state, 0);
-      GetStatusBar()->Refresh();
-      GetStatusBar()->Update();
-    });
+  m_videoPanel->m_onPlayerState = [this](const wxString &state) {
+    if (!GetStatusBar())
+      return;
+
+    SetStatusText(state, 0);
   };
- 
+
   m_videoPanel->m_onStreamInfo = [this](const wxString &info) {
+    if (!GetStatusBar())
+      return;
+
     SetStatusText(info, 1);
   };
-
 
   // -------------------------------
   // HEADER BUTTONS bindings
@@ -675,6 +682,14 @@ void MainFrame::createMainPanel() {
   ToggleHeaderGroup(m_btnPlaylists);
 
   CallAfter([this]() { RestoreLastOpenedPlaylist(); });
+
+  LOG_DEBUG("MainFrame: pages indices: playlist=?, channels=%d, favorites=%d, "
+            "video=%d",
+            m_channelsPageIdx, m_favoritesPageIdx, m_videoPageIdx);
+  
+  int videoIdxFound = m_notebook->FindPage(m_videoPanel);
+  LOG_DEBUG("MainFrame: m_videoPageIdx=%d videoIdxFound=%d m_videoPanel=%p",
+            m_videoPageIdx, videoIdxFound, (void *)m_videoPanel);
 }
 
 void MainFrame::createStatusBar() {

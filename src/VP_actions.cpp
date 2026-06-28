@@ -163,6 +163,10 @@ void VideoPanel::Stop() {
   m_pendingTempPlay = false;
   m_pendingTempIndex = -1;
 
+  LOG_DEBUG("VideoPanel::Stop(): clearing m_autoPausedByTabSwitch (was=%d)",
+            (int)m_autoPausedByTabSwitch);
+  m_autoPausedByTabSwitch = false;
+
   m_waitingForNext = false;
   m_lastTimePos = -1.0;
   m_stillFramesCount = 0;

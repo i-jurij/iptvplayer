@@ -139,25 +139,46 @@ MainFrame::MainFrame(Application* app)
 
   m_notebook->Bind(
       wxEVT_AUINOTEBOOK_PAGE_CHANGED, [this](wxAuiNotebookEvent &evt) {
+        LOG_DEBUG("MainFrame: notebook page changed event: selection=%d, "
+                  "m_ignoreNotebookEvents=%d",
+                  evt.GetSelection(), (int)m_ignoreNotebookEvents.load());
+
         if (m_ignoreNotebookEvents.load()) {
-          //LOG_DEBUG("Notebook change ignored due to guard");
+          LOG_DEBUG("Notebook change ignored due to guard");
           return;
         }
         
         int sel = evt.GetSelection();
-        //LOG_DEBUG("Notebook page changed event: new selection=%d", sel);
+        LOG_DEBUG("MainFrame: notebook page changed event: selection=%d, "
+                  "pagePtr=%p, pageLabel='%s', m_videoPageIdx=%d, "
+                  "m_videoPanel=%p, m_ignoreNotebookEvents=%d",
+                  sel, (void *)m_notebook->GetPage(sel),
+                  m_notebook->GetPageText(sel).ToUTF8().data(), m_videoPageIdx,
+                  (void *)m_videoPanel, (int)m_ignoreNotebookEvents.load());
+
         evt.Skip();
 
         // Если уходим с Video
-        if (m_videoPageIdx != wxNOT_FOUND && sel != m_videoPageIdx) {
-          if (m_videoPanel)
-            m_videoPanel->SetTabActive(false);
+        if (m_videoPanel && m_videoPageIdx != wxNOT_FOUND &&
+            sel != m_videoPageIdx) {
+          m_videoPanel->SetTabActive(false);
         }
 
-        // Если возвращаемся на Video
-        if (m_videoPageIdx != wxNOT_FOUND && sel == m_videoPageIdx) {
-          if (m_videoPanel)
+        // Если возвращаемся на Video — проверяем, что текущая страница
+        // действительно тот самый m_videoPanel
+        if (m_videoPanel && m_videoPageIdx != wxNOT_FOUND &&
+            sel == m_videoPageIdx) {
+          // дополнительная защита: убедимся, что notebook действительно хранит
+          // тот же объект на этой позиции
+          wxWindow *page = m_notebook->GetPage(sel);
+          if (page == m_videoPanel) {
             m_videoPanel->SetTabActive(true);
+          } else {
+            LOG_DEBUG("MainFrame: selection==m_videoPageIdx but "
+                      "notebook->GetPage(sel) != m_videoPanel; sel=%d page=%p "
+                      "m_videoPanel=%p",
+                      sel, (void *)page, (void *)m_videoPanel);
+          }
         }
 
         HandleChannelPageChanged(sel);

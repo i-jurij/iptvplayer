@@ -12,6 +12,8 @@
 #include <wx/splitter.h>
 #include <wx/statbmp.h>
 
+#include <memory>
+
 wxDEFINE_EVENT(wxEVT_PLAYER_STATE, wxCommandEvent);
 wxDEFINE_EVENT(wxEVT_PLAYER_INFO, wxCommandEvent);
 
@@ -540,11 +542,31 @@ void VideoPanel::UpdateProgressDisplay(const ProgressInfo &info) {
 void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   PlayerState st = (PlayerState)evt.GetInt();
 
+  wxString stateText;
   switch (st) {
+  case PlayerState::FileLoaded:
+    stateText = "File loaded";
+    break;
+  case PlayerState::Playing:
+    stateText = "Playing";
+    break;
+  case PlayerState::Paused:
+    stateText = "Paused";
+    break;
+  case PlayerState::Stopped:
+    stateText = "Stopped";
+    break;
+  default:
+    stateText = "";
+    break;
+  }
 
-  // -------------------------
-  // FILE_LOADED (mpv сообщил, что файл загружен)
-  // -------------------------
+  if (m_onPlayerState) {
+    wxString txt = stateText;
+    wxTheApp->CallAfter([cb = m_onPlayerState, txt]() { cb(txt); });
+  }
+
+  switch (st) {
   case PlayerState::FileLoaded: {
     m_uiState = UiState::Loading;
     UpdateUiButtons();
@@ -552,13 +574,18 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     m_wasPlayingBeforeStop = false;
     break;
   }
-
-  // -------------------------
-  // PLAYING
-  // -------------------------
   case PlayerState::Playing: {
     m_uiState = UiState::Playing;
     UpdateUiButtons();
+
+    // Если мы автоподнимались после системной паузы — подтверждаем и снимаем
+    // флаг
+    if (m_autoPausedByTabSwitch) {
+      LOG_DEBUG(
+          "OnPlayerState: Playing received — clearing m_autoPausedByTabSwitch");
+      m_autoPausedByTabSwitch = false;
+    }
+
     m_wasPlayingBeforeStop = true;
 
     if (m_pendingTempPlay) {
@@ -571,19 +598,18 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     }
     break;
   }
-
-  // -------------------------
-  // PAUSED
-  // -------------------------
   case PlayerState::Paused: {
+    LOG_DEBUG("VideoPanel::OnPlayerState: Paused received; "
+              "m_autoPausedByTabSwitch=%d, backend state=%d",
+              (int)m_autoPausedByTabSwitch,
+              (int)(m_playerController ? m_playerController->GetState()
+                                       : PlayerState::Stopped));
+
     m_uiState = UiState::Paused;
     UpdateUiButtons();
     break;
   }
 
-  // -------------------------
-  // STOPPED (END_FILE или ручной стоп)
-  // -------------------------
   case PlayerState::Stopped: {
     m_uiState = UiState::Idle;
     UpdateUiButtons();
@@ -665,39 +691,83 @@ void VideoPanel::UpdateUiButtons() {
   if (frame && frame->GetStatusBar()) {
     if (m_uiState == UiState::Loading) {
       frame->SetStatusText("Loading...", 0);
-    } else {
-      frame->SetStatusText("", 0);
+    }
+    if (m_uiState == UiState::Idle) {
+      frame->SetStatusText("", 1);
     }
   }
 }
 
-// SetTabActive: вызывается из MainFrame при смене вкладки
 void VideoPanel::SetTabActive(bool active) {
-  // active == false: уход со вкладки Video
   if (!active) {
-    // Если сейчас играет — ставим системную паузу
     if (m_playerController &&
         m_playerController->GetState() == PlayerState::Playing) {
+      LOG_DEBUG("VideoPanel::SetTabActive(false): Pause(), set "
+                "m_autoPausedByTabSwitch=true");
       m_autoPausedByTabSwitch = true;
-      // вызываем Pause() — не меняем кнопки напрямую
       Pause();
-      // OnPlayerState() получит Paused и вызовет UpdateUiButtons()
     }
     return;
   }
 
-  // active == true: возврат на вкладку Video
-  if (m_autoPausedByTabSwitch) {
-    // Если плеер сейчас в Paused (и пауза была системной) — возобновляем
-    if (m_playerController &&
-        m_playerController->GetState() == PlayerState::Paused) {
-      m_autoPausedByTabSwitch = false;
-      Play();
-      // OnPlayerState() -> Playing -> UpdateUiButtons()
-    } else {
-      // Сброс флага, если состояние не Paused
-      m_autoPausedByTabSwitch = false;
-    }
-  }
-}
+  LOG_DEBUG("VideoPanel::SetTabActive(true) called; m_autoPausedByTabSwitch=%d",
+            (int)m_autoPausedByTabSwitch);
 
+  if (!m_autoPausedByTabSwitch)
+    return;
+
+  wxTheApp->CallAfter([this]() {
+    LOG_DEBUG("VideoPanel::SetTabActive(CallAfter) entered; "
+              "m_autoPausedByTabSwitch=%d",
+              (int)m_autoPausedByTabSwitch);
+
+    PlayerState st = m_playerController ? m_playerController->GetState()
+                                        : PlayerState::Stopped;
+    if (st == PlayerState::Stopped) {
+      LOG_DEBUG("VideoPanel::SetTabActive(CallAfter): backend stopped, abort");
+      return;
+    }
+
+    LOG_DEBUG("VideoPanel::SetTabActive(CallAfter): calling Play()");
+    Play();
+
+    // локальный таймер и счётчик попыток — без новых полей класса
+    wxTimer *resumeTimer = new wxTimer(this);
+    int *attempts = new int(0);
+
+    // захватываем только то, что реально нужно; используем литерал 8 вместо
+    // захвата константы
+    resumeTimer->Bind(wxEVT_TIMER, [this, resumeTimer,
+                                    attempts](wxTimerEvent &) {
+      ++(*attempts);
+      PlayerState s = m_playerController ? m_playerController->GetState()
+                                         : PlayerState::Stopped;
+      LOG_DEBUG("ResumeTimer attempt=%d state=%d", *attempts, (int)s);
+
+      if (s == PlayerState::Playing) {
+        LOG_DEBUG(
+            "ResumeTimer: backend Playing — clearing m_autoPausedByTabSwitch");
+        m_autoPausedByTabSwitch = false;
+
+        resumeTimer->Stop();
+        delete resumeTimer;
+        delete attempts;
+        return;
+      }
+
+      if (*attempts >= 8) {
+        LOG_DEBUG("ResumeTimer: giving up after %d attempts — clearing "
+                  "m_autoPausedByTabSwitch",
+                  *attempts);
+        m_autoPausedByTabSwitch = false;
+
+        resumeTimer->Stop();
+        delete resumeTimer;
+        delete attempts;
+        return;
+      }
+    });
+
+    resumeTimer->Start(100, wxTIMER_CONTINUOUS);
+  });
+}
