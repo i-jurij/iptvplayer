@@ -352,10 +352,18 @@ void MainFrame::createMainPanel() {
     recentWx.push_back(wxString::FromUTF8(s));
 
   m_videoPanel->SetRecentFiles(recentWx);
-
+  
   m_videoPanel->m_onPlayerState = [this](const wxString &state) {
-    SetStatusText(state, 0);
+    wxTheApp->CallAfter([this, state]() {
+      if (!GetStatusBar())
+        return;
+
+      SetStatusText(state, 0);
+      GetStatusBar()->Refresh();
+      GetStatusBar()->Update();
+    });
   };
+ 
   m_videoPanel->m_onStreamInfo = [this](const wxString &info) {
     SetStatusText(info, 1);
   };

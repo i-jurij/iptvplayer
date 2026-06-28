@@ -59,17 +59,19 @@ void VideoPanel::OpenFile() {
   m_isTempPlaylistPlaying = false;
   m_tempCurrentIndex = -1;
 
-  // Переводим UI в Loading до подтверждения backend
   m_uiState = UiState::Loading;
   UpdateUiButtons();
 
-  bool ok = m_playerController->PlayFile(path.ToStdString());
-  if (!ok) {
-    LOG_ERROR("Failed to play file");
-    return;
-  }
-
-  Play();
+  wxTheApp->CallAfter([this, path]() {
+    bool ok = m_playerController->PlayFile(path.ToStdString());
+    if (!ok) {
+      LOG_ERROR("OpenFile: PlayFile failed");
+      m_uiState = UiState::Idle;
+      UpdateUiButtons();
+      return;
+    }
+    Play();
+  });
 }
 
 void VideoPanel::OpenUrl() {
@@ -88,32 +90,42 @@ void VideoPanel::OpenUrl() {
     LoadAndPlayPlaylist(url);
     return;
   }
-  // Переводим UI в Loading до подтверждения backend
+
   m_uiState = UiState::Loading;
   UpdateUiButtons();
 
-  // 🔥 Обычный URL (не плейлист)
-  m_playerController->PlayUrl(url.ToStdString());
-
-  m_isChannelPlaying = false;
-  m_isTempPlaylistPlaying = false;
-  m_tempCurrentIndex = -1;
-
-  Play();
+  wxTheApp->CallAfter([this, url]() {
+    m_playerController->PlayUrl(url.ToStdString());
+    m_isChannelPlaying = false;
+    m_isTempPlaylistPlaying = false;
+    m_tempCurrentIndex = -1;
+    Play();
+  });
 }
 
 void VideoPanel::PlayChannel(const Channel &ch) {
   ClearTempPlaylist();
-
   std::string url = ch.getUrl();
   m_currentName = ch.getName();
-  
+
   m_uiState = UiState::Loading;
   UpdateUiButtons();
 
-  m_playerController->PlayUrl(url);
-
-  Play();
+  wxTheApp->CallAfter([this, url]() {
+    bool ok = true;
+    try {
+      m_playerController->PlayUrl(url);
+    } catch (...) {
+      ok = false;
+    }
+    if (!ok) {
+      LOG_ERROR("PlayChannel: PlayUrl failed");
+      m_uiState = UiState::Idle;
+      UpdateUiButtons();
+      return;
+    }
+    Play();
+  });
 }
 
 // ============================================================================
@@ -132,12 +144,7 @@ void VideoPanel::Play() {
   // переход
   m_lastPlayedFile = wxEmptyString;
 
-  // Запрос к backend — окончательное состояние UI будет установлено в
-  // OnPlayerState
   m_playerController->Play();
-
-  if (m_onPlayerState)
-    m_onPlayerState("Playing");
 }
 
 void VideoPanel::Pause() {
@@ -146,9 +153,6 @@ void VideoPanel::Pause() {
 
   // Запрос к backend; UI обновится через OnPlayerState(Paused)
   m_playerController->Pause();
-
-  if (m_onPlayerState)
-    m_onPlayerState("Paused");
 }
 
 void VideoPanel::Stop() {
@@ -162,9 +166,6 @@ void VideoPanel::Stop() {
   m_waitingForNext = false;
   m_lastTimePos = -1.0;
   m_stillFramesCount = 0;
-
-  if (m_onPlayerState)
-    m_onPlayerState("Stopped");
 
   // Инвалидация токена MainFrame и запрос переключения вкладки остаются
   MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));

@@ -102,6 +102,9 @@ public:
   void SetTabActive(bool active);
 
 private:
+  bool m_statusLockedUntilPlaying =
+      false; // блокировка статуса пока не придёт Playing/Stop
+  
   wxPanel *m_loadingOverlay = nullptr;
   wxStaticText *m_loadingLabel = nullptr;
 
@@ -109,6 +112,8 @@ private:
 
   UiState m_uiState = UiState::Idle;
   bool m_autoPausedByTabSwitch = false;
+  bool m_wasPlayingBeforeTabSwitch = false;
+  bool m_tabIsActive = true;
 
   // Метод для централизованного обновления кнопок
   void UpdateUiButtons();

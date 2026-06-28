@@ -9,20 +9,23 @@
 // ============================================================================
 
 void VideoPanel::OnPlay(wxCommandEvent &) {
-  // 1) Если уже идёт воспроизведение (Play/Pause логика через пробел и т.п.)
-  //    — оставляем текущее поведение: просто "продолжить"
+  // Игнорируем нажатие Play, если UI в Loading (ожидание подтверждения backend)
+  if (m_uiState == UiState::Loading) {
+    LOG_DEBUG("OnPlay: ignored because UI is Loading");
+    return;
+  }
+
+  // Если сейчас Paused — просто возобновляем
   if (m_playerController &&
       m_playerController->GetState() == PlayerState::Paused) {
     Play();
     return;
   }
 
-  // 2) Если есть временный плейлист — играем выделенный трек
+  // Если есть временный плейлист — играем выделенный трек
   if (!m_tempPlaylist.IsEmpty()) {
-
     long sel = m_tempPlaylistList->GetNextItem(-1, wxLIST_NEXT_ALL,
                                                wxLIST_STATE_SELECTED);
-
     if (sel != wxNOT_FOUND) {
       TempPlaylistPlay();
       return;
@@ -35,13 +38,25 @@ void VideoPanel::OnPlay(wxCommandEvent &) {
     return;
   }
 
-  // 3) Иначе — НИЧЕГО НЕ ДЕЛАЕМ, статус НЕ меняем
-  wxLogWarning("Play pressed, but nothing to play");
+  // Иначе — НИЧЕГО НЕ ДЕЛАЕМ, статус НЕ меняем
+  LOG_WARN("Play pressed, but nothing to play");
 }
 
-void VideoPanel::OnPause(wxCommandEvent &) { Pause(); }
+void VideoPanel::OnPause(wxCommandEvent &) {
+  if (m_uiState == UiState::Loading) {
+    LOG_DEBUG("OnPause: ignored because UI is Loading");
+    return;
+  }
+  Pause();
+}
 
-void VideoPanel::OnStop(wxCommandEvent &) { Stop(); }
+void VideoPanel::OnStop(wxCommandEvent &) {
+  if (m_uiState == UiState::Loading) {
+    LOG_DEBUG("OnStop: ignored because UI is Loading");
+    return;
+  }
+  Stop();
+}
 
 void VideoPanel::OnMute(wxCommandEvent &) { ToggleMute(); }
 
