@@ -13,6 +13,7 @@
 #include <wx/timer.h>
 #include <wx/wx.h>
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 
@@ -101,9 +102,40 @@ public:
   // API для уведомления о видимости вкладки
   void SetTabActive(bool active);
 
+  void StartTempPlayAsync(const wxString &path, int sel = -1,
+                          bool isUrl = false, const char *source = "manual",
+                          bool clearPlayNextInProgressOnFinish = false);
+
 private:
-  bool m_statusLockedUntilPlaying =
-      false; // блокировка статуса пока не придёт Playing/Stop
+  struct TempPlayRequest {
+    uint64_t id;
+    int index;
+    wxString path;
+    bool isUrl;
+  };
+
+  enum class TempPlayState {
+    Idle,
+    Requesting,
+    Loading,
+    FileLoaded,
+    Starting,
+    Playing,
+    Paused,
+    Stopped,
+    Error
+  };
+
+  TempPlayState m_tempState = TempPlayState::Idle;
+  TempPlayRequest m_currentTempRequest;
+  uint64_t m_currentRequestId = 0;
+  
+  bool m_wasPlayingBeforeStop = false;
+  std::chrono::steady_clock::time_point m_lastFileLoadedTime =
+      std::chrono::steady_clock::time_point::min();
+  const int kStoppedDebounceMs = 500;
+
+  bool m_statusLockedUntilPlaying = false;
   
   wxPanel *m_loadingOverlay = nullptr;
   wxStaticText *m_loadingLabel = nullptr;
@@ -117,8 +149,6 @@ private:
 
   // Метод для централизованного обновления кнопок
   void UpdateUiButtons();
-
-  int m_stillFramesCount = 0;
 
   wxSplitterWindow *m_splitter = nullptr;
   wxPanel *m_mainPanel = nullptr;
@@ -163,7 +193,6 @@ private:
   wxPanel *m_controlsPanel = nullptr;
   wxTimer m_eofTimer;
   ProgressInfo m_lastProgress;
-  bool m_waitingForNext = false;
 
   wxButton *m_btnOpen = nullptr;
   wxButton *m_btnPlay = nullptr;
@@ -252,20 +281,11 @@ private:
   void ToggleShuffleTempPlaylist(bool enable);
   void PlayPrevTempItem();
 
-  // timing & state
-  std::chrono::steady_clock::time_point m_lastFileLoadedTime =
-      std::chrono::steady_clock::time_point::min();
-  bool m_wasPlayingBeforeStop = false;
-
   // pending play (если запускаем из temp playlist — помечаем, ждём Playing)
   bool m_pendingTempPlay = false;
   int m_pendingTempIndex = -1;
 
-  // debounce threshold (ms)
-  const int kStoppedDebounceMs = 500;
-
   wxLongLong m_lastSeekTime = 0;
-  double m_lastTimePos = 0.0;
   // константа: как долго блокируем таймер после seek (мс)
   static constexpr long kSeekBlockMs = 400;
   int m_lastSeekSliderValue = 0; // позиция слайдера при последнем seek

@@ -206,31 +206,11 @@ void VideoPanel::HandleDroppedFiles(const wxArrayString &files) {
       m_pendingTempPlay = true;
       m_pendingTempIndex = 0;
 
-      // Гарантируем, что плейлист не считается активным до подтверждения
-      // Playing
-      m_isTempPlaylistPlaying = false;
-      m_tempCurrentIndex = -1;
-      m_isChannelPlaying = false;
-
       //LOG_DEBUG("HandleDroppedFiles: pending set idx=0");
       m_uiState = UiState::Loading;
       UpdateUiButtons();
 
-      if (m_playerController->PlayFile(first.ToStdString())) {
-        Play();
-        this->CallAfter([this]() {
-          if (m_tempPlaylistList) {
-            m_tempPlaylistList->SetFocus();
-            m_tempPlaylistList->EnsureVisible(0);
-          }
-        });
-      } else {
-        LOG_ERROR("Failed to play first dropped file");
-        m_pendingTempPlay = false;
-        m_pendingTempIndex = -1;
-        //LOG_DEBUG(
-          //  "HandleDroppedFiles: pending cleared due to PlayFile failure");
-      }
+      StartTempPlayAsync(first, 0, false, "dropped");
     }
   }
 }
@@ -294,65 +274,42 @@ bool VideoPanel::LoadPlaylistFile(const wxString &path, wxArrayString &out) {
 }
 
 void VideoPanel::PlayNextTempItem() {
-  // 1) Плейлист не активен → ничего не делаем
   if (!m_isTempPlaylistPlaying)
     return;
 
-  // 2) Пустой плейлист → стоп
   if (m_tempPlaylist.IsEmpty())
     return;
 
-  // Вычисляем текущий индекс: если есть подтверждённый m_tempCurrentIndex —
-  // используем его, иначе, если есть pending — используем pending как текущий,
-  // иначе 0.
   int current = -1;
-  if (m_tempCurrentIndex >= 0) {
+
+  if (m_tempCurrentIndex >= 0)
     current = m_tempCurrentIndex;
-  } else if (m_pendingTempPlay && m_pendingTempIndex >= 0) {
+  else if (m_pendingTempPlay && m_pendingTempIndex >= 0)
     current = m_pendingTempIndex;
-  } else {
+  else
     current = 0;
-  }
 
   int next = current + 1;
 
-  // 4) Конец списка → стоп
   if (next >= (int)m_tempPlaylist.size()) {
     Stop();
     return;
   }
 
-  // 5) Обновляем индекс
   m_tempCurrentIndex = next;
 
-  // 6) Получаем путь
   wxString path = m_tempPlaylist[next];
-
-  // 7) Обновляем выделение в списке
-  m_tempPlaylistList->SetItemState(next, wxLIST_STATE_SELECTED,
-                                   wxLIST_STATE_SELECTED);
-
-  m_tempPlaylistList->EnsureVisible(next);
 
   m_uiState = UiState::Loading;
   UpdateUiButtons();
 
-  // 8) Запускаем файл
-  if (!m_playerController->PlayFile(path.ToStdString())) {
-    LOG_ERROR("Failed to play next temp playlist item");
-    Stop();
-    return;
+  if (m_tempPlaylistList) {
+    m_tempPlaylistList->SetItemState(next, wxLIST_STATE_SELECTED,
+                                     wxLIST_STATE_SELECTED);
+    m_tempPlaylistList->EnsureVisible(next);
   }
 
-  m_pendingTempPlay = false;
-  m_pendingTempIndex = -1;
-
-  // 🔥 ДОБАВЛЕНО: сброс EOF-состояния перед воспроизведением нового трека
-  m_waitingForNext = false;
-  m_lastTimePos = -1.0;
-  m_stillFramesCount = 0;
-
-  Play();
+  StartTempPlayAsync(path, next, false, "next");
 }
 
 void VideoPanel::OnTempPlaylistRemove() {
@@ -464,26 +421,12 @@ void VideoPanel::OnTempPlaylistListActivate(wxListEvent &evt) {
   m_pendingTempPlay = true;
   m_pendingTempIndex = sel;
 
-  // Гарантируем, что плейлист не считается активным до подтверждения Playing
-  m_isTempPlaylistPlaying = false;
-  m_tempCurrentIndex = -1;
-  m_isChannelPlaying = false;
-
   //LOG_DEBUG("OnTempPlaylistListActivate: pending set idx=%d",
     //        m_pendingTempIndex);
   m_uiState = UiState::Loading;
   UpdateUiButtons();
 
-  if (!m_playerController->PlayFile(path.ToStdString())) {
-    LOG_ERROR("Temp playlist: failed to play file");
-    m_pendingTempPlay = false;
-    m_pendingTempIndex = -1;
-    //LOG_DEBUG(
-      //  "OnTempPlaylistListActivate: pending cleared due to PlayFile failure");
-    return;
-  }
-
-  Play();
+  StartTempPlayAsync(path, sel, false, "activate");
 
   m_tempPlaylistList->SetItemState(sel, wxLIST_STATE_SELECTED,
                                    wxLIST_STATE_SELECTED);
@@ -560,29 +503,11 @@ void VideoPanel::TempPlaylistPlay() {
   m_pendingTempPlay = true;
   m_pendingTempIndex = (int)sel;
 
-  // Гарантируем, что плейлист не считается активным до подтверждения Playing
-  m_isTempPlaylistPlaying = false;
-  m_tempCurrentIndex = -1;
-  m_isChannelPlaying = false;
-
   //LOG_DEBUG("TempPlaylistPlay: pending set idx=%d", m_pendingTempIndex);
   m_uiState = UiState::Loading;
   UpdateUiButtons();
 
-  if (!m_playerController->PlayFile(path.ToStdString())) {
-    LOG_ERROR("Temp playlist: failed to play file");
-    m_pendingTempPlay = false;
-    m_pendingTempIndex = -1;
-    //LOG_DEBUG("TempPlaylistPlay: pending cleared due to PlayFile failure");
-    return;
-  }
-
-  // 🔥 ДОБАВЛЕНО: сброс EOF-состояния перед воспроизведением
-  m_waitingForNext = false;
-  m_lastTimePos = -1.0;
-  m_stillFramesCount = 0;
-
-  Play();
+  StartTempPlayAsync(path, sel, false, "manual");
 
   // Обновляем выделение в UI (UX), но не меняем m_tempCurrentIndex пока нет
   // Playing
@@ -820,16 +745,8 @@ void VideoPanel::PlayPrevTempItem() {
 
   m_uiState = UiState::Loading;
   UpdateUiButtons();
-  
-  if (!m_playerController->PlayFile(path.ToStdString())) {
-    LOG_ERROR("Failed to play previous temp playlist item");
-    return;
-  }
 
-  m_pendingTempPlay = false;
-  m_pendingTempIndex = -1;
-
-  Play();
+  StartTempPlayAsync(path, prev, false, "prev");
 
   // выделение
   m_tempPlaylistList->SetItemState(prev, wxLIST_STATE_SELECTED,

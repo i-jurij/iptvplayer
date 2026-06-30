@@ -1,6 +1,319 @@
-При лоадинг логично сделать все кнопки неактивными?
+Хорошо, давай зафиксируем всё заново, строго и без лишних фраз.  
+Цель: **починить автопереход во временном плейлисте, не ломая ни один из уже реализованных сценариев.**
 
-При открытии канала в статус баре Паузед вместо Лоадинг...
+Учитываем и сохраняем:
 
-После старта No playlist selected в статсбаре, даже если загружены каналы 
-прежде выбранного плейлиста. Проверять при старте и писать в статус
+- воспроизведение одиночных файлов/URL;
+- воспроизведение каналов;
+- воспроизведение избранного;
+- автопаузу при уходе со вкладки Видео;
+- автопродолжение при возврате;
+- текущую логику кнопок (Play/Pause/Stop/Next/Prev);
+- статусбар (состояние + информация о текущем файле/потоке);
+- обновление прогресса (через mpv и EOF‑таймер);
+- работу MpvBackend, PlayerController, MpvGLCanvas.
+
+Меняем только то, что связано с **автопереходом временного плейлиста** и конфликтующими флагами/таймерами в `VideoPanel`.
+
+---
+
+### 1. Ввести минимальную state‑машину для временного плейлиста (VideoPanel.h)
+
+1. **Добавить структуру запроса:**
+   ```cpp
+   struct TempPlayRequest {
+       uint64_t id;
+       int index;
+       wxString path;
+       bool isUrl;
+   };
+   ```
+
+2. **Добавить перечисление состояний:**
+   ```cpp
+   enum class TempPlayState {
+       Idle,
+       Requesting,
+       Loading,
+       FileLoaded,
+       Starting,
+       Playing,
+       Paused,
+       Stopped,
+       Error
+   };
+   ```
+
+3. **Добавить поля:**
+   ```cpp
+   TempPlayState   m_tempState      = TempPlayState::Idle;
+   TempPlayRequest m_currentTempRequest;
+   uint64_t        m_currentRequestId = 0;
+   ```
+
+Эти поля используются **только** для временного плейлиста, не трогают каналы/избранное/обычные файлы.
+
+---
+
+### 2. Удалить конфликтующие поля, которые дублируют state‑машину (VideoPanel.h/.cpp)
+
+4. **Удалить поля:**
+   - `m_waitingForNext`
+   - `m_playNextInProgress`
+   - `m_stopping`
+   - `m_wasPlayingBeforeStop`
+   - `m_lastFileLoadedTime`
+   - `kStoppedDebounceMs`
+   - `m_stillFramesCount`
+   - `m_lastTimePos`
+
+5. **Удалить все использования этих полей во всех методах `VideoPanel`.**
+
+Это убирает старую, разрозненную логику автоперехода, но **не трогает**:
+
+- каналы;
+- избранное;
+- обычное воспроизведение;
+- вкладки;
+- UI‑кнопки.
+
+---
+
+### 3. Переписать `StartTempPlayAsync` как формирование запроса (VideoPanel.cpp)
+
+6. **Заменить тело `StartTempPlayAsync(path, sel, isUrl, reason)` на:**
+   ```cpp
+   TempPlayRequest req;
+   req.id    = ++m_currentRequestId;
+   req.index = sel;
+   req.path  = path;
+   req.isUrl = isUrl;
+
+   m_currentTempRequest = req;
+
+   m_tempState        = TempPlayState::Requesting;
+   m_pendingTempPlay  = true;
+   m_pendingTempIndex = sel;
+
+   if (isUrl)
+       m_playerController->PlayUrl(path);
+   else
+       m_playerController->PlayFile(path);
+
+   m_playerController->Play();
+   ```
+
+7. **Удалить из `StartTempPlayAsync`:**
+   - все `CallAfter`;
+   - любые изменения удалённых флагов;
+   - любые проверки «уже идёт переход», «ждём следующий»;
+   - любые попытки обновлять UI или плейлист.
+
+Это не меняет поведение:
+
+- выбора элемента временного плейлиста;
+- запуска воспроизведения файла/URL;
+- работы PlayerController.
+
+---
+
+### 4. Переписать обработку состояний в `OnPlayerState` (VideoPanel.cpp)
+
+8. **При получении состояния `FileLoaded` от PlayerController:**
+   ```cpp
+   m_tempState = TempPlayState::FileLoaded;
+   // существующее обновление UI: индикатор загрузки, статусбар, кнопки
+   ```
+
+9. **При получении состояния `Playing`:**
+   ```cpp
+   m_tempState = TempPlayState::Playing;
+
+   if (m_pendingTempPlay) {
+       m_isTempPlaylistPlaying = true;
+       m_tempCurrentIndex      = m_pendingTempIndex;
+       m_pendingTempPlay       = false;
+
+       // обновить выделение текущего элемента временного плейлиста
+       // обновить статусбар (имя файла/потока)
+   }
+
+   // остальная логика UI для Playing остаётся без изменений
+   ```
+
+10. **При получении состояния `Paused`:**
+    ```cpp
+    m_tempState = TempPlayState::Paused;
+    // обновление UI для паузы (кнопки, статусбар) остаётся как было
+    ```
+
+11. **При получении состояния `Stopped`:**
+    ```cpp
+    m_tempState = TempPlayState::Stopped;
+
+    if (m_isTempPlaylistPlaying)
+        PlayNextTempItem();
+
+    // остальная логика UI для Stopped остаётся как было
+    ```
+
+Это сохраняет:
+
+- текущую реакцию UI на состояния;
+- работу статусбара;
+- работу кнопок;
+- работу одиночного воспроизведения (когда `m_pendingTempPlay == false` и `m_isTempPlaylistPlaying == false`).
+
+---
+
+### 5. Переписать `PlayNextTempItem` (VideoPanel.cpp)
+
+12. **Заменить тело `PlayNextTempItem()` на:**
+   ```cpp
+   int next = m_tempCurrentIndex + 1;
+
+   if (next < static_cast<int>(m_tempPlaylist.size())) {
+       StartTempPlayAsync(m_tempPlaylist[next], next, false, "next");
+   } else {
+       Stop();
+   }
+   ```
+
+13. **Удалить из `PlayNextTempItem`:**
+   - все проверки удалённых флагов;
+   - debounce по времени/позиции;
+   - учёт `m_lastFileLoadedTime`, `m_lastTimePos`, `m_stillFramesCount`;
+   - любые таймеры и отложенные вызовы.
+
+Это сохраняет:
+
+- порядок перехода по временным файлам;
+- корректное завершение на последнем файле (Stop).
+
+---
+
+### 6. Переписать `Stop()` (VideoPanel.cpp)
+
+14. **Заменить тело `Stop()` на:**
+   ```cpp
+   m_playerController->Stop();
+
+   m_pendingTempPlay       = false;
+   m_pendingTempIndex      = -1;
+   m_isTempPlaylistPlaying = false;
+
+   m_tempState        = TempPlayState::Idle;
+   m_currentRequestId = 0;
+
+   // существующее обновление UI: кнопки, статусбар, индикатор загрузки
+   ```
+
+15. **Удалить из `Stop()`:**
+   - использование `m_stopping`;
+   - вызовы `m_onRequestTabSwitch` / переключение вкладки;
+   - любые `CallAfter`;
+   - любые манипуляции с удалёнными флагами.
+
+Это сохраняет:
+
+- ручной Stop;
+- работу вкладок (автопауза/автовозврат остаются в `SetTabActive`);
+- работу UI при Stop.
+
+---
+
+### 7. Интегрировать EOF‑таймер в state‑машину и сохранить обновление прогресса
+
+EOF‑таймер остаётся, но работает согласованно с новой логикой.
+
+16. **Запуск EOF‑таймера:**
+   - запускать таймер при переходе в `Playing`:
+     ```cpp
+     if (m_tempState == TempPlayState::Playing)
+         m_eofTimer.Start(kEofCheckIntervalMs);
+     ```
+
+17. **Остановка EOF‑таймера:**
+   - останавливать при переходе в:
+     - `Stopped`
+     - `Idle`
+     - `Error`
+     - при ручном `Stop()`:
+       ```cpp
+       m_eofTimer.Stop();
+       ```
+
+18. **Переписать `OnEofTimer`:**
+   ```cpp
+   void VideoPanel::OnEofTimer(wxTimerEvent& event)
+   {
+       // 1. Обновить прогресс (как сейчас)
+       UpdateProgressFromBackend(); // существующий код, который читает time-pos/duration
+
+       // 2. Логика конца файла только для временного плейлиста
+       if (!m_isTempPlaylistPlaying)
+           return;
+
+       if (m_tempState != TempPlayState::Playing)
+           return;
+
+       double position = ...; // получить из backend
+       double duration = ...; // получить из backend
+       double remaining = duration - position;
+
+       if (remaining < kEofThresholdSeconds) {
+           m_tempState = TempPlayState::Stopped;
+           PlayNextTempItem();
+       }
+   }
+   ```
+
+19. **Удалить из `OnEofTimer`:**
+   - использование удалённых флагов;
+   - старый debounce;
+   - учёт `m_lastFileLoadedTime`, `m_lastTimePos`, `m_stillFramesCount`;
+   - любые прямые вызовы `Stop()` или переключения вкладок.
+
+Это сохраняет:
+
+- обновление прогресса по таймеру;
+- резервный автопереход, если `END_FILE` не приходит или запаздывает;
+- отсутствие гонок с mpv‑событиями.
+
+---
+
+### 8. Ничего не менять в остальной функциональности
+
+20. **Оставить без изменений:**
+
+- `SetTabActive` (автопауза/автовозврат);
+- логику каналов;
+- логику избранного;
+- логику плейлистов;
+- `MpvBackend` (события mpv);
+- `PlayerController` (оптимистичные Play/Pause/Stop);
+- `MpvGLCanvas` (рендер);
+- обновление кнопок и статусбара, кроме точек, где уже явно меняется логика выше.
+
+Все эти части продолжают работать как сейчас, state‑машина касается только временного плейлиста и автоперехода.
+
+---
+
+### 9. Проверка после внедрения
+
+21. **Проверить:**
+
+- старт временного плейлиста с первого файла;
+- последовательный автопереход по всем файлам;
+- корректное завершение на последнем файле (Stop, без попытки перейти дальше);
+- ручной Stop в середине плейлиста (без автоперехода);
+- паузу/возобновление при смене вкладки;
+- воспроизведение каналов и избранного;
+- обновление прогресса (через mpv и EOF‑таймер);
+- статусбар (состояние + информация о текущем файле/потоке).
+
+Этот план:
+
+- решает задачу автоперехода;
+- сохраняет всю существующую функциональность;
+- убирает только конфликтующие флаги и разрозненную логику вокруг временного плейлиста и EOF.

@@ -31,18 +31,13 @@ void VideoPanel::OpenFile() {
 
   wxString path = dlg.GetPath();
   wxFileName fn(path);
-  // LOG_DEBUG("VideoPanel: OpenFile() -> %s", path);
 
   bool isPlaylist = IsPlaylist(path);
 
   // === Плейлист-файл (m3u/m3u8/pls/xspf) ===
   if (isPlaylist) {
     wxArrayString list;
-
     bool ok = LoadPlaylistFile(path, list);
-    // LOG_DEBUG("OpenFile: isPlaylist=%d, loadOk=%d, entries=%zu",
-    //         (int)isPlaylist, (int)ok, list.size());
-
     if (ok) {
       LoadAndPlayPlaylist(path);
       return;
@@ -62,16 +57,8 @@ void VideoPanel::OpenFile() {
   m_uiState = UiState::Loading;
   UpdateUiButtons();
 
-  wxTheApp->CallAfter([this, path]() {
-    bool ok = m_playerController->PlayFile(path.ToStdString());
-    if (!ok) {
-      LOG_ERROR("OpenFile: PlayFile failed");
-      m_uiState = UiState::Idle;
-      UpdateUiButtons();
-      return;
-    }
-    Play();
-  });
+  // Используем единый публичный helper вместо прямого CallAfter + PlayFile
+  StartTempPlayAsync(path, -1, false, "open_file");
 }
 
 void VideoPanel::OpenUrl() {
@@ -84,7 +71,7 @@ void VideoPanel::OpenUrl() {
   wxString url = dlg.GetValue();
   AddToRecent(url);
 
-  // 🔥 Проверяем: URL может быть плейлистом
+  // Проверяем: URL может быть плейлистом
   bool isPlaylist = IsPlaylist(url);
   if (isPlaylist) {
     LoadAndPlayPlaylist(url);
@@ -94,13 +81,8 @@ void VideoPanel::OpenUrl() {
   m_uiState = UiState::Loading;
   UpdateUiButtons();
 
-  wxTheApp->CallAfter([this, url]() {
-    m_playerController->PlayUrl(url.ToStdString());
-    m_isChannelPlaying = false;
-    m_isTempPlaylistPlaying = false;
-    m_tempCurrentIndex = -1;
-    Play();
-  });
+  // Используем StartTempPlayAsync с isUrl = true
+  StartTempPlayAsync(url, -1, true, "open_url");
 }
 
 void VideoPanel::PlayChannel(const Channel &ch) {
@@ -135,11 +117,6 @@ void VideoPanel::Play() {
   if (!m_playerController)
     return;
 
-  // Сброс EOF/статусов перед началом воспроизведения
-  m_waitingForNext = false;
-  m_lastTimePos = -1.0;
-  m_stillFramesCount = 0;
-
   // Сбрасываем вспомогательные поля, чтобы OnPlayerState корректно обработал
   // переход
   m_lastPlayedFile = wxEmptyString;
@@ -159,30 +136,24 @@ void VideoPanel::Stop() {
   if (m_playerController)
     m_playerController->Stop();
 
-  // Сброс внутренних флагов плейлиста / pending
   m_pendingTempPlay = false;
   m_pendingTempIndex = -1;
+  m_isTempPlaylistPlaying = false;
+  m_tempCurrentIndex = -1;
 
-  LOG_DEBUG("VideoPanel::Stop(): clearing m_autoPausedByTabSwitch (was=%d)",
-            (int)m_autoPausedByTabSwitch);
+  m_tempState = TempPlayState::Idle;
+  m_currentRequestId = 0;
+
   m_autoPausedByTabSwitch = false;
 
-  m_waitingForNext = false;
-  m_lastTimePos = -1.0;
-  m_stillFramesCount = 0;
+  m_uiState = UiState::Idle;
+  UpdateUiButtons();
 
-  // Инвалидация токена MainFrame и запрос переключения вкладки остаются
+  m_eofTimer.Stop();
+
   MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
-  if (mf) {
+  if (mf)
     mf->InvalidateShowPanelToken();
-  }
-
-  // Запрос на переключение вкладки (если был)
-  int idx = m_channelSourceTab;
-  auto cb = m_onRequestTabSwitch;
-  if (cb) {
-    wxTheApp->CallAfter([cb, idx]() { cb(idx); });
-  }
 }
 
   // ============================================================================
@@ -443,9 +414,8 @@ void VideoPanel::Stop() {
       m_uiState = UiState::Loading;
       UpdateUiButtons();
 
-      m_playerController->PlayUrl(item.ToStdString());
-
-      Play();
+      // isUrl = true для URL
+      StartTempPlayAsync(item, -1, true, "open_recent_url");
 
       return;
     }
@@ -456,8 +426,7 @@ void VideoPanel::Stop() {
     m_uiState = UiState::Loading;
     UpdateUiButtons();
 
-    m_playerController->PlayFile(item.ToStdString());
-    Play();
+    StartTempPlayAsync(item, -1, false, "open_recent_file");
   }
 
   void VideoPanel::LoadAndPlayPlaylist(const wxString &path) {
@@ -483,13 +452,67 @@ void VideoPanel::Stop() {
     m_uiState = UiState::Loading;
     UpdateUiButtons();
 
-    // НЕ включаем m_isTempPlaylistPlaying здесь — дождёмся PlayerState::Playing
-    if (!m_playerController->PlayFile(list[0].ToStdString())) {
-      LOG_ERROR("Failed to play first item of playlist");
+    StartTempPlayAsync(list[0], 0, false, "load_playlist");
+  }
+
+  void VideoPanel::StartTempPlayAsync(const wxString &path, int sel, bool isUrl,
+                                 const char *source,
+                                 bool /*clearPlayNextInProgressOnFinish*/) {
+    // === Формируем запрос временного воспроизведения ===
+    TempPlayRequest req;
+    req.id = ++m_currentRequestId;
+    req.index = sel;
+    req.path = path;
+    req.isUrl = isUrl;
+
+    m_currentTempRequest = req;
+
+    // === Обновляем состояние state‑машины ===
+    m_tempState = TempPlayState::Requesting;
+    m_pendingTempPlay = true;
+    m_pendingTempIndex = sel;
+
+    m_isTempPlaylistPlaying = false;
+    m_tempCurrentIndex = -1;
+
+    // === Сбрасываем старые поля ===
+    m_isTempPlaylistPlaying = false;
+    m_isChannelPlaying = false;
+
+    // === UI: Loading ===
+    m_uiState = UiState::Loading;
+    UpdateUiButtons();
+
+    // === Запуск воспроизведения ===
+    bool ok = false;
+    if (isUrl)
+      ok = m_playerController->PlayUrl(path.ToStdString());
+    else
+      ok = m_playerController->PlayFile(path.ToStdString());
+
+    if (!ok) {
+      LOG_ERROR("StartTempPlayAsync: Play failed (source=%s path=%s)", source,
+                std::string(path.ToUTF8()).c_str());
+
       m_pendingTempPlay = false;
       m_pendingTempIndex = -1;
+      m_tempState = TempPlayState::Error;
+
+      m_uiState = UiState::Idle;
+      UpdateUiButtons();
       return;
     }
 
-    Play();
+    // === Обновляем выделение в списке ===
+    if (sel >= 0 && m_tempPlaylistList) {
+      m_tempPlaylistList->SetItemState(sel, wxLIST_STATE_SELECTED,
+                                       wxLIST_STATE_SELECTED);
+
+      this->CallAfter([this, sel]() {
+        if (m_tempPlaylistList) {
+          m_tempPlaylistList->SetFocus();
+          m_tempPlaylistList->EnsureVisible(sel);
+        }
+      });
+    }
   }

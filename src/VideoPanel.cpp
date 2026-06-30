@@ -499,22 +499,6 @@ wxString VideoPanel::FormatTime(double seconds) {
 void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
   m_lastProgress = info;
 
-  // 🔥 Сброс EOF-состояния при начале нового трека
-  // (timePos < 0.3 — почти всегда означает начало файла)
-  if (info.timePos >= 0 && info.timePos < 0.3) {
-    m_waitingForNext = false;
-    m_stillFramesCount = 0;
-  }
-
-  // 🔁 Резервный механизм: сброс при смене имени файла
-  // (только если m_currentName обновляется — например, при OpenFile)
-  wxString currentName = wxString::FromUTF8(m_currentName);
-  if (currentName != m_lastPlayedFile) {
-    m_lastPlayedFile = currentName;
-    m_waitingForNext = false;
-    m_stillFramesCount = 0; // ← добавлено!
-  }
-
   if (!m_progress || !m_timeCurrentLabel)
     return;
 
@@ -542,6 +526,7 @@ void VideoPanel::UpdateProgressDisplay(const ProgressInfo &info) {
 void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   PlayerState st = (PlayerState)evt.GetInt();
 
+  // === Обновление статусбара ===
   wxString stateText;
   switch (st) {
   case PlayerState::FileLoaded:
@@ -566,44 +551,51 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     wxTheApp->CallAfter([cb = m_onPlayerState, txt]() { cb(txt); });
   }
 
+  // === Переходы state‑машины ===
   switch (st) {
   case PlayerState::FileLoaded: {
-    m_uiState = UiState::Loading;
-    UpdateUiButtons();
     m_lastFileLoadedTime = std::chrono::steady_clock::now();
     m_wasPlayingBeforeStop = false;
+
+    m_tempState = TempPlayState::FileLoaded;
+
+    m_uiState = UiState::Loading;
+    UpdateUiButtons();
     break;
   }
+
   case PlayerState::Playing: {
+    m_wasPlayingBeforeStop = true;
+
+    m_tempState = TempPlayState::Playing;
+
     m_uiState = UiState::Playing;
     UpdateUiButtons();
 
-    // Если мы автоподнимались после системной паузы — подтверждаем и снимаем
-    // флаг
-    if (m_autoPausedByTabSwitch) {
-      LOG_DEBUG(
-          "OnPlayerState: Playing received — clearing m_autoPausedByTabSwitch");
+    if (m_autoPausedByTabSwitch)
       m_autoPausedByTabSwitch = false;
-    }
 
-    m_wasPlayingBeforeStop = true;
-
+    // === Подтверждение старта временного плейлиста ===
     if (m_pendingTempPlay) {
-      m_isChannelPlaying = false;
       m_isTempPlaylistPlaying = true;
-      if (m_pendingTempIndex >= 0)
-        m_tempCurrentIndex = m_pendingTempIndex;
+      m_tempCurrentIndex = m_pendingTempIndex;
+
       m_pendingTempPlay = false;
       m_pendingTempIndex = -1;
+
+      if (m_tempCurrentIndex >= 0 && m_tempPlaylistList) {
+        m_tempPlaylistList->SetItemState(
+            m_tempCurrentIndex, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+        m_tempPlaylistList->EnsureVisible(m_tempCurrentIndex);
+      }
     }
+
+    m_eofTimer.Start(200);
     break;
   }
+
   case PlayerState::Paused: {
-    LOG_DEBUG("VideoPanel::OnPlayerState: Paused received; "
-              "m_autoPausedByTabSwitch=%d, backend state=%d",
-              (int)m_autoPausedByTabSwitch,
-              (int)(m_playerController ? m_playerController->GetState()
-                                       : PlayerState::Stopped));
+    m_tempState = TempPlayState::Paused;
 
     m_uiState = UiState::Paused;
     UpdateUiButtons();
@@ -611,39 +603,34 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   }
 
   case PlayerState::Stopped: {
-    m_uiState = UiState::Idle;
-    UpdateUiButtons();
+    auto now = std::chrono::steady_clock::now();
+    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(
+                     now - m_lastFileLoadedTime)
+                     .count();
 
-    // Если плейлист неактивен или нет pending — просто стоп
-    if (!m_isTempPlaylistPlaying) {
+    // 🔥 если Stopped пришёл слишком рано — НЕ автопереход
+    if (delta < kStoppedDebounceMs) {
       break;
     }
 
-    // Если был pending запуск — значит загрузка не удалась, очищаем
-    if (m_pendingTempPlay) {
-      m_pendingTempPlay = false;
-      m_pendingTempIndex = -1;
-      break;
-    }
-
-    // Debounce: игнорируем Stopped, если слишком быстро после FILE_LOADED
-    {
-      auto now = std::chrono::steady_clock::now();
-      auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(
-                       now - m_lastFileLoadedTime)
-                       .count();
-      if (delta >= 0 && delta < kStoppedDebounceMs) {
-        break;
-      }
-    }
-
-    // Автопереход только если был реальный Playing до этого
+    // 🔥 если не было реального Playing — НЕ автопереход
     if (!m_wasPlayingBeforeStop) {
       break;
     }
 
-    // Минимум два трека для автопехода
-    if (m_tempPlaylist.size() < 2) {
+    m_tempState = TempPlayState::Stopped;
+
+    m_uiState = UiState::Idle;
+    UpdateUiButtons();
+
+    m_eofTimer.Stop();
+
+    if (!m_isTempPlaylistPlaying)
+      break;
+
+    if (m_pendingTempPlay) {
+      m_pendingTempPlay = false;
+      m_pendingTempIndex = -1;
       break;
     }
 
