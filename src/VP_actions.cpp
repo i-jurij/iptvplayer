@@ -152,8 +152,13 @@ void VideoPanel::Stop() {
   m_eofTimer.Stop();
 
   MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
-  if (mf)
+  if (mf) {
     mf->InvalidateShowPanelToken();
+  }
+
+  if (m_isChannelPlaying || m_isFavoritePlaying) {
+    m_onRequestTabSwitch(m_channelSourceTab);
+  }
 }
 
   // ============================================================================
@@ -478,6 +483,7 @@ void VideoPanel::Stop() {
     // === Сбрасываем старые поля ===
     m_isTempPlaylistPlaying = false;
     m_isChannelPlaying = false;
+    m_isFavoritePlaying = false;
 
     // === UI: Loading ===
     m_uiState = UiState::Loading;
