@@ -207,6 +207,7 @@ MainFrame::~MainFrame() {
       cfg->setSetting("window_x", std::to_string(rect.GetX()));
       cfg->setSetting("window_y", std::to_string(rect.GetY()));
       cfg->setInt("m_lastVolume", m_videoPanel->GetLastVolume());
+      cfg->setSetting("nologo", m_channelsNoLogo ? "true" : "false");
 
       cfg->saveSettings();
 

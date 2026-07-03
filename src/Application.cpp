@@ -89,12 +89,6 @@ bool Application::OnInit() {
     // wxLog::SetActiveTarget(new wxLogNull());
 
     wxInitAllImageHandlers();
-    // degug handlers
-    // auto &list = wxImage::GetHandlers();
-    // for (auto node = list.GetFirst(); node; node = node->GetNext()) {
-    //      wxImageHandler *h = static_cast<wxImageHandler *>(node->GetData());
-    // LOG_DEBUG("Handler: %s", h->GetName());
-    //  }
 
     if (!m_locale->Init(wxLANGUAGE_DEFAULT)) {
       LOG_ERROR("Failed to initialize locale");
@@ -102,7 +96,17 @@ bool Application::OnInit() {
       m_locale->AddCatalog("iptvplayer");
     }
 
-    // СНАЧАЛА инициализируем GUI (создаём главное окно)
+    // 1) СНАЧАЛА грузим настройки, чтобы MainFrame видел уже загруженный конфиг
+    ErrorCode cfgStatus = m_configManager->loadSettings();
+    if (cfgStatus != ErrorCode::OK) {
+      std::cerr << "Failed to load settings: "
+                << m_configManager->getLastError() << std::endl;
+      wxMessageBox("Failed to load settings.\nSee log for details.", "Error",
+                   wxOK | wxICON_ERROR);
+      return false;
+    }
+
+    // 2) Затем инициализируем GUI (создаём главное окно)
     if (!m_guiManager->initialize()) {
       LOG_ERROR("Failed to initialize GUI", "Error", wxOK | wxICON_ERROR);
       return false;
@@ -111,9 +115,10 @@ bool Application::OnInit() {
     MainFrame *mf = m_guiManager->getMainFrame();
     mf->Show(true);
 
+    // 3) Старт приложения (загрузка плейлистов и прочее)
     if (!start()) {
       LOG_ERROR("Failed to initialize application", "Error",
-                 wxOK | wxICON_ERROR);
+                wxOK | wxICON_ERROR);
       return false;
     }
 
@@ -135,26 +140,21 @@ bool Application::OnInit() {
   }
 }
 
-int Application::OnExit() { return 0; }
-
 bool Application::start() {
-  ErrorCode cfgStatus = m_configManager->loadSettings();
-
-  if (cfgStatus != ErrorCode::OK) {
-    std::cerr << "Failed to load settings: " << m_configManager->getLastError()
-              << std::endl;
-    return false;
-  }
-
+  // Настройки уже загружены в OnInit(), здесь только плейлисты
   ErrorCode plStatus = m_playlistManager->loadPlaylists();
   if (plStatus != ErrorCode::OK) {
     std::cerr << "Failed to load playlists: "
               << m_playlistManager->getLastError() << std::endl;
+    // плейлисты могут быть пустыми/ошибочными, но это не критично для старта
+    // GUI
   }
 
   std::cout << "Application started successfully" << std::endl;
   return true;
 }
+
+int Application::OnExit() { return 0; }
 
 PlaylistManager *Application::getPlaylistManager() const noexcept {
   return m_playlistManager.get();

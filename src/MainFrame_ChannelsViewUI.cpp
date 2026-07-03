@@ -94,12 +94,6 @@ void MainFrame::HandleChannelPageChanged(int sel) {
 void MainFrame::ApplyChannelsNoLogoToViews() {
   PROFILE_SCOPE("MainFrame::ApplyChannelsNoLogoToViews");
 
-  ConfigManager *cfg = getConfigManager();
-  if (cfg) {
-    cfg->setSetting("nologo", m_channelsNoLogo ? "true" : "false");
-    cfg->saveSettings();
-  }
-
   ChannelCards *cards = GetChannelCards();
   if (cards) {
     cards->IncrementCacheVersion();
