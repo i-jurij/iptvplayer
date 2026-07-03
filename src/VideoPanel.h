@@ -195,6 +195,9 @@ private:
   ProgressInfo m_lastProgress;
   wxPanel *m_progressPanel = nullptr;
 
+  wxTimer m_hideCursorTimer;
+  bool m_cursorVisible = true;
+
   wxButton *m_btnOpen = nullptr;
   wxButton *m_btnPlay = nullptr;
   wxButton *m_btnPause = nullptr;
@@ -238,11 +241,12 @@ private:
   void OnVideoAreaResize(wxSizeEvent &event);
   void OnPlayerState(wxCommandEvent &evt);
   void OnEofTimer(wxTimerEvent &evt);
+  void OnHideCursorTimer(wxTimerEvent &);
 
-  // -------------------------
-  // Actions (VP_actions.cpp)
-  // -------------------------
-  void OpenFile();
+      // -------------------------
+      // Actions (VP_actions.cpp)
+      // -------------------------
+      void OpenFile();
   void OpenUrl();
   void LoadAndPlayPlaylist(const wxString &path);
 

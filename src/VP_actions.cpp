@@ -250,8 +250,10 @@ void VideoPanel::Stop() {
                      wxEXPAND); // убираем wxLEFT | wxRIGHT | wxBOTTOM, 6
       grandparent->Layout();
       // Скрываем курсор
-      wxCursor blankCursor(wxCURSOR_BLANK);
-      m_videoArea->SetCursor(blankCursor);
+      // wxCursor blankCursor(wxCURSOR_BLANK);
+      // m_videoArea->SetCursor(blankCursor);
+      m_videoArea->SetCursor(wxCURSOR_BLANK);
+      m_cursorVisible = false;
 
       // Скрываем header и gauge
       if (m_headerPanel)
@@ -281,7 +283,9 @@ void VideoPanel::Stop() {
       mainSizer->Add(parent, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
       grandparent->Layout();
       // Восстанавливаем обычный курсор
+      // m_videoArea->SetCursor(wxCURSOR_DEFAULT);
       m_videoArea->SetCursor(wxCURSOR_DEFAULT);
+      m_cursorVisible = true;
 
       // Показываем обратно
       if (m_headerPanel)
@@ -293,7 +297,7 @@ void VideoPanel::Stop() {
       // m_progress->Show();
       if (m_progressPanel)
         m_progressPanel->Show();
-      
+
       Layout();
       m_controlsVisible = true;
 

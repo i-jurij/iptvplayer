@@ -469,6 +469,34 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_eofTimer.SetOwner(this);
   Bind(wxEVT_TIMER, &VideoPanel::OnEofTimer, this, m_eofTimer.GetId());
   m_eofTimer.Start(200); // 5 раз в секунду
+
+  m_hideCursorTimer.SetOwner(this);
+  Bind(wxEVT_TIMER, &VideoPanel::OnHideCursorTimer, this,
+       m_hideCursorTimer.GetId());
+
+  m_videoArea->Bind(wxEVT_MOTION, [this](wxMouseEvent &evt) {
+    if (!m_isFullscreen)
+      return;
+
+    // Показать курсор, если он скрыт
+    if (!m_cursorVisible) {
+      m_videoArea->SetCursor(wxCURSOR_DEFAULT);
+      m_cursorVisible = true;
+    }
+
+    // Перезапустить таймер автоскрытия
+    m_hideCursorTimer.Start(1500, wxTIMER_ONE_SHOT);
+
+    evt.Skip();
+  });
+}
+
+void VideoPanel::OnHideCursorTimer(wxTimerEvent &) {
+  if (!m_isFullscreen)
+    return;
+
+  m_videoArea->SetCursor(wxCURSOR_BLANK);
+  m_cursorVisible = false;
 }
 
 VideoPanel::~VideoPanel() {
