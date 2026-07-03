@@ -260,7 +260,10 @@ void VideoPanel::Stop() {
         m_gaugeTop->Hide();
 
       m_controlsPanel->Hide();
-      m_progress->Hide();
+
+      // m_progress->Hide();
+      if (m_progressPanel)
+        m_progressPanel->Hide();
 
       wxBitmapBundle icon = LoadSvgIcon("compress", this);
       if (icon.IsOk())
@@ -287,7 +290,10 @@ void VideoPanel::Stop() {
       // m_gaugeTop->Show();
 
       m_controlsPanel->Show();
-      m_progress->Show();
+      // m_progress->Show();
+      if (m_progressPanel)
+        m_progressPanel->Show();
+      
       Layout();
       m_controlsVisible = true;
 

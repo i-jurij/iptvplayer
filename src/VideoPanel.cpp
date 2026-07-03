@@ -188,6 +188,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   // Progress bar
   auto *progressPanel = new wxPanel(m_mainPanel, wxID_ANY);
+  m_progressPanel = progressPanel;
   auto *progressSizer = new wxBoxSizer(wxVERTICAL);
   auto *progressTimeSizer = new wxBoxSizer(wxHORIZONTAL);
 

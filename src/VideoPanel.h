@@ -193,6 +193,7 @@ private:
   wxPanel *m_controlsPanel = nullptr;
   wxTimer m_eofTimer;
   ProgressInfo m_lastProgress;
+  wxPanel *m_progressPanel = nullptr;
 
   wxButton *m_btnOpen = nullptr;
   wxButton *m_btnPlay = nullptr;
