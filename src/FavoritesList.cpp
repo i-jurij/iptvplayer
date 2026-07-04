@@ -32,6 +32,8 @@ void FavoritesList::loadChannels(const std::vector<Channel> &channels) {
     for (int i = 0; i < (int)GetModel()->GetCount(); ++i)
       GetModel()->RowChanged(i);
   }
+
+  GetModel()->SetSorting(2, true); // сортировка по имени
 }
 
 void FavoritesList::OnChannelActivated(const Channel &ch, int col) {
