@@ -22,7 +22,7 @@ ChannelList::~ChannelList() {
 }
 
 void ChannelList::OnChannelActivated(const Channel &ch, int col) {
-  if (col == 2)
+  if (col == 3) // click on fav col
     return;
 
   if (!m_onSelect)
