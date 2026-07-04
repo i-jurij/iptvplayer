@@ -216,73 +216,7 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   // FAVORITES PAGE
   // -------------------------------
-  wxPanel *favoritesPage = new wxPanel(m_notebook, wxID_ANY);
-  favoritesPage->SetBackgroundStyle(wxBG_STYLE_PAINT);
-  favoritesPage->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
-
-  auto *favSizer = new wxBoxSizer(wxVERTICAL);
-
-  auto *favHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_favHeader =
-      new wxStaticText(favoritesPage, wxID_ANY, "Favorites: 0 channels");
-  auto favFont = m_favHeader->GetFont();
-  favFont.SetPointSize(TITLE_FONT_SIZE);
-  favFont.SetWeight(wxFONTWEIGHT_BOLD);
-  m_favHeader->SetFont(favFont);
-  favHeaderSizer->Add(m_favHeader, 1, wxALL, 0);
-  favHeaderSizer->AddStretchSpacer(1);
-
-  m_favToolBar = new wxToolBar(favoritesPage, wxID_ANY, wxDefaultPosition,
-                               wxDefaultSize, wxTB_HORIZONTAL | wxNO_BORDER);
-
-  m_favToolBar->AddTool(ID_FAV_VIEW_LIST, "List",
-                        iconList.IsOk() ? iconList : wxNullBitmap, "List view",
-                        wxITEM_RADIO);
-
-  m_favToolBar->AddTool(ID_FAV_VIEW_GRID, "Grid",
-                        iconGrid.IsOk() ? iconGrid : wxNullBitmap, "Grid view",
-                        wxITEM_RADIO);
-
-  m_favToolBar->Realize();
-
-  favHeaderSizer->Add(m_favToolBar, 0, wxALL, 0);
-  favSizer->Add(favHeaderSizer, 0, wxEXPAND | wxALL, 12);
-
-  m_favViewBook = new wxSimplebook(favoritesPage, wxID_ANY);
-  m_favViewBook->SetBackgroundStyle(wxBG_STYLE_PAINT);
-  m_favViewBook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
-
-  m_favList = new FavoritesList(m_favViewBook, wxID_ANY);
-  m_favList->SetSelectCallback(
-      [this](const Channel &ch, size_t index, const wxRect &rect) {
-        this->onFavoriteSelected(ch, index, rect);
-      });
-  m_favCards = new FavoritesCards(m_favViewBook);
-  m_favCards->SetSelectCallback(
-      [this](const Channel &ch, size_t index, const wxRect &rect) {
-        this->onFavoriteSelected(ch, index, rect);
-      });
-
-  m_favViewBook->AddPage(m_favList, "List");
-  m_favViewBook->AddPage(m_favCards, "Cards");
-
-  auto *cfgFav = getConfigManager();
-  std::string favModeStr = cfgFav->getSetting("favorites_view_mode", "grid");
-  wxString favMode = wxString::FromUTF8(favModeStr);
-
-  if (favMode == "grid") {
-    m_favViewBook->ChangeSelection(1);
-    m_favToolBar->ToggleTool(ID_FAV_VIEW_GRID, true);
-  } else {
-    m_favViewBook->ChangeSelection(0);
-    m_favToolBar->ToggleTool(ID_FAV_VIEW_LIST, true);
-  }
-
-  favSizer->Add(m_favViewBook, 1, wxEXPAND | wxALL, 4);
-  favoritesPage->SetSizer(favSizer);
-  m_notebook->AddPage(favoritesPage, "Favorites");
-  m_favoritesPageIdx = m_notebook->FindPage(favoritesPage);
-  CallAfter([this]() { refreshFavorites(); });
+  createFavoritesUI();
 
   // -------------------------------
   // VIDEO PAGE

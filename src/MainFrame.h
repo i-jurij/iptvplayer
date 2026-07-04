@@ -85,6 +85,7 @@ public:
   // Filters / Sorting API
   void FillFilterChoices(const std::vector<Channel> &channels);
   void ApplyFiltersAndSort();
+  void ApplyFavoritesFiltersAndSort();
 
   // Apply show-logo flag coming from settings dialog (true = show logos)
   void SetShowLogoFromSettings(bool show);
@@ -176,6 +177,13 @@ private:
   wxChoice *m_sortChoice{nullptr};
   wxCheckBox *m_favFirst{nullptr};
   wxButton *m_resetBtn{nullptr};
+  // Favorites filters
+  wxPanel *m_favFilterPanel{nullptr};
+  wxChoice *m_favGroupChoice{nullptr};
+  wxChoice *m_favCountryChoice{nullptr};
+  wxChoice *m_favLangChoice{nullptr};
+  wxChoice *m_favSortChoice{nullptr};
+  wxButton *m_favFilterResetBtn{nullptr};
 
   // ----------------------------------------------------------------
   // Data
