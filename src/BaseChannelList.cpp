@@ -279,18 +279,6 @@ void BaseChannelList::EndFavoritesSync() {
   if (prev <= 1) {
     m_syncingFavorites = false;
     m_favSyncDepth.store(0);
-
-    const int id = GetId();
-    CallAfterSafeById(id, [id]() {
-      wxWindow *w = wxWindow::FindWindowById(id);
-      if (!w)
-        return;
-      auto *self = dynamic_cast<BaseChannelList *>(w);
-      if (!self || self->m_closing.load())
-        return;
-      if (self->m_model)
-        self->m_model->Reset(self->m_model->GetCount());
-    });
   }
 }
 
