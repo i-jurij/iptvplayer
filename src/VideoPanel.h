@@ -222,10 +222,14 @@ private:
   int m_tempCurrentIndex = -1;
   wxString m_lastPlayedFile;
 
-  // -------------------------
-  // Events (VP_events.cpp)
-  // -------------------------
-  void OnOpen(wxCommandEvent &);
+  wxTimer m_clickTimer;
+  bool m_waitingSingleClick = false;
+  void OnClickTimer(wxTimerEvent &);
+
+      // -------------------------
+      // Events (VP_events.cpp)
+      // -------------------------
+      void OnOpen(wxCommandEvent &);
   void OnPlay(wxCommandEvent &);
   void OnPause(wxCommandEvent &);
   void OnStop(wxCommandEvent &);

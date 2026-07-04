@@ -489,6 +489,43 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
     evt.Skip();
   });
+
+  // fullscreen/restore on doubleclick, play/pause single click
+  m_clickTimer.SetOwner(this);
+  Bind(wxEVT_TIMER, &VideoPanel::OnClickTimer, this, m_clickTimer.GetId());
+
+  m_videoArea->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &evt) {
+    wxPoint pos = evt.GetPosition();
+    if (!m_videoArea->GetClientRect().Contains(pos))
+      return;
+
+    m_waitingSingleClick = true;
+    m_clickTimer.Start(180, wxTIMER_ONE_SHOT); // стандартный double-click delay
+  });
+  m_videoArea->Bind(wxEVT_LEFT_DCLICK, [this](wxMouseEvent &evt) {
+    wxPoint pos = evt.GetPosition();
+    if (!m_videoArea->GetClientRect().Contains(pos))
+      return;
+
+    m_waitingSingleClick = false; // отменяем одиночный
+    ToggleFullscreen();
+  });
+}
+
+void VideoPanel::OnClickTimer(wxTimerEvent &) {
+  if (!m_waitingSingleClick)
+    return;
+
+  m_waitingSingleClick = false;
+
+  // одиночный клик → play/pause
+  if (m_playerController) {
+    PlayerState st = m_playerController->GetState();
+    if (st == PlayerState::Playing)
+      Pause();
+    else
+      Play();
+  }
 }
 
 void VideoPanel::OnHideCursorTimer(wxTimerEvent &) {
