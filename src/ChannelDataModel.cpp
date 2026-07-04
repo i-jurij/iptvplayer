@@ -503,6 +503,5 @@ void ChannelDataModel::SetFavorites(const std::vector<std::pair<std::string, std
   // Пересортировка, если сортировка по избранному
   if (m_sortColumn == 3) {
     Resort();
-    Reset(m_channels.size());
   }
 }

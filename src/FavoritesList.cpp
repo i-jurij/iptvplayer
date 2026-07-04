@@ -8,14 +8,12 @@ FavoritesList::FavoritesList(wxWindow *parent, wxWindowID id)
 }
 
 void FavoritesList::loadChannels(const std::vector<Channel> &channels) {
-  int topRow = GetTopVisibleRow();
-
-  // 1) Загрузка каналов избранного
+  // 1) Загрузка каналов избранного (Reset внутри SetChannels)
   BeginFavoritesSync();
-  LoadChannels(channels, "");
+  LoadFavoritesChannels(channels, "");
   EndFavoritesSync();
 
-  // 2) Синхронизация флагов избранного по (name, playlist)
+  // 2) Синхронизация флагов избранного
   if (MainFrame *parentFrame =
           dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
 
@@ -27,12 +25,13 @@ void FavoritesList::loadChannels(const std::vector<Channel> &channels) {
     for (const auto &c : favChannels)
       favKeys.emplace_back(c.getName(), c.getPlaylistName());
 
-    BeginFavoritesSync();
+    // Устанавливаем флаги избранного
     GetModel()->SetFavorites(favKeys);
-    EndFavoritesSync();
+
+    // 🔥 Перерисовать строки вручную
+    for (int i = 0; i < (int)GetModel()->GetCount(); ++i)
+      GetModel()->RowChanged(i);
   }
-  
-  RestoreTopVisibleRow(topRow);
 }
 
 void FavoritesList::OnChannelActivated(const Channel &ch, int col) {

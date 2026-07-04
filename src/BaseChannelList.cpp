@@ -348,6 +348,17 @@ void BaseChannelList::LoadChannels(const std::vector<Channel> &channels,
   }
 }
 
+void BaseChannelList::LoadFavoritesChannels(
+    const std::vector<Channel> &channels, const std::string &playlistName) {
+  int logoSize = GetDpiLogoSizeList(this);
+  if (logoSize <= 0)
+    logoSize = 40;
+
+  int dpi = GetNormDPI(this);
+  
+  m_model->SetChannels(channels, playlistName, logoSize, dpi);
+}
+
 // ---------------------------------------------------------------------------
 // Event handlers
 // ---------------------------------------------------------------------------

@@ -25,6 +25,8 @@ public:
 
   void LoadChannels(const std::vector<Channel> &channels,
                     const std::string &playlistName);
+  void LoadFavoritesChannels(const std::vector<Channel> &channels,
+                             const std::string &playlistName);
 
   ChannelDataModel *GetModel() { return m_model; }
   const ChannelDataModel *GetModel() const { return m_model; }
