@@ -104,19 +104,16 @@ void ChannelDataModel::GetValueByRow(wxVariant &variant, unsigned int row,
 
     // Попытка взять bitmap из кэша
     auto bmpPtr = LogoCache::GetCachedBitmapPtr(key);
-    if (bmpPtr && bmpPtr->IsOk()) {
-      // Возвращаем формат "key||row" — рендерер распарсит и привяжет к строке
-      std::string composite = key + "||" + std::to_string(row);
-      variant = wxString::FromUTF8(composite);
-    } else {
-      variant = wxString();
 
-      if (ShouldLogGetValue()) {
-        //LOG_DEBUG("ChannelDataModel::GetValueByRow row=%u key=%s NOT in cache "
-          //        "yet, requesting async load",
-            //      (unsigned)row, key.c_str());
-      }
+    // 🔥 ВСЕГДА возвращаем composite-ключ
+    std::string composite = key + "||" + std::to_string(row);
+    variant = wxString::FromUTF8(composite);
+
+    // Если bitmap отсутствует — инициируем загрузку
+    if (!bmpPtr || !bmpPtr->IsOk()) {
+      const_cast<ChannelDataModel *>(this)->RequestLogoLoadIfMissing(row, true);
     }
+
     break;
   }
 
@@ -255,6 +252,8 @@ void ChannelDataModel::SetChannels(const std::vector<Channel> &channels,
   if (!m_disableSorting) {
     Resort();
   }
+
+  m_rowKeyCache.clear();
 
   Reset(m_channels.size());
 }
