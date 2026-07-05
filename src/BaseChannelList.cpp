@@ -615,21 +615,11 @@ void BaseChannelList::EnqueueRowLoad(size_t row, bool highPriority) {
     m_queuedKeys.insert(key);
     m_lruQueuedKeys.push_back(key);
     m_lruIter[key] = std::prev(m_lruQueuedKeys.end());
+
+    AddKeyMapping(key, row);
   }
 
-  const int id = GetId();
-  if (!m_schedulePending.exchange(true)) {
-    CallAfterSafeById(id, [id]() {
-      wxWindow *w = wxWindow::FindWindowById(id);
-      if (!w)
-        return;
-      auto *self = dynamic_cast<BaseChannelList *>(w);
-      if (self && !self->m_closing.load()) {
-        self->m_schedulePending.store(false);
-        self->processLoadQueue();
-      }
-    });
-  }
+  ScheduleProcessLoadQueue();
 }
 
 // ---------------------------------------------------------------------------
@@ -642,6 +632,11 @@ void BaseChannelList::processLoadQueue() {
     return;
   if (m_queuePaused.load() || m_loadingPaused.load())
     return;
+
+  int logoSize = GetDpiLogoSizeList(this);
+  if (logoSize <= 0)
+    logoSize = 40;
+  int dpi = GetNormDPI(this);
 
   bool expected = false;
   if (!m_processing.compare_exchange_strong(expected, true))
@@ -685,11 +680,6 @@ void BaseChannelList::processLoadQueue() {
         it = m_loadQueue.erase(it);
         continue;
       }
-
-      int logoSize = GetDpiLogoSizeList(this);
-      if (logoSize <= 0)
-        logoSize = 40;
-      int dpi = GetNormDPI(this);
 
       std::string key = m_model->MakeCacheKey(c.getPlaylistName(), c.getName(),
                                               logoSize, dpi);
@@ -790,19 +780,21 @@ void BaseChannelList::processLoadQueue() {
               return;
 
             if (!bmp_copy || !bmp_copy->IsOk()) {
-              // LOG_DEBUG("LogoCache callback FAILED key=%s row=%zu",
-              //         keyCopy.c_str(), rowCopy);
+              {
+                std::lock_guard<std::mutex> lk(list->m_queueMutex);
+                // Re-mark key как queued для повтора
+                if (list->m_queuedKeys.find(keyCopy) ==
+                    list->m_queuedKeys.end()) {
+                  list->m_queuedKeys.insert(keyCopy);
+                  QueueItem qi{rowCopy, 1, expectedModelVer, NowMs()};
+                  list->m_loadQueue.push_back(qi);
+                  list->m_lruQueuedKeys.push_back(keyCopy);
+                  list->m_lruIter[keyCopy] =
+                      std::prev(list->m_lruQueuedKeys.end());
+                }
+              }
 
-              const int id = list->GetId();
-              std::thread([id]() {
-                CallAfterSafeById(id, [id]() {
-                  wxWindow *w2 = wxWindow::FindWindowById(id);
-                  if (auto *self2 = dynamic_cast<BaseChannelList *>(w2)) {
-                    if (!self2->m_closing.load())
-                      self2->processLoadQueue();
-                  }
-                });
-              }).detach();
+              list->ScheduleProcessLoadQueue();
               return;
             }
 
@@ -811,14 +803,7 @@ void BaseChannelList::processLoadQueue() {
               model->SafeUpdateRowByName(pl, nm, bmp_copy, expectedModelVer);
             }
 
-            const int id = list->GetId();
-            CallAfterSafeById(id, [id]() {
-              wxWindow *w2 = wxWindow::FindWindowById(id);
-              if (auto *self2 = dynamic_cast<BaseChannelList *>(w2)) {
-                if (!self2->m_closing.load())
-                  self2->processLoadQueue();
-              }
-            });
+            list->ScheduleProcessLoadQueue();
           });
         });
   }
@@ -836,8 +821,7 @@ void BaseChannelList::OnPendingWatchdog(wxTimerEvent &evt) {
     return;
 
   uint64_t now = NowMs();
-
-  std::vector<std::string> toRetry;
+  std::vector<std::pair<std::string, size_t>> toRetry; // key, row pairs
 
   {
     std::lock_guard<std::mutex> lk(m_queueMutex);
@@ -845,38 +829,35 @@ void BaseChannelList::OnPendingWatchdog(wxTimerEvent &evt) {
     for (auto &kv : m_pendingLogoLoads) {
       uint64_t age = now - kv.second;
       if (age >= kPendingStalledMs) {
-        toRetry.push_back(kv.first);
+        // NEW: Получай row из маппинга O(1) вместо O(n)
+        {
+          std::lock_guard<std::mutex> lk2(m_keyToRowMutex);
+          auto it = m_keyToRow.find(kv.first);
+          if (it != m_keyToRow.end()) {
+            toRetry.push_back({kv.first, it->second});
+          }
+        }
       }
     }
 
-    for (const auto &key : toRetry)
+    for (const auto &[key, row] : toRetry) {
       m_pendingLogoLoads.erase(key);
+      RemoveKeyMapping(key); // NEW: Очисти маппинг
+    }
   }
 
-  for (const auto &key : toRetry) {
+  // NEW: Простой и прямой retry
+  for (const auto &[key, row] : toRetry) {
     const int id = GetId();
-    CallAfterSafeById(id, [id, key]() {
+    CallAfterSafeById(id, [id, row]() {
       wxWindow *w = wxWindow::FindWindowById(id);
       if (!w)
         return;
       auto *self = dynamic_cast<BaseChannelList *>(w);
       if (!self || self->m_closing.load())
         return;
-
-      for (size_t row = 0; row < self->m_model->GetCount(); ++row) {
-        const Channel &ch = self->m_model->GetChannel((unsigned int)row);
-        int logoSize = GetDpiLogoSizeList(self);
-        if (logoSize <= 0)
-          logoSize = 40;
-        int dpi = GetNormDPI(self);
-
-        std::string k = self->m_model->MakeCacheKey(
-            ch.getPlaylistName(), ch.getName(), logoSize, dpi);
-
-        if (k == key) {
-          self->EnqueueRowLoad(row, true);
-          break;
-        }
+      if (row < self->m_model->GetCount()) {
+        self->EnqueueRowLoad(row, true);
       }
     });
   }
@@ -907,6 +888,12 @@ void BaseChannelList::PauseLogoLoading() {
     m_queuedKeys.clear();
     m_lruQueuedKeys.clear();
     m_lruIter.clear();
+    m_pendingLogoLoads.clear(); // NEW
+  }
+
+  {
+    std::lock_guard<std::mutex> lk(m_keyToRowMutex);
+    m_keyToRow.clear();
   }
 }
 
@@ -1034,6 +1021,12 @@ void BaseChannelList::ResetVisibleRange() {
   m_queuedKeys.clear();
   m_lruQueuedKeys.clear();
   m_lruIter.clear();
+  m_pendingLogoLoads.clear();
+
+  {
+    std::lock_guard<std::mutex> lk2(m_keyToRowMutex);
+    m_keyToRow.clear();
+  }
 }
 
 void BaseChannelList::CoalescedDoLazyLoadSchedule() {

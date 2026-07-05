@@ -147,5 +147,36 @@ protected:
 
   void OnPendingWatchdog(wxTimerEvent &evt);
 
+  // NEW: Обратное отображение key -> row для оптимизации watchdog
+  std::unordered_map<std::string, size_t> m_keyToRow;
+  std::mutex m_keyToRowMutex;
+
+  // Helper methods для синхронной очистки маппинга
+  void RemoveKeyMapping(const std::string &key) {
+    std::lock_guard<std::mutex> lk(m_keyToRowMutex);
+    m_keyToRow.erase(key);
+  }
+
+  void AddKeyMapping(const std::string &key, size_t row) {
+    std::lock_guard<std::mutex> lk(m_keyToRowMutex);
+    m_keyToRow[key] = row;
+  }
+
+  void ScheduleProcessLoadQueue() {
+    if (!m_schedulePending.exchange(true)) {
+      const int id = GetId();
+      CallAfterSafeById(id, [id]() {
+        wxWindow *w = wxWindow::FindWindowById(id);
+        if (!w)
+          return;
+        auto *self = dynamic_cast<BaseChannelList *>(w);
+        if (self && !self->m_closing.load()) {
+          self->m_schedulePending.store(false);
+          self->processLoadQueue();
+        }
+      });
+    }
+  }
+
   wxDECLARE_EVENT_TABLE();
 };
