@@ -418,7 +418,6 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   }
 
   // Начальное состояние кнопок
-  m_uiState = UiState::Idle;
   UpdateUiButtons();
 
   // Keyboard
@@ -435,11 +434,18 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   if (m_playerController) {
     m_playerController->SetStreamInfoCallback([this](const StreamInfo &info) {
+      // Обрезаем описания кодеков до первого "/"
+      auto truncateCodec = [](const std::string &s) -> std::string {
+        if (s.empty())
+          return s;
+        size_t pos = s.find('/');
+        return (pos == std::string::npos) ? s : s.substr(0, pos);
+      };
       wxString streamInfo = wxString::Format(
           "%s | %dx%d @ %d fps | %s / %s", wxString::FromUTF8(m_currentName),
           info.width, info.height, info.fps,
-          wxString::FromUTF8(info.videoCodec),
-          wxString::FromUTF8(info.audioCodec));
+          wxString::FromUTF8(truncateCodec(info.videoCodec)),
+          wxString::FromUTF8(truncateCodec(info.audioCodec)));
 
       if (m_onStreamInfo) {
         wxTheApp->CallAfter(
@@ -592,7 +598,6 @@ void VideoPanel::UpdateProgressDisplay(const ProgressInfo &info) {
 void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   PlayerState st = (PlayerState)evt.GetInt();
 
-  // === Обновление статусбара ===
   wxString stateText;
   switch (st) {
   case PlayerState::FileLoaded:
@@ -617,31 +622,23 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     wxTheApp->CallAfter([cb = m_onPlayerState, txt]() { cb(txt); });
   }
 
-  // === Переходы state‑машины ===
   switch (st) {
   case PlayerState::FileLoaded: {
     m_lastFileLoadedTime = std::chrono::steady_clock::now();
     m_wasPlayingBeforeStop = false;
 
     m_tempState = TempPlayState::FileLoaded;
-
-    m_uiState = UiState::Loading;
     UpdateUiButtons();
     break;
   }
 
   case PlayerState::Playing: {
     m_wasPlayingBeforeStop = true;
-
     m_tempState = TempPlayState::Playing;
-
-    m_uiState = UiState::Playing;
-    UpdateUiButtons();
 
     if (m_autoPausedByTabSwitch)
       m_autoPausedByTabSwitch = false;
 
-    // === Подтверждение старта временного плейлиста ===
     if (m_pendingTempPlay) {
       m_isTempPlaylistPlaying = true;
       m_tempCurrentIndex = m_pendingTempIndex;
@@ -657,13 +654,12 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     }
 
     m_eofTimer.Start(200);
+    UpdateUiButtons();
     break;
   }
 
   case PlayerState::Paused: {
     m_tempState = TempPlayState::Paused;
-
-    m_uiState = UiState::Paused;
     UpdateUiButtons();
     break;
   }
@@ -674,22 +670,17 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
                      now - m_lastFileLoadedTime)
                      .count();
 
-    // 🔥 если Stopped пришёл слишком рано — НЕ автопереход
     if (delta < kStoppedDebounceMs) {
       break;
     }
 
-    // 🔥 если не было реального Playing — НЕ автопереход
     if (!m_wasPlayingBeforeStop) {
       break;
     }
 
     m_tempState = TempPlayState::Stopped;
-
-    m_uiState = UiState::Idle;
-    UpdateUiButtons();
-
     m_eofTimer.Stop();
+    UpdateUiButtons();
 
     if (!m_isTempPlaylistPlaying)
       break;
@@ -713,7 +704,33 @@ void VideoPanel::UpdateUiButtons() {
   if (!m_btnPlay || !m_btnPause || !m_btnStop)
     return;
 
-  switch (m_uiState) {
+  // состояние UI теперь зависит от m_tempState
+  UiState effectiveState = UiState::Idle;
+
+  switch (m_tempState) {
+  case TempPlayState::Idle:
+  case TempPlayState::Stopped:
+  case TempPlayState::Error:
+    effectiveState = UiState::Idle;
+    break;
+
+  case TempPlayState::Requesting:
+  case TempPlayState::Loading:
+  case TempPlayState::FileLoaded:
+  case TempPlayState::Starting:
+    effectiveState = UiState::Loading;
+    break;
+
+  case TempPlayState::Playing:
+    effectiveState = UiState::Playing;
+    break;
+
+  case TempPlayState::Paused:
+    effectiveState = UiState::Paused;
+    break;
+  }
+
+  switch (effectiveState) {
   case UiState::Idle:
     m_btnPlay->Enable();
     m_btnPause->Disable();
@@ -739,15 +756,15 @@ void VideoPanel::UpdateUiButtons() {
     break;
   }
 
-  // Опционально: индикатор Loading в статусбаре
   wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
   if (frame && frame->GetStatusBar()) {
-    if (m_uiState == UiState::Loading) {
+    // Статусбар 0: состояние
+    if (effectiveState == UiState::Loading) {
       frame->SetStatusText("Loading...", 0);
-    }
-    if (m_uiState == UiState::Idle) {
+    } else if (effectiveState == UiState::Idle) {
+      frame->SetStatusText("", 0);
       frame->SetStatusText("", 1);
-    }
+    } 
   }
 }
 
@@ -823,4 +840,19 @@ void VideoPanel::SetTabActive(bool active) {
 
     resumeTimer->Start(100, wxTIMER_CONTINUOUS);
   });
+}
+
+bool VideoPanel::IsUiLoading() const {
+  switch (m_tempState) {
+  case TempPlayState::Requesting:
+  case TempPlayState::Loading:
+  case TempPlayState::FileLoaded:
+  case TempPlayState::Starting:
+    return true;
+  default:
+    return false;
+  }
+}
+bool VideoPanel::IsUiPlaying() const {
+  return m_tempState == TempPlayState::Playing;
 }

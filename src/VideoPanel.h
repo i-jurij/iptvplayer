@@ -126,7 +126,12 @@ private:
     Error
   };
 
+  enum class UiState { Idle, Loading, Playing, Paused };
+  
   TempPlayState m_tempState = TempPlayState::Idle;
+  bool IsUiLoading() const;
+  bool IsUiPlaying() const;
+
   TempPlayRequest m_currentTempRequest;
   uint64_t m_currentRequestId = 0;
   
@@ -140,9 +145,6 @@ private:
   wxPanel *m_loadingOverlay = nullptr;
   wxStaticText *m_loadingLabel = nullptr;
 
-  enum class UiState { Idle, Loading, Playing, Paused };
-
-  UiState m_uiState = UiState::Idle;
   bool m_autoPausedByTabSwitch = false;
   bool m_wasPlayingBeforeTabSwitch = false;
   bool m_tabIsActive = true;

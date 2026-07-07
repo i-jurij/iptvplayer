@@ -207,7 +207,7 @@ void VideoPanel::HandleDroppedFiles(const wxArrayString &files) {
       m_pendingTempIndex = 0;
 
       //LOG_DEBUG("HandleDroppedFiles: pending set idx=0");
-      m_uiState = UiState::Loading;
+      m_tempState = TempPlayState::Loading;
       UpdateUiButtons();
 
       StartTempPlayAsync(first, 0, false, "dropped");
@@ -300,7 +300,7 @@ void VideoPanel::PlayNextTempItem() {
 
   wxString path = m_tempPlaylist[next];
 
-  m_uiState = UiState::Loading;
+  m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
 
   if (m_tempPlaylistList) {
@@ -397,6 +397,9 @@ void VideoPanel::ClearTempPlaylist() {
   m_isTempPlaylistPlaying = false;
   m_tempCurrentIndex = -1;
 
+  // сбрасываем имя при очистке плейлиста
+  m_currentName.clear();
+
   if (m_splitter && m_splitter->IsSplit())
     m_splitter->Unsplit(m_tempPlaylistPanel);
 
@@ -423,7 +426,7 @@ void VideoPanel::OnTempPlaylistListActivate(wxListEvent &evt) {
 
   //LOG_DEBUG("OnTempPlaylistListActivate: pending set idx=%d",
     //        m_pendingTempIndex);
-  m_uiState = UiState::Loading;
+  m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
 
   StartTempPlayAsync(path, sel, false, "activate");
@@ -504,7 +507,7 @@ void VideoPanel::TempPlaylistPlay() {
   m_pendingTempIndex = (int)sel;
 
   //LOG_DEBUG("TempPlaylistPlay: pending set idx=%d", m_pendingTempIndex);
-  m_uiState = UiState::Loading;
+  m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
 
   StartTempPlayAsync(path, sel, false, "manual");
@@ -743,7 +746,7 @@ void VideoPanel::PlayPrevTempItem() {
   m_tempCurrentIndex = prev;
   wxString path = m_tempPlaylist[prev];
 
-  m_uiState = UiState::Loading;
+  m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
 
   StartTempPlayAsync(path, prev, false, "prev");

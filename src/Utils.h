@@ -25,9 +25,14 @@ void SafeRemoveDirectoryAsync(const wxString &dir, RemoveDirCallback cb);
 bool RemoveMarkerFilesRecursive(const wxString &baseDir, size_t &removed,
                                 size_t &skippedUnsafe, size_t &failed,
                                 bool followSymlinks);
-
+enum NormalizeFileNameMode {
+  Disk,    // файловая система: замена запрещённых символов, reserved-имена
+  Display, // UI: убрать управляющие символы, сохранить читаемые пробелы
+  SafeUrl  // URL/параметры: только безопасные символы
+};
 std::string NormalizeFileNameForDisk(const std::string &input,
-                                     size_t maxLen = 200);
+                                     size_t maxLen = 200,
+                                     NormalizeFileNameMode mode = Disk);
 void showError(wxWindow *parent, const wxString &message,
                const wxString &title = "Error");
 std::vector<wxString> extractAllUrls(const wxString &s);

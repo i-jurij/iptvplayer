@@ -1,6 +1,7 @@
 #include "ConfigManager.h"
 #include "LogControl.h"
 #include "MainFrame.h"
+#include "Utils.h"
 #include "VP_SvgIcon.h"
 #include "VideoPanel.h"
 
@@ -48,13 +49,13 @@ void VideoPanel::OpenFile() {
   ClearTempPlaylist();
 
   AddToRecent(path);
-  m_currentName = fn.GetFullName().ToStdString();
+  m_currentName = NormalizeFileNameForDisk(fn.GetFullName().ToStdString(), 128, Display);
 
   m_isChannelPlaying = false;
   m_isTempPlaylistPlaying = false;
   m_tempCurrentIndex = -1;
 
-  m_uiState = UiState::Loading;
+  m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
 
   // Используем единый публичный helper вместо прямого CallAfter + PlayFile
@@ -78,7 +79,7 @@ void VideoPanel::OpenUrl() {
     return;
   }
 
-  m_uiState = UiState::Loading;
+  m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
 
   // Используем StartTempPlayAsync с isUrl = true
@@ -88,9 +89,10 @@ void VideoPanel::OpenUrl() {
 void VideoPanel::PlayChannel(const Channel &ch) {
   ClearTempPlaylist();
   std::string url = ch.getUrl();
-  m_currentName = ch.getName();
+  m_currentName =
+      NormalizeFileNameForDisk(ch.getName(), 128, Display);
 
-  m_uiState = UiState::Loading;
+  m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
 
   wxTheApp->CallAfter([this, url]() {
@@ -102,7 +104,7 @@ void VideoPanel::PlayChannel(const Channel &ch) {
     }
     if (!ok) {
       LOG_ERROR("PlayChannel: PlayUrl failed");
-      m_uiState = UiState::Idle;
+      m_tempState = TempPlayState::Error;
       UpdateUiButtons();
       return;
     }
@@ -141,12 +143,14 @@ void VideoPanel::Stop() {
   m_isTempPlaylistPlaying = false;
   m_tempCurrentIndex = -1;
 
-  m_tempState = TempPlayState::Idle;
+  // сбрасываем имя при остановке
+  m_currentName.clear();
+
+  m_tempState = TempPlayState::Stopped;
   m_currentRequestId = 0;
 
   m_autoPausedByTabSwitch = false;
-
-  m_uiState = UiState::Idle;
+  
   UpdateUiButtons();
 
   m_eofTimer.Stop();
@@ -426,7 +430,7 @@ void VideoPanel::Stop() {
       // обычный URL
       ClearTempPlaylist();
 
-      m_uiState = UiState::Loading;
+      m_tempState = TempPlayState::Loading;
       UpdateUiButtons();
 
       // isUrl = true для URL
@@ -438,7 +442,7 @@ void VideoPanel::Stop() {
     // --- Обычный файл ---
     ClearTempPlaylist();
 
-    m_uiState = UiState::Loading;
+    m_tempState = TempPlayState::Loading;
     UpdateUiButtons();
 
     StartTempPlayAsync(item, -1, false, "open_recent_file");
@@ -464,15 +468,19 @@ void VideoPanel::Stop() {
     m_pendingTempPlay = true;
     m_pendingTempIndex = 0;
 
-    m_uiState = UiState::Loading;
+    m_tempState = TempPlayState::Loading;
     UpdateUiButtons();
 
     StartTempPlayAsync(list[0], 0, false, "load_playlist");
   }
 
-  void VideoPanel::StartTempPlayAsync(const wxString &path, int sel, bool isUrl,
+  void
+  VideoPanel::StartTempPlayAsync(const wxString &path, int sel, bool isUrl,
                                  const char *source,
                                  bool /*clearPlayNextInProgressOnFinish*/) {
+    // помечаем, что началась загрузка — чтобы UI и логика были синхронизированы
+    m_tempState = TempPlayState::Loading;
+
     // === Формируем запрос временного воспроизведения ===
     TempPlayRequest req;
     req.id = ++m_currentRequestId;
@@ -495,10 +503,6 @@ void VideoPanel::Stop() {
     m_isChannelPlaying = false;
     m_isFavoritePlaying = false;
 
-    // === UI: Loading ===
-    m_uiState = UiState::Loading;
-    UpdateUiButtons();
-
     // === Запуск воспроизведения ===
     bool ok = false;
     if (isUrl)
@@ -513,8 +517,6 @@ void VideoPanel::Stop() {
       m_pendingTempPlay = false;
       m_pendingTempIndex = -1;
       m_tempState = TempPlayState::Error;
-
-      m_uiState = UiState::Idle;
       UpdateUiButtons();
       return;
     }
@@ -531,4 +533,7 @@ void VideoPanel::Stop() {
         }
       });
     }
+
+    // === UI: Loading ===
+    UpdateUiButtons();
   }

@@ -10,7 +10,7 @@
 
 void VideoPanel::OnPlay(wxCommandEvent &) {
   // Игнорируем нажатие Play, если UI в Loading (ожидание подтверждения backend)
-  if (m_uiState == UiState::Loading) {
+  if (IsUiLoading()) {
     LOG_DEBUG("OnPlay: ignored because UI is Loading");
     return;
   }
@@ -43,7 +43,7 @@ void VideoPanel::OnPlay(wxCommandEvent &) {
 }
 
 void VideoPanel::OnPause(wxCommandEvent &) {
-  if (m_uiState == UiState::Loading) {
+  if (IsUiLoading()) {
     LOG_DEBUG("OnPause: ignored because UI is Loading");
     return;
   }
@@ -51,7 +51,7 @@ void VideoPanel::OnPause(wxCommandEvent &) {
 }
 
 void VideoPanel::OnStop(wxCommandEvent &) {
-  if (m_uiState == UiState::Loading) {
+  if (IsUiLoading()) {
     LOG_DEBUG("OnStop: ignored because UI is Loading");
     return;
   }

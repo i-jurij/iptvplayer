@@ -100,80 +100,114 @@ static void TruncateUtf8Safe(std::string &s, size_t maxBytes) {
   }
 }
 
-std::string NormalizeFileNameForDisk(const std::string &input, size_t maxLen) {
+/*
+NormalizeFileNameForDisk(fn.GetFullName().ToStdString()); // Disk по умолчанию
+NormalizeFileNameForDisk(fn.GetFullName().ToStdString(), 128, Display);
+NormalizeFileNameForDisk(fn.GetFullName().ToStdString(), 255, SafeUrl);
+*/
+std::string NormalizeFileNameForDisk(const std::string &input, size_t maxLen,
+                                     NormalizeFileNameMode mode) {
   if (input.empty())
     return "unnamed";
 
-  const std::string forbidden = "\\/:*?\"<>|";
   std::string out;
   out.reserve(input.size());
 
   for (unsigned char ch : input) {
     if (ch == 0)
       continue;
-    if (ch < 0x20) {
-      out.push_back('_');
+    if (ch < 0x20 || ch == 0x7F) {
+      out.push_back((mode == Disk || mode == SafeUrl) ? '_' : ' ');
       continue;
     }
-    if (forbidden.find(ch) != std::string::npos) {
-      out.push_back('_');
-      continue;
+
+    if (mode == Disk) {
+      static const std::string forbidden = "\\/:*?\"<>|";
+      if (forbidden.find(ch) != std::string::npos) {
+        out.push_back('_');
+        continue;
+      }
     }
+
     if (ch == ' ' || ch == '\t') {
+      out.push_back((mode == Disk || mode == SafeUrl) ? '_' : ' ');
+      continue;
+    }
+
+    // URL-safe: только alphanum + [-._~]
+    if (mode == SafeUrl && !std::isalnum(ch) && ch != '-' && ch != '.' &&
+        ch != '_' && ch != '~') {
       out.push_back('_');
       continue;
     }
+
     out.push_back(static_cast<char>(ch));
   }
 
+  // Устраняем повторы спецсимволов
   {
     std::string tmp;
     tmp.reserve(out.size());
-    bool lastUnderscore = false;
+    const char special = (mode == Disk) ? '_' : ' ';
+    bool lastWasSpecial = false;
+
     for (unsigned char c : out) {
-      if (c == '_') {
-        if (!lastUnderscore) {
-          tmp.push_back('_');
-          lastUnderscore = true;
+      if (c == special) {
+        if (!lastWasSpecial && !tmp.empty()) {
+          tmp.push_back(c);
+          lastWasSpecial = true;
         }
       } else {
         tmp.push_back(c);
-        lastUnderscore = false;
+        lastWasSpecial = false;
       }
     }
     out.swap(tmp);
   }
 
-  while (!out.empty() &&
-         (out.front() == '_' || out.front() == '.' || out.front() == ' '))
-    out.erase(out.begin());
-  while (!out.empty() &&
-         (out.back() == '_' || out.back() == '.' || out.back() == ' '))
-    out.pop_back();
+  // Обрезка краёв
+  if (!out.empty()) {
+    if (mode == Disk) {
+      while (!out.empty() &&
+             (out.front() == '_' || out.front() == '.' || out.front() == ' '))
+        out.erase(out.begin());
+      while (!out.empty() &&
+             (out.back() == '_' || out.back() == '.' || out.back() == ' '))
+        out.pop_back();
+    } else {
+      while (!out.empty() && (out.front() == ' ' || out.front() == '_'))
+        out.erase(out.begin());
+      while (!out.empty() && (out.back() == ' ' || out.back() == '_'))
+        out.pop_back();
+    }
+  }
 
   if (out.empty())
     out = "unnamed";
 
   TruncateUtf8Safe(out, maxLen);
 
-  std::string asciiUpper;
-  asciiUpper.reserve(out.size());
-  for (unsigned char c : out) {
-    if (c < 0x80) {
-      asciiUpper.push_back(static_cast<char>(std::toupper(c)));
-    } else {
-      break;
+  // Reserved names — только для Disk
+  if (mode == Disk) {
+    std::string asciiUpper;
+    asciiUpper.reserve(out.size());
+    for (unsigned char c : out) {
+      if (c < 0x80) {
+        asciiUpper.push_back(static_cast<char>(std::toupper(c)));
+      } else {
+        break;
+      }
     }
-  }
 
-  static const std::vector<std::string> reserved = {
-      "CON",  "PRN",  "AUX",  "NUL",  "COM1", "COM2", "COM3", "COM4",
-      "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
-      "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"};
-  for (const auto &r : reserved) {
-    if (asciiUpper == r) {
-      out += "_file";
-      break;
+    static const std::vector<std::string> reserved = {
+        "CON",  "PRN",  "AUX",  "NUL",  "COM1", "COM2", "COM3", "COM4",
+        "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
+        "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"};
+    for (const auto &r : reserved) {
+      if (asciiUpper == r) {
+        out += "_file";
+        break;
+      }
     }
   }
 
