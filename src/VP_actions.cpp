@@ -125,6 +125,8 @@ void VideoPanel::PlayChannel(const Channel &ch) {
   MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
   if (canvas) {
     canvas->SetForceBlack(true);
+    canvas->ShowSpinner(true);
+    LOG_DEBUG("PlayChannel: ShowSpinner(true) called");
     m_forceBlackActive = true;
     m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
   }
@@ -144,6 +146,7 @@ void VideoPanel::PlayChannel(const Channel &ch) {
       MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
       if (canvas) {
         canvas->SetForceBlack(false);
+        canvas->ShowSpinner(false);
         m_forceBlackActive = false;
         m_forceBlackTimer.Stop();
       }
@@ -213,6 +216,7 @@ void VideoPanel::Stop() {
   MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
   if (canvas) {
     canvas->SetForceBlack(true);
+    canvas->ShowSpinner(false);
     m_forceBlackActive = true;
     m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
   }
@@ -571,6 +575,8 @@ void VideoPanel::Stop() {
     MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
     if (canvas) {
       canvas->SetForceBlack(true);
+      canvas->ShowSpinner(true);
+      LOG_DEBUG("StartTempPlayAsync: ShowSpinner(true) called");
       m_forceBlackActive = true;
       m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
     }
@@ -585,6 +591,7 @@ void VideoPanel::Stop() {
     if (!ok) {
       if (canvas) {
         canvas->SetForceBlack(false);
+        canvas->ShowSpinner(false);
         m_forceBlackActive = false;
         m_forceBlackTimer.Stop();
       }

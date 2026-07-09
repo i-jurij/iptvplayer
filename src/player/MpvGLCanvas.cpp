@@ -35,13 +35,140 @@ wxBEGIN_EVENT_TABLE(MpvGLCanvas, wxGLCanvas) EVT_PAINT(MpvGLCanvas::OnPaint)
     MpvGLCanvas::MpvGLCanvas(wxWindow *parent, mpv_handle *mpv)
     : wxGLCanvas(parent, wxID_ANY, GetGLAttributes()), m_mpv(mpv) {
   SetBackgroundStyle(wxBG_STYLE_PAINT);
+  m_spinnerTimer.SetOwner(this);
+  Bind(wxEVT_TIMER, &MpvGLCanvas::OnSpinnerTimer, this, m_spinnerTimer.GetId());
 }
 
 MpvGLCanvas::~MpvGLCanvas() {
   DestroyRenderContext();
   DestroyFBO();
   DestroyGLResources();
+
+  m_spinnerTimer.Stop();
+  
   m_glctx.reset();
+}
+
+void MpvGLCanvas::InitSpinnerResources() {
+  if (m_spinnerProgram)
+    return;
+
+  const char *vsSrc = R"(
+        #version 330 core
+        layout(location = 0) in vec2 aPos;
+        void main() {
+            gl_Position = vec4(aPos, 0.0, 1.0);
+        }
+    )";
+
+  const char *fsSrc = R"(
+        #version 330 core
+        uniform vec4 uColor;
+        out vec4 FragColor;
+        void main() {
+            FragColor = uColor;
+        }
+    )";
+
+  GLuint vs = CompileShader(GL_VERTEX_SHADER, vsSrc);
+  GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fsSrc);
+  m_spinnerProgram = LinkProgram(vs, fs);
+
+  // Получаем location uniform'а цвета
+  m_spinnerColorLoc = p_glGetUniformLocation(m_spinnerProgram, "uColor");
+  if (m_spinnerColorLoc == -1) {
+    LOG_ERROR("Failed to get uColor location in spinner shader");
+  }
+
+  // Создаём VAO и VBO для линии (достаточно для 64 сегментов)
+  p_glGenVertexArrays(1, &m_spinnerVAO);
+  p_glBindVertexArray(m_spinnerVAO);
+
+  p_glGenBuffers(1, &m_spinnerVBO);
+  p_glBindBuffer(GL_ARRAY_BUFFER, m_spinnerVBO);
+  // Выделяем память для 64 вершин (по 2 float каждая) – пока пустой буфер
+  p_glBufferData(GL_ARRAY_BUFFER, 64 * 2 * sizeof(float), nullptr,
+               GL_DYNAMIC_DRAW);
+
+  p_glEnableVertexAttribArray(0);
+  p_glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+  p_glBindVertexArray(0);
+  p_glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void MpvGLCanvas::DestroySpinnerResources() {
+  if (m_spinnerVBO) {
+    p_glDeleteBuffers(1, &m_spinnerVBO);
+    m_spinnerVBO = 0;
+  }
+  if (m_spinnerVAO) {
+    p_glDeleteVertexArrays(1, &m_spinnerVAO);
+    m_spinnerVAO = 0;
+  }
+  if (m_spinnerProgram) {
+    p_glDeleteProgram(m_spinnerProgram);
+    m_spinnerProgram = 0;
+  }
+}
+
+void MpvGLCanvas::DrawSpinner() {
+  if (!m_spinnerProgram || !m_spinnerVAO)
+    return;
+
+  const int segments = 40;
+  const float radius = 0.08f;   // размер 
+  const float lineWidth = 4.0f; // толщина линии 
+
+  float angle = m_spinnerAngle * M_PI / 180.0f;
+  float progress = fmod(m_spinnerAngle / 120.0f, 1.0f);
+  float startAngle = angle;
+  float endAngle = angle + progress * 2.0f * M_PI;
+
+  int numVerts = segments + 1;
+  float *verts = new float[numVerts * 2];
+  for (int i = 0; i <= segments; i++) {
+    float t = (float)i / segments;
+    float a = startAngle + t * (endAngle - startAngle);
+    verts[i * 2] = radius * cos(a);
+    verts[i * 2 + 1] = radius * sin(a);
+  }
+
+  p_glBindBuffer(GL_ARRAY_BUFFER, m_spinnerVBO);
+  p_glBufferSubData(GL_ARRAY_BUFFER, 0, numVerts * 2 * sizeof(float), verts);
+  p_glBindBuffer(GL_ARRAY_BUFFER, 0);
+  delete[] verts;
+
+  p_glUseProgram(m_spinnerProgram);
+  p_glBindVertexArray(m_spinnerVAO);
+
+  p_glUniform4f(m_spinnerColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+  glLineWidth(lineWidth);
+  glDrawArrays(GL_LINE_STRIP, 0, numVerts);
+
+  p_glBindVertexArray(0);
+  p_glUseProgram(0);
+}
+
+void MpvGLCanvas::OnSpinnerTimer(wxTimerEvent &) {
+  m_spinnerAngle += 6.0f;
+  if (m_spinnerAngle >= 360.0f)
+    m_spinnerAngle -= 360.0f;
+  if (m_showSpinner)
+    Refresh();
+}
+
+void MpvGLCanvas::ShowSpinner(bool show) {
+  if (m_showSpinner == show)
+    return;
+  m_showSpinner = show;
+  if (show) {
+    m_spinnerAngle = 0.0f;
+    m_spinnerTimer.Start(30, wxTIMER_CONTINUOUS);
+  } else {
+    m_spinnerTimer.Stop();
+  }
+  Refresh();
 }
 
 // ------------------------------------------------------------
@@ -75,6 +202,7 @@ bool MpvGLCanvas::InitializeGL() {
 
   LoadGLFunctions();
   InitGLResources();
+  InitSpinnerResources();
 
   if (m_mpv && !CreateRenderContext())
     return false;
@@ -119,6 +247,7 @@ void MpvGLCanvas::LoadGLFunctions() {
   load(p_glBindBuffer, "glBindBuffer");
   load(p_glBufferData, "glBufferData");
   load(p_glDeleteBuffers, "glDeleteBuffers");
+  load(p_glBufferSubData, "glBufferSubData");
 
   load(p_glEnableVertexAttribArray, "glEnableVertexAttribArray");
   load(p_glVertexAttribPointer, "glVertexAttribPointer");
@@ -127,6 +256,7 @@ void MpvGLCanvas::LoadGLFunctions() {
   load(p_glUseProgram, "glUseProgram");
   load(p_glGetUniformLocation, "glGetUniformLocation");
   load(p_glUniform1i, "glUniform1i");
+  load(p_glUniform4f, "glUniform4f");
 
   // --- FBO ---
   load(p_glGenFramebuffers, "glGenFramebuffers");
@@ -248,6 +378,7 @@ void MpvGLCanvas::InitGLResources() {
 // Уничтожение GL ресурсов
 // ------------------------------------------------------------
 void MpvGLCanvas::DestroyGLResources() {
+  DestroySpinnerResources();
   if (m_vbo) {
     p_glDeleteBuffers(1, &m_vbo);
     m_vbo = 0;
@@ -490,10 +621,16 @@ void MpvGLCanvas::OnPaint(wxPaintEvent &evt) {
   if (m_forceBlack) {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
+    if (m_showSpinner) {
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      DrawSpinner();
+      glDisable(GL_BLEND);
+    }
     SwapBuffers();
-    return; // полностью пропускаем mpv рендеринг
+    return;
   }
-  
+
   if (m_render_ctx) {
     CreateFBO(w, h);
 

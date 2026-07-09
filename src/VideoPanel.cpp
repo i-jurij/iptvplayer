@@ -549,6 +549,7 @@ void VideoPanel::OnForceBlackTimer(wxTimerEvent &) {
       MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
       if (canvas) {
         canvas->SetForceBlack(false);
+        canvas->ShowSpinner(false);
         m_forceBlackActive = false;
         m_forceBlackTimer.Stop();
         m_isLoading = false;
@@ -648,7 +649,11 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     m_isLoading = false;
     m_tempState = TempPlayState::Error;
     SetErrorStatus("Failed to load stream");
-    // Чёрный экран НЕ снимаем – оставляем, чтобы скрыть старый кадр
+    // спиннер снимаем, Чёрный экран НЕ снимаем – оставляем, чтобы скрыть старый кадр
+    MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
+    if (canvas) {
+      canvas->ShowSpinner(false); 
+    }
     // Таймер чёрного экрана можно остановить, чтобы он не висел
     if (m_forceBlackActive) {
       m_forceBlackTimer.Stop();

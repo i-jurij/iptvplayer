@@ -1,10 +1,13 @@
 #ifndef MPVGLCANVAS_H
 #define MPVGLCANVAS_H
 
+#include <wx/glcanvas.h>
+#include <wx/timer.h>
+#include <wx/stdpaths.h>
+
 #include <memory>
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
-#include <wx/glcanvas.h>
 
 // ------------------------------------------------------------
 // MpvGLCanvas — OpenGL рендерер mpv с FBO + VAO/VBO + шейдерами
@@ -19,8 +22,27 @@ public:
 
   void SetForceBlack(bool force);
   void ClearToBlackNow();
+  void ShowSpinner(bool show);
 
 private:
+  // Шейдерная программа для спиннера
+  GLuint m_spinnerProgram = 0;
+  GLuint m_spinnerVAO = 0;
+  GLuint m_spinnerVBO = 0;
+  GLint m_spinnerColorLoc = -1; // uniform для цвета
+  GLint m_spinnerPosLoc = -1;   // атрибут позиции (layout=0)
+
+  void InitSpinnerResources();
+  void DestroySpinnerResources();
+
+  // Ресурсы для спиннера
+  float m_spinnerAngle = 0.0f;
+  wxTimer m_spinnerTimer;
+  void DrawSpinner();
+  void OnSpinnerTimer(wxTimerEvent &);
+
+  bool m_showSpinner = false;
+  
   bool m_forceBlack = false;
   
   // -----------------------------
@@ -80,6 +102,7 @@ private:
   PFNGLBINDBUFFERPROC p_glBindBuffer = nullptr;
   PFNGLBUFFERDATAPROC p_glBufferData = nullptr;
   PFNGLDELETEBUFFERSPROC p_glDeleteBuffers = nullptr;
+  PFNGLBUFFERSUBDATAPROC p_glBufferSubData = nullptr;
 
   PFNGLENABLEVERTEXATTRIBARRAYPROC p_glEnableVertexAttribArray = nullptr;
   PFNGLVERTEXATTRIBPOINTERPROC p_glVertexAttribPointer = nullptr;
@@ -87,6 +110,7 @@ private:
   PFNGLUSEPROGRAMPROC p_glUseProgram = nullptr;
   PFNGLGETUNIFORMLOCATIONPROC p_glGetUniformLocation = nullptr;
   PFNGLUNIFORM1IPROC p_glUniform1i = nullptr;
+  PFNGLUNIFORM4FPROC p_glUniform4f = nullptr;
 
   // -----------------------------
   // GL context attributes
