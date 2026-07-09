@@ -1,6 +1,7 @@
 #include "ConfigManager.h"
 #include "EventIDs.h"
 #include "LogControl.h"
+#include "Utils.h"
 #include "VP_SvgIcon.h"
 #include "VideoPanel.h"
 
@@ -165,8 +166,15 @@ void VideoPanel::AddToTempPlaylist(const wxArrayString &files) {
   m_tempPlaylistList->SetColumnWidth(0, FromDIP(40));
 }
 
-void VideoPanel::HandleDroppedFiles(const wxArrayString &files) {
+void VideoPanel::HandleDroppedFiles(const wxArrayString &files,
+                                    int recursionDepth) {
   wxArrayString videoFiles;
+
+  // Проверка глубины рекурсии (максимум 3 уровня)
+  if (recursionDepth > 3) {
+    showInfo(this, "HandleDroppedFiles: recursion depth exceeded (max 3)");
+    return;
+  }
 
   for (auto &path : files) {
     if (wxDirExists(path)) {
@@ -178,14 +186,21 @@ void VideoPanel::HandleDroppedFiles(const wxArrayString &files) {
         wxString full = path + "/" + filename;
 
         if (wxDirExists(full)) {
+          // Рекурсивный вызов с увеличением глубины
           wxArrayString sub;
           sub.Add(full);
-          HandleDroppedFiles(sub);
+          HandleDroppedFiles(sub, recursionDepth + 1);
         } else if (IsVideoFile(full)) {
           videoFiles.Add(full);
         }
 
-        cont = dir.GetNext(&filename);
+        // Проверка лимита файлов (максимум 1000)
+        if (videoFiles.size() >= 1000) {
+          showInfo(this, "HandleDroppedFiles: file limit exceeded (max 1000)");
+          cont = false;
+        } else {
+          cont = dir.GetNext(&filename);
+        }
       }
     } else if (IsVideoFile(path)) {
       videoFiles.Add(path);
@@ -193,24 +208,57 @@ void VideoPanel::HandleDroppedFiles(const wxArrayString &files) {
   }
 
   if (!videoFiles.IsEmpty()) {
-    AddToTempPlaylist(videoFiles);
-    ShowTempPlaylist();
+    // === Для одного файла воспроизводим без временного плейлиста ===
+    if (videoFiles.size() == 1) {
+      wxString first = videoFiles[0];
 
-    // 🔥 Выделяем первый элемент
-    if (!m_tempPlaylist.IsEmpty()) {
-      m_tempPlaylistList->SetItemState(0, wxLIST_STATE_SELECTED,
-                                       wxLIST_STATE_SELECTED);
-      wxString first = m_tempPlaylist[0];
+      // Очищаем временный плейлист
+      ClearTempPlaylist();
 
-      // Помечаем pending запуск из temp playlist и сохраняем индекс
+      // Устанавливаем имя файла ДО вызова StartTempPlayAsync
+      wxFileName fn(first);
+      m_currentName = NormalizeFileNameForDisk(fn.GetFullName().ToStdString(),
+                                               128, Display);
+
+      // Скрываем панель плейлиста если открыта
+      if (m_tempPlaylistPanel) {
+        m_tempPlaylistPanel->Hide();
+      }
+
+      // Помечаем pending запуск и сохраняем индекс -1 (без плейлиста)
       m_pendingTempPlay = true;
-      m_pendingTempIndex = 0;
-
-      //LOG_DEBUG("HandleDroppedFiles: pending set idx=0");
+      m_pendingTempIndex = -1;
       m_tempState = TempPlayState::Loading;
       UpdateUiButtons();
 
-      StartTempPlayAsync(first, 0, false, "dropped");
+      // Запускаем воспроизведение без добавления в плейлист
+      StartTempPlayAsync(first, -1, false, "dropped");
+    } else {
+      // === Оригинальное поведение для нескольких файлов ===
+      // Проверка лимита для плейлиста
+      if (videoFiles.size() > 1000) {
+        showInfo(this, "HandleDroppedFiles: file limit exceeded (max 1000)");
+        return;
+      }
+
+      AddToTempPlaylist(videoFiles);
+      ShowTempPlaylist();
+
+      // Выделяем первый элемент
+      if (!m_tempPlaylist.IsEmpty()) {
+        m_tempPlaylistList->SetItemState(0, wxLIST_STATE_SELECTED,
+                                         wxLIST_STATE_SELECTED);
+        wxString first = m_tempPlaylist[0];
+
+        // Помечаем pending запуск из temp playlist и сохраняем индекс
+        m_pendingTempPlay = true;
+        m_pendingTempIndex = 0;
+
+        m_tempState = TempPlayState::Loading;
+        UpdateUiButtons();
+
+        StartTempPlayAsync(first, 0, false, "dropped");
+      }
     }
   }
 }

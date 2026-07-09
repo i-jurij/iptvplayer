@@ -70,7 +70,7 @@ public:
   // Drag & drop
   bool AcceptsFocus() const override { return true; }
 
-  void HandleDroppedFiles(const wxArrayString &files);
+  void HandleDroppedFiles(const wxArrayString &files, int recursionDepth = 0);
   std::function<void(const wxString &)> m_onPlayerState;
   std::function<void(const wxString &)> m_onStreamInfo;
   std::function<void(const ProgressInfo &)> m_onProgress;
@@ -136,21 +136,21 @@ private:
   };
 
   enum class UiState { Idle, Loading, Playing, Paused };
-  
+
   TempPlayState m_tempState = TempPlayState::Idle;
   bool IsUiLoading() const;
   bool IsUiPlaying() const;
 
   TempPlayRequest m_currentTempRequest;
   uint64_t m_currentRequestId = 0;
-  
+
   bool m_wasPlayingBeforeStop = false;
   std::chrono::steady_clock::time_point m_lastFileLoadedTime =
       std::chrono::steady_clock::time_point::min();
   const int kStoppedDebounceMs = 500;
 
   bool m_statusLockedUntilPlaying = false;
-  
+
   wxPanel *m_loadingOverlay = nullptr;
   wxStaticText *m_loadingLabel = nullptr;
 
@@ -236,10 +236,10 @@ private:
   bool m_waitingSingleClick = false;
   void OnClickTimer(wxTimerEvent &);
 
-      // -------------------------
-      // Events (VP_events.cpp)
-      // -------------------------
-      void OnOpen(wxCommandEvent &);
+  // -------------------------
+  // Events (VP_events.cpp)
+  // -------------------------
+  void OnOpen(wxCommandEvent &);
   void OnPlay(wxCommandEvent &);
   void OnPause(wxCommandEvent &);
   void OnStop(wxCommandEvent &);
@@ -257,10 +257,10 @@ private:
   void OnEofTimer(wxTimerEvent &evt);
   void OnHideCursorTimer(wxTimerEvent &);
 
-      // -------------------------
-      // Actions (VP_actions.cpp)
-      // -------------------------
-      void OpenFile();
+  // -------------------------
+  // Actions (VP_actions.cpp)
+  // -------------------------
+  void OpenFile();
   void OpenUrl();
   void LoadAndPlayPlaylist(const wxString &path);
 
