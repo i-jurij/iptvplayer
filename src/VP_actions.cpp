@@ -24,7 +24,21 @@ void VideoPanel::OpenFile() {
       "*.mp3;*.flac;*.wav;*.aac;*.m4a;*.ogg|"
       "All files (*.*)|*.*";
 
-  wxFileDialog dlg(this, "Open file", "", "", wildcard,
+  // ======= 1. Получить ConfigManager =======
+  Application *app = dynamic_cast<Application *>(wxTheApp);
+  ConfigManager *cfg = app ? app->getConfigManager() : nullptr;
+
+  // ======= 2. Загрузить сохранённый каталог =======
+  wxString initialDir;
+  if (cfg) {
+    initialDir = wxString::FromUTF8(cfg->getSetting("last_open_dir", ""));
+  }
+  // Если каталог не существует – сбросить (тогда будет использован системный)
+  if (!wxDirExists(initialDir)) {
+    initialDir = wxEmptyString;
+  }
+
+  wxFileDialog dlg(this, "Open file", initialDir, "", wildcard,
                    wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 
   if (dlg.ShowModal() != wxID_OK)
@@ -32,6 +46,11 @@ void VideoPanel::OpenFile() {
 
   wxString path = dlg.GetPath();
   wxFileName fn(path);
+
+  // ======= 3. Сохранить каталог выбранного файла =======
+  if (cfg) {
+    cfg->setSetting("last_open_dir", fn.GetPath().ToUTF8().data());
+  }
 
   bool isPlaylist = IsPlaylist(path);
 
@@ -49,7 +68,8 @@ void VideoPanel::OpenFile() {
   ClearTempPlaylist();
 
   AddToRecent(path);
-  m_currentName = NormalizeFileNameForDisk(fn.GetFullName().ToStdString(), 128, Display);
+  m_currentName =
+      NormalizeFileNameForDisk(fn.GetFullName().ToStdString(), 128, Display);
 
   m_isChannelPlaying = false;
   m_isTempPlaylistPlaying = false;
@@ -58,7 +78,6 @@ void VideoPanel::OpenFile() {
   m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
 
-  // Используем единый публичный helper вместо прямого CallAfter + PlayFile
   StartTempPlayAsync(path, -1, false, "open_file");
 }
 
@@ -179,7 +198,7 @@ void VideoPanel::Stop() {
     m_forceBlackActive = true;
     m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
   }
-  
+
   if (m_isChannelPlaying || m_isFavoritePlaying) {
     m_onRequestTabSwitch(m_channelSourceTab);
   }
