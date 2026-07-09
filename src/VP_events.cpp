@@ -390,14 +390,6 @@ void VideoPanel::OnWindowCreated(wxShowEvent &event) {
   }
 }
 
-void VideoPanel::OnVideoAreaPaint(wxPaintEvent &event) {
-  wxPaintDC dc(m_videoArea);
-  dc.SetBrush(wxBrush(*wxBLACK));
-  dc.SetPen(*wxTRANSPARENT_PEN);
-  dc.DrawRectangle(m_videoArea->GetClientRect());
-  event.Skip(); // Пусть mpv/внешний плеер рисуют поверх
-}
-
 void VideoPanel::OnVideoAreaResize(wxSizeEvent &event) {
   event.Skip();
 

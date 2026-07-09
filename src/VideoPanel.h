@@ -110,7 +110,7 @@ private:
   wxTimer m_forceBlackTimer;
   bool m_forceBlackActive = false;
   void OnForceBlackTimer(wxTimerEvent &);
-  
+
   struct TempPlayRequest {
     uint64_t id;
     int index;
@@ -180,7 +180,6 @@ private:
   bool m_isAttached = false;
 
   void OnWindowCreated(wxShowEvent &event);
-  void OnVideoAreaPaint(wxPaintEvent &event);
   // Типы
   bool IsVideoFile(const wxString &path);
   bool IsPlaylist(const wxString &path);
