@@ -549,6 +549,12 @@ void VideoPanel::Stop() {
 
     m_currentTempRequest = req;
 
+    if (!isUrl) {
+      wxFileName fn(path);
+      m_currentName = NormalizeFileNameForDisk(fn.GetFullName().ToStdString(),
+                                               128, Display);
+    }
+    
     // === Обновляем состояние state‑машины ===
     m_tempState = TempPlayState::Requesting;
     m_pendingTempPlay = true;
