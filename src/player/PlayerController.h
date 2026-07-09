@@ -11,7 +11,7 @@
 #include <memory>
 #include <string>
 
-enum class PlayerState { Stopped, Playing, Paused, FileLoaded };
+enum class PlayerState { Stopped, Playing, Paused, FileLoaded, Error };
 
 class PlayerController : public wxEvtHandler {
 public:

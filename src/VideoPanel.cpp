@@ -523,11 +523,18 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
        m_forceBlackTimer.GetId());
 }
 
+void VideoPanel::SetErrorStatus(const wxString &errorMsg) {
+  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+  if (frame && frame->GetStatusBar()) {
+    frame->SetStatusText("Error", 0);
+    frame->SetStatusText(errorMsg, 1);
+  }
+}
+
 void VideoPanel::OnForceBlackTimer(wxTimerEvent &) {
   if (!m_forceBlackActive)
     return;
 
-  // Проверяем, появились ли параметры видео (width > 0 && height > 0)
   int64_t w = 0, h = 0;
   bool hasVideo = false;
   if (m_playerController) {
@@ -536,7 +543,6 @@ void VideoPanel::OnForceBlackTimer(wxTimerEvent &) {
                w > 0 && h > 0;
   }
 
-  // Даём небольшую задержку, чтобы первый кадр точно отрисовался
   static int wait = 0;
   if (hasVideo) {
     if (++wait >= 3) {
@@ -545,7 +551,9 @@ void VideoPanel::OnForceBlackTimer(wxTimerEvent &) {
         canvas->SetForceBlack(false);
         m_forceBlackActive = false;
         m_forceBlackTimer.Stop();
+        m_isLoading = false;
         wait = 0;
+        UpdateUiButtons();
       }
     }
   } else {
@@ -633,111 +641,110 @@ void VideoPanel::UpdateProgressDisplay(const ProgressInfo &info) {
 void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   PlayerState st = (PlayerState)evt.GetInt();
 
-  wxString stateText;
+  // ---- Обновляем внутреннее состояние всегда ----
   switch (st) {
-  case PlayerState::FileLoaded:
-    stateText = "File loaded";
-    break;
-  case PlayerState::Playing:
-    stateText = "Playing";
-    break;
-  case PlayerState::Paused:
-    stateText = "Paused";
-    break;
-  case PlayerState::Stopped:
-    stateText = "Stopped";
-    break;
-  default:
-    stateText = "";
+  case PlayerState::Error: {
+    // ---- Обработка ошибки загрузки ----
+    m_isLoading = false;
+    m_tempState = TempPlayState::Error;
+    SetErrorStatus("Failed to load stream");
+    // Чёрный экран НЕ снимаем – оставляем, чтобы скрыть старый кадр
+    // Таймер чёрного экрана можно остановить, чтобы он не висел
+    if (m_forceBlackActive) {
+      m_forceBlackTimer.Stop();
+      m_forceBlackActive = false; // опционально, но можно оставить активным
+    }
     break;
   }
-
-  if (m_onPlayerState) {
-    wxString txt = stateText;
-    wxTheApp->CallAfter([cb = m_onPlayerState, txt]() { cb(txt); });
-  }
-
-  switch (st) {
   case PlayerState::FileLoaded: {
     m_lastFileLoadedTime = std::chrono::steady_clock::now();
     m_wasPlayingBeforeStop = false;
-
     m_tempState = TempPlayState::FileLoaded;
-    UpdateUiButtons();
     break;
   }
-
   case PlayerState::Playing: {
     if (m_forceBlackActive) {
       m_forceBlackTimer.Stop();
       m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
     }
-    
     m_wasPlayingBeforeStop = true;
     m_tempState = TempPlayState::Playing;
-
     if (m_autoPausedByTabSwitch)
       m_autoPausedByTabSwitch = false;
-
     if (m_pendingTempPlay) {
       m_isTempPlaylistPlaying = true;
       m_tempCurrentIndex = m_pendingTempIndex;
-
       m_pendingTempPlay = false;
       m_pendingTempIndex = -1;
-
       if (m_tempCurrentIndex >= 0 && m_tempPlaylistList) {
         m_tempPlaylistList->SetItemState(
             m_tempCurrentIndex, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
         m_tempPlaylistList->EnsureVisible(m_tempCurrentIndex);
       }
     }
-
     m_eofTimer.Start(200);
-    UpdateUiButtons();
     break;
   }
-
   case PlayerState::Paused: {
     m_tempState = TempPlayState::Paused;
-    UpdateUiButtons();
     break;
   }
-
   case PlayerState::Stopped: {
     auto now = std::chrono::steady_clock::now();
     auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(
                      now - m_lastFileLoadedTime)
                      .count();
-
-    if (delta < kStoppedDebounceMs) {
+    if (delta < kStoppedDebounceMs)
       break;
-    }
-
-    if (!m_wasPlayingBeforeStop) {
+    if (!m_wasPlayingBeforeStop)
       break;
-    }
-
     m_tempState = TempPlayState::Stopped;
     m_eofTimer.Stop();
-    UpdateUiButtons();
-
-    if (!m_isTempPlaylistPlaying)
-      break;
-
-    if (m_pendingTempPlay) {
-      m_pendingTempPlay = false;
-      m_pendingTempIndex = -1;
-      break;
+    if (m_isTempPlaylistPlaying) {
+      if (!m_pendingTempPlay) {
+        PlayNextTempItem();
+      } else {
+        m_pendingTempPlay = false;
+        m_pendingTempIndex = -1;
+      }
     }
-
-    PlayNextTempItem();
     break;
   }
-
   default:
     break;
   }
+
+  // ---- Отправляем статус в статусбар только если загрузка завершена ----
+  if (!m_isLoading) {
+    wxString stateText;
+    switch (st) {
+    case PlayerState::FileLoaded:
+      stateText = "File loaded";
+      break;
+    case PlayerState::Playing:
+      stateText = "Playing";
+      break;
+    case PlayerState::Paused:
+      stateText = "Paused";
+      break;
+    case PlayerState::Stopped:
+      stateText = "Stopped";
+      break;
+    case PlayerState::Error:
+      stateText = "Error";
+      break;
+    default:
+      stateText = "";
+      break;
+    }
+    if (m_onPlayerState) {
+      wxTheApp->CallAfter(
+          [cb = m_onPlayerState, stateText]() { cb(stateText); });
+    }
+  }
+
+  // ---- Обновляем UI кнопок ----
+  UpdateUiButtons();
 }
 
 void VideoPanel::UpdateUiButtons() {
@@ -796,15 +803,33 @@ void VideoPanel::UpdateUiButtons() {
     break;
   }
 
+  // ---- Обновляем статусбар ----
   wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
   if (frame && frame->GetStatusBar()) {
-    // Статусбар 0: состояние
-    if (effectiveState == UiState::Loading) {
-      frame->SetStatusText("Loading...", 0);
-    } else if (effectiveState == UiState::Idle) {
-      frame->SetStatusText("", 0);
+    wxString statusText;
+    if (m_isLoading) {
+      statusText = "Loading...";
+    } else {
+      switch (effectiveState) {
+      case UiState::Idle:
+        statusText = "";
+        break;
+      case UiState::Loading:
+        statusText = "Loading...";
+        break;
+      case UiState::Playing:
+        statusText = "Playing";
+        break;
+      case UiState::Paused:
+        statusText = "Paused";
+        break;
+      }
+    }
+    frame->SetStatusText(statusText, 0);
+    // Если статус пустой (Idle и не загрузка) – очищаем второй слот
+    if (effectiveState == UiState::Idle && !m_isLoading) {
       frame->SetStatusText("", 1);
-    } 
+    }
   }
 }
 

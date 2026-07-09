@@ -174,6 +174,8 @@ void PlayerController::SetStateCallback(StateCallback cb) {
         NotifyState(PlayerState::FileLoaded);
       } else if (code == 3) {
         NotifyState(PlayerState::Paused);
+      } else if (code == 4) {
+        NotifyState(PlayerState::Error);
       } else {
         LOG_DEBUG("PlayerController: backend state code %d (unhandled)", code);
       }

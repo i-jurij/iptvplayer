@@ -7,6 +7,7 @@
 
 #include <locale.h>
 
+
 MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   //LOG_DEBUG("MpvBackend::MpvBackend()");
 
@@ -230,11 +231,19 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
     break;
   }
   case MPV_EVENT_END_FILE: {
-    //LOG_DEBUG("MpvBackend: END_FILE");
-    EmitProgress(); // Final progress snapshot
-    if (m_stateCallback) {
-      m_stateCallback(0); // 0 = Stopped
+    auto *end = static_cast<mpv_event_end_file *>(ev->data);
+    if (end && end->reason == MPV_END_FILE_REASON_ERROR) {
+      LOG_ERROR("MpvBackend: END_FILE with error code: %d", end->error);
+      if (m_stateCallback) {
+        m_stateCallback(4); // 4 = Error
+      }
+    } else {
+      // Нормальное завершение (включая остановку пользователем)
+      if (m_stateCallback) {
+        m_stateCallback(0); // 0 = Stopped
+      }
     }
+    EmitProgress();
     break;
   }
   default:

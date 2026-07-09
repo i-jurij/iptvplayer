@@ -109,7 +109,16 @@ void VideoPanel::PlayChannel(const Channel &ch) {
   ClearTempPlaylist();
   std::string url = ch.getUrl();
   m_currentName = NormalizeFileNameForDisk(ch.getName(), 128, Display);
+  m_isLoading = true; 
+  m_loadAttempts = 0;
   m_tempState = TempPlayState::Loading;
+
+  // ---- ОБНОВЛЯЕМ СТАТУС 1 ИМЕНЕМ КАНАЛА ----
+  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+  if (frame && frame->GetStatusBar()) {
+    frame->SetStatusText(wxString::FromUTF8(m_currentName), 1);
+  }
+
   UpdateUiButtons();
 
   // === Устанавливаем чёрный экран СИНХРОННО ===
@@ -170,6 +179,9 @@ void VideoPanel::Stop() {
   if (m_playerController)
     m_playerController->Stop();
 
+  m_isLoading = false;
+  m_loadAttempts = 0;
+
   m_pendingTempPlay = false;
   m_pendingTempIndex = -1;
   m_isTempPlaylistPlaying = false;
@@ -177,6 +189,12 @@ void VideoPanel::Stop() {
 
   // сбрасываем имя при остановке
   m_currentName.clear();
+
+  // ---- ОЧИЩАЕМ СТАТУС 1 ----
+  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+  if (frame && frame->GetStatusBar()) {
+    frame->SetStatusText("", 1);
+  }
 
   m_tempState = TempPlayState::Stopped;
   m_currentRequestId = 0;
@@ -518,6 +536,8 @@ void VideoPanel::Stop() {
                                  const char *source,
                                  bool /*clearPlayNextInProgressOnFinish*/) {
     // помечаем, что началась загрузка — чтобы UI и логика были синхронизированы
+    m_isLoading = true;
+    m_loadAttempts = 0;
     m_tempState = TempPlayState::Loading;
 
     // === Формируем запрос временного воспроизведения ===

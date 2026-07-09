@@ -107,6 +107,11 @@ public:
                           bool clearPlayNextInProgressOnFinish = false);
 
 private:
+  bool m_isLoading = false;
+  int m_loadAttempts = 0;
+  wxString m_errorMessage;
+  void SetErrorStatus(const wxString &errorMsg);
+
   wxTimer m_forceBlackTimer;
   bool m_forceBlackActive = false;
   void OnForceBlackTimer(wxTimerEvent &);

@@ -1,9 +1,8 @@
 #pragma once
 #include "IPlayerBackend.h"
-#include "MpvGLCanvas.h"
+
 #include <atomic>
 #include <mpv/client.h>
-#include <thread>
 
 class MpvBackend : public IPlayerBackend {
 public:
