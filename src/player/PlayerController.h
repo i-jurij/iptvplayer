@@ -18,6 +18,8 @@ public:
   PlayerController(std::unique_ptr<IPlayerBackend> backend);
   ~PlayerController();
 
+  bool GetPropertyInt(const std::string &name, int64_t &value) const;
+
   void SetStreamInfoCallback(IPlayerBackend::StreamInfoCallback cb) {
     if (m_backend)
       m_backend->SetStreamInfoCallback(cb);

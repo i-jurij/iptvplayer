@@ -508,6 +508,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     m_waitingSingleClick = true;
     m_clickTimer.Start(180, wxTIMER_ONE_SHOT); // стандартный double-click delay
   });
+
   m_videoArea->Bind(wxEVT_LEFT_DCLICK, [this](wxMouseEvent &evt) {
     wxPoint pos = evt.GetPosition();
     if (!m_videoArea->GetClientRect().Contains(pos))
@@ -516,6 +517,40 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     m_waitingSingleClick = false; // отменяем одиночный
     ToggleFullscreen();
   });
+
+  m_forceBlackTimer.SetOwner(this);
+  Bind(wxEVT_TIMER, &VideoPanel::OnForceBlackTimer, this,
+       m_forceBlackTimer.GetId());
+}
+
+void VideoPanel::OnForceBlackTimer(wxTimerEvent &) {
+  if (!m_forceBlackActive)
+    return;
+
+  // Проверяем, появились ли параметры видео (width > 0 && height > 0)
+  int64_t w = 0, h = 0;
+  bool hasVideo = false;
+  if (m_playerController) {
+    hasVideo = m_playerController->GetPropertyInt("video-params/w", w) &&
+               m_playerController->GetPropertyInt("video-params/h", h) &&
+               w > 0 && h > 0;
+  }
+
+  // Даём небольшую задержку, чтобы первый кадр точно отрисовался
+  static int wait = 0;
+  if (hasVideo) {
+    if (++wait >= 3) {
+      MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
+      if (canvas) {
+        canvas->SetForceBlack(false);
+        m_forceBlackActive = false;
+        m_forceBlackTimer.Stop();
+        wait = 0;
+      }
+    }
+  } else {
+    wait = 0;
+  }
 }
 
 void VideoPanel::OnClickTimer(wxTimerEvent &) {
@@ -633,6 +668,11 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   }
 
   case PlayerState::Playing: {
+    if (m_forceBlackActive) {
+      m_forceBlackTimer.Stop();
+      m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
+    }
+    
     m_wasPlayingBeforeStop = true;
     m_tempState = TempPlayState::Playing;
 

@@ -17,7 +17,12 @@ public:
 
   void SetMpvHandle(mpv_handle *mpv);
 
+  void SetForceBlack(bool force);
+  void ClearToBlackNow();
+
 private:
+  bool m_forceBlack = false;
+  
   // -----------------------------
   // mpv / GL контекст
   // -----------------------------

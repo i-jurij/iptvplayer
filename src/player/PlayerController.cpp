@@ -18,6 +18,14 @@ PlayerController::~PlayerController() {
                           this);
 }
 
+bool PlayerController::GetPropertyInt(const std::string &name,
+                                      int64_t &value) const {
+  mpv_handle *mpv = static_cast<mpv_handle *>(GetMpvHandle());
+  if (!mpv)
+    return false;
+  return mpv_get_property(mpv, name.c_str(), MPV_FORMAT_INT64, &value) == 0;
+}
+
 bool PlayerController::AttachToWindow(wxWindow *window) {
   if (!window) {
     LOG_ERROR("PlayerController: window is null");

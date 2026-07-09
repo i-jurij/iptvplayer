@@ -445,6 +445,30 @@ void MpvGLCanvas::SetMpvHandle(mpv_handle *mpv) {
   }
 }
 
+void MpvGLCanvas::ClearToBlackNow() {
+  if (!IsShownOnScreen())
+    return;
+  if (!m_glctx)
+    return;
+  if (!SetCurrent(*m_glctx))
+    return;
+
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+  SwapBuffers();
+}
+
+void MpvGLCanvas::SetForceBlack(bool force) {
+  if (m_forceBlack == force)
+    return;
+  m_forceBlack = force;
+  if (force) {
+    ClearToBlackNow(); // немедленная очистка
+  }
+  Refresh(); // запланировать перерисовку
+  Update();  // обработать сразу
+}
+
 // ------------------------------------------------------------
 // OnPaint — главный рендер
 // ------------------------------------------------------------
@@ -463,6 +487,13 @@ void MpvGLCanvas::OnPaint(wxPaintEvent &evt) {
   if (w <= 0 || h <= 0)
     return;
 
+  if (m_forceBlack) {
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    SwapBuffers();
+    return; // полностью пропускаем mpv рендеринг
+  }
+  
   if (m_render_ctx) {
     CreateFBO(w, h);
 

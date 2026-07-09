@@ -89,11 +89,17 @@ void VideoPanel::OpenUrl() {
 void VideoPanel::PlayChannel(const Channel &ch) {
   ClearTempPlaylist();
   std::string url = ch.getUrl();
-  m_currentName =
-      NormalizeFileNameForDisk(ch.getName(), 128, Display);
-
+  m_currentName = NormalizeFileNameForDisk(ch.getName(), 128, Display);
   m_tempState = TempPlayState::Loading;
   UpdateUiButtons();
+
+  // === Устанавливаем чёрный экран СИНХРОННО ===
+  MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
+  if (canvas) {
+    canvas->SetForceBlack(true);
+    m_forceBlackActive = true;
+    m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
+  }
 
   wxTheApp->CallAfter([this, url]() {
     bool ok = true;
@@ -106,9 +112,16 @@ void VideoPanel::PlayChannel(const Channel &ch) {
       LOG_ERROR("PlayChannel: PlayUrl failed");
       m_tempState = TempPlayState::Error;
       UpdateUiButtons();
+      // Сбрасываем чёрный при ошибке
+      MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
+      if (canvas) {
+        canvas->SetForceBlack(false);
+        m_forceBlackActive = false;
+        m_forceBlackTimer.Stop();
+      }
       return;
     }
-    Play();
+    Play(); // вызовет Play, флаг останется true до первого кадра
   });
 }
 
@@ -160,6 +173,13 @@ void VideoPanel::Stop() {
     mf->InvalidateShowPanelToken();
   }
 
+  MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
+  if (canvas) {
+    canvas->SetForceBlack(true);
+    m_forceBlackActive = true;
+    m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
+  }
+  
   if (m_isChannelPlaying || m_isFavoritePlaying) {
     m_onRequestTabSwitch(m_channelSourceTab);
   }
@@ -503,6 +523,13 @@ void VideoPanel::Stop() {
     m_isChannelPlaying = false;
     m_isFavoritePlaying = false;
 
+    MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
+    if (canvas) {
+      canvas->SetForceBlack(true);
+      m_forceBlackActive = true;
+      m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
+    }
+
     // === Запуск воспроизведения ===
     bool ok = false;
     if (isUrl)
@@ -511,6 +538,12 @@ void VideoPanel::Stop() {
       ok = m_playerController->PlayFile(path.ToStdString());
 
     if (!ok) {
+      if (canvas) {
+        canvas->SetForceBlack(false);
+        m_forceBlackActive = false;
+        m_forceBlackTimer.Stop();
+      }
+
       LOG_ERROR("StartTempPlayAsync: Play failed (source=%s path=%s)", source,
                 std::string(path.ToUTF8()).c_str());
 

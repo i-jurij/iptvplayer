@@ -107,6 +107,10 @@ public:
                           bool clearPlayNextInProgressOnFinish = false);
 
 private:
+  wxTimer m_forceBlackTimer;
+  bool m_forceBlackActive = false;
+  void OnForceBlackTimer(wxTimerEvent &);
+  
   struct TempPlayRequest {
     uint64_t id;
     int index;
