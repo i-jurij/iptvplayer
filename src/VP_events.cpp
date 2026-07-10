@@ -408,6 +408,11 @@ void VideoPanel::OnEofTimer(wxTimerEvent &) {
 
   const ProgressInfo &info = m_lastProgress;
 
+  // ---- Защита от невалидного времени ----
+  if (std::isnan(info.timePos) || info.timePos < 0) {
+    return;
+  }
+
   // === Pending seek ===
   if (m_pendingSeekPercent >= 0) {
     int backendPercent = static_cast<int>(std::round(info.percentPos));
@@ -442,29 +447,32 @@ void VideoPanel::OnEofTimer(wxTimerEvent &) {
   // === Temporary playlist fallback ===
   if (!m_isTempPlaylistPlaying)
     return;
-
   if (m_tempPlaylist.size() < 2)
     return;
-
   if (m_playerController->GetState() == PlayerState::Stopped)
     return;
 
-  static double lastPos = -1.0;
-  static int freezeCount = 0;
+  // ---- Если на паузе – сбросить счётчики и выйти ----
+  if (m_playerController->GetState() == PlayerState::Paused) {
+#ifdef DEBUG
+    LOG_DEBUG("OnEofTimer: Paused state detected — resetting EOF counters");
+#endif
+    m_eofFreezeCount = 0;
+    m_eofLastPos = -1.0;
+    return;
+  }
 
   if (!m_isLiveStream) {
-    if (info.timePos == lastPos) {
-      freezeCount++;
-
-      if (freezeCount >= 15) {
-        freezeCount = 0;
+    if (info.timePos == m_eofLastPos) {
+      m_eofFreezeCount++;
+      if (m_eofFreezeCount >= 15) {
+        m_eofFreezeCount = 0;
         m_tempState = TempPlayState::Stopped;
         PlayNextTempItem();
       }
     } else {
-      freezeCount = 0;
+      m_eofFreezeCount = 0;
     }
-
-    lastPos = info.timePos;
+    m_eofLastPos = info.timePos;
   }
 }

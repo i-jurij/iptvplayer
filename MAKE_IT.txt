@@ -1,160 +1,31 @@
+1 во временном плейлисте при нажатии паузы (кнопка или одиночный щелчок мышью или пробел, если фокус на видео) 
+происходит автопереход на следующий файл, 
+2 при нажатии пробела срабатывет не пауза, 
+а запуск вопроизведения (значит убрать обработчик запуска по пробелу из временного плейлиста),
+и передавать пробел в обработчик видеоареа (сделать паузу) - как? Или оставить обработчик и в
+временном плейлисте, но тоже ставить видео на паузу.
+разобраться почему и исправить
 
-
-2 оверлей спиннер после выбора источника и запуска до начала воспроизведения
-## Полный код для трёх вариантов программного индикатора загрузки
-
-### Подготовка: удаление текстурного кода
-
-Перед вставкой любого варианта необходимо **удалить** или **закомментировать** всё, что связано с текстурой спиннера:
-
-- В `MpvGLCanvas.h` удалите или закомментируйте:
-  ```cpp
-  GLuint m_spinnerTexture;
-  GLuint m_spinnerVAO;
-  GLuint m_spinnerVBO;
-  void LoadSpinnerTexture();
-  ```
-- В `MpvGLCanvas.cpp`:
-  - Удалите определение `LoadSpinnerTexture()`.
-  - Удалите вызов `LoadSpinnerTexture()` из `InitializeGL()`.
-  - В деструкторе удалите очистку текстурных ресурсов.
-  - Оставьте только `m_spinnerAngle`, `m_showSpinner`, `m_spinnerTimer` и методы `ShowSpinner()`, `OnSpinnerTimer()`.
-
----
-
-### Вариант 1: Вращающаяся дуга (классический спиннер)
-
-**Вставьте эту функцию `DrawSpinner()` вместо текущей:**
-
-```cpp
-void MpvGLCanvas::DrawSpinner() {
-    const int segments = 40;
-    const float radius = 0.12f;
-
-    float angle = m_spinnerAngle * M_PI / 180.0f;
-    // Прогресс заполнения дуги (0..1) за 120 тиков (~3.6 сек на цикл)
-    float progress = fmod(m_spinnerAngle / 120.0f, 1.0f);
-    float startAngle = angle;
-    float endAngle = angle + progress * 2.0f * M_PI;
-
-    // Сохраняем текущие атрибуты OpenGL (необязательно, но чисто)
-    glPushAttrib(GL_LINE_BIT);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    glLineWidth(4.0f);
-    glBegin(GL_LINE_STRIP);
-    for (int i = 0; i <= segments; i++) {
-        float t = (float)i / segments;
-        float a = startAngle + t * (endAngle - startAngle);
-        float x = radius * cos(a);
-        float y = radius * sin(a);
-        glVertex2f(x, y);
-    }
-    glEnd();
-    glPopAttrib();
-}
-```
-
----
-
-### Вариант 2: Три точки (загорающиеся по очереди)
-
-```cpp
-void MpvGLCanvas::DrawSpinner() {
-    const int dots = 3;
-    const float radius = 0.04f;
-    const float spacing = 0.1f;
-
-    int active = (int)(m_spinnerAngle / 60.0f) % dots; // переключение каждые 60 тиков (~1.8 сек)
-
-    for (int i = 0; i < dots; i++) {
-        float x = (i - (dots-1)/2.0f) * spacing;
-        float y = 0.0f;
-        float brightness = (i == active) ? 1.0f : 0.2f;
-        glColor3f(brightness, brightness, brightness);
-
-        glBegin(GL_TRIANGLE_FAN);
-        glVertex2f(x, y);
-        for (int j = 0; j <= 20; j++) {
-            float a = (float)j / 20 * 2 * M_PI;
-            glVertex2f(x + radius * cos(a), y + radius * sin(a));
-        }
-        glEnd();
-    }
-}
-```
-
----
-
-### Вариант 3: Круговой индикатор (сегменты, как в Android)
-
-```cpp
-void MpvGLCanvas::DrawSpinner() {
-    const int segments = 8;
-    const float radius = 0.12f;
-
-    float angle = m_spinnerAngle * M_PI / 180.0f;
-    int active = (int)(m_spinnerAngle / 30.0f) % segments;
-
-    for (int i = 0; i < segments; i++) {
-        float start = i * 2*M_PI / segments + angle * 0.1f;
-        float end = start + 2*M_PI / segments * 0.6f;
-        float brightness = (i == active) ? 1.0f : 0.3f;
-        glColor3f(brightness, brightness, brightness);
-
-        glBegin(GL_TRIANGLE_FAN);
-        glVertex2f(0.0f, 0.0f);
-        for (int j = 0; j <= 10; j++) {
-            float a = start + (float)j / 10 * (end - start);
-            glVertex2f(radius * cos(a), radius * sin(a));
-        }
-        glEnd();
-    }
-}
-```
-
----
-
-### Важно: оставьте без изменений
-
-- Метод `ShowSpinner(bool show)` – он управляет таймером и флагом.
-- Метод `OnSpinnerTimer(wxTimerEvent&)` – он обновляет угол и вызывает `Refresh()`.
-- В `OnPaint()` внутри блока `if (m_forceBlack)` оставьте вызов `DrawSpinner()`.
-
-**Пример блока `OnPaint` с вызовом спиннера:**
-
-```cpp
-if (m_forceBlack) {
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    if (m_showSpinner) {
-        DrawSpinner();
-    }
-    SwapBuffers();
-    return;
-}
-```
-
----
-
-### Как выбрать вариант
-
-Просто замените содержимое функции `DrawSpinner()` на код нужного варианта. Все три варианта используют только базовые OpenGL-функции (линии, треугольники) и не требуют текстур, работают надёжно и независимо от файлов.
-
----
-
-### Проверка
-
-Соберите проект и запустите. При загрузке источника вы должны увидеть выбранный индикатор на чёрном фоне. Если индикатор слишком маленький, увеличьте значения `radius` или `spacing`.
-
-Успехов!
-
-===================================
+в меню опен добавить Открыть каталог
 
 мб кнопки в полноэкранном режиме
-
 мб временный плейлист в полноэкранном режиме
+или полный интерфейс?
 
+кнопку записи добавить
 
 сделать карточки с названиями все таки
 
+автозагрузка плейлиста при первом старте (мастер настройки?)
+
+программу передач добавить
+
+в настройках добавить пункт Видео: 
+Ориентация:
+Перевернуть
+Отразить
+-----------
+Масштаб:
+6:4 и тд
+-----------
 

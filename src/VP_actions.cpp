@@ -113,6 +113,10 @@ void VideoPanel::PlayChannel(const Channel &ch) {
   m_loadAttempts = 0;
   m_tempState = TempPlayState::Loading;
 
+  // ---- Сброс счётчиков EOF при старте канала ----
+  m_eofFreezeCount = 0;
+  m_eofLastPos = -1.0;
+  
   // ---- ОБНОВЛЯЕМ СТАТУС 1 ИМЕНЕМ КАНАЛА ----
   wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
   if (frame && frame->GetStatusBar()) {
@@ -220,6 +224,10 @@ void VideoPanel::Stop() {
     m_forceBlackActive = true;
     m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
   }
+
+  // ---- Сброс счётчиков EOF ----
+  m_eofFreezeCount = 0;
+  m_eofLastPos = -1.0;
 
   if (m_isChannelPlaying || m_isFavoritePlaying) {
     m_onRequestTabSwitch(m_channelSourceTab);
@@ -543,6 +551,10 @@ void VideoPanel::Stop() {
     m_isLoading = true;
     m_loadAttempts = 0;
     m_tempState = TempPlayState::Loading;
+
+    // ---- Сброс счётчиков EOF при старте загрузки ----
+    m_eofFreezeCount = 0;
+    m_eofLastPos = -1.0;
 
     // === Формируем запрос временного воспроизведения ===
     TempPlayRequest req;

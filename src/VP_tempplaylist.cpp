@@ -675,6 +675,16 @@ void VideoPanel::OnTempPlaylistKeyDown(wxKeyEvent &evt) {
     evt.StopPropagation();
     return;
 
+  case WXK_SPACE:
+    if (m_playerController) {
+      if (m_playerController->GetState() == PlayerState::Playing) {
+        Pause();
+      } else {
+        Play();
+      }
+    }
+    evt.StopPropagation();
+    return;
   // -------------------------
   // CTRL + UP → Move Up
   // -------------------------
