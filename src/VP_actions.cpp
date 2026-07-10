@@ -645,3 +645,114 @@ void VideoPanel::Stop() {
     // === UI: Loading ===
     UpdateUiButtons();
   }
+
+#include <map>
+
+  void VideoPanel::CollectVideoFiles(const wxArrayString &paths,
+                                     wxArrayString &outFiles, int depth) {
+    if (depth > 10) {
+      LOG_WARN("CollectVideoFiles: max depth exceeded");
+      return;
+    }
+
+    // Карта: каталог -> список файлов в этом каталоге
+    std::map<wxString, wxArrayString> dirMap;
+
+    // Рекурсивный обход всех путей
+    for (const auto &path : paths) {
+      if (wxDirExists(path)) {
+        wxDir dir(path);
+        wxString filename;
+        bool cont = dir.GetFirst(&filename);
+        while (cont) {
+          wxString full = path + "/" + filename;
+          if (wxDirExists(full)) {
+            // Рекурсивно обходим подкаталог
+            wxArrayString subFiles;
+            wxArrayString subPath;
+            subPath.Add(full);
+            CollectVideoFiles(subPath, subFiles, depth + 1);
+            // Добавляем собранные файлы из подкаталога в карту по их каталогу
+            for (const auto &f : subFiles) {
+              wxFileName fn(f);
+              wxString dirKey = fn.GetPath();
+              dirMap[dirKey].Add(f);
+            }
+          } else if (IsVideoFile(full)) {
+            dirMap[path].Add(full);
+          }
+          cont = dir.GetNext(&filename);
+        }
+      } else if (IsVideoFile(path)) {
+        // Одиночный файл – помещаем в его каталог
+        wxFileName fn(path);
+        wxString dirKey = fn.GetPath();
+        dirMap[dirKey].Add(path);
+      }
+    }
+
+    // Сортируем каталоги по имени с учётом чисел
+    std::vector<wxString> sortedDirs;
+    for (const auto &entry : dirMap) {
+      sortedDirs.push_back(entry.first);
+    }
+    std::sort(sortedDirs.begin(), sortedDirs.end(), CompareNamesWithNumbers);
+
+    // Проходим по отсортированным каталогам
+    for (const auto &dir : sortedDirs) {
+      wxArrayString filesInDir = dirMap[dir];
+      // Сортируем файлы внутри каталога по имени с учётом чисел
+      std::sort(filesInDir.begin(), filesInDir.end(),
+                [](const wxString &a, const wxString &b) {
+                  wxFileName fa(a), fb(b);
+                  return CompareNamesWithNumbers(fa.GetFullName(),
+                                                 fb.GetFullName());
+                });
+      // Добавляем в итоговый массив
+      for (const auto &f : filesInDir) {
+        if (outFiles.size() >= 1000) {
+          showInfo(this, "File limit exceeded (max 1000)");
+          return;
+        }
+        outFiles.Add(f);
+      }
+    }
+  }
+
+  void VideoPanel::HandleDroppedFiles(const wxArrayString &files,
+                                      int recursionDepth) {
+    wxArrayString videoFiles;
+    CollectVideoFiles(files, videoFiles, recursionDepth);
+
+    if (videoFiles.IsEmpty())
+      return;
+
+    // --- Обработка собранных файлов (без изменений) ---
+    if (videoFiles.size() == 1) {
+      wxString first = videoFiles[0];
+      ClearTempPlaylist();
+      wxFileName fn(first);
+      m_currentName = NormalizeFileNameForDisk(fn.GetFullName().ToStdString(),
+                                               128, Display);
+      if (m_tempPlaylistPanel)
+        m_tempPlaylistPanel->Hide();
+      m_pendingTempPlay = true;
+      m_pendingTempIndex = -1;
+      m_tempState = TempPlayState::Loading;
+      UpdateUiButtons();
+      StartTempPlayAsync(first, -1, false, "dropped");
+    } else {
+      AddToTempPlaylist(videoFiles);
+      ShowTempPlaylist();
+      if (!m_tempPlaylist.IsEmpty()) {
+        m_tempPlaylistList->SetItemState(0, wxLIST_STATE_SELECTED,
+                                         wxLIST_STATE_SELECTED);
+        wxString first = m_tempPlaylist[0];
+        m_pendingTempPlay = true;
+        m_pendingTempIndex = 0;
+        m_tempState = TempPlayState::Loading;
+        UpdateUiButtons();
+        StartTempPlayAsync(first, 0, false, "dropped");
+      }
+    }
+  }

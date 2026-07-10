@@ -71,6 +71,7 @@ public:
   bool AcceptsFocus() const override { return true; }
 
   void HandleDroppedFiles(const wxArrayString &files, int recursionDepth = 0);
+
   std::function<void(const wxString &)> m_onPlayerState;
   std::function<void(const wxString &)> m_onStreamInfo;
   std::function<void(const ProgressInfo &)> m_onProgress;
@@ -290,6 +291,13 @@ private:
   void TempPlaylistMoveUp();
   void TempPlaylistMoveDown();
   void TempPlaylistRename();
+  // Собирает видеофайлы из путей, группируя по каталогам и сортируя внутри
+  void CollectVideoFiles(const wxArrayString &paths, wxArrayString &outFiles,
+                         int depth);
+  // функция для сравнения имён с учётом числовых суффиксов
+  static bool CompareNamesWithNumbers(const wxString &a, const wxString &b);
+  // функция для извлечения номера из имени (используется в сравнении)
+  static bool ExtractNumberFromName(const wxString &name, int &outNumber);
 
   wxPanel *m_tempPlaylistButtonsPanel = nullptr;
 

@@ -932,3 +932,47 @@ bool VideoPanel::IsUiLoading() const {
 bool VideoPanel::IsUiPlaying() const {
   return m_tempState == TempPlayState::Playing;
 }
+
+// ============================================================================
+// Вспомогательные функции для умной сортировки
+// ============================================================================
+
+bool VideoPanel::ExtractNumberFromName(const wxString &name, int &outNumber) {
+  int len = name.Length();
+  int start = -1;
+  for (int i = 0; i < len; ++i) {
+    if (wxIsdigit(name[i])) {
+      start = i;
+      break;
+    }
+  }
+  if (start == -1)
+    return false;
+
+  int end = start;
+  while (end < len && wxIsdigit(name[end]))
+    ++end;
+
+  wxString numStr = name.Mid(start, end - start);
+  long val = 0;
+  if (!numStr.ToLong(&val))
+    return false;
+
+  outNumber = static_cast<int>(val);
+  return true;
+}
+
+bool VideoPanel::CompareNamesWithNumbers(const wxString &a, const wxString &b) {
+  int numA = 0, numB = 0;
+  bool hasA = ExtractNumberFromName(a, numA);
+  bool hasB = ExtractNumberFromName(b, numB);
+
+  if (hasA && hasB) {
+    if (numA != numB)
+      return numA < numB;
+    return a.CmpNoCase(b) < 0;
+  }
+  if (hasA != hasB)
+    return hasA; // числа идут перед текстом
+  return a.CmpNoCase(b) < 0;
+}
