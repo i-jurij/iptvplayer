@@ -326,9 +326,11 @@ void VideoPanel::OnOpen(wxCommandEvent &) {
 
   // Основные действия
   int idOpenFile = wxWindow::NewControlId();
+  int idOpenFolder = wxWindow::NewControlId();
   int idOpenUrl = wxWindow::NewControlId();
 
   m_openMenu->Append(idOpenFile, "Open File…");
+  m_openMenu->Append(idOpenFolder, "Open Folder…");
   m_openMenu->Append(idOpenUrl, "Open URL…");
 
   m_openMenu->AppendSeparator();
@@ -346,6 +348,7 @@ void VideoPanel::OnOpen(wxCommandEvent &) {
 
   // Bind для основных пунктов
   Bind(wxEVT_MENU, [this](wxCommandEvent &) { OpenFile(); }, idOpenFile);
+  Bind(wxEVT_MENU, [this](wxCommandEvent &) { OpenCatalog(); }, idOpenFolder);
   Bind(wxEVT_MENU, [this](wxCommandEvent &) { OpenUrl(); }, idOpenUrl);
 
   // Позиция кнопки в экранных координатах

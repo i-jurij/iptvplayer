@@ -109,7 +109,7 @@ public:
 private:
   int m_eofFreezeCount = 0;
   double m_eofLastPos = -1.0;
-  
+
   bool m_isLoading = false;
   int m_loadAttempts = 0;
   wxString m_errorMessage;
@@ -264,6 +264,7 @@ private:
   // Actions (VP_actions.cpp)
   // -------------------------
   void OpenFile();
+  void OpenCatalog();
   void OpenUrl();
   void LoadAndPlayPlaylist(const wxString &path);
 

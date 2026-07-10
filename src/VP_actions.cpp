@@ -81,6 +81,17 @@ void VideoPanel::OpenFile() {
   StartTempPlayAsync(path, -1, false, "open_file");
 }
 
+void VideoPanel::OpenCatalog() {
+  wxDirDialog dlg(this, "Select folder containing video files", "",
+                  wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+  if (dlg.ShowModal() == wxID_OK) {
+    wxString folderPath = dlg.GetPath();
+    wxArrayString paths;
+    paths.Add(folderPath);
+    HandleDroppedFiles(paths, 0);
+  }
+}
+
 void VideoPanel::OpenUrl() {
   ClearTempPlaylist();
 
@@ -116,7 +127,7 @@ void VideoPanel::PlayChannel(const Channel &ch) {
   // ---- Сброс счётчиков EOF при старте канала ----
   m_eofFreezeCount = 0;
   m_eofLastPos = -1.0;
-  
+
   // ---- ОБНОВЛЯЕМ СТАТУС 1 ИМЕНЕМ КАНАЛА ----
   wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
   if (frame && frame->GetStatusBar()) {
