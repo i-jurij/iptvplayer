@@ -1,9 +1,215 @@
-в меню опен добавить Открыть каталог
 
 мб кнопки в полноэкранном режиме
 мб временный плейлист в полноэкранном режиме
 или полный интерфейс?
 
+## Полный код с единым управлением всем UI в полноэкранном режиме
+
+### 1. Обновляем `ShowControls` и `HideControls` – теперь они управляют **всеми** элементами
+
+```cpp
+void VideoPanel::ShowControls() {
+    if (!m_controlsVisible && m_isFullscreen) {
+        // Показываем панель управления
+        if (m_controlsPanel) {
+            m_controlsPanel->Show();
+        }
+        // Показываем прогресс-бар
+        if (m_progressPanel) {
+            m_progressPanel->Show();
+        }
+        // Показываем верхний заголовок (если есть)
+        if (m_headerPanel) {
+            m_headerPanel->Show();
+        }
+        // Показываем верхний индикатор (если есть)
+        if (m_gaugeTop) {
+            m_gaugeTop->Show();
+        }
+        // Обновляем layout
+        Layout();
+        m_controlsVisible = true;
+    }
+}
+
+void VideoPanel::HideControls() {
+    if (m_controlsVisible && m_isFullscreen) {
+        // Скрываем панель управления
+        if (m_controlsPanel) {
+            m_controlsPanel->Hide();
+        }
+        // Скрываем прогресс-бар
+        if (m_progressPanel) {
+            m_progressPanel->Hide();
+        }
+        // Скрываем верхний заголовок (если есть)
+        if (m_headerPanel) {
+            m_headerPanel->Hide();
+        }
+        // Скрываем верхний индикатор (если есть)
+        if (m_gaugeTop) {
+            m_gaugeTop->Hide();
+        }
+        // Обновляем layout
+        Layout();
+        m_controlsVisible = false;
+    }
+}
+```
+
+---
+
+### 2. Упрощаем `ToggleFullscreen` – теперь только переключение режима и вызов `Show/HideControls`
+
+```cpp
+void VideoPanel::ToggleFullscreen() {
+    m_isFullscreen = !m_isFullscreen;
+
+    wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+    if (!frame)
+        return;
+
+    frame->ShowFullScreen(m_isFullscreen, wxFULLSCREEN_ALL);
+
+    wxWindow *parent = GetParent();
+    wxWindow *grandparent = parent->GetParent();
+    wxSizer *mainSizer = grandparent->GetSizer();
+
+    if (m_isFullscreen) {
+        // Убираем отступы у notebook
+        mainSizer->Detach(parent);
+        mainSizer->Add(parent, 1, wxEXPAND);
+        grandparent->Layout();
+
+        // Скрываем курсор
+        m_videoArea->SetCursor(wxCURSOR_BLANK);
+        m_cursorVisible = false;
+
+        // Скрываем весь UI
+        HideControls();
+
+        // Меняем иконку кнопки
+        wxBitmapBundle icon = LoadSvgIcon("compress", this);
+        if (icon.IsOk())
+            m_btnFullscreen->SetBitmap(icon);
+        else
+            m_btnFullscreen->SetLabel("Exit");
+
+        if (m_videoArea)
+            m_videoArea->SetFocus();
+
+        // Запускаем таймер автоскрытия
+        m_hideCursorTimer.Start(1500, wxTIMER_ONE_SHOT);
+
+    } else {
+        // Восстанавливаем отступы
+        mainSizer->Detach(parent);
+        mainSizer->Add(parent, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
+        grandparent->Layout();
+
+        // Восстанавливаем курсор
+        m_videoArea->SetCursor(wxCURSOR_DEFAULT);
+        m_cursorVisible = true;
+
+        // Показываем весь UI
+        ShowControls();
+
+        // Останавливаем таймер
+        m_hideCursorTimer.Stop();
+
+        // Меняем иконку кнопки
+        wxBitmapBundle icon = LoadSvgIcon("expand", this);
+        if (icon.IsOk())
+            m_btnFullscreen->SetBitmap(icon);
+        else
+            m_btnFullscreen->SetLabel("Full");
+
+        // Гарантируем видимость контролов (если флаг сбился)
+        m_controlsVisible = true;
+        Layout();
+    }
+
+    if (parent)
+        parent->Layout();
+
+    if (m_focusManager)
+        m_focusManager->EnsureFocus();
+}
+```
+
+---
+
+### 3. Обновляем обработчик движения мыши (в конструкторе)
+
+```cpp
+m_videoArea->Bind(wxEVT_MOTION, [this](wxMouseEvent &evt) {
+    if (!m_isFullscreen)
+        return;
+
+    // Показать курсор
+    if (!m_cursorVisible) {
+        m_videoArea->SetCursor(wxCURSOR_DEFAULT);
+        m_cursorVisible = true;
+    }
+
+    // Показать весь UI
+    ShowControls();
+
+    // Перезапустить таймер автоскрытия
+    m_hideCursorTimer.Start(1500, wxTIMER_ONE_SHOT);
+
+    evt.Skip();
+});
+```
+
+---
+
+### 4. Таймер `OnHideCursorTimer` – скрывает и курсор, и весь UI
+
+```cpp
+void VideoPanel::OnHideCursorTimer(wxTimerEvent &) {
+    if (!m_isFullscreen)
+        return;
+
+    // Скрыть курсор
+    m_videoArea->SetCursor(wxCURSOR_BLANK);
+    m_cursorVisible = false;
+
+    // Скрыть весь UI
+    HideControls();
+}
+```
+
+---
+
+### 5. (Опционально) Скрывать всё при уходе мыши из окна
+
+```cpp
+m_videoArea->Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent &evt) {
+    if (m_isFullscreen) {
+        HideControls();
+        m_videoArea->SetCursor(wxCURSOR_BLANK);
+        m_cursorVisible = false;
+        m_hideCursorTimer.Stop();
+    }
+    evt.Skip();
+});
+```
+
+---
+
+## Почему теперь работает
+
+- **`ShowControls`** показывает **все** элементы UI (controls, progress, header, gauge).
+- **`HideControls`** скрывает **все** эти элементы.
+- Вход в fullscreen → `HideControls()` скрывает всё.
+- Движение мыши → `ShowControls()` показывает всё и перезапускает таймер.
+- Таймер → снова `HideControls()`.
+- Выход из fullscreen → `ShowControls()` оставляет всё видимым.
+
+Все остальные переменные (`m_controlsVisible`, `m_cursorVisible`, `m_isFullscreen`) управляются единообразно, без дублирования.
+
+=================================================================
 кнопку записи добавить
 
 сделать карточки с названиями все таки

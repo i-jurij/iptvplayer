@@ -13,33 +13,6 @@
 #include <sstream>
 #include <wx/splitter.h>
 
-static bool ExtractNumberFromName(const wxString &name, int &outNumber) {
-  // Ищем первую подряд идущую последовательность цифр
-  int len = name.Length();
-  int start = -1;
-  for (int i = 0; i < len; ++i) {
-    if (wxIsdigit(name[i])) {
-      start = i;
-      break;
-    }
-  }
-
-  if (start == -1)
-    return false;
-
-  int end = start;
-  while (end < len && wxIsdigit(name[end]))
-    ++end;
-
-  wxString numStr = name.Mid(start, end - start);
-  long val = 0;
-  if (!numStr.ToLong(&val))
-    return false;
-
-  outNumber = static_cast<int>(val);
-  return true;
-}
-
 void VideoPanel::LoadTempPlaylistFromConfig() {
   Application *app = dynamic_cast<Application *>(wxTheApp);
   if (!app)
