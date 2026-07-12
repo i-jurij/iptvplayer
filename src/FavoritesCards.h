@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CardsBase.h"
+#include "TypeAheadSearch.h"
 
 class FavoritesCards : public CardsBase
 {
@@ -13,5 +14,7 @@ public:
 private : wxBitmap m_favFilled;
 
     wxBitmap GetStarBitmap(const Channel& ch) const override;
-    void OnCardClick(size_t index, bool fav, const wxRect& rect) override;
+    void OnCardClick(size_t index, bool fav, const wxRect &rect) override;
+
+    std::unique_ptr<TypeAheadSearch> m_search;
 };
