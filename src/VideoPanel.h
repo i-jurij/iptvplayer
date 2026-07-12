@@ -107,8 +107,11 @@ public:
                           bool isUrl = false, const char *source = "manual",
                           bool clearPlayNextInProgressOnFinish = false);
 
+  bool IsFullscreen() const { return m_isFullscreen; }
   void SetControlsVisible(bool show, bool startTimer = true);
   bool IsControlsVisible() const { return m_controlsVisible; }
+
+  void ToggleFullscreen();
 
 private:
   int m_autoHideDelayMs = 3000;
@@ -281,7 +284,6 @@ private:
   void Unmute();
   void ToggleMute();
   void SetVolume(int vol);
-  void ToggleFullscreen();
   void ShowControls();
   void HideControls();
   void ClearTempPlaylist();

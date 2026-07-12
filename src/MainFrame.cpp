@@ -255,6 +255,51 @@ MainFrame::MainFrame(Application* app)
               }
             });
       });
+
+  Bind(wxEVT_CHAR_HOOK, &MainFrame::OnGlobalCharHook, this);
+}
+
+void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {
+  int key = evt.GetKeyCode();
+
+  // ESC – выход из fullscreen (если он активен)
+  if (key == WXK_ESCAPE) {
+    // TypeAheadSearch перехватывает ESC в своих виджетах и не передаёт дальше,
+    // поэтому здесь ESC не дойдёт, если фокус в поиске.
+    if (m_videoPanel && m_videoPanel->IsFullscreen()) {
+      m_videoPanel->ToggleFullscreen();
+      evt.Skip(false);
+      return;
+    }
+  }
+  // F/F – переключение fullscreen
+  else if (key == 'f' || key == 'F') {
+    if (m_videoPanel) {
+      bool isFullscreen = m_videoPanel->IsFullscreen();
+      bool isVideoPage = IsVideoPageActive();
+
+      // Если fullscreen уже включён – выключаем всегда (с любой страницы)
+      if (isFullscreen) {
+        m_videoPanel->ToggleFullscreen();
+        evt.Skip(false);
+        return;
+      }
+      // Если fullscreen выключен – включаем только на Video
+      else if (isVideoPage) {
+        m_videoPanel->ToggleFullscreen();
+        evt.Skip(false);
+        return;
+      }
+    }
+  }
+
+  evt.Skip();
+}
+
+bool MainFrame::IsVideoPageActive() const {
+  if (!m_videoPanel || m_videoPageIdx == wxNOT_FOUND)
+    return false;
+  return m_notebook->GetSelection() == m_videoPageIdx;
 }
 
 PlaylistManager *MainFrame::getPlaylistManager() const {

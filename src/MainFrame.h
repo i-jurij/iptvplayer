@@ -103,6 +103,9 @@ public:
   uint64_t InvalidateShowPanelToken();
 
 private:
+  void OnGlobalCharHook(wxKeyEvent &evt);
+  bool IsVideoPageActive() const;
+
   std::atomic<bool> m_ignoreNotebookEvents{false};
   
   wxToggleButton *m_btnPlaylists = nullptr;

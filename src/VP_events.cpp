@@ -177,24 +177,6 @@ void VideoPanel::OnKey(wxKeyEvent &evt) {
     evt.Skip(false);
     return;
 
-  // ======= Fullscreen  =======
-  case 'f':
-  case 'F':
-    ToggleFullscreen();
-    // evt.Skip(false);
-    evt.StopPropagation();
-    return;
-
-  // ======= ESC: выход из fullscreen =======
-  case WXK_ESCAPE:
-    if (m_isFullscreen) {
-      ToggleFullscreen();
-      // evt.Skip(false);
-      evt.StopPropagation();
-      return;
-    }
-    break;
-
   case 'M':
   case 'm':
     if (m_playerController) {
