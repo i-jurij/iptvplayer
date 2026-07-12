@@ -107,7 +107,12 @@ public:
                           bool isUrl = false, const char *source = "manual",
                           bool clearPlayNextInProgressOnFinish = false);
 
+  void SetControlsVisible(bool show, bool startTimer = true);
+  bool IsControlsVisible() const { return m_controlsVisible; }
+
 private:
+  int m_autoHideDelayMs = 3000;
+  
   int m_eofFreezeCount = 0;
   double m_eofLastPos = -1.0;
 

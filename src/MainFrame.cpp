@@ -184,6 +184,76 @@ MainFrame::MainFrame(Application* app)
         HandleChannelPageChanged(sel);
         HandleFavPageChanged(sel);
         HandlePlaylistPageChanged(sel);
+
+        m_notebook->Bind(
+            wxEVT_AUINOTEBOOK_PAGE_CHANGED, [this](wxAuiNotebookEvent &evt) {
+              LOG_DEBUG("MainFrame: notebook page changed event: selection=%d, "
+                        "m_ignoreNotebookEvents=%d",
+                        evt.GetSelection(), (int)m_ignoreNotebookEvents.load());
+
+              if (m_ignoreNotebookEvents.load()) {
+                LOG_DEBUG("Notebook change ignored due to guard");
+                return;
+              }
+
+              int sel = evt.GetSelection();
+              LOG_DEBUG("MainFrame: notebook page changed event: selection=%d, "
+                        "pagePtr=%p, pageLabel='%s', m_videoPageIdx=%d, "
+                        "m_videoPanel=%p, m_ignoreNotebookEvents=%d",
+                        sel, (void *)m_notebook->GetPage(sel),
+                        m_notebook->GetPageText(sel).ToUTF8().data(),
+                        m_videoPageIdx, (void *)m_videoPanel,
+                        (int)m_ignoreNotebookEvents.load());
+
+              evt.Skip();
+
+              // Если уходим с Video
+              if (m_videoPanel && m_videoPageIdx != wxNOT_FOUND &&
+                  sel != m_videoPageIdx) {
+                m_videoPanel->SetTabActive(false);
+              }
+
+              // Если возвращаемся на Video — проверяем, что текущая страница
+              // действительно тот самый m_videoPanel
+              if (m_videoPanel && m_videoPageIdx != wxNOT_FOUND &&
+                  sel == m_videoPageIdx) {
+                // дополнительная защита: убедимся, что notebook действительно
+                // хранит тот же объект на этой позиции
+                wxWindow *page = m_notebook->GetPage(sel);
+                if (page == m_videoPanel) {
+                  m_videoPanel->SetTabActive(true);
+                } else {
+                  LOG_DEBUG(
+                      "MainFrame: selection==m_videoPageIdx but "
+                      "notebook->GetPage(sel) != m_videoPanel; sel=%d page=%p "
+                      "m_videoPanel=%p",
+                      sel, (void *)page, (void *)m_videoPanel);
+                }
+              }
+
+              HandleChannelPageChanged(sel);
+              HandleFavPageChanged(sel);
+              HandlePlaylistPageChanged(sel);
+
+              // === Управление видимостью UI в полноэкранном режиме ===
+              if (m_videoPanel) {
+                bool isVideoPage =
+                    (m_videoPageIdx != wxNOT_FOUND && sel == m_videoPageIdx);
+                if (!isVideoPage) {
+                  // Ушли с Video: показать UI и остановить таймер
+                  m_videoPanel->SetControlsVisible(true, false);
+                } else {
+                  // Вернулись на Video: если UI видим, запустить таймер
+                  if (m_videoPanel->IsControlsVisible()) {
+                    m_videoPanel->SetControlsVisible(true, true);
+                  } else {
+                    // UI скрыт – таймер не запускаем, он запустится при
+                    // движении мыши
+                    m_videoPanel->SetControlsVisible(false, false);
+                  }
+                }
+              }
+            });
       });
 }
 

@@ -307,18 +307,6 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_volumeSlider =
       new wxSlider(m_controlsPanel, wxID_ANY, m_lastVolume, 0, 100,
                    wxDefaultPosition, wxSize(120, -1), wxSL_HORIZONTAL);
-
-  Application *app = dynamic_cast<Application *>(wxTheApp);
-  if (app) {
-    ConfigManager *cfg = app->getConfigManager();
-    if (cfg) {
-      int vol = cfg->getInt("m_lastVolume", 100);
-      m_lastVolume = std::clamp(vol, 0, 100);
-      m_volumeSlider->SetValue(m_lastVolume);
-      if (m_playerController)
-        m_playerController->SetVolume(m_lastVolume);
-    }
-  }
   m_volumeSlider->Bind(wxEVT_SLIDER, &VideoPanel::OnVolume, this);
   ctrlSizer->Add(m_volumeSlider, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5);
 
@@ -347,6 +335,21 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   Layout();
 
   m_splitter->Initialize(m_mainPanel);
+
+  // initialize last volume and autohide time on fullscreen
+  Application *app = dynamic_cast<Application *>(wxTheApp);
+  if (app) {
+    ConfigManager *cfg = app->getConfigManager();
+    if (cfg) {
+      m_autoHideDelayMs = cfg->getInt("fullscreen_autohide_delay", 3000);
+
+      int vol = cfg->getInt("m_lastVolume", 100);
+      m_lastVolume = std::clamp(vol, 0, 100);
+      m_volumeSlider->SetValue(m_lastVolume);
+      if (m_playerController)
+        m_playerController->SetVolume(m_lastVolume);
+    }
+  }
 
   // ------------------------------------------------------------
   // Focus manager
@@ -483,16 +486,12 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_videoArea->Bind(wxEVT_MOTION, [this](wxMouseEvent &evt) {
     if (!m_isFullscreen)
       return;
-
-    // Показать курсор, если он скрыт
     if (!m_cursorVisible) {
       m_videoArea->SetCursor(wxCURSOR_DEFAULT);
       m_cursorVisible = true;
     }
-
-    // Перезапустить таймер автоскрытия
-    m_hideCursorTimer.Start(1500, wxTIMER_ONE_SHOT);
-
+    // Показать UI и запустить таймер
+    SetControlsVisible(true, true);
     evt.Skip();
   });
 
@@ -581,9 +580,9 @@ void VideoPanel::OnClickTimer(wxTimerEvent &) {
 void VideoPanel::OnHideCursorTimer(wxTimerEvent &) {
   if (!m_isFullscreen)
     return;
-
   m_videoArea->SetCursor(wxCURSOR_BLANK);
   m_cursorVisible = false;
+  SetControlsVisible(false, false);
 }
 
 VideoPanel::~VideoPanel() {

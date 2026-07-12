@@ -314,124 +314,98 @@ void VideoPanel::Stop() {
     m_gaugeTop = gaugeTop;
   }
 
+  void VideoPanel::SetControlsVisible(bool show, bool startTimer) {
+    // === Управление видимостью всех элементов UI ===
+    if (m_headerPanel) {
+      show ? m_headerPanel->Show() : m_headerPanel->Hide();
+      if (show)
+        m_headerPanel->Raise();
+    }
+    if (m_controlsPanel) {
+      show ? m_controlsPanel->Show() : m_controlsPanel->Hide();
+      if (show)
+        m_controlsPanel->Raise();
+    }
+    if (m_progressPanel) {
+      show ? m_progressPanel->Show() : m_progressPanel->Hide();
+      if (show)
+        m_progressPanel->Raise();
+    }
+
+    // === Обновление Layout всей иерархии ===
+    Layout();
+    Refresh();
+    Update();
+    wxWindow *parent = GetParent();
+    while (parent) {
+      parent->Layout();
+      parent->Refresh();
+      parent->Update();
+      parent = parent->GetParent();
+    }
+
+    m_controlsVisible = show;
+
+    // === Управление таймером автоскрытия ===
+    if (m_isFullscreen && show && startTimer) {
+      m_hideCursorTimer.Start(m_autoHideDelayMs, wxTIMER_ONE_SHOT);
+    } else {
+      m_hideCursorTimer.Stop();
+    }
+  }
+
   void VideoPanel::ToggleFullscreen() {
     m_isFullscreen = !m_isFullscreen;
 
     wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
-    if (!frame)
-      return;
-
-    frame->ShowFullScreen(m_isFullscreen, wxFULLSCREEN_ALL);
-
-    wxWindow *parent = GetParent();               // это m_notebook
-    wxWindow *grandparent = parent->GetParent();  // это m_mainPanel
-    wxSizer *mainSizer = grandparent->GetSizer(); // сизер MainFrame
+    if (frame) {
+      frame->ShowFullScreen(m_isFullscreen, wxFULLSCREEN_ALL);
+    }
 
     if (m_isFullscreen) {
-      // Убираем отступы у notebook в fullscreen
-      mainSizer->Detach(parent);
-      mainSizer->Add(parent, 1,
-                     wxEXPAND); // убираем wxLEFT | wxRIGHT | wxBOTTOM, 6
-      grandparent->Layout();
-      // Скрываем курсор
-      // wxCursor blankCursor(wxCURSOR_BLANK);
-      // m_videoArea->SetCursor(blankCursor);
+      // Вход в полноэкранный режим: скрыть UI, скрыть курсор, сменить иконку
+      SetControlsVisible(false, false);
       m_videoArea->SetCursor(wxCURSOR_BLANK);
       m_cursorVisible = false;
-
-      // Скрываем header и gauge
-      if (m_headerPanel)
-        m_headerPanel->Hide();
-      if (m_gaugeTop)
-        m_gaugeTop->Hide();
-
-      m_controlsPanel->Hide();
-
-      // m_progress->Hide();
-      if (m_progressPanel)
-        m_progressPanel->Hide();
-
       wxBitmapBundle icon = LoadSvgIcon("compress", this);
       if (icon.IsOk())
         m_btnFullscreen->SetBitmap(icon);
       else
         m_btnFullscreen->SetLabel("Exit");
-
       if (m_videoArea)
         m_videoArea->SetFocus();
-
-      m_isFullscreen = true;
+      // Таймер не запускается – он запустится при движении мыши
     } else {
-      // Восстанавливаем отступы при выходе из fullscreen
-      mainSizer->Detach(parent);
-      mainSizer->Add(parent, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
-      grandparent->Layout();
-      // Восстанавливаем обычный курсор
-      // m_videoArea->SetCursor(wxCURSOR_DEFAULT);
+      // Выход из полноэкранного режима: показать UI, показать курсор, сменить
+      // иконку
+      SetControlsVisible(true, false);
       m_videoArea->SetCursor(wxCURSOR_DEFAULT);
       m_cursorVisible = true;
-
-      // Показываем обратно
-      if (m_headerPanel)
-        m_headerPanel->Show();
-      // if (m_gaugeTop)
-      // m_gaugeTop->Show();
-
-      m_controlsPanel->Show();
-      // m_progress->Show();
-      if (m_progressPanel)
-        m_progressPanel->Show();
-
-      Layout();
-      m_controlsVisible = true;
-
       wxBitmapBundle icon = LoadSvgIcon("expand", this);
       if (icon.IsOk())
         m_btnFullscreen->SetBitmap(icon);
       else
         m_btnFullscreen->SetLabel("Full");
-
-      m_isFullscreen = false;
+      Layout();
+      // Таймер останавливается (startTimer=false)
     }
 
-    // Перепроверь Layout на родителе
-    if (parent)
-      parent->Layout();
-
-    // 🔥 Автоматический возврат фокуса на видео,
-    // но только если панель активна и видима
+    // Обновление фокуса
     if (m_focusManager)
       m_focusManager->EnsureFocus();
+
+    // Обновление родительских окон
+    wxWindow *parent = GetParent();
+    if (parent)
+      parent->Layout();
   }
 
   // ============================================================================
   // Autohide controls
   // ============================================================================
-  void VideoPanel::ShowControls() {
-    if (!m_controlsVisible) {
-      m_controlsPanel->Show();
-      m_progress->Show();
-      m_controlsPanel->Refresh();
-      m_progress->Refresh();
-      Layout();
-      m_controlsVisible = true;
+  void VideoPanel::ShowControls() { SetControlsVisible(true, true); }
 
-      // LOG_DEBUG("ShowControls: visible=true, fullscreen=%d", m_isFullscreen);
-    }
-  }
-
-  void VideoPanel::HideControls() {
-    if (m_controlsVisible && m_isFullscreen) {
-      m_controlsPanel->Hide();
-      m_progress->Hide();
-      m_controlsPanel->Refresh();
-      m_progress->Refresh();
-      Layout();
-      m_controlsVisible = false;
-
-      // LOG_DEBUG("HideControls: visible=false");
-    }
-  }
+  void VideoPanel::HideControls() { SetControlsVisible(false, false); }
 
   // ============================================================================
   // Helpers
