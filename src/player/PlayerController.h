@@ -76,6 +76,24 @@ public:
   void NextSubtitleTrack();
   void PrevSubtitleTrack();
 
+  void SetVideoZoom(double zoom);
+  void SetVideoAspect(const std::string &aspect);
+  void SetVideoRotate(int degrees);
+  void SetAudioDelay(double delay);
+  double GetAudioDelay() const;
+  void AdjustAudioDelay(double delta);
+  void GetVideoZoom(double &zoom) const;
+  void GetVideoRotate(int &degrees) const;
+  void ToggleVideoMirror();
+  void ResetVideoFilters();
+  std::vector<std::pair<int, wxString>> GetAudioTracks() const;
+  int GetCurrentAudioTrack() const;
+  void SetAudioTrack(int trackId);
+
+  std::vector<std::pair<int, wxString>> GetSubtitleTracks() const;
+  int GetCurrentSubtitleTrack() const;
+  void SetSubtitleTrack(int trackId);
+
 private:
   // Debounce / reconciliation
   wxTimer m_reconcileTimer; // инициализируется в конструкторе

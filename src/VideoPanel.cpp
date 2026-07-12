@@ -3,6 +3,7 @@
 #include "ConfigManager.h"
 #include "EventIDs.h"
 #include "LogControl.h"
+#include "MainFrame.h"
 #include "MpvBackend.h"
 #include "VP_SvgIcon.h"
 
@@ -515,6 +516,14 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
     m_waitingSingleClick = false; // отменяем одиночный
     ToggleFullscreen();
+  });
+
+  m_videoArea->Bind(wxEVT_RIGHT_DOWN, [this](wxMouseEvent &evt) {
+    MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+    if (mf) {
+      mf->ShowMainMenu();
+    }
+    evt.Skip();
   });
 
   m_forceBlackTimer.SetOwner(this);

@@ -298,3 +298,85 @@ void PlayerController::OnReconcileTimer(wxTimerEvent &evt) {
     }
   }
 }
+
+void PlayerController::SetVideoZoom(double zoom) {
+  if (m_backend)
+    m_backend->SetVideoZoom(zoom);
+}
+void PlayerController::SetVideoAspect(const std::string &aspect) {
+  if (m_backend)
+    m_backend->SetVideoAspect(aspect);
+}
+void PlayerController::SetVideoRotate(int degrees) {
+  if (m_backend)
+    m_backend->SetVideoRotate(degrees);
+}
+
+void PlayerController::SetAudioDelay(double delay) {
+  if (m_backend)
+    m_backend->SetAudioDelay(delay);
+}
+
+void PlayerController::AdjustAudioDelay(double delta) {
+  if (m_backend)
+    m_backend->AdjustAudioDelay(delta);
+}
+
+void PlayerController::GetVideoZoom(double &zoom) const {
+  if (m_backend)
+    m_backend->GetVideoZoom(zoom);
+}
+void PlayerController::GetVideoRotate(int &degrees) const {
+  if (m_backend)
+    m_backend->GetVideoRotate(degrees);
+}
+
+void PlayerController::ToggleVideoMirror() {
+  if (m_backend)
+    m_backend->ToggleVideoMirror();
+}
+void PlayerController::ResetVideoFilters() {
+  if (m_backend)
+    m_backend->ResetVideoFilters();
+}
+
+double PlayerController::GetAudioDelay() const {
+  if (m_backend)
+    return m_backend->GetAudioDelay();
+  return 0.0;
+}
+
+std::vector<std::pair<int, wxString>> PlayerController::GetAudioTracks() const {
+  if (m_backend)
+    return m_backend->GetAudioTracks();
+  return {};
+}
+
+int PlayerController::GetCurrentAudioTrack() const {
+  if (m_backend)
+    return m_backend->GetCurrentAudioTrack();
+  return -1;
+}
+
+void PlayerController::SetAudioTrack(int trackId) {
+  if (m_backend)
+    m_backend->SetAudioTrack(trackId);
+}
+
+std::vector<std::pair<int, wxString>>
+PlayerController::GetSubtitleTracks() const {
+  if (m_backend)
+    return m_backend->GetSubtitleTracks();
+  return {};
+}
+
+int PlayerController::GetCurrentSubtitleTrack() const {
+  if (m_backend)
+    return m_backend->GetCurrentSubtitleTrack();
+  return -1;
+}
+
+void PlayerController::SetSubtitleTrack(int trackId) {
+  if (m_backend)
+    m_backend->SetSubtitleTrack(trackId);
+}

@@ -102,7 +102,11 @@ public:
 
   uint64_t InvalidateShowPanelToken();
 
+  void ShowMainMenu(const wxPoint &pos = wxDefaultPosition);
+
 private:
+  wxButton *m_menuButton = nullptr;
+
   void OnGlobalCharHook(wxKeyEvent &evt);
   bool IsVideoPageActive() const;
 

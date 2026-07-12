@@ -120,6 +120,7 @@ void MainFrame::createMainPanel() {
   m_btnFavorites = makeButton("Favorites", "favorites");
   m_btnVideo = makeButton("Video", "video");
   wxButton *btnMenu = new wxButton(headerPanel, wxID_ANY, " Menu");
+  m_menuButton = btnMenu;
   wxBitmapBundle menuIcon = LoadSvgIcon("menu", this);
   if (menuIcon.IsOk()) {
     btnMenu->SetBitmap(menuIcon, wxLEFT);
@@ -357,16 +358,7 @@ void MainFrame::createMainPanel() {
                      m_notebook->SetSelection(3);
                    });
 
-  btnMenu->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
-    if (m_videoPanel)
-      m_videoPanel->SetTabActive(false);
-
-    wxMenu menu;
-    menu.Append(ID_MENU_SETTINGS, "Settings");
-    menu.Append(ID_MENU_ABOUT, "About");
-    menu.Append(ID_MENU_EXIT, "Quit");
-    PopupMenu(&menu);
-  });
+  btnMenu->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { ShowMainMenu(); });
 
   Bind(wxEVT_ICONIZE, [this](wxIconizeEvent &) {
     if (m_videoPanel)

@@ -88,6 +88,7 @@ set(SOURCES
     src/MainFrame_ChannelsViewUI.cpp
     src/MainFrame_PlaylistUI.cpp
     src/MainFrame_FavoritesUI.cpp
+    src/MainFrame_Menu.cpp
     src/VideoPanel.cpp
     src/VP_actions.cpp
     src/VP_events.cpp

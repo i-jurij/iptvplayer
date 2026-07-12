@@ -53,10 +53,27 @@ public:
   void NextSubtitleTrack() override;
   void PrevSubtitleTrack() override;
 
+  void SetVideoZoom(double zoom) override;
+  void SetVideoAspect(const std::string &aspect) override;
+  void SetVideoRotate(int degrees) override;
+  void SetAudioDelay(double delay) override;
+  double GetAudioDelay() const override;
+  void AdjustAudioDelay(double delta) override;
+  void GetVideoZoom(double &zoom) const override;
+  void GetVideoRotate(int &degrees) const override;
+  void ToggleVideoMirror() override;
+  void ResetVideoFilters() override;
+  std::vector<std::pair<int, wxString>> GetAudioTracks() const override;
+  int GetCurrentAudioTrack() const override;
+  void SetAudioTrack(int trackId) override;
+  std::vector<std::pair<int, wxString>> GetSubtitleTracks() const override;
+  int GetCurrentSubtitleTrack() const override;
+  void SetSubtitleTrack(int trackId) override;
+
 private:
   mpv_handle *m_mpv = nullptr;
   wxWindow *m_parentWindow = nullptr;
-  
+
   std::string m_lastUrl;
   wxWindow *m_window = nullptr;
 

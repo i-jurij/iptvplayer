@@ -64,4 +64,23 @@ public:
   virtual void ToggleSubtitles() = 0;
   virtual void NextSubtitleTrack() = 0;
   virtual void PrevSubtitleTrack() = 0;
+
+  virtual void SetVideoZoom(double zoom) = 0;
+  virtual void SetVideoAspect(const std::string &aspect) = 0;
+  virtual void SetVideoRotate(int degrees) = 0;
+  virtual void SetAudioDelay(double delay) = 0;
+  virtual double GetAudioDelay() const = 0;
+  // Audio tracks
+  virtual std::vector<std::pair<int, wxString>> GetAudioTracks() const = 0;
+  virtual int GetCurrentAudioTrack() const = 0;
+  virtual void SetAudioTrack(int trackId) = 0;
+  // Subtitle tracks
+  virtual std::vector<std::pair<int, wxString>> GetSubtitleTracks() const = 0;
+  virtual int GetCurrentSubtitleTrack() const = 0;
+  virtual void SetSubtitleTrack(int trackId) = 0;
+  virtual void GetVideoZoom(double &zoom) const = 0;
+  virtual void GetVideoRotate(int &degrees) const = 0;
+  virtual void AdjustAudioDelay(double delta) = 0;
+  virtual void ToggleVideoMirror() = 0;
+  virtual void ResetVideoFilters() = 0;
 };
