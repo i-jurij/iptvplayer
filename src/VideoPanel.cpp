@@ -290,12 +290,12 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       m_btnStop->SetLabel("Stop");
   }
   m_btnStop->Bind(wxEVT_BUTTON, &VideoPanel::OnStop, this);
-  ctrlSizer->Add(m_btnStop, 0, wxALL, 5);
+  ctrlSizer->Add(m_btnStop, 0, wxALL, FromDIP(5));
 
   // --- Record ---
-  m_btnRecord = new wxButton(m_controlsPanel, wxID_ANY, "Rec");
+  m_btnRecord = new wxButton(m_controlsPanel, wxID_ANY, "🔴 Rec");
   m_btnRecord->Bind(wxEVT_BUTTON, &VideoPanel::OnRecord, this);
-  ctrlSizer->Add(m_btnRecord, 0, wxALL | wxLEFT, FromDIP(5));
+  ctrlSizer->Add(m_btnRecord, 0, wxALL, FromDIP(5));
 
   // --- Spacer ---
   ctrlSizer->AddStretchSpacer(1);
@@ -1221,12 +1221,12 @@ void VideoPanel::UpdateRecordButtonState() {
     return;
 
   if (m_isRecording) {
-    m_btnRecord->SetLabel("■ Stop");
+    m_btnRecord->SetLabel("🔴 Stop");
     m_btnRecord->SetBackgroundColour(wxColour(200, 50, 50));
     m_btnRecord->SetForegroundColour(*wxWHITE);
     m_btnRecord->Enable(true);
   } else {
-    m_btnRecord->SetLabel("Rec");
+    m_btnRecord->SetLabel("🔴 Rec");
     m_btnRecord->SetBackgroundColour(wxNullColour);
     m_btnRecord->SetForegroundColour(wxNullColour);
     bool canRecord = (m_tempState == TempPlayState::Playing ||
