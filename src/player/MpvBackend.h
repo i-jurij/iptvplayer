@@ -70,7 +70,18 @@ public:
   int GetCurrentSubtitleTrack() const override;
   void SetSubtitleTrack(int trackId) override;
 
+  // --- методы записи ---
+  void SetRecordStateCallback(RecordStateCallback cb) override {
+    m_recordStateCb = std::move(cb);
+  }
+  void StartRecording(const std::string &filename) override;
+  void StopRecording() override;
+  bool IsRecording() const override { return m_isRecording; }
+
 private:
+  bool m_isRecording = false;
+  RecordStateCallback m_recordStateCb;
+
   mpv_handle *m_mpv = nullptr;
   wxWindow *m_parentWindow = nullptr;
 

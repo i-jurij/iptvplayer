@@ -44,7 +44,7 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   }
 
   int st = mpv_initialize(m_mpv);
-  //LOG_DEBUG("mpv_initialize returned %d", st);
+  // LOG_DEBUG("mpv_initialize returned %d", st);
 
   mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG);
   //LOG_DEBUG("MpvBackend: observing property 'pause'");
@@ -88,6 +88,10 @@ void MpvBackend::Detach() { m_window = nullptr; }
 void MpvBackend::Shutdown() {
   if (!m_mpv)
     return;
+
+  if (m_isRecording) {
+    StopRecording();
+  }
 
   //LOG_DEBUG("MpvBackend::Shutdown()");
 
@@ -169,8 +173,12 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
   if (!ev)
     return;
 
-  if (ev->event_id == MPV_EVENT_SHUTDOWN)
+  if (ev->event_id == MPV_EVENT_SHUTDOWN) {
+    if (m_isRecording) {
+      StopRecording();
+    }
     return;
+  }
 
   switch (ev->event_id) {
   case MPV_EVENT_FILE_LOADED: {
@@ -244,6 +252,11 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
       }
     }
     EmitProgress();
+
+    if (m_isRecording) {
+      StopRecording();
+    }
+
     break;
   }
   default:
@@ -649,4 +662,60 @@ void MpvBackend::SetSubtitleTrack(int trackId) {
   if (!m_mpv)
     return;
   mpv_set_property(m_mpv, "sub-track", MPV_FORMAT_INT64, &trackId);
+}
+
+// ============================================================================
+// Recording (only stream-record)
+// ============================================================================
+
+void MpvBackend::StartRecording(const std::string &filename) {
+  if (!m_mpv) {
+    if (m_recordStateCb)
+      m_recordStateCb(false, filename, "mpv handle is null");
+    return;
+  }
+
+  if (m_isRecording) {
+    if (m_recordStateCb)
+      m_recordStateCb(false, filename, "already recording");
+    return;
+  }
+
+  int64_t idle = 0;
+  if (mpv_get_property(m_mpv, "idle", MPV_FORMAT_INT64, &idle) >= 0 && idle) {
+    if (m_recordStateCb)
+      m_recordStateCb(false, filename, "cannot record in idle state");
+    return;
+  }
+
+  int ret = mpv_set_property_string(m_mpv, "stream-record", filename.c_str());
+  if (ret >= 0) {
+    m_isRecording = true;
+    LOG_DEBUG("Recording started: %s", filename.c_str());
+    if (m_recordStateCb)
+      m_recordStateCb(true, filename, "");
+  } else {
+    LOG_ERROR("Failed to start recording: %s (ret=%d)", mpv_error_string(ret),
+              ret);
+    if (m_recordStateCb)
+      m_recordStateCb(false, filename, mpv_error_string(ret));
+  }
+}
+
+void MpvBackend::StopRecording() {
+  if (!m_mpv || !m_isRecording)
+    return;
+
+  int ret = mpv_set_property_string(m_mpv, "stream-record", "");
+  if (ret >= 0) {
+    m_isRecording = false;
+    LOG_DEBUG("Recording stopped");
+    if (m_recordStateCb)
+      m_recordStateCb(false, "", "");
+  } else {
+    LOG_ERROR("Failed to stop recording: %s (ret=%d)", mpv_error_string(ret),
+              ret);
+    if (m_recordStateCb)
+      m_recordStateCb(true, "", mpv_error_string(ret));
+  }
 }

@@ -1,6 +1,83 @@
 
 кнопку записи добавить
 
+## 🧾 Точный пошаговый план изменений
+
+### 1. **IPlayerBackend.h**
+- Добавить колбэк‑тип `RecordStateCallback` (bool isRecording, const std::string& filename, const std::string& error)
+- Добавить виртуальный метод `SetRecordStateCallback(RecordStateCallback cb)`
+- Добавить виртуальные методы записи: `StartRecording`, `StopRecording`, `IsRecording`, `SetRecordMethod`, `GetRecordMethod`
+
+### 2. **MpvBackend.h**
+- Добавить поле `std::string m_recordMethod = "stream-record"`
+- Добавить поле `bool m_isRecording = false`
+- Добавить поле `RecordStateCallback m_recordStateCb`
+- Добавить override для всех новых методов из IPlayerBackend
+- В конструктор добавить инициализацию `m_recordMethod` из конфига (можно позже, или оставить по умолчанию)
+
+### 3. **MpvBackend.cpp**
+- Реализовать `StartRecording`:
+  - проверка m_mpv, m_isRecording
+  - проверка idle через mpv_get_property
+  - формирование команды в зависимости от m_recordMethod
+  - вызов mpv_command_string, обработка результата, установка m_isRecording, вызов колбэка
+- Реализовать `StopRecording`:
+  - вызов команды без аргументов, сброс m_isRecording, вызов колбэка
+- В `HandleEvent` для `MPV_EVENT_END_FILE` добавить вызов `StopRecording()` если `m_isRecording` (автоостановка)
+- В `Shutdown` добавить остановку записи, если активна
+
+### 4. **PlayerController.h**
+- Добавить прокси‑методы для всех новых методов (StartRecording, StopRecording, IsRecording, SetRecordMethod, GetRecordMethod, SetRecordStateCallback)
+
+### 5. **PlayerController.cpp**
+- Реализовать все прокси, просто перенаправляя вызовы к m_backend
+
+### 6. **VideoPanel.h**
+- Добавить поля:
+  - `wxButton* m_btnRecord`
+  - `bool m_isRecording = false`
+  - `wxString m_recordDirectory`
+  - `wxString m_recordMethod = "stream-record"`
+- Добавить методы:
+  - `void OnRecord(wxCommandEvent&)`
+  - `void UpdateRecordButtonState()`
+  - `wxString GenerateRecordFilename() const`
+  - `void OnRecordStateChanged(bool isRecording, const std::string& filename, const std::string& error)`
+  - геттеры/сеттеры: `GetRecordButton()`, `GetRecordDirectory()`, `SetRecordDirectory()`, `GetRecordMethod()`, `SetRecordMethod()`, `IsRecording()`
+- Добавить `wxTimer m_recordClearTimer` для очистки статуса через 3 сек (или использовать существующий механизм)
+
+### 7. **VideoPanel.cpp**
+- В конструкторе:
+  - Загрузить настройки записи из ConfigManager (record_directory, record_method)
+  - Определить стандартный каталог, если не задан: через `wxStandardPaths::GetDocumentsDir()` + `/Videos/records` (или `/Movies/records` на macOS), fallback `~/records`. Создать каталог, если его нет.
+  - Создать кнопку `m_btnRecord` с текстом "Rec", вставить в сайзер после m_btnStop.
+  - Подписаться на колбэк состояния записи через `m_playerController->SetRecordStateCallback(...)`
+- Реализовать `GenerateRecordFilename`:
+  - использовать `m_currentName` (std::string), прогнать через `NormalizeFileNameForDisk` (режим Disk), добавить дату/время, расширение .mkv
+- Реализовать `OnRecord`:
+  - если запись активна → StopRecording()
+  - иначе проверить состояние плеера (Playing/Paused), сгенерировать полный путь, убедиться, что каталог существует, установить метод записи, вызвать StartRecording
+- Реализовать `OnRecordStateChanged`:
+  - обновить m_isRecording, вызвать UpdateRecordButtonState()
+  - обновить статусбар (поле 1): при старте — "🔴 Recording: <filename>", при остановке — "Recording stopped" (через 3 сек очистить)
+- В `UpdateUiButtons` добавить вызов `UpdateRecordButtonState()`
+- В `OnPlayerState` при переходе в Stopped или Error, если m_isRecording, вызвать StopRecording()
+- В деструкторе (или в Shutdown) остановить запись, если активна
+
+### 8. **MainFrame_Menu.cpp**
+- В `ShowMainMenu` после подменю "Subtitles" добавить подменю "Record" со всеми пунктами, описанными в плане.
+- Подписаться на события меню, используя лямбды, которые вызывают соответствующие методы VideoPanel (через получение указателя на текущий VideoPanel).
+- Для радиопунктов метода записи — проверять текущий метод и устанавливать галочку.
+
+### 9. **Дополнительно (если требуется)**
+- В `MainFrame.h` добавить метод `GetCurrentVideoPanel()` (или использовать существующий m_videoPanel, если он всегда один).
+- Убедиться, что в `MainFrame.cpp` правильно обрабатывается закрытие (сохранение настроек).
+
+---
+
+После утверждения плана я выдам полный код каждого изменённого файла (по частям).
+======================================
+
 сделать карточки с названиями все таки
 
 автозагрузка плейлиста при первом старте (мастер настройки?)

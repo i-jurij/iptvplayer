@@ -113,7 +113,32 @@ public:
 
   void ToggleFullscreen();
 
+  wxButton *GetRecordButton() const { return m_btnRecord; }
+  wxString GetRecordDirectory() const { return m_recordDirectory; }
+  void SetRecordDirectory(const wxString &dir) { m_recordDirectory = dir; }
+  bool IsRecording() const { return m_isRecording; }
+
 private:
+  StreamInfo m_lastStreamInfoData;
+  wxString DetermineRecordExtension(const StreamInfo &info) const;
+  wxString m_lastStreamInfo;
+
+  // --- Запись ---
+  wxButton *m_btnRecord = nullptr;
+  bool m_isRecording = false;
+  wxString m_recordDirectory;
+  wxString m_recordMethod = "stream-record";
+  wxTimer m_recordStatusTimer;
+  wxLongLong m_recordStartTime;
+
+  void OnRecord(wxCommandEvent &evt);
+  void UpdateRecordButtonState();
+  wxString GenerateRecordFilename() const;
+  void OnRecordStateChanged(bool isRecording, const std::string &filename,
+                            const std::string &error);
+  void OnRecordStatusTimer(wxTimerEvent &evt);
+  bool InitializeRecordDirectory();
+
   int m_autoHideDelayMs = 3000;
   
   int m_eofFreezeCount = 0;

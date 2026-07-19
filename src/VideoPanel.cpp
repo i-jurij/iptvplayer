@@ -9,11 +9,13 @@
 
 #include <wx/dnd.h>
 #include <wx/event.h>
+#include <wx/ffile.h>
 #include <wx/listctrl.h>
 #include <wx/splitter.h>
 #include <wx/statbmp.h>
 
 #include <memory>
+#include <wx/tokenzr.h>
 
 wxDEFINE_EVENT(wxEVT_PLAYER_STATE, wxCommandEvent);
 wxDEFINE_EVENT(wxEVT_PLAYER_INFO, wxCommandEvent);
@@ -54,10 +56,10 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   wxStaticText *lbl = new wxStaticText(header, wxID_ANY, "Temporary playlist");
 
-  headerSizer->Add(lbl, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, 5);
+  headerSizer->Add(lbl, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(5));
   header->SetSizer(headerSizer);
 
-  tempSizer->Add(header, 0, wxEXPAND | wxTOP | wxBOTTOM, 3);
+  tempSizer->Add(header, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(5));
 
   // === Список файлов ===
   m_tempPlaylistList = new wxListCtrl(
@@ -197,7 +199,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_timeCurrentLabel->SetFont(
       m_timeCurrentLabel->GetFont().MakeSmaller().MakeSmaller());
   progressTimeSizer->Add(m_timeCurrentLabel, 0,
-                         wxALIGN_CENTER_VERTICAL | wxLEFT, 5);
+                         wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(5));
 
   m_progress = new ProgressSlider(progressPanel);
   m_progress->SetMax(1000);
@@ -225,13 +227,13 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_timeRemainingLabel->SetFont(
       m_timeRemainingLabel->GetFont().MakeSmaller().MakeSmaller());
   progressTimeSizer->Add(m_timeRemainingLabel, 0,
-                         wxALIGN_CENTER_VERTICAL | wxLEFT, 5);
+                         wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(5));
 
   m_timeDurationLabel = new wxStaticText(progressPanel, wxID_ANY, "/ 00:00:00");
   m_timeDurationLabel->SetFont(
       m_timeDurationLabel->GetFont().MakeSmaller().MakeSmaller());
   progressTimeSizer->Add(m_timeDurationLabel, 0,
-                         wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+                         wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
   progressSizer->Add(progressTimeSizer, 0, wxEXPAND);
 
@@ -252,7 +254,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       m_btnOpen->SetLabel("Open");
   }
   m_btnOpen->Bind(wxEVT_BUTTON, &VideoPanel::OnOpen, this);
-  ctrlSizer->Add(m_btnOpen, 0, wxALL, 5);
+  ctrlSizer->Add(m_btnOpen, 0, wxALL, FromDIP(5));
 
   // --- Play ---
   m_btnPlay = new wxButton(m_controlsPanel, wxID_ANY, "");
@@ -264,7 +266,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       m_btnPlay->SetLabel("Play");
   }
   m_btnPlay->Bind(wxEVT_BUTTON, &VideoPanel::OnPlay, this);
-  ctrlSizer->Add(m_btnPlay, 0, wxALL, 5);
+  ctrlSizer->Add(m_btnPlay, 0, wxALL, FromDIP(5));
 
   // --- Pause ---
   m_btnPause = new wxButton(m_controlsPanel, wxID_ANY, "");
@@ -276,7 +278,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       m_btnPause->SetLabel("Pause");
   }
   m_btnPause->Bind(wxEVT_BUTTON, &VideoPanel::OnPause, this);
-  ctrlSizer->Add(m_btnPause, 0, wxALL, 5);
+  ctrlSizer->Add(m_btnPause, 0, wxALL, FromDIP(5));
 
   // --- Stop ---
   m_btnStop = new wxButton(m_controlsPanel, wxID_ANY, "");
@@ -290,6 +292,12 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_btnStop->Bind(wxEVT_BUTTON, &VideoPanel::OnStop, this);
   ctrlSizer->Add(m_btnStop, 0, wxALL, 5);
 
+  // --- Record ---
+  m_btnRecord = new wxButton(m_controlsPanel, wxID_ANY, "Rec");
+  m_btnRecord->Bind(wxEVT_BUTTON, &VideoPanel::OnRecord, this);
+  ctrlSizer->Add(m_btnRecord, 0, wxALL | wxLEFT, FromDIP(5));
+
+  // --- Spacer ---
   ctrlSizer->AddStretchSpacer(1);
 
   // --- Mute ---
@@ -302,14 +310,15 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       m_btnMute->SetLabel("Vol");
   }
   m_btnMute->Bind(wxEVT_TOGGLEBUTTON, &VideoPanel::OnMute, this);
-  ctrlSizer->Add(m_btnMute, 0, wxALL, 5);
+  ctrlSizer->Add(m_btnMute, 0, wxALL, FromDIP(5));
 
   // --- Volume slider ---
   m_volumeSlider =
       new wxSlider(m_controlsPanel, wxID_ANY, m_lastVolume, 0, 100,
                    wxDefaultPosition, wxSize(120, -1), wxSL_HORIZONTAL);
   m_volumeSlider->Bind(wxEVT_SLIDER, &VideoPanel::OnVolume, this);
-  ctrlSizer->Add(m_volumeSlider, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5);
+  ctrlSizer->Add(m_volumeSlider, 0, wxALIGN_CENTER_VERTICAL | wxALL,
+                 FromDIP(5));
 
   // --- Fullscreen ---
   m_btnFullscreen = new wxButton(m_controlsPanel, wxID_ANY, "");
@@ -321,7 +330,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       m_btnFullscreen->SetLabel("Full");
   }
   m_btnFullscreen->Bind(wxEVT_BUTTON, &VideoPanel::OnFullscreen, this);
-  ctrlSizer->Add(m_btnFullscreen, 0, wxALL, 5);
+  ctrlSizer->Add(m_btnFullscreen, 0, wxALL, FromDIP(5));
 
   m_controlsPanel->SetSizer(ctrlSizer);
   mainSizer->Add(m_controlsPanel, 0, wxEXPAND);
@@ -349,6 +358,11 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       m_volumeSlider->SetValue(m_lastVolume);
       if (m_playerController)
         m_playerController->SetVolume(m_lastVolume);
+
+      std::string dir = cfg->getSetting("record_directory", "");
+      if (!dir.empty()) {
+        m_recordDirectory = wxString::FromUTF8(dir);
+      }
     }
   }
 
@@ -438,6 +452,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   if (m_playerController) {
     m_playerController->SetStreamInfoCallback([this](const StreamInfo &info) {
+      m_lastStreamInfoData = info;
       // Обрезаем описания кодеков до первого "/"
       auto truncateCodec = [](const std::string &s) -> std::string {
         if (s.empty())
@@ -450,6 +465,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
           info.width, info.height, info.fps,
           wxString::FromUTF8(truncateCodec(info.videoCodec)),
           wxString::FromUTF8(truncateCodec(info.audioCodec)));
+
+      m_lastStreamInfo = streamInfo;
 
       if (m_onStreamInfo) {
         wxTheApp->CallAfter(
@@ -469,8 +486,22 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       evt.SetInt((int)st);
       wxPostEvent(this, evt);
     });
+
+    // Подписка на колбэк состояния записи
+    m_playerController->SetRecordStateCallback(
+        [this](bool isRecording, const std::string &filename,
+               const std::string &error) {
+          wxTheApp->CallAfter([this, isRecording, filename, error]() {
+            OnRecordStateChanged(isRecording, filename, error);
+          });
+        });
   }
 
+  // Таймер для статуса
+  m_recordStatusTimer.SetOwner(this);
+  Bind(wxEVT_TIMER, &VideoPanel::OnRecordStatusTimer, this,
+       m_recordStatusTimer.GetId());
+  // player state bind 
   Bind(wxEVT_PLAYER_STATE, &VideoPanel::OnPlayerState, this);
 
   LoadTempPlaylistFromConfig();
@@ -596,6 +627,11 @@ void VideoPanel::OnHideCursorTimer(wxTimerEvent &) {
 
 VideoPanel::~VideoPanel() {
   try {
+    if (m_isRecording && m_playerController) {
+      m_playerController->StopRecording();
+    }
+    m_recordStatusTimer.Stop();
+    
     m_pendingTempPlay = false;
     m_pendingTempIndex = -1;
 
@@ -762,6 +798,13 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     }
   }
 
+  if (m_isRecording &&
+      (st == PlayerState::Stopped || st == PlayerState::Error)) {
+    if (m_playerController) {
+      m_playerController->StopRecording();
+    }
+  }
+
   // ---- Обновляем UI кнопок ----
   UpdateUiButtons();
 }
@@ -850,6 +893,8 @@ void VideoPanel::UpdateUiButtons() {
       frame->SetStatusText("", 1);
     }
   }
+
+  UpdateRecordButtonState();
 }
 
 void VideoPanel::SetTabActive(bool active) {
@@ -983,4 +1028,177 @@ bool VideoPanel::CompareNamesWithNumbers(const wxString &a, const wxString &b) {
   if (hasA != hasB)
     return hasA; // числа идут перед текстом
   return a.CmpNoCase(b) < 0;
+}
+
+// ============================================================================
+// Record
+// ============================================================================
+
+bool VideoPanel::InitializeRecordDirectory() {
+  static const wxString SUBDIR = "iptvplayer/records";
+  wxString home = wxGetHomeDir();
+  if (home.IsEmpty()) {
+    LOG_ERROR("Could not get home directory");
+    return false;
+  }
+  m_recordDirectory = home + "/" + SUBDIR;
+  if (!wxDirExists(m_recordDirectory)) {
+    if (!wxMkdir(m_recordDirectory, 0777)) {
+      LOG_ERROR("Could not create record directory: %s", m_recordDirectory);
+      return false;
+    }
+  }
+  return true;
+}
+
+wxString VideoPanel::DetermineRecordExtension(const StreamInfo &info) const {
+  if (info.videoCodec.empty())
+    return ".mkv";
+
+  std::string codec = info.videoCodec;
+  std::transform(codec.begin(), codec.end(), codec.begin(), ::tolower);
+
+  // Для MPEG-2 / MPEG-4 используем .ts (Transport Stream)
+  if (codec.find("mpeg2") != std::string::npos ||
+      codec.find("mpeg4") != std::string::npos) {
+    return ".ts";
+  }
+
+  // fallback
+  return ".mkv";
+}
+
+wxString VideoPanel::GenerateRecordFilename() const {
+  std::string base = m_currentName;
+  if (base.empty())
+    base = "recording";
+
+  base = NormalizeFileNameForDisk(base, 128, Disk);
+  if (base.empty())
+    base = "recording";
+
+  wxDateTime now = wxDateTime::Now();
+  wxString timeStr = now.Format("%Y%m%d_%H%M%S");
+
+  wxString extension = DetermineRecordExtension(m_lastStreamInfoData);
+  return wxString::Format("record_%s_%s%s", timeStr, wxString::FromUTF8(base),
+                          extension);
+}
+
+void VideoPanel::OnRecord(wxCommandEvent &) {
+  if (!m_playerController)
+    return;
+
+  if (m_isRecording) {
+    m_playerController->StopRecording();
+    return;
+  }
+
+  PlayerState state = m_playerController->GetState();
+  if (state != PlayerState::Playing && state != PlayerState::Paused) {
+    wxMessageBox("Recording is only available during playback", "Error",
+                 wxOK | wxICON_WARNING);
+    return;
+  }
+
+  if (!InitializeRecordDirectory()) {
+    wxMessageBox("Could not initialize record directory", "Error",
+                 wxOK | wxICON_ERROR);
+    return;
+  }
+
+  wxString filename = GenerateRecordFilename();
+  if (filename.IsEmpty()) {
+    wxMessageBox("Could not generate filename", "Error", wxOK | wxICON_ERROR);
+    return;
+  }
+
+  wxString fullPath = m_recordDirectory + "/" + filename;
+  m_playerController->StartRecording(fullPath.ToUTF8().data());
+}
+
+void VideoPanel::OnRecordStateChanged(bool isRecording,
+                                      const std::string &filename,
+                                      const std::string &error) {
+  m_isRecording = isRecording;
+  UpdateRecordButtonState();
+
+  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+  if (!frame || !frame->GetStatusBar())
+    return;
+
+  if (!error.empty()) {
+    m_recordStatusTimer.Stop();
+    frame->SetStatusText("Record error: " + wxString::FromUTF8(error), 1);
+    return;
+  }
+
+  if (isRecording) {
+    m_recordStartTime = wxGetLocalTimeMillis();
+    m_recordStatusTimer.Start(1000, wxTIMER_CONTINUOUS);
+    wxString fname = wxString::FromUTF8(filename);
+    wxFileName fn(fname);
+    frame->GetStatusBar()->SetStatusText(
+        "🔴 Recording: " + fn.GetFullName() + " [00:00:00]", 1);
+  } else {
+    m_recordStatusTimer.Stop();
+    if (!m_lastStreamInfo.IsEmpty()) {
+      frame->GetStatusBar()->SetStatusText(m_lastStreamInfo, 1);
+    } else {
+      frame->GetStatusBar()->SetStatusText("", 1);
+    }
+  }
+}
+
+void VideoPanel::OnRecordStatusTimer(wxTimerEvent &) {
+  if (!m_isRecording) {
+    m_recordStatusTimer.Stop();
+    return;
+  }
+
+  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+  if (!frame || !frame->GetStatusBar())
+    return;
+
+  long elapsedMs = (wxGetLocalTimeMillis() - m_recordStartTime).GetLo();
+  int seconds = elapsedMs / 1000;
+  int hours = seconds / 3600;
+  int minutes = (seconds % 3600) / 60;
+  int secs = seconds % 60;
+  wxString duration = wxString::Format("%02d:%02d:%02d", hours, minutes, secs);
+
+  wxString current = frame->GetStatusBar()->GetStatusText(1);
+  if (current.StartsWith("🔴 Recording:")) {
+    wxString prefix = "🔴 Recording: ";
+    int pos = current.find(prefix);
+    if (pos != wxNOT_FOUND) {
+      wxString filenamePart = current.Mid(pos + prefix.Length());
+      int bracketPos = filenamePart.find('[');
+      if (bracketPos != wxNOT_FOUND) {
+        filenamePart = filenamePart.Mid(0, bracketPos).Trim();
+      }
+      frame->GetStatusBar()->SetStatusText(
+          wxString::Format("🔴 Recording: %s [%s]", filenamePart, duration), 1);
+    }
+  }
+}
+
+void VideoPanel::UpdateRecordButtonState() {
+  if (!m_btnRecord)
+    return;
+
+  if (m_isRecording) {
+    m_btnRecord->SetLabel("■ Stop");
+    m_btnRecord->SetBackgroundColour(wxColour(200, 50, 50));
+    m_btnRecord->SetForegroundColour(*wxWHITE);
+    m_btnRecord->Enable(true);
+  } else {
+    m_btnRecord->SetLabel("Rec");
+    m_btnRecord->SetBackgroundColour(wxNullColour);
+    m_btnRecord->SetForegroundColour(wxNullColour);
+    bool canRecord = (m_tempState == TempPlayState::Playing ||
+                      m_tempState == TempPlayState::Paused);
+    m_btnRecord->Enable(canRecord);
+  }
+  m_btnRecord->Refresh();
 }

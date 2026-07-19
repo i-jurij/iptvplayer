@@ -94,6 +94,12 @@ public:
   int GetCurrentSubtitleTrack() const;
   void SetSubtitleTrack(int trackId);
 
+  // --- Запись ---
+  void SetRecordStateCallback(IPlayerBackend::RecordStateCallback cb);
+  void StartRecording(const std::string &filename);
+  void StopRecording();
+  bool IsRecording() const;
+
 private:
   // Debounce / reconciliation
   wxTimer m_reconcileTimer; // инициализируется в конструкторе

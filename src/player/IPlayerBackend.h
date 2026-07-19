@@ -26,6 +26,11 @@ public:
   using StreamInfoCallback = std::function<void(const StreamInfo &)>;
   using ProgressCallback = std::function<void(const ProgressInfo &)>;
   using StateCallback = std::function<void(int)>;
+
+  // --- Новый колбэк для состояния записи ---
+  using RecordStateCallback = std::function<void(
+      bool isRecording, const std::string &filename, const std::string &error)>;
+
   virtual void SetStreamInfoCallback(StreamInfoCallback cb) = 0;
   virtual void SetProgressCallback(ProgressCallback cb) = 0;
   virtual void SetStateCallback(StateCallback cb) = 0;
@@ -70,10 +75,12 @@ public:
   virtual void SetVideoRotate(int degrees) = 0;
   virtual void SetAudioDelay(double delay) = 0;
   virtual double GetAudioDelay() const = 0;
+
   // Audio tracks
   virtual std::vector<std::pair<int, wxString>> GetAudioTracks() const = 0;
   virtual int GetCurrentAudioTrack() const = 0;
   virtual void SetAudioTrack(int trackId) = 0;
+
   // Subtitle tracks
   virtual std::vector<std::pair<int, wxString>> GetSubtitleTracks() const = 0;
   virtual int GetCurrentSubtitleTrack() const = 0;
@@ -83,4 +90,10 @@ public:
   virtual void AdjustAudioDelay(double delta) = 0;
   virtual void ToggleVideoMirror() = 0;
   virtual void ResetVideoFilters() = 0;
+
+  // --- методы для записи ---
+  virtual void SetRecordStateCallback(RecordStateCallback cb) = 0;
+  virtual void StartRecording(const std::string &filename) = 0;
+  virtual void StopRecording() = 0;
+  virtual bool IsRecording() const = 0;
 };

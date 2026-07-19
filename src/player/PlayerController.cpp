@@ -380,3 +380,27 @@ void PlayerController::SetSubtitleTrack(int trackId) {
   if (m_backend)
     m_backend->SetSubtitleTrack(trackId);
 }
+
+// ============================================================================
+// Record
+// ============================================================================
+
+void PlayerController::SetRecordStateCallback(
+    IPlayerBackend::RecordStateCallback cb) {
+  if (m_backend)
+    m_backend->SetRecordStateCallback(std::move(cb));
+}
+
+void PlayerController::StartRecording(const std::string &filename) {
+  if (m_backend)
+    m_backend->StartRecording(filename);
+}
+
+void PlayerController::StopRecording() {
+  if (m_backend)
+    m_backend->StopRecording();
+}
+
+bool PlayerController::IsRecording() const {
+  return m_backend ? m_backend->IsRecording() : false;
+}

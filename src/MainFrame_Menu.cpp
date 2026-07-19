@@ -268,6 +268,42 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
 
   menu.AppendSubMenu(audioMenu, "Audio");
 
+  // ---- Submenu "Record" ----
+  wxMenu *recordMenu = new wxMenu;
+
+  int idRecSetDir = NewMenuId();
+  recordMenu->Append(idRecSetDir, "Set Record Directory…");
+  recordMenu->Bind(
+      wxEVT_MENU,
+      [this](wxCommandEvent &) {
+        if (!m_videoPanel)
+          return;
+        wxDirDialog dlg(this, "Choose record directory",
+                        m_videoPanel->GetRecordDirectory(),
+                        wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+        if (dlg.ShowModal() == wxID_OK) {
+          m_videoPanel->SetRecordDirectory(dlg.GetPath());
+          auto *cfg = getConfigManager();
+          if (cfg)
+            cfg->setSetting("record_directory", dlg.GetPath().ToUTF8().data());
+        }
+      },
+      idRecSetDir);
+
+  int idRecOpenFolder = NewMenuId();
+  recordMenu->Append(idRecOpenFolder, "Open Recordings Folder");
+  recordMenu->Bind(
+      wxEVT_MENU,
+      [this](wxCommandEvent &) {
+        if (m_videoPanel) {
+          wxString dir = m_videoPanel->GetRecordDirectory();
+          if (wxDirExists(dir))
+            wxLaunchDefaultApplication(dir);
+        }
+      },
+      idRecOpenFolder);
+  menu.AppendSubMenu(recordMenu, "Record");
+
   // ---- Submenu "Subtitles" ----
   wxMenu *subMenu = new wxMenu;
   {
