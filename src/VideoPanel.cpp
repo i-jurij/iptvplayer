@@ -1035,19 +1035,52 @@ bool VideoPanel::CompareNamesWithNumbers(const wxString &a, const wxString &b) {
 // ============================================================================
 
 bool VideoPanel::InitializeRecordDirectory() {
-  static const wxString SUBDIR = "iptvplayer/records";
+  // 1. Если каталог уже задан и существует — используем его
+  if (!m_recordDirectory.IsEmpty()) {
+    wxFileName dir(m_recordDirectory);
+    if (dir.DirExists()) {
+      LOG_DEBUG("Using existing record directory: %s",
+                m_recordDirectory.ToUTF8().data());
+      return true;
+    }
+    // Если не существует — пытаемся создать
+    if (wxMkdir(m_recordDirectory, 0777)) {
+      LOG_DEBUG("Created record directory: %s",
+                m_recordDirectory.ToUTF8().data());
+      return true;
+    }
+    // Не удалось создать — сбрасываем и будем создавать по умолчанию
+    LOG_WARN(
+        "Could not create record directory '%s', falling back to default",
+        m_recordDirectory.ToUTF8().data());
+    m_recordDirectory.Clear();
+  }
+
+  // 2. Определяем каталог по умолчанию
   wxString home = wxGetHomeDir();
   if (home.IsEmpty()) {
     LOG_ERROR("Could not get home directory");
     return false;
   }
-  m_recordDirectory = home + "/" + SUBDIR;
+  m_recordDirectory = home + "/iptvplayer/records";
+
+  // 3. Создаём каталог
   if (!wxDirExists(m_recordDirectory)) {
     if (!wxMkdir(m_recordDirectory, 0777)) {
-      LOG_ERROR("Could not create record directory: %s", m_recordDirectory);
+      LOG_ERROR("Could not create default record directory: %s",
+                m_recordDirectory.ToUTF8().data());
       return false;
     }
   }
+
+  // 4. Сохраняем в конфиг
+  Application *app = dynamic_cast<Application *>(wxTheApp);
+  if (app && app->getConfigManager()) {
+    app->getConfigManager()->setSetting("record_directory",
+                                        m_recordDirectory.ToUTF8().data());
+  }
+
+  LOG_DEBUG("Record directory set to: %s", m_recordDirectory.ToUTF8().data());
   return true;
 }
 

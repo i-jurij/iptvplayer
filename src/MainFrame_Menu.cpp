@@ -280,7 +280,7 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
           return;
         wxDirDialog dlg(this, "Choose record directory",
                         m_videoPanel->GetRecordDirectory(),
-                        wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+                        wxDD_DEFAULT_STYLE);
         if (dlg.ShowModal() == wxID_OK) {
           m_videoPanel->SetRecordDirectory(dlg.GetPath());
           auto *cfg = getConfigManager();
