@@ -43,9 +43,10 @@ public:
     // Добавление плейлистов
     ErrorCode addPlaylistFromFile(const std::wstring& filePathW,
                                   const std::wstring& titleW);
-    ErrorCode addPlaylistFromUrl(const std::string& url,
-                                 std::string& title,
-                                 const std::string& userAgent);
+    ErrorCode addPlaylistFromUrl(const std::string &url, std::string &title,
+                                 const std::string &userAgent);
+    ErrorCode downloadUrl(const std::string &url, std::string &content,
+                          const std::string &userAgent);
 
     std::string derivePlaylistTitleFromFile(const std::string& path) const;
     std::string derivePlaylistTitleFromUrl(const std::string& url) const;
@@ -100,9 +101,7 @@ private:
 
     ErrorCode loadPlaylistContent(Playlist* playlist);
     bool readFile(const std::string& path, std::string& outContent);
-    ErrorCode downloadUrl(const std::string& url,
-                          std::string& content,
-                          const std::string& userAgent);
+
     std::string copyIntoConfigFolder(const std::string& srcPath);
     bool atomicWrite(const std::string& path, const std::string& data) const;
 

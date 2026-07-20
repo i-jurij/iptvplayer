@@ -105,6 +105,8 @@ public:
   void ShowMainMenu(const wxPoint &pos = wxDefaultPosition);
 
 private:
+  void onAddIPTVPlaylist(wxCommandEvent &event);
+  
   wxButton *m_menuButton = nullptr;
 
   void OnGlobalCharHook(wxKeyEvent &evt);

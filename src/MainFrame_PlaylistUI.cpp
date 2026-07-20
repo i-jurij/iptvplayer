@@ -115,15 +115,20 @@ void MainFrame::createPlaylistPanel() {
 wxSizer *MainFrame::createPlaylistTopButtons() {
   auto *topBtnSizer = new wxBoxSizer(wxHORIZONTAL);
 
+  auto *addIptvBtn = new wxButton(m_playlistPanel, ID_ADD_IPTV_PLAYLIST,
+                                  "Add from IPTV-Org...");
+  topBtnSizer->Add(addIptvBtn, 0, wxRIGHT, 5);
+
   auto *addFileBtn =
       new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_FILE, "Add from File...");
+  topBtnSizer->Add(addFileBtn, 0, wxRIGHT, 5);
+
   auto *addUrlBtn =
       new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_URL, "Add from URL...");
+  topBtnSizer->Add(addUrlBtn, 0, wxRIGHT, 5);
+
   m_updateAllBtn =
       new wxButton(m_playlistPanel, ID_UPDATE_ALL_PLAYLISTS, "Update All");
-
-  topBtnSizer->Add(addFileBtn, 0, wxRIGHT, 5);
-  topBtnSizer->Add(addUrlBtn, 0, wxRIGHT, 5);
   topBtnSizer->Add(m_updateAllBtn, 0);
 
   auto *vbox = new wxBoxSizer(wxVERTICAL);

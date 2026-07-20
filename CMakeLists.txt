@@ -127,6 +127,8 @@ set(SOURCES
     src/IconManager.cpp
     src/IconManager_Utils.cpp
     src/BackendFactory.cpp
+    src/iptvorg/IPTVOrgMetadataManager.cpp
+    src/iptvorg/AddIPTVPlaylistDialog.cpp
 )
 
 # ------------------------

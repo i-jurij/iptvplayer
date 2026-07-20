@@ -9,6 +9,7 @@
 #include "UpdateAllThread.h"
 #include "UpdateOneThread.h"
 #include "Utils.h"
+#include "iptvorg/AddIPTVPlaylistDialog.h"
 
 #include <wx/app.h>
 #include <wx/event.h>
@@ -770,4 +771,30 @@ void MainFrame::onPlDelKeyDown(wxKeyEvent &event) {
     }
   }
   event.Skip();
+}
+
+void MainFrame::onAddIPTVPlaylist(wxCommandEvent &WXUNUSED(event)) {
+  if (!validateApplication() || !validatePlaylistManager())
+    return;
+
+  AddIPTVPlaylistDialog dlg(this, getPlaylistManager());
+  if (dlg.ShowModal() != wxID_OK)
+    return;
+
+  wxString url = dlg.GetSelectedUrl();
+  wxString title = dlg.GetSelectedTitle();
+
+  auto *mgr = getPlaylistManager();
+  std::string titleStr = title.ToStdString();
+  // Передаём пустой userAgent (третий аргумент)
+  ErrorCode ec = mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
+  if (ec == ErrorCode::OK) {
+    savePlaylistsToConfig();
+    RefreshPlaylistView();
+    SetStatusText(wxString::Format("Playlist added: %s", title), 0);
+    wxLogInfo("Playlist added from IPTV-Org: %s", title);
+  } else {
+    showError(this, "Failed to add playlist:\n" +
+                        wxString::FromUTF8(mgr->getLastError()));
+  }
 }

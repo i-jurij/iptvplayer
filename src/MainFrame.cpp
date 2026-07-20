@@ -257,6 +257,8 @@ MainFrame::MainFrame(Application* app)
       });
 
   Bind(wxEVT_CHAR_HOOK, &MainFrame::OnGlobalCharHook, this);
+
+  Bind(wxEVT_BUTTON, &MainFrame::onAddIPTVPlaylist, this, ID_ADD_IPTV_PLAYLIST);
 }
 
 void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {
