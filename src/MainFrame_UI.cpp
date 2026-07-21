@@ -607,7 +607,10 @@ void MainFrame::createMainPanel() {
 
   ToggleHeaderGroup(m_btnPlaylists);
 
-  CallAfter([this]() { RestoreLastOpenedPlaylist(); });
+  CallAfter([this]() {
+    RestoreLastOpenedPlaylist();
+    CheckAndSuggestPlaylist();
+  });
 
   LOG_DEBUG("MainFrame: pages indices: playlist=?, channels=%d, favorites=%d, "
             "video=%d",

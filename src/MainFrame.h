@@ -105,6 +105,10 @@ public:
   void ShowMainMenu(const wxPoint &pos = wxDefaultPosition);
 
 private:
+private:
+  void CheckAndSuggestPlaylist();
+  bool m_playlistSuggestionShown = false;
+
   void onAddIPTVPlaylist(wxCommandEvent &event);
   
   wxButton *m_menuButton = nullptr;

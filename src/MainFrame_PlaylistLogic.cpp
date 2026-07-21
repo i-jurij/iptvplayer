@@ -14,6 +14,7 @@
 #include "UpdateAllThread.h"
 #include "UpdateOneThread.h"
 #include "Utils.h"
+#include "iptvorg/AddIPTVPlaylistDialog.h"
 
 #include <wx/msgdlg.h>
 
@@ -465,4 +466,51 @@ void MainFrame::HandlePlaylistPageChanged(int sel) {
             playlistPage);
 
   CallAfter([this]() { HighlightLoadedPlaylistInList(); });
+}
+
+void MainFrame::CheckAndSuggestPlaylist() {
+  if (m_playlistSuggestionShown)
+    return;
+  
+  m_playlistSuggestionShown = true;
+
+  auto *mgr = getPlaylistManager();
+  if (!mgr)
+    return;
+
+  // Проверяем, есть ли плейлисты
+  if (!mgr->getPlaylists().empty())
+    return;
+
+  // Проверяем, не закрывается ли приложение
+  if (m_closing || IsBeingDeleted())
+    return;
+
+  // Показываем вопрос
+  wxMessageDialog dlg(this,
+                      "No playlists found.\n\n"
+                      "Would you like to add one from the IPTV-Org repository?",
+                      "Welcome to IPTV Player", wxYES_NO | wxICON_QUESTION);
+  dlg.SetYesNoLabels("Yes, add playlist", "No, I'll add later");
+
+  if (dlg.ShowModal() != wxID_YES)
+    return;
+
+  // Открываем диалог добавления плейлиста
+  AddIPTVPlaylistDialog addDlg(this, mgr);
+  if (addDlg.ShowModal() == wxID_OK) {
+    wxString url = addDlg.GetSelectedUrl();
+    wxString title = addDlg.GetSelectedTitle();
+
+    std::string titleStr = title.ToStdString();
+    ErrorCode ec = mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
+    if (ec == ErrorCode::OK) {
+      savePlaylistsToConfig();
+      RefreshPlaylistView();
+      SetStatusText(wxString::Format("Playlist added: %s", title), 0);
+    } else {
+      showError(this, "Failed to add playlist:\n" +
+                          wxString::FromUTF8(mgr->getLastError()));
+    }
+  }
 }
