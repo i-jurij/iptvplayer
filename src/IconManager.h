@@ -76,6 +76,9 @@ public:
 
 private:
   IconManager() = delete;
+
+  static void WorkerLoop();
+  
   // pause control for worker queue
   static std::atomic<bool> paused;
 

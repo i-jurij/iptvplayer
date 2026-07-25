@@ -15,11 +15,15 @@
 #include <wx/mstream.h> // wxMemoryInputStream, wxMemoryOutputStream
 #include <wx/stdpaths.h>
 
+#include <algorithm> // std::max, std::min
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <utility>
+#include <vector>
 
 static constexpr size_t SOFT_LIMIT_BYTES = 1 * 1024 * 1024; // 1 MB
 static constexpr size_t HARD_LIMIT_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -48,115 +52,59 @@ struct TaskCmp {
   }
 };
 
-std::priority_queue<Task, std::vector<Task>, TaskCmp> taskQueue;
+struct IconTask {
+  std::function<void()> fn;
+};
 
-// Ограничение параллелизма (адаптивное)
-std::atomic<int> maxWorkers = 4;
-std::atomic<int> activeWorkers = 0;
+std::queue<IconTask> taskQueue;
+std::vector<std::thread> s_workers;
+std::atomic<bool> s_stopWorkers{false};
+std::once_flag s_initFlag;
 } // namespace
 
-// ============================================================================
-//  EnqueueTask — кладёт задачу в очередь
-// ============================================================================
-std::atomic<bool> IconManager::queueStarted{false};
-
 void IconManager::EnqueueTask(std::function<void()> fn) {
-  // PROFILE_SCOPE("IconManager::EnqueueTask");
   if (shuttingDown.load())
     return;
 
+  std::call_once(s_initFlag, []() {
+    unsigned hc = std::thread::hardware_concurrency();
+    size_t numThreads =
+        (hc == 0 ? 2u : std::max<unsigned>(2, std::min<unsigned>(hc, 8)));
+    s_workers.reserve(numThreads);
+    LOG_DEBUG("IconManager: starting thread pool with %zu workers", numThreads);
+    for (size_t i = 0; i < numThreads; ++i) {
+      try {
+        s_workers.emplace_back(IconManager::WorkerLoop);
+      } catch (const std::exception &e) {
+        LOG_ERROR("IconManager: failed to create worker thread %zu: %s", i,
+                  e.what());
+      } catch (...) {
+        LOG_ERROR("IconManager: unknown error creating worker thread %zu", i);
+      }
+    }
+  });
+
   {
     std::lock_guard<std::mutex> lock(qMutex);
-    taskQueue.push({2, std::move(fn)});
-    // LOG_DEBUG("IconManager::EnqueueTask pushed task queue_size=%zu",
-    //         taskQueue.size());
+    taskQueue.push(IconTask{std::move(fn)});
   }
-
   qCV.notify_one();
-
-  bool expected = false;
-  if (queueStarted.compare_exchange_strong(expected, true)) {
-    // LOG_DEBUG("IconManager::EnqueueTask starting ProcessQueue thread");
-    std::thread([]() { ProcessQueue(); }).detach();
-  }
-}
-
-// ============================================================================
-//  ProcessQueue — главный worker-loop
-// ============================================================================
-void IconManager::ProcessQueue() {
-  // PROFILE_SCOPE("IconManager::ProcessQueue");
-  while (!shuttingDown.load()) {
-
-    std::function<void()> job;
-
-    {
-      std::unique_lock<std::mutex> lock(qMutex);
-
-      // Wait until there is work AND not paused, or shutting down.
-      qCV.wait(lock, [&] {
-        return shuttingDown.load() ||
-               (!paused.load(std::memory_order_relaxed) && !taskQueue.empty());
-      });
-
-      if (shuttingDown.load())
-        return;
-
-      // If paused, loop back to wait.
-      if (paused.load(std::memory_order_relaxed))
-        continue;
-
-      if (activeWorkers.load() >= maxWorkers.load()) {
-        // LOG_DEBUG("IconManager::ProcessQueue waiting active=%u max=%u",
-        //         activeWorkers.load(), maxWorkers.load());
-        continue;
-      }
-
-      if (taskQueue.empty())
-        continue;
-
-      job = taskQueue.top().fn;
-      taskQueue.pop();
-      activeWorkers++;
-      // LOG_DEBUG("IconManager::ProcessQueue dispatch job active=%u max=%u "
-      //         "queue_size=%zu",
-      //       activeWorkers.load(), maxWorkers.load(), taskQueue.size());
-    }
-
-    std::thread([job]() {
-      try {
-        job();
-      } catch (...) {
-      }
-
-      activeWorkers--;
-
-      // LOG_DEBUG("IconManager::worker finished active=%u",
-      // activeWorkers.load());
-
-      if (activeWorkers.load() < maxWorkers.load() && maxWorkers.load() < 16)
-        maxWorkers++;
-
-      {
-        std::lock_guard<std::mutex> lock(qMutex);
-        if (taskQueue.size() > 50 && maxWorkers.load() < 16)
-          maxWorkers++;
-      }
-
-      if (taskQueue.empty() && maxWorkers.load() > 2)
-        maxWorkers--;
-
-      qCV.notify_one();
-    }).detach();
-  }
 }
 
 // ============================================================================
 //  Shutdown — останавливает очередь и worker-потоки
 // ============================================================================
 void IconManager::Shutdown() {
+  LOG_DEBUG("IconManager::Shutdown: stopping thread pool");
   shuttingDown.store(true);
+  s_stopWorkers.store(true);
   qCV.notify_all();
+  for (auto &t : s_workers) {
+    if (t.joinable())
+      t.join();
+  }
+  s_workers.clear();
+  LOG_DEBUG("IconManager::Shutdown: thread pool stopped");
 }
 
 // ============================================================================
@@ -707,10 +655,45 @@ bool IconManager::IsPausedLoaded() {
 }
 
 void IconManager::ClearMemory() {
-  {
-    std::lock_guard<std::mutex> lock(qMutex);
-    while (!taskQueue.empty())
+    LOG_DEBUG("IconManager::ClearMemory: clearing task queue");
+    {
+        std::lock_guard<std::mutex> lock(qMutex);
+        while (!taskQueue.empty()) taskQueue.pop();
+    }
+    qCV.notify_all();
+}
+
+void IconManager::WorkerLoop() {
+  while (true) {
+    IconTask job;
+    {
+      std::unique_lock<std::mutex> lock(qMutex);
+
+      // Ждём: есть задачи И не пауза И не остановка
+      qCV.wait(lock, [] {
+        return s_stopWorkers.load() || shuttingDown.load() ||
+               (!paused.load() && !taskQueue.empty());
+      });
+
+      // Если остановка и очередь пуста — выходим
+      if ((s_stopWorkers.load() || shuttingDown.load()) && taskQueue.empty()) {
+        break;
+      }
+
+      // Если очередь пуста (spurious wakeup) — продолжаем цикл
+      if (taskQueue.empty()) {
+        continue;
+      }
+
+      job = std::move(taskQueue.front());
       taskQueue.pop();
+    }
+
+    try {
+      if (job.fn)
+        job.fn();
+    } catch (...) {
+      // Игнорируем ошибки в задачах
+    }
   }
-  qCV.notify_all();
 }
