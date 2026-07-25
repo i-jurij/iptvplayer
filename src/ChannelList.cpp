@@ -5,6 +5,8 @@
 #include "Profiler.h"
 #include "Utils.h"
 
+#include <wx/clipbrd.h>
+
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -12,6 +14,7 @@
 ChannelList::ChannelList(wxWindow *parent, wxWindowID id)
     : BaseChannelList(parent, id) {
   Bind(wxEVT_KEY_DOWN, &ChannelList::OnKeyDown, this);
+  Bind(wxEVT_DATAVIEW_ITEM_CONTEXT_MENU, &ChannelList::OnContextMenu, this);
 }
 
 ChannelList::~ChannelList() {
@@ -400,3 +403,93 @@ void ChannelList::OnKeyDown(wxKeyEvent &evt) {
     return;
   }
 }
+
+void ChannelList::OnContextMenu(wxDataViewEvent &evt) {
+  wxDataViewItem item = evt.GetItem();
+  if (!item.IsOk()) {
+    evt.Skip();
+    return;
+  }
+
+  int row = m_model->GetRow(item);
+  if (row < 0 || row >= (int)m_model->GetCount()) {
+    evt.Skip();
+    return;
+  }
+
+  // Выделяем строку, по которой был клик
+  UnselectAll();
+  Select(item);
+  SetCurrentItem(item);
+
+  const Channel &ch = m_model->GetChannel(row);
+  ShowContextMenu(ch);
+}
+
+void ChannelList::ShowContextMenu(const Channel &ch) {
+  wxMenu menu;
+
+  int idProgramGuide = wxNewId();
+  int idCopyUrl = wxNewId();
+  int idCopyName = wxNewId();
+  int idRemove = wxNewId();
+
+  menu.Append(idProgramGuide, "Program Guide");
+  menu.Append(idCopyUrl, "Copy URL");
+  menu.Append(idCopyName, "Copy Name");
+  menu.Append(idRemove, "Remove from playlist");
+
+  // Привязываем обработчики
+  menu.Bind(
+      wxEVT_MENU,
+      [this, ch](wxCommandEvent &) {
+        MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+        if (mf) {
+          mf->SwitchToEpgTab(ch.getTvgId(), ch.getName());
+        } else {
+          LOG_DEBUG("ShowContextMenu: MainFrame not found for Program Guide");
+        }
+      },
+      idProgramGuide);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [ ch](wxCommandEvent &) {
+        if (wxTheClipboard->Open()) {
+          wxTheClipboard->SetData(
+              new wxTextDataObject(wxString::FromUTF8(ch.getUrl())));
+          wxTheClipboard->Close();
+        } else {
+          LOG_DEBUG("ShowContextMenu: Failed to open clipboard for URL");
+        }
+      },
+      idCopyUrl);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [ ch](wxCommandEvent &) {
+        if (wxTheClipboard->Open()) {
+          wxTheClipboard->SetData(
+              new wxTextDataObject(wxString::FromUTF8(ch.getName())));
+          wxTheClipboard->Close();
+        } else {
+          LOG_DEBUG("ShowContextMenu: Failed to open clipboard for Name");
+        }
+      },
+      idCopyName);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [this, ch](wxCommandEvent &) {
+        MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+        if (mf) {
+          mf->RemoveChannelFromPlaylist(ch);
+        } else {
+          LOG_DEBUG("ShowContextMenu: MainFrame not found for Remove");
+        }
+      },
+      idRemove);
+
+  this->PopupMenu(&menu);
+}
+

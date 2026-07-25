@@ -1,9 +1,11 @@
 #include "ChannelDataModel.h"
+#include "Application.h"
 #include "LogControl.h"
 #include "LogoCache.h"
 #include "MainFrame.h"
 #include "Profiler.h"
 #include "Utils.h"
+#include "epg/EPGManager.h"
 
 #include <algorithm>
 #include <atomic>
@@ -58,7 +60,7 @@ ChannelDataModel::ChannelDataModel()
     : wxDataViewVirtualListModel(0), m_sortColumn(-1), m_sortAscending(true),
       m_disableSorting(false), m_lastDpi(0) {}
 
-unsigned int ChannelDataModel::GetColumnCount() const { return 7; }
+unsigned int ChannelDataModel::GetColumnCount() const { return 8; }
 
 wxString ChannelDataModel::GetColumnType(unsigned int /*col*/) const {
   return "string";
@@ -71,71 +73,93 @@ void ChannelDataModel::GetValueByRow(wxVariant &variant, unsigned int row,
   const Channel &ch = m_channels[row];
 
   switch (col) {
+    case 0:
+      variant = wxString::Format("%u", row + 1);
+      break;
 
-  case 0:
-    variant = wxString::Format("%u", row + 1);
-    break;
-
-  case 1: {
-    bool logosEnabled = true;
-    if (wxTheApp && wxTheApp->GetTopWindow()) {
-      if (auto *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow())) {
-        logosEnabled = mf->AreLogosEnabled();
+    case 1: {
+      bool logosEnabled = true;
+      if (wxTheApp && wxTheApp->GetTopWindow()) {
+        if (auto *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow())) {
+          logosEnabled = mf->AreLogosEnabled();
+        }
       }
-    }
 
-    if (!logosEnabled) {
-      variant = wxString();
+      if (!logosEnabled) {
+        variant = wxString();
+        break;
+      }
+
+      int size = m_logoSize > 0 ? m_logoSize : GetDpiLogoSizeList(nullptr);
+      int dpi = m_lastDpi > 0 ? m_lastDpi : GetNormDPI(wxTheApp->GetTopWindow());
+      if (dpi <= 0)
+        dpi = 96;
+
+      const std::string pl = ch.getPlaylistName();
+      const std::string nm = ch.getName();
+
+      std::string key = MakeCacheKey(pl, nm, size, dpi);
+
+      // Сохраняем последний рассчитанный ключ для этой строки
+      m_rowKeyCache[row] = key;
+
+      // Попытка взять bitmap из кэша
+      auto bmpPtr = LogoCache::GetCachedBitmapPtr(key);
+
+      // 🔥 ВСЕГДА возвращаем composite-ключ
+      std::string composite = key + "||" + std::to_string(row);
+      variant = wxString::FromUTF8(composite);
+
+      // Если bitmap отсутствует — инициируем загрузку
+      if (!bmpPtr || !bmpPtr->IsOk()) {
+        const_cast<ChannelDataModel *>(this)->RequestLogoLoadIfMissing(row, true);
+      }
+
       break;
     }
 
-    int size = m_logoSize > 0 ? m_logoSize : GetDpiLogoSizeList(nullptr);
-    int dpi = m_lastDpi > 0 ? m_lastDpi : GetNormDPI(wxTheApp->GetTopWindow());
-    if (dpi <= 0)
-      dpi = 96;
+    case 2:
+      variant = wxString::FromUTF8(ch.getName());
+      break;
 
-    const std::string pl = ch.getPlaylistName();
-    const std::string nm = ch.getName();
+    case 3:
+      variant = m_favorites[row] ? "1" : "0";
+      break;
 
-    std::string key = MakeCacheKey(pl, nm, size, dpi);
+    case 4:
+      variant = wxString::FromUTF8(ch.getGroupTitle());
+      break;
 
-    // Сохраняем последний рассчитанный ключ для этой строки
-    m_rowKeyCache[row] = key;
+    case 5:
+      variant = wxString::FromUTF8(ch.getLanguage());
+      break;
 
-    // Попытка взять bitmap из кэша
-    auto bmpPtr = LogoCache::GetCachedBitmapPtr(key);
+    case 6:
+      variant = wxString::FromUTF8(ch.getCountry());
+      break;
 
-    // 🔥 ВСЕГДА возвращаем composite-ключ
-    std::string composite = key + "||" + std::to_string(row);
-    variant = wxString::FromUTF8(composite);
-
-    // Если bitmap отсутствует — инициируем загрузку
-    if (!bmpPtr || !bmpPtr->IsOk()) {
-      const_cast<ChannelDataModel *>(this)->RequestLogoLoadIfMissing(row, true);
+    case 7: {
+      // Получаем текущую программу для канала
+      wxString prog;
+      Application *app = static_cast<Application *>(wxTheApp);
+      if (app) {
+        EPGManager *epg = app->GetEPGManager();
+        if (epg && epg->IsLoaded()) {
+          std::string tvgId = ch.getTvgId();
+          if (!tvgId.empty()) {
+            EpgProgram current = epg->GetCurrentProgram(tvgId);
+            if (!current.title.empty()) {
+              prog = wxString::FromUTF8(current.title);
+            }
+          }
+        }
+      }
+      if (prog.IsEmpty()) {
+        prog = "--";
+      }
+      variant = prog;
+      break;
     }
-
-    break;
-  }
-
-  case 2:
-    variant = wxString::FromUTF8(ch.getName());
-    break;
-
-  case 3:
-    variant = m_favorites[row] ? "1" : "0";
-    break;
-
-  case 4:
-    variant = wxString::FromUTF8(ch.getGroupTitle());
-    break;
-
-  case 5:
-    variant = wxString::FromUTF8(ch.getLanguage());
-    break;
-
-  case 6:
-    variant = wxString::FromUTF8(ch.getCountry());
-    break;
   }
 }
 
@@ -224,8 +248,8 @@ void ChannelDataModel::SafeUpdateRowByName(
     return;
   }
 
-  //LOG_DEBUG("SafeUpdateRowByName found playlist=%s name=%s row=%zu",
-    //        playlist.c_str(), name.c_str(), foundIndex);
+  // LOG_DEBUG("SafeUpdateRowByName found playlist=%s name=%s row=%zu",
+  //         playlist.c_str(), name.c_str(), foundIndex);
   RowChanged((unsigned)foundIndex);
 }
 
@@ -479,7 +503,8 @@ void ChannelDataModel::SetRowKey(unsigned int row, const std::string &key) {
   m_rowKeyCache[row] = key;
 }
 
-void ChannelDataModel::SetFavorites(const std::vector<std::pair<std::string, std::string>> &favs) {
+void ChannelDataModel::SetFavorites(
+    const std::vector<std::pair<std::string, std::string>> &favs) {
   // Сбрасываем
   for (size_t i = 0; i < m_channels.size(); ++i)
     m_favorites[i] = false;

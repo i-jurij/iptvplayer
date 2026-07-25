@@ -14,6 +14,10 @@ public:
   void SetSelectCallback(SelectCallback cb) { m_onSelect = std::move(cb); }
 
 protected:
+  int m_rightClickRow = -1;
+  void OnContextMenu(wxDataViewEvent &evt);
+  void ShowContextMenu(const Channel &ch);
+
   SelectCallback m_onSelect;
   void OnChannelActivated(const Channel &ch, int col) override;
   void OnFavoriteToggled(const Channel &ch, bool isFav) override;

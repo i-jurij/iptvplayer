@@ -1,205 +1,249 @@
-# iptvplayer — Build Instructions for Linux
+# IPTV Player — Build Instructions for Linux
 
-This project uses locally built dependencies:  
+This project uses locally built dependencies:
 
-- wxWidgets 3.3.2 (from the official source archive) with buitin libwebp  
+- wxWidgets 3.3.2 (from the official source archive) with builtin libwebp
+- libcurl, Expat, rapidjson
 
-The project root is assumed to be:  
+The project root is assumed to be:
 
-```text
-${PROJECT_ROOT}/iptvplayer  
-```
+    ${PROJECT_ROOT}/iptvplayer
 
 ## 1. Requirements
 
-Install required packages (example for Debian/Ubuntu):  
+Install required packages (example for Debian/Ubuntu):
 
-```sh
-sudo apt update  
-sudo apt install -y build-essential cmake pkg-config libcurl4-openssl-dev libgtk-3-dev  
-```
+    sudo apt update
+    sudo apt install -y build-essential cmake pkg-config libcurl4-openssl-dev libgtk-3-dev
 
-You need:  
+You need:
 
-- A C++20‑capable compiler  
-- CMake ≥ 3.20  
+- A C++20‑capable compiler
+- CMake ≥ 3.20
 
 ## 2. Installing wxWidgets 3.3.2 (local build)
 
 ### 2.1. Download wxWidgets 3.3.2
 
-Official archive:  
+Official archive:
 
-<https://github.com/wxWidgets/wxWidgets/releases/download/v3.3.2/wxWidgets-3.3.2.tar.bz2>  
+    https://github.com/wxWidgets/wxWidgets/releases/download/v3.3.2/wxWidgets-3.3.2.tar.bz2
 
-Assume it is saved as:  
+Assume it is saved as:
 
-~/Downloads/wxWidgets-3.3.2.tar.bz2  
+    ~/Downloads/wxWidgets-3.3.2.tar.bz2
 
 ### 2.2. Extract into third_party/wx
 
-```sh
-cd ${PROJECT_ROOT}/third_party  
-rm -rf wx  
-mkdir wx  
-cd wx  
-tar xf ~/Downloads/wxWidgets-3.3.2.tar.bz2 && echo "Extracted" || (echo "Extraction failed"; exit 1)  
-mv wxWidgets-3.3.2 src  
-mkdir build  
-mkdir install  
-cd build  
-```
+    cd ${PROJECT_ROOT}/third_party
+    rm -rf wx
+    mkdir wx
+    cd wx
+    tar xf ~/Downloads/wxWidgets-3.3.2.tar.bz2 && echo "Extracted" || (echo "Extraction failed"; exit 1)
+    mv wxWidgets-3.3.2 src
+    mkdir build
+    mkdir install
+    cd build
 
 ### 2.3. Configure wxWidgets
 
-```sh
-cmake ../src \  
-  -DCMAKE_BUILD_TYPE=Release \  
-  -DwxBUILD_SHARED=OFF \  
-  -DwxUSE_LIBWEBP=builtin \  
-  -DCMAKE_INSTALL_PREFIX=../install  
-```
+    cmake ../src \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DwxBUILD_SHARED=OFF \
+      -DwxUSE_LIBWEBP=builtin \
+      -DCMAKE_INSTALL_PREFIX=../install
 
 ### 2.4. Build and install
 
-Building wxWidgets requires ~2.5 GB of disk space and up to 10 minutes of time.  
+Building wxWidgets requires ~2.5 GB of disk space and up to 10 minutes of time.
 
-```sh
-cmake --build . --target install -j8  
-```
+    cmake --build . --target install -j8
 
-wxWidgets will be installed into:  
+wxWidgets will be installed into:
 
-```text
-${PROJECT_ROOT}/third_party/wx/install  
-```
+    ${PROJECT_ROOT}/third_party/wx/install
 
 ## 3. Building iptvplayer
 
 ### 3.1. Project configuration
 
-The provided CMakeLists.txt already contains:  
+The provided CMakeLists.txt already contains:
 
-- wxWidgets lookup in ${PROJECT_ROOT}/third_party/wx/install with linking against static libwebp  
+- wxWidgets lookup in ${PROJECT_ROOT}/third_party/wx/install with linking against static libwebp
 
 ### 3.2. Build
 
-```sh
-cd ${PROJECT_ROOT}  
-rm -rf build  
-mkdir build  
-cd build  
-cmake .. -DCMAKE_BUILD_TYPE=Debug  
-cmake --build . -j8  
-```
+    cd ${PROJECT_ROOT}
+    rm -rf build
+    mkdir build
+    cd build
+    cmake .. -DCMAKE_BUILD_TYPE=Debug
+    cmake --build . -j8
 
-The resulting binary will be:  
+The resulting binary will be:
 
-```text
-${PROJECT_ROOT}/build/iptvplayer  
-```
+    ${PROJECT_ROOT}/build/iptvplayer
 
 ## 4. Running
 
-```sh
-cd ${PROJECT_ROOT}/build  
-./iptvplayer
-```
+    cd ${PROJECT_ROOT}/build
+    ./iptvplayer
 
-## 5. For developers: IDE support  
+## 5. For developers: IDE support
 
-After the build, the 'compile_commands.json' file will be generated — it is needed for:  
+After the build, the `compile_commands.json` file will be generated — it is needed for:
 
-- VSCode (`C/C++` extension)  
-- CLion  
-- `clangd`, `ccls`  
-It is automatically created thanks to: `cmake set(CMAKE_EXPORT_COMPILE_COMMANDS ON)`
+- VSCode (`C/C++` extension)
+- CLion
+- `clangd`, `ccls`
+
+It is automatically created thanks to:
+
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 ## 6. Developer Automation Scripts
 
 To simplify setup and build process, the following helper scripts are provided:
 
-### 6.1. `setup-deps.sh` — Install Dependencies Automatically
+### 6.1. setup-deps.sh — Install Dependencies Automatically
 
-This script downloads and builds all required dependencies locally:  
+This script downloads and builds all required dependencies locally:
 
-- wxWidgets 3.3.2 (static build)  
+- wxWidgets 3.3.2 (static build)
 
 **Usage:**
 
-```bash
-./setup-deps.sh
-```
+    ./setup-deps.sh
 
-⚠️ Requires: cmake, wget or curl, make, gcc/g++, ninja (optional).  
+⚠️ Requires: cmake, wget or curl, make, gcc/g++, ninja (optional).
 
-The dependencies will be installed into:  
+The dependencies will be installed into:
 
-```text
-third_party/wx/install/
+    third_party/wx/install/
+
 These paths are already configured in CMakeLists.txt.
-```
 
 ### 6.2. build-release.sh — Build Release Version
 
-Builds the project in Release mode and installs it into install/ directory.  
+Builds the project in Release mode and installs it into `install/` directory.
 
 Usage:
 
-```Bash
-./build-release.sh
-```
+    ./build-release.sh
 
-To clean previous build:  
+To clean previous build:
 
-```Bash
-./build-release.sh clean
-```
+    ./build-release.sh clean
 
 After successful build, the portable app will be available at:
 
-```text
-install/bin/iptvplayer
-```
+    install/bin/iptvplayer
 
-✅ Includes icons and generates compile_commands.json for IDE support.
+✅ Includes icons and generates `compile_commands.json` for IDE support.
 
 ### 6.3. VSCode Development Support
 
-For best experience with VSCode, install these extensions:  
+For best experience with VSCode, install these extensions:
 
-clangd (recommended)  
-Or: C/C++ by Microsoft  
-Using clangd (Recommended)  
-Install clangd:  
+- **clangd** (recommended)
+- Or: **C/C++ by Microsoft**
 
-```Bash
-sudo apt install clangd-16  # Ubuntu/Debian
-```
+Using clangd (Recommended):
 
-Install the clangd extension in VSCode.  
-Open the project — it will automatically use compile_commands.json.  
+Install clangd:
 
-No extra configuration needed!  
+    sudo apt install clangd-16  # Ubuntu/Debian
 
-Using C/C++ Extension  
-If you prefer Microsoft's C/C++ extension, the file .vscode/c_cpp_properties.json is included and preconfigured.  
+Install the clangd extension in VSCode.
+Open the project — it will automatically use `compile_commands.json`.
+No extra configuration needed!
 
-🔁 The compile_commands.json file is copied to the project root after each build for easy access.  
+Using C/C++ Extension:
+
+If you prefer Microsoft's C/C++ extension, the file `.vscode/c_cpp_properties.json` is included and preconfigured.
+
+🔁 The `compile_commands.json` file is copied to the project root after each build for easy access.
 
 ## 7. Summary of Commands
 
-Task                    Command  
-Setup dependencies     ./setup-deps.sh  
-Build debug version     cmake -S . -B build && cmake --build build  
-Build release version   ./build-release.sh  
-Clean and rebuild       ./build-release.sh clean  
-Run app                 cd install/bin && ./iptvplayer  
+| Task                    | Command |
+| :---------------------- | :------ |
+| Setup dependencies      | `./setup-deps.sh` |
+| Build debug version     | `cmake -S . -B build && cmake --build build` |
+| Build release version   | `./build-release.sh` |
+| Clean and rebuild       | `./build-release.sh clean` |
+| Run app                 | `cd install/bin && ./iptvplayer` |
 
-You're now ready to develop and distribute iptvplayer!
+---
 
 ## App Settings
 
-Config file location: ~/.config/iptvplayer/config.json  
+Config file location: `~/.config/iptvplayer/config.json`
 
 The config file is created automatically on first run with default settings.
+
+## Directory structure
+
+All user data is stored in the user's home directory:
+
+| Path | Purpose |
+| :--- | :--- |
+| `~/.config/iptvplayer/config.json` | Main application settings |
+| `~/.config/iptvplayer/playlists/*.json` | Playlist metadata (JSON) |
+| `~/.config/iptvplayer/favorites.json` | List of favorite channels |
+| `~/.cache/iptvplayer/icons/` | Cached channel logos (disk) |
+| `~/.cache/iptvplayer/epg/` | Cached EPG data (JSON) |
+
+---
+
+## Features (for end users)
+
+- **Playlist management**: add local or remote M3U playlists; edit, update, remove.
+- **Channel view**: list or grid (cards), with sorting and search.
+- **Favorites**: mark channels as favorites, view separately.
+- **EPG (Electronic Program Guide)**:
+  - Configure multiple XMLTV sources in Settings → EPG.
+  - Auto‑update interval and cache expiration.
+  - View current program in channel list / tooltip.
+  - Dedicated **Program** tab with day navigation and program details.
+  - Quick jump to EPG from channel context menu.
+- **Video playback**: fullscreen, volume, mute, audio/subtitle tracks, speed control.
+- **Recording**: record current stream (method configurable) to a user‑defined directory.
+- **IPTV‑Org integration**: add playlists from the public IPTV‑Org repository, filtered by country, language, or category.
+
+## Keyboard shortcuts (quick reference)
+
+| Key | Action |
+| :--- | :--- |
+| `Space` | Play / Pause |
+| `Left` / `Right` | Seek backward / forward (5s) |
+| `Shift+Left/Right` | Seek backward / forward (30s) |
+| `Ctrl+Left/Right` | Seek backward / forward (1s) |
+| `Home` / `End` | Go to start / end |
+| `Up` / `Down` | Volume up / down (5 steps) |
+| `Ctrl+Up/Down` | Volume up / down (1 step) |
+| `m` / `M` | Toggle mute |
+| `[` / `]` | Decrease / increase playback speed (0.1) |
+| `{` / `}` | Decrease / increase playback speed (0.5) |
+| `Backspace` | Reset speed to 1.0 |
+| `+` / `_` | Next / previous audio track |
+| `v` / `V` | Toggle subtitles |
+| `j` / `J` | Next subtitle track |
+| `h` / `H` | Previous subtitle track |
+| `f` / `F` | Toggle fullscreen (on Video tab) |
+| `ESC` | Exit fullscreen |
+| `q` / `Q` | Stop playback |
+
+Full documentation is available in the **About** dialog.
+
+---
+
+## Additional notes
+
+- The application uses **wxWidgets 3.3.2**; ensure you have the correct version.
+- For Windows and macOS, the same directory structure applies but paths differ (e.g., `%APPDATA%\iptvplayer\`, `~/Library/Application Support/iptvplayer/`).
+- EPG sources are managed in Settings → EPG; add at least one source for the EPG features to work.
+
+---
+
+**You're now ready to develop, use, and distribute iptvplayer!**

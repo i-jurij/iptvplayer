@@ -42,9 +42,11 @@ wxBEGIN_EVENT_TABLE(CardsBase, wxScrolledWindow) EVT_PAINT(CardsBase::OnPaint)
         EVT_LEAVE_WINDOW(CardsBase::OnMouseLeave)
             EVT_LEFT_DOWN(CardsBase::OnMouseDown)
                 EVT_WINDOW_DESTROY(CardsBase::OnDestroy)
-                    EVT_KEY_DOWN(CardsBase::OnKeyDown) wxEND_EVENT_TABLE()
+                    EVT_KEY_DOWN(CardsBase::OnKeyDown)
+                        EVT_CONTEXT_MENU(CardsBase::OnContextMenu)
+    wxEND_EVENT_TABLE()
 
-                        CardsBase::CardsBase(wxWindow *parent)
+                                CardsBase::CardsBase(wxWindow *parent)
     : wxScrolledWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                        wxFULL_REPAINT_ON_RESIZE | wxVSCROLL),
       m_redrawTimer(this, wxID_HIGHEST + 1),

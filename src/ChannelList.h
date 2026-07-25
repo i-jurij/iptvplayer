@@ -30,6 +30,10 @@ protected:
   void OnKeyDown(wxKeyEvent &evt);
 
 private:
+  int m_rightClickRow = -1;
+  void OnContextMenu(wxDataViewEvent &evt);
+  void ShowContextMenu(const Channel &ch);
+
   std::atomic<size_t> m_prefetchRemaining{500};
 
   // Background prefetch worker

@@ -1,10 +1,12 @@
 #include "FavoritesList.h"
 #include "Application.h"
 #include "MainFrame.h"
+#include <wx/clipbrd.h>
 
 FavoritesList::FavoritesList(wxWindow *parent, wxWindowID id)
     : BaseChannelList(parent, id) {
   Bind(wxEVT_KEY_DOWN, &FavoritesList::OnKeyDown, this);
+  Bind(wxEVT_DATAVIEW_ITEM_CONTEXT_MENU, &FavoritesList::OnContextMenu, this);
 }
 
 void FavoritesList::loadChannels(const std::vector<Channel> &channels) {
@@ -105,4 +107,78 @@ void FavoritesList::OnKeyDown(wxKeyEvent &evt) {
     evt.Skip();
     return;
   }
+}
+
+void FavoritesList::OnContextMenu(wxDataViewEvent &evt) {
+  wxDataViewItem item = evt.GetItem();
+  if (!item.IsOk()) {
+    evt.Skip();
+    return;
+  }
+
+  int row = m_model->GetRow(item);
+  if (row < 0 || row >= (int)m_model->GetCount()) {
+    evt.Skip();
+    return;
+  }
+
+  // Выделяем строку, по которой был клик
+  UnselectAll();
+  Select(item);
+  SetCurrentItem(item);
+
+  const Channel &ch = m_model->GetChannel(row);
+  ShowContextMenu(ch);
+}
+
+void FavoritesList::ShowContextMenu(const Channel &ch) {
+  wxMenu menu;
+
+  int idProgramGuide = wxNewId();
+  int idCopyUrl = wxNewId();
+  int idCopyName = wxNewId();
+
+  menu.Append(idProgramGuide, "Program Guide");
+  menu.Append(idCopyUrl, "Copy URL");
+  menu.Append(idCopyName, "Copy Name");
+
+  menu.Bind(
+      wxEVT_MENU,
+      [this, ch](wxCommandEvent &) {
+        MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+        if (mf) {
+          mf->SwitchToEpgTab(ch.getTvgId(), ch.getName());
+        } else {
+          wxLogDebug("ShowContextMenu: MainFrame not found for Program Guide");
+        }
+      },
+      idProgramGuide);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [ ch](wxCommandEvent &) {
+        if (wxTheClipboard->Open()) {
+          wxTheClipboard->SetData(
+              new wxTextDataObject(wxString::FromUTF8(ch.getUrl())));
+          wxTheClipboard->Close();
+        } else {
+          wxLogDebug("ShowContextMenu: Failed to open clipboard for URL");
+        }
+      },
+      idCopyUrl);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [ ch](wxCommandEvent &) {
+        if (wxTheClipboard->Open()) {
+          wxTheClipboard->SetData(
+              new wxTextDataObject(wxString::FromUTF8(ch.getName())));
+          wxTheClipboard->Close();
+        } else {
+          wxLogDebug("ShowContextMenu: Failed to open clipboard for Name");
+        }
+      },
+      idCopyName);
+
+  this->PopupMenu(&menu);
 }

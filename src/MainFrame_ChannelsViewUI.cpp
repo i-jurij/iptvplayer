@@ -72,22 +72,36 @@ void MainFrame::createChannelsView() {
 }
 
 void MainFrame::HandleChannelPageChanged(int sel) {
-  if (sel != m_channelsPageIdx)
-    return;
+  if (sel == m_channelsPageIdx) {
+    // Возобновляем загрузку для активного представления каналов
+    if (m_channelViewBook) {
+      int activeView = m_channelViewBook->GetSelection();
+      if (activeView == 0 && m_channelList) {
+        m_channelList->ResumeLogoLoading();
+      } else if (activeView == 1 && m_channelCards) {
+        m_channelCards->ResumeLogoLoading();
+      }
+    }
 
-  LOG_DEBUG("HandleChannelPageChanged: sel=%d", sel);
+    LOG_DEBUG("HandleChannelPageChanged: sel=%d", sel);
 
-  if (m_channelViewBook->GetSelection() == 0 && m_channelList) {
-    // немедленная фокусировка безопасна
-    m_channelList->SetFocusFromKbd();
-    return;
-  }
-
-  if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
-    CallAfter([this]() {
-      if (m_channelCards)
-        m_channelCards->SetFocusIgnoringChildren();
-    });
+    // Существующая логика фокуса
+    if (m_channelViewBook->GetSelection() == 0 && m_channelList) {
+      m_channelList->SetFocusFromKbd();
+      return;
+    }
+    if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
+      CallAfter([this]() {
+        if (m_channelCards)
+          m_channelCards->SetFocusIgnoringChildren();
+      });
+    }
+  } else {
+    // Приостанавливаем загрузку для обоих представлений каналов
+    if (m_channelList)
+      m_channelList->PauseLogoLoading();
+    if (m_channelCards)
+      m_channelCards->PauseLogoLoading();
   }
 }
 

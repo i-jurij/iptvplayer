@@ -14,6 +14,7 @@
 #include <wx/artprov.h>
 #include <wx/aui/aui.h>
 #include <wx/button.h>
+#include <wx/clipbrd.h>
 #include <wx/dcclient.h>
 #include <wx/display.h>
 #include <wx/filedlg.h>
@@ -33,6 +34,7 @@
 wxDEFINE_EVENT(EVT_UPDATE_ALL_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_ONE_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_PROGRESS, wxCommandEvent);
+wxDEFINE_EVENT(EVT_EPG_UPDATED, wxCommandEvent);
 
 MainFrame::MainFrame(Application* app)
     : wxFrame(nullptr, wxID_ANY, "IPTV Player", wxDefaultPosition,
@@ -184,6 +186,7 @@ MainFrame::MainFrame(Application* app)
         HandleChannelPageChanged(sel);
         HandleFavPageChanged(sel);
         HandlePlaylistPageChanged(sel);
+        HandleEpgPageChanged(sel);
 
         m_notebook->Bind(
             wxEVT_AUINOTEBOOK_PAGE_CHANGED, [this](wxAuiNotebookEvent &evt) {
@@ -259,6 +262,12 @@ MainFrame::MainFrame(Application* app)
   Bind(wxEVT_CHAR_HOOK, &MainFrame::OnGlobalCharHook, this);
 
   Bind(wxEVT_BUTTON, &MainFrame::onAddIPTVPlaylist, this, ID_ADD_IPTV_PLAYLIST);
+
+  Bind(EVT_EPG_UPDATED, &MainFrame::OnEPGUpdated, this);
+
+  m_epgCoalesceTimer.SetOwner(this);
+  Bind(wxEVT_TIMER, &MainFrame::OnEpgCoalesceTimer, this,
+       m_epgCoalesceTimer.GetId());
 }
 
 void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {
@@ -353,3 +362,173 @@ MainFrame::~MainFrame() {
 void MainFrame::ApplyFullscreen(bool fs) {
   ShowFullScreen(fs, wxFULLSCREEN_ALL);
 }
+
+void MainFrame::HandleEpgPageChanged(int sel) {
+  if (sel != m_epgPageIdx)
+    return;
+  LOG_DEBUG("HandleEpgPageChanged: sel=%d", sel);
+}
+
+void MainFrame::OnEpgToggle(wxCommandEvent &) {
+  if (m_videoPanel)
+    m_videoPanel->SetTabActive(false);
+  ToggleHeaderGroup(m_btnEpg);
+  m_notebook->SetSelection(m_epgPageIdx);
+}
+
+void MainFrame::SwitchToEpgTab(const std::string &channelId,
+                               const std::string &channelName) {
+  if (!m_epgPanel)
+    return;
+  m_notebook->SetSelection(m_epgPageIdx);
+  m_epgPanel->SetCurrentChannel(channelId, channelName);
+  ToggleHeaderGroup(m_btnEpg);
+}
+
+void MainFrame::OnEPGUpdated(wxCommandEvent &event) {
+  int status = event.GetInt();
+  wxString error = event.GetString();
+  UpdateEPGStatus(status, error);
+
+  // Коалесцирование: запускаем таймер, если ещё не запущен
+  if (!m_epgUpdatePending) {
+    m_epgUpdatePending = true;
+    m_epgCoalesceTimer.StartOnce(1000); // 1000 мс задержка
+  }
+}
+
+void MainFrame::OnEpgCoalesceTimer(wxTimerEvent &) {
+  m_epgUpdatePending = false;
+
+  if (m_channelList) {
+    m_channelList->RefreshProgramColumn();
+  }
+  if (m_channelCards) {
+    m_channelCards->InvalidateAll();
+    m_channelCards->Refresh();
+  }
+  if (m_favList) {
+    m_favList->RefreshProgramColumn();
+  }
+  if (m_favCards) {
+    m_favCards->InvalidateAll();
+    m_favCards->Refresh();
+  }
+}
+
+void MainFrame::UpdateEPGStatus(int status, const wxString &error) {
+  wxString statusText;
+  switch (status) {
+  case EPG_STATUS_OK:
+    statusText = "EPG updated";
+    break;
+  case EPG_STATUS_LOADING:
+    statusText = "EPG loading...";
+    break;
+  case EPG_STATUS_ERROR:
+    statusText = "EPG error: " + error;
+    break;
+  case EPG_STATUS_NO_SOURCES:
+    statusText = "No EPG sources configured";
+    break;
+  default:
+    statusText = "EPG status unknown";
+  }
+  // Используем поле 1 статусбара (второе поле)
+  SetStatusText(statusText, 1);
+}
+
+void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
+  auto *mgr = getPlaylistManager();
+  if (!mgr) {
+    wxLogDebug("RemoveChannelFromPlaylist: PlaylistManager is null");
+    return;
+  }
+
+  std::string playlistName = ch.getPlaylistName();
+  if (playlistName.empty()) {
+    wxLogDebug("RemoveChannelFromPlaylist: channel has no playlist name");
+    return;
+  }
+
+  Playlist *playlist = mgr->findByTitle(playlistName);
+  if (!playlist) {
+    wxLogDebug("RemoveChannelFromPlaylist: playlist not found");
+    return;
+  }
+
+  wxMessageDialog dlg(
+      this,
+      wxString::Format("Remove channel '%s' from playlist '%s' permanently?",
+                       wxString::FromUTF8(ch.getName()),
+                       wxString::FromUTF8(playlistName)),
+      "Remove Channel", wxYES_NO | wxICON_QUESTION);
+  if (dlg.ShowModal() != wxID_YES)
+    return;
+
+  if (!playlist->removeChannel(ch)) {
+    wxLogDebug("RemoveChannelFromPlaylist: failed to remove channel");
+    return;
+  }
+
+  ErrorCode ec = mgr->savePlaylist(playlist);
+  if (ec != ErrorCode::OK) {
+    wxLogDebug("RemoveChannelFromPlaylist: failed to save playlist");
+    return;
+  }
+
+  // Удалить файлы логотипов с диска
+  std::string iconPath = IconManager::GetIconPath(playlistName, ch.getName());
+  std::string svgPath = IconManager::GetSvgPath(playlistName, ch.getName());
+  std::string markerPath = iconPath.substr(0, iconPath.size() - 5) + ".marker";
+
+  auto removeFile = [](const std::string &path) {
+    wxString wxPath = wxString::FromUTF8(path);
+    if (wxFileExists(wxPath)) {
+      if (!wxRemoveFile(wxPath)) {
+        wxLogDebug("RemoveChannelFromPlaylist: failed to remove file %s",
+                   path.c_str());
+      }
+    }
+  };
+
+  removeFile(iconPath); // webp
+  std::string pngPath = iconPath.substr(0, iconPath.size() - 5) + ".png";
+  removeFile(pngPath);
+  removeFile(svgPath);
+  removeFile(markerPath);
+
+  // Удалить из кэша памяти
+  LogoCache::DropMaster(playlistName, ch.getName());
+
+  // Удалить сопоставление с EPG
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (app && app->GetEPGManager()) {
+    app->GetEPGManager()->RemoveChannelMapping(ch.getTvgId());
+  }
+
+  // Удалить из избранного
+  if (app) {
+    app->getFavoritesManager().remove(ch.getName(), playlistName);
+  }
+
+  // Обновить UI
+  if (m_loadedPlaylistName == playlistName) {
+    auto it = std::find_if(
+        m_allChannels.begin(), m_allChannels.end(), [&](const Channel &c) {
+          return c.getName() == ch.getName() && c.getUrl() == ch.getUrl();
+        });
+    if (it != m_allChannels.end()) {
+      m_allChannels.erase(it);
+    }
+    ApplyFiltersAndSort(); // обновляем отображение каналов
+  } else {
+    RefreshPlaylistView(); // обновляем количество каналов в списке плейлистов
+  }
+  refreshFavorites();
+  SetStatusText(wxString::Format("Channel '%s' removed from playlist '%s'",
+                                 wxString::FromUTF8(ch.getName()),
+                                 wxString::FromUTF8(playlistName)),
+                0);
+}
+

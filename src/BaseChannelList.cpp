@@ -198,6 +198,22 @@ wxBEGIN_EVENT_TABLE(BaseChannelList, wxDataViewCtrl)
   m_pendingWatchdogTimer.Bind(wxEVT_TIMER, &BaseChannelList::OnPendingWatchdog,
                               this);
   m_pendingWatchdogTimer.Start(kPendingWatchdogIntervalMs, wxTIMER_CONTINUOUS);
+
+  m_epgUpdateTimer.SetOwner(this, wxID_HIGHEST + 4);
+  Bind(wxEVT_TIMER, &BaseChannelList::OnEpgUpdateTimer, this,
+       m_epgUpdateTimer.GetId());
+
+  Bind(EVT_EPG_UPDATED, [this](wxCommandEvent &evt) {
+    if (!m_epgUpdatePending) {
+      m_epgUpdatePending = true;
+      m_epgUpdateTimer.StartOnce(200); // 200 мс задержки
+    }
+    evt.Skip();
+  });
+
+  m_processQueueTimer.SetOwner(this, wxID_HIGHEST + 6);
+  Bind(wxEVT_TIMER, &BaseChannelList::OnProcessQueueTimer, this,
+       m_processQueueTimer.GetId());
 }
 
 BaseChannelList::~BaseChannelList() {
@@ -246,6 +262,9 @@ void BaseChannelList::InitColumns() {
 
   AppendTextColumn("Country", 6, wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT)
       ->SetSortable(true);
+
+  AppendTextColumn("Program", 7, wxDATAVIEW_CELL_INERT, 200, wxALIGN_LEFT)
+      ->SetSortable(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +435,7 @@ void BaseChannelList::OnShowEvent(wxShowEvent &evt) {
 }
 
 // ---------------------------------------------------------------------------
-// NEW: OnInternalIdle — главный механизм отслеживания скролла
+// OnInternalIdle — главный механизм отслеживания скролла
 // ---------------------------------------------------------------------------
 void BaseChannelList::OnInternalIdle() {
   wxDataViewCtrl::OnInternalIdle();
@@ -432,6 +451,7 @@ void BaseChannelList::OnInternalIdle() {
 
   if (newTop != m_lastTopRow) {
     HandleVisibleRangeChange();
+    m_lastTopRow = newTop;
   }
 }
 
@@ -554,6 +574,7 @@ void BaseChannelList::HandleVisibleRangeChange() {
 void BaseChannelList::EnqueueRowLoad(size_t row, bool highPriority) {
   if (m_closing.load())
     return;
+
   if (row >= (size_t)m_model->GetCount())
     return;
 
@@ -1095,4 +1116,42 @@ int BaseChannelList::GetAccurateTopRow() {
   }
 
   return std::max(0, fromScroll);
+}
+
+void BaseChannelList::RefreshProgramColumn() {
+  static int count = 0;
+  LOG_DEBUG("RefreshProgramColumn called %d", ++count);
+  
+  if (m_closing.load() || !m_model)
+    return;
+  // Если список не отображается, обновляем все (или ничего)
+  if (!IsShownOnScreen())
+    return;
+  RefreshProgramColumnVisible();
+}
+
+void BaseChannelList::RefreshProgramColumnVisible() {
+  if (m_closing.load() || !m_model)
+    return;
+  int top = GetTopVisibleRow();
+  int visible = GetCountPerPage();
+  if (top < 0 || visible <= 0)
+    return;
+  int end = std::min(top + visible, (int)m_model->GetCount());
+  for (int row = top; row < end; ++row) {
+    m_model->RowChanged(row);
+  }
+}
+
+void BaseChannelList::OnEpgUpdateTimer(wxTimerEvent &) {
+  m_epgUpdatePending = false;
+  RefreshProgramColumn();
+}
+
+void BaseChannelList::OnProcessQueueTimer(wxTimerEvent &) {
+  // Проверяем, есть ли работа (на случай, если очередь опустела за время задержки)
+  if (m_loadQueue.empty() && m_pendingLogoLoads.empty()) {
+    return;
+  }
+  processLoadQueue();
 }

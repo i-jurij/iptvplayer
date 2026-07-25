@@ -30,7 +30,7 @@ static wxGauge *makeGauge(wxWindow *parent) {
 
 void MainFrame::ToggleHeaderGroup(wxToggleButton *active) {
   wxToggleButton *buttons[] = {m_btnPlaylists, m_btnChannels, m_btnFavorites,
-                               m_btnVideo};
+                               m_btnVideo, m_btnEpg};
 
   for (auto *b : buttons) {
     if (!b)
@@ -53,6 +53,9 @@ void MainFrame::ToggleHeaderGroup(int index) {
   case 3:
     ToggleHeaderGroup(m_btnVideo);
     break;
+  case 4:
+    ToggleHeaderGroup(m_btnEpg);
+    break;
   default:
     break;
   }
@@ -67,6 +70,8 @@ void MainFrame::ToggleHeaderGroup(const wxString &name) {
     ToggleHeaderGroup(m_btnFavorites);
   else if (name == "video")
     ToggleHeaderGroup(m_btnVideo);
+  else if (name == "program")
+    ToggleHeaderGroup(m_btnEpg);
 }
 
 void MainFrame::createMainPanel() {
@@ -119,6 +124,7 @@ void MainFrame::createMainPanel() {
   m_btnChannels = makeButton("Channels", "channels");
   m_btnFavorites = makeButton("Favorites", "favorites");
   m_btnVideo = makeButton("Video", "video");
+  m_btnEpg = makeButton("Program", "program");
   wxButton *btnMenu = new wxButton(headerPanel, wxID_ANY, " Menu");
   m_menuButton = btnMenu;
   wxBitmapBundle menuIcon = LoadSvgIcon("menu", this);
@@ -133,6 +139,8 @@ void MainFrame::createMainPanel() {
   headerSizer->Add(m_btnFavorites, 0, wxALL, 8);
   headerSizer->AddSpacer(12);
   headerSizer->Add(m_btnVideo, 0, wxALL, 8);
+  headerSizer->AddSpacer(12);
+  headerSizer->Add(m_btnEpg, 0, wxALL, 8);
   headerSizer->AddStretchSpacer(1);
   headerSizer->Add(btnMenu, 0, wxALL, 8);
 
@@ -312,6 +320,14 @@ void MainFrame::createMainPanel() {
   };
 
   // -------------------------------
+  // EPG PANEL
+  // -------------------------------
+  m_epgPanel = new EPGPanel(m_notebook);
+  m_notebook->AddPage(m_epgPanel, "Program");
+  m_epgPageIdx = m_notebook->FindPage(m_epgPanel);
+  LOG_DEBUG("MainFrame: added EPG page; m_epgPageIdx=%d", m_epgPageIdx);
+
+  // -------------------------------
   // HEADER BUTTONS bindings
   // -------------------------------
   m_btnPlaylists->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
@@ -357,6 +373,8 @@ void MainFrame::createMainPanel() {
                      ToggleHeaderGroup(m_btnVideo);
                      m_notebook->SetSelection(3);
                    });
+
+  m_btnEpg->Bind(wxEVT_TOGGLEBUTTON, &MainFrame::OnEpgToggle, this);
 
   btnMenu->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { ShowMainMenu(); });
 

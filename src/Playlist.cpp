@@ -1,4 +1,6 @@
 #include "Playlist.h"
+
+#include <algorithm>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -168,5 +170,27 @@ bool Playlist::fromJson(const std::string &json) {
 
     m_channels.push_back(ch);
   }
+  return true;
+}
+
+bool Playlist::removeChannel(const Channel &ch) {
+  auto it =
+      std::find_if(m_channels.begin(), m_channels.end(), [&](const Channel &c) {
+        return c.getName() == ch.getName() && c.getUrl() == ch.getUrl();
+      });
+  if (it == m_channels.end())
+    return false;
+  m_channels.erase(it);
+  return true;
+}
+
+bool Playlist::removeChannel(const std::string &name, const std::string &url) {
+  auto it =
+      std::find_if(m_channels.begin(), m_channels.end(), [&](const Channel &c) {
+        return c.getName() == name && c.getUrl() == url;
+      });
+  if (it == m_channels.end())
+    return false;
+  m_channels.erase(it);
   return true;
 }

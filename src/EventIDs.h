@@ -2,6 +2,8 @@
 #ifndef EVENTIDS_H
 #define EVENTIDS_H
 
+#include "epg/EPGManager.h"
+
 // NOTE: explicit numeric ranges to avoid collisions with wxID_ANY and
 // wxID_HIGHEST. Adjust base values only if your project already uses these
 // numbers.
@@ -74,5 +76,12 @@ enum { ID_UI_BASE = 5200, ID_PROGRESS_TIMER = ID_UI_BASE + 1 };
 enum { ID_VP_BASE = 6000, ID_VP_TEMP_PLAYLIST_LIST = ID_VP_BASE + 1 };
 
 #define ID_ADD_IPTV_PLAYLIST (wxID_HIGHEST + 200)
+
+// Статусы EPG
+wxDECLARE_EVENT(EVT_EPG_UPDATED, wxCommandEvent);
+#define EPG_STATUS_OK 0
+#define EPG_STATUS_LOADING 1
+#define EPG_STATUS_ERROR 2
+#define EPG_STATUS_NO_SOURCES 3
 
 #endif // EVENTIDS_H

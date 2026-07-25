@@ -129,6 +129,9 @@ set(SOURCES
     src/BackendFactory.cpp
     src/iptvorg/IPTVOrgMetadataManager.cpp
     src/iptvorg/AddIPTVPlaylistDialog.cpp
+    src/epg/EPGManager.cpp
+    src/epg/EPGParserExpat.cpp
+    src/epg/EPGPanel.cpp
 )
 
 # ------------------------

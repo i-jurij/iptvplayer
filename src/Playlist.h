@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 #include <ctime>
-#include <map>
 
 class Playlist {
 public:
@@ -36,9 +35,12 @@ public:
     std::vector<std::string> getChannelUrls() const;
 
     std::string toJson() const;
-    bool fromJson(const std::string&);
+    bool fromJson(const std::string &);
 
-private:
+    bool removeChannel(const Channel &ch);
+    bool removeChannel(const std::string &name, const std::string &url);
+
+  private:
     std::string m_title;
     std::string m_source;
     std::string m_userAgent;

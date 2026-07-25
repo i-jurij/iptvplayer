@@ -454,7 +454,7 @@ void CardsBase::DebugInternalMemory() {
     textBytes += kv.second.length() * sizeof(wxChar); // значение wxString
   }
 
-  /*
+  
   // --- грубая оценка textSizeCache ---
   size_t textSizeBytes = 0;
   textSizeBytes +=
@@ -465,7 +465,6 @@ void CardsBase::DebugInternalMemory() {
             textCount, textSizeCount, layoutCount, tileCount, textBytes,
             textBytes / 1024, textSizeBytes, textSizeBytes / 1024);
   LOG_DEBUG("m_logoW=%d m_logoH=%d", m_logoW, m_logoH);
-  */
 }
 
 // --------------------------------------------

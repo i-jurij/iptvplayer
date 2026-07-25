@@ -162,6 +162,71 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
   scrolled->FitInside();
 
   // -------------------------
+  // Block: EPG (Electronic Program Guide)
+  // -------------------------
+  {
+    wxStaticBox *epgBox =
+        new wxStaticBox(scrolled, wxID_ANY, "EPG (Electronic Program Guide)");
+    wxStaticBoxSizer *epgBoxSizer = new wxStaticBoxSizer(epgBox, wxVERTICAL);
+
+    // --- Sources list ---
+    m_epgSourceList =
+        new wxListCtrl(epgBox, wxID_ANY, wxDefaultPosition, wxSize(-1, 120),
+                       wxLC_REPORT | wxLC_SINGLE_SEL);
+    m_epgSourceList->InsertColumn(0, "URL", wxLIST_FORMAT_LEFT, 300);
+    m_epgSourceList->InsertColumn(1, "Name", wxLIST_FORMAT_LEFT, 150);
+    m_epgSourceList->InsertColumn(2, "Last Update", wxLIST_FORMAT_LEFT, 150);
+    epgBoxSizer->Add(m_epgSourceList, 0, wxEXPAND | wxALL, INNER_PAD);
+
+    // --- Source buttons ---
+    wxBoxSizer *sourceBtnSizer = new wxBoxSizer(wxHORIZONTAL);
+    m_epgAddSource = new wxButton(epgBox, wxID_ANY, "Add");
+    m_epgEditSource = new wxButton(epgBox, wxID_ANY, "Edit");
+    m_epgRemoveSource = new wxButton(epgBox, wxID_ANY, "Remove");
+    sourceBtnSizer->Add(m_epgAddSource, 0, wxRIGHT, 5);
+    sourceBtnSizer->Add(m_epgEditSource, 0, wxRIGHT, 5);
+    sourceBtnSizer->Add(m_epgRemoveSource, 0);
+    epgBoxSizer->Add(sourceBtnSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, INNER_PAD);
+
+    // --- Update settings ---
+    wxFlexGridSizer *grid = new wxFlexGridSizer(2, 5, 10);
+    grid->AddGrowableCol(1);
+
+    grid->Add(new wxStaticText(epgBox, wxID_ANY, "Auto-update:"), 0,
+              wxALIGN_CENTER_VERTICAL);
+    m_epgAutoUpdate = new wxCheckBox(epgBox, wxID_ANY, "");
+    grid->Add(m_epgAutoUpdate, 0, wxEXPAND);
+
+    grid->Add(new wxStaticText(epgBox, wxID_ANY, "Update interval (hours):"), 0,
+              wxALIGN_CENTER_VERTICAL);
+    m_epgUpdateInterval = new wxSpinCtrl(epgBox, wxID_ANY, wxEmptyString,
+                                         wxDefaultPosition, wxSize(80, -1));
+    m_epgUpdateInterval->SetRange(1, 168);
+    m_epgUpdateInterval->SetValue(24);
+    grid->Add(m_epgUpdateInterval, 0, wxEXPAND);
+
+    grid->Add(new wxStaticText(epgBox, wxID_ANY, "Days to keep in cache:"), 0,
+              wxALIGN_CENTER_VERTICAL);
+    m_epgDaysToKeep = new wxSpinCtrl(epgBox, wxID_ANY, wxEmptyString,
+                                     wxDefaultPosition, wxSize(80, -1));
+    m_epgDaysToKeep->SetRange(1, 30);
+    m_epgDaysToKeep->SetValue(3);
+    grid->Add(m_epgDaysToKeep, 0, wxEXPAND);
+
+    epgBoxSizer->Add(grid, 0, wxEXPAND | wxALL, INNER_PAD);
+
+    // --- Action buttons ---
+    wxBoxSizer *actionBtnSizer = new wxBoxSizer(wxHORIZONTAL);
+    m_epgRefreshNow = new wxButton(epgBox, wxID_ANY, "Refresh Now");
+    m_epgDeleteCache = new wxButton(epgBox, wxID_ANY, "Delete Cache");
+    actionBtnSizer->Add(m_epgRefreshNow, 0, wxRIGHT, 5);
+    actionBtnSizer->Add(m_epgDeleteCache, 0);
+    epgBoxSizer->Add(actionBtnSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, INNER_PAD);
+
+    contentSizer->Add(epgBoxSizer, 0, wxEXPAND | wxALL, PAD);
+  }
+
+  // -------------------------
   // Bottom buttons (single block)
   // -------------------------
   wxBoxSizer *bottomSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -278,6 +343,7 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
 
   // Center on parent
   CentreOnParent();
+  LoadEPGSettings();
 
   // ---------------- Bind handlers ----------------
   Bind(wxEVT_BUTTON, &SettingsDialog::OnApply, this, wxID_APPLY);
@@ -291,6 +357,14 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
                             this);
   m_reloadMissingLogosBtn->Bind(wxEVT_BUTTON,
                                 &SettingsDialog::OnReloadMissingLogos, this);
+
+  // Bind EPG handlers
+  m_epgAddSource->Bind(wxEVT_BUTTON, &SettingsDialog::OnEPGAddSource, this);
+  m_epgEditSource->Bind(wxEVT_BUTTON, &SettingsDialog::OnEPGEditSource, this);
+  m_epgRemoveSource->Bind(wxEVT_BUTTON, &SettingsDialog::OnEPGRemoveSource,
+                          this);
+  m_epgRefreshNow->Bind(wxEVT_BUTTON, &SettingsDialog::OnEPGRefreshNow, this);
+  m_epgDeleteCache->Bind(wxEVT_BUTTON, &SettingsDialog::OnEPGDeleteCache, this);
 }
 
 // ----------------- Apply / OK / Cancel / Restore -----------------
@@ -318,6 +392,13 @@ void SettingsDialog::RestoreDefaults() {
 
   if (m_autoUpdateCheck)
     m_autoUpdateCheck->SetValue(default_auto_update);
+
+  if (m_epgAutoUpdate)
+    m_epgAutoUpdate->SetValue(false);
+  if (m_epgUpdateInterval)
+    m_epgUpdateInterval->SetValue(24);
+  if (m_epgDaysToKeep)
+    m_epgDaysToKeep->SetValue(3);
 }
 
 void SettingsDialog::OnRestoreDefaults(wxCommandEvent &WXUNUSED(event)) {
@@ -367,6 +448,8 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
     m_config->saveSettings();
     m_mainFrame->SetStatusText("Settings saved.", 0);
   }
+
+  SaveEPGSettings();
 }
 
 // ----------------- Split cache handlers -----------------
@@ -497,4 +580,202 @@ ErrorCode SettingsDialog::ClearAllCachesSync() {
   }
 
   return ec;
+}
+
+// ---------------------------------------------------------------------
+// EPG methods
+// ---------------------------------------------------------------------
+void SettingsDialog::LoadEPGSettings() {
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  m_epgAutoUpdate->SetValue(epgMgr->IsAutoUpdateEnabled());
+  m_epgUpdateInterval->SetValue(epgMgr->GetUpdateIntervalHours());
+  m_epgDaysToKeep->SetValue(epgMgr->GetDaysToKeep());
+
+  UpdateEPGSourceList();
+}
+
+void SettingsDialog::SaveEPGSettings() {
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  epgMgr->SetAutoUpdateEnabled(m_epgAutoUpdate->GetValue());
+  epgMgr->SetUpdateIntervalHours(m_epgUpdateInterval->GetValue());
+  epgMgr->SetDaysToKeep(m_epgDaysToKeep->GetValue());
+}
+
+void SettingsDialog::UpdateEPGSourceList() {
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  auto sources = epgMgr->GetSources();
+  m_epgSourceList->DeleteAllItems();
+  for (size_t i = 0; i < sources.size(); ++i) {
+    long idx =
+        m_epgSourceList->InsertItem(i, wxString::FromUTF8(sources[i].url));
+    m_epgSourceList->SetItem(idx, 1, wxString::FromUTF8(sources[i].name));
+    m_epgSourceList->SetItem(idx, 2,
+                             EpgTime::FormatTime(sources[i].lastUpdate));
+  }
+}
+
+void SettingsDialog::OnEPGAddSource(wxCommandEvent &) {
+  wxTextEntryDialog dlg(this, "Enter EPG source URL:", "Add EPG Source",
+                        "https://");
+  if (dlg.ShowModal() != wxID_OK)
+    return;
+
+  wxString url = dlg.GetValue();
+  if (url.IsEmpty())
+    return;
+
+  wxTextEntryDialog nameDlg(
+      this, "Enter a name for this source (optional):", "Source Name");
+  wxString name;
+  if (nameDlg.ShowModal() == wxID_OK) {
+    name = nameDlg.GetValue();
+  }
+
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  EpgSource src;
+  src.url = url.ToUTF8().data();
+  src.name = name.ToUTF8().data();
+  src.lastUpdate = 0;
+
+  auto sources = epgMgr->GetSources();
+  sources.push_back(src);
+  epgMgr->SetSources(sources);
+
+  UpdateEPGSourceList();
+  epgMgr->SaveSourcesToConfig();
+}
+
+void SettingsDialog::OnEPGEditSource(wxCommandEvent &) {
+  long sel =
+      m_epgSourceList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+  if (sel == -1) {
+    wxMessageBox("Please select a source to edit.", "Info",
+                 wxOK | wxICON_INFORMATION);
+    return;
+  }
+
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  auto sources = epgMgr->GetSources();
+  if (sel >= (long)sources.size())
+    return;
+
+  wxString oldUrl = wxString::FromUTF8(sources[sel].url);
+  wxString oldName = wxString::FromUTF8(sources[sel].name);
+
+  wxTextEntryDialog urlDlg(this, "Edit EPG source URL:", "Edit EPG Source",
+                           oldUrl);
+  if (urlDlg.ShowModal() != wxID_OK)
+    return;
+  wxString newUrl = urlDlg.GetValue();
+
+  wxTextEntryDialog nameDlg(this, "Edit source name:", "Edit Source Name",
+                            oldName);
+  wxString newName;
+  if (nameDlg.ShowModal() == wxID_OK) {
+    newName = nameDlg.GetValue();
+  }
+
+  sources[sel].url = newUrl.ToUTF8().data();
+  sources[sel].name = newName.ToUTF8().data();
+  epgMgr->SetSources(sources);
+
+  UpdateEPGSourceList();
+  epgMgr->SaveSourcesToConfig();
+}
+
+void SettingsDialog::OnEPGRemoveSource(wxCommandEvent &) {
+  long sel =
+      m_epgSourceList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+  if (sel == -1) {
+    wxMessageBox("Please select a source to remove.", "Info",
+                 wxOK | wxICON_INFORMATION);
+    return;
+  }
+
+  if (wxMessageBox("Remove selected EPG source?", "Confirm",
+                   wxYES_NO | wxICON_QUESTION) != wxYES)
+    return;
+
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  auto sources = epgMgr->GetSources();
+  if (sel < (long)sources.size()) {
+    sources.erase(sources.begin() + sel);
+    epgMgr->SetSources(sources);
+    UpdateEPGSourceList();
+    epgMgr->SaveSourcesToConfig();
+  }
+}
+
+void SettingsDialog::OnEPGRefreshNow(wxCommandEvent &) {
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  epgMgr->Refresh();
+  wxMessageBox("EPG refresh started in background.", "Info",
+               wxOK | wxICON_INFORMATION);
+}
+
+void SettingsDialog::OnEPGDeleteCache(wxCommandEvent &) {
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  if (wxMessageBox("Delete all locally cached EPG data? This will force "
+                   "re-download on next update.",
+                   "Confirm", wxYES_NO | wxICON_QUESTION) != wxYES) {
+    return;
+  }
+
+  // Удаляем файл кэша
+  if (epgMgr->DeleteCache()) {
+    wxMessageBox("EPG cache deleted.", "Info", wxOK | wxICON_INFORMATION);
+    if (m_mainFrame) {
+      m_mainFrame->SetStatusText("EPG cache deleted.", 0);
+    }
+  } else {
+    wxMessageBox("Failed to delete EPG cache.", "Error", wxOK | wxICON_ERROR);
+  }
 }

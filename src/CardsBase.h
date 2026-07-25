@@ -134,6 +134,8 @@ public:
   //------------------------------
 
 protected:
+  void OnContextMenu(wxContextMenuEvent &evt);
+  
   bool m_mouseInside = false;
   int m_focusIndex = -1; // клавиатурный фокус
   int m_hoverIndex = -1; // hover мыши

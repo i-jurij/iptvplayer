@@ -1,8 +1,13 @@
+#include "Application.h"
 #include "CardsBase.h"
 #include "LogControl.h"
+#include "MainFrame.h"
 #include "Profiler.h"
 #include "Utils.h"
+#include "epg/EPGData.h"
+#include "epg/EPGManager.h"
 
+#include <wx/clipbrd.h>
 #include <wx/tooltip.h>
 
 int CardsBase::HitTestIndex(const wxPoint &pos, bool &fav,
@@ -263,6 +268,22 @@ void CardsBase::UpdateTooltip(int index) {
     return;
   }
 
+  // Добавляем текущую программу из EPG (если доступна)
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (app && index >= 0 && index < (int)m_channels.size()) {
+    EPGManager *epg = app->GetEPGManager();
+    if (epg && epg->IsLoaded()) {
+      const Channel &ch = m_channels[index];
+      std::string tvgId = ch.getTvgId();
+      if (!tvgId.empty()) {
+        EpgProgram prog = epg->GetCurrentProgram(tvgId);
+        if (!prog.title.empty()) {
+          tip << "\nProgram: " << wxString::FromUTF8(prog.title);
+        }
+      }
+    }
+  }
+  
   SetToolTip(tip);
 }
 
@@ -586,3 +607,38 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
     return;
   }
 }
+
+void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
+  wxMenu menu;
+  int idProgramGuide = wxNewId();
+  int idCopyUrl = wxNewId();
+  menu.Append(idProgramGuide, "Program Guide");
+  menu.Append(idCopyUrl, "Copy URL");
+
+  wxPoint pos = evt.GetPosition();
+  if (pos == wxDefaultPosition) {
+    pos = wxGetMousePosition();
+    pos = ScreenToClient(pos);
+  }
+
+  bool fav = false;
+  wxRect rect;
+  int idx = HitTestIndex(pos, fav, &rect);
+  if (idx < 0)
+    return;
+
+  int selection = GetPopupMenuSelectionFromUser(menu, pos);
+  if (selection == idProgramGuide) {
+    MainFrame *mf = GetMainFrame();
+    if (mf) {
+      mf->SwitchToEpgTab(m_channels[idx].getTvgId(), m_channels[idx].getName());
+    }
+  } else if (selection == idCopyUrl) {
+    if (wxTheClipboard->Open()) {
+      wxTheClipboard->SetData(
+          new wxTextDataObject(wxString::FromUTF8(m_channels[idx].getUrl())));
+      wxTheClipboard->Close();
+    }
+  }
+}
+

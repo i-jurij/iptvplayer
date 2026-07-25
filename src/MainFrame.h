@@ -6,6 +6,7 @@
 #include "FavoritesCards.h"
 #include "FavoritesList.h"
 #include "VideoPanel.h"
+#include "epg/EPGPanel.h"
 
 #include <wx/aui/aui.h>
 #include <wx/frame.h>
@@ -104,8 +105,23 @@ public:
 
   void ShowMainMenu(const wxPoint &pos = wxDefaultPosition);
 
+  void SwitchToEpgTab(const std::string &channelId,
+                      const std::string &channelName);
+
+  void RemoveChannelFromPlaylist(const Channel &ch);
+
 private:
-private:
+  EPGPanel *m_epgPanel = nullptr;
+  wxToggleButton *m_btnEpg = nullptr;
+  int m_epgPageIdx = wxNOT_FOUND;
+  void HandleEpgPageChanged(int sel);
+  void OnEpgToggle(wxCommandEvent &event);
+  void OnEPGUpdated(wxCommandEvent &event);
+  void UpdateEPGStatus(int status, const wxString &error = wxEmptyString);
+  wxTimer m_epgCoalesceTimer;
+  bool m_epgUpdatePending = false;
+  void OnEpgCoalesceTimer(wxTimerEvent &event);
+
   void CheckAndSuggestPlaylist();
   bool m_playlistSuggestionShown = false;
 

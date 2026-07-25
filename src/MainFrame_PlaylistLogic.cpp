@@ -146,6 +146,22 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
   // 3) Применяем текущие фильтры и сортировку (обновит list и cards)
   ApplyFiltersAndSort();
 
+  // --- EPG INTEGRATION ---
+  // Сопоставление каналов с EPG и обновление колонки "Program" в списке
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (app) {
+    EPGManager *epg = app->GetEPGManager();
+    if (epg && epg->IsLoaded()) {
+      // Сопоставляем каналы из текущего плейлиста с EPG-данными
+      epg->MatchChannels(channels);
+      // Обновляем колонку "Program" в списке каналов (если он активен)
+      if (m_channelList) {
+        m_channelList->RefreshProgramColumn();
+      }
+    }
+  }
+  // --- END EPG INTEGRATION ---
+
   // 4) Обновляем видимость панели фильтров и делаем Refresh/автофокус отложенно
   CallAfter([this]() {
     UpdateFilterPanelVisibility();

@@ -15,6 +15,7 @@
 
 #include "Channel.h"
 #include "ChannelDataModel.h"
+#include "LogControl.h"
 #include "TypeAheadSearch.h"
 #include "Utils.h"
 
@@ -50,7 +51,14 @@ public:
 
   std::atomic<bool> m_closing;
 
+  void RefreshProgramColumn();
+  void RefreshProgramColumnVisible();
+
 protected:
+  bool m_epgUpdatePending = false;
+  wxTimer m_epgUpdateTimer;
+  void OnEpgUpdateTimer(wxTimerEvent &);
+  
   PerformanceMode m_perfMode{PerformanceMode::Balanced};
 
   // Новый главный механизм отслеживания скролла
@@ -113,7 +121,6 @@ protected:
   std::atomic<bool> m_lazyLoadInProgress{false};
 
   std::atomic<bool> m_processing{false};
-  std::atomic<bool> m_schedulePending{false};
 
   std::list<std::string> m_lruQueuedKeys;
   std::unordered_map<std::string, std::list<std::string>::iterator> m_lruIter;
@@ -163,20 +170,20 @@ protected:
   }
 
   void ScheduleProcessLoadQueue() {
-    if (!m_schedulePending.exchange(true)) {
-      const int id = GetId();
-      CallAfterSafeById(id, [id]() {
-        wxWindow *w = wxWindow::FindWindowById(id);
-        if (!w)
-          return;
-        auto *self = dynamic_cast<BaseChannelList *>(w);
-        if (self && !self->m_closing.load()) {
-          self->m_schedulePending.store(false);
-          self->processLoadQueue();
-        }
-      });
+    if (m_queuePaused.load() || m_loadingPaused.load()) {
+      return;
     }
+    // Если нет работы, не планируем
+    if (m_loadQueue.empty() && m_pendingLogoLoads.empty()) {
+      return;
+    }
+    // Останавливаем и перезапускаем таймер — сброс задержки при каждом вызове
+    m_processQueueTimer.Stop();
+    m_processQueueTimer.StartOnce(50);
   }
+
+  wxTimer m_processQueueTimer;
+  void OnProcessQueueTimer(wxTimerEvent &event);
 
   wxDECLARE_EVENT_TABLE();
 };

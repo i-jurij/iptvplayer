@@ -332,29 +332,38 @@ void MainFrame::ApplyFavoritesFiltersAndSort() {
 }
 
 void MainFrame::HandleFavPageChanged(int sel) {
-  if (sel != m_favoritesPageIdx)
-    return;
+  if (sel == m_favoritesPageIdx) {
+    // Возобновляем загрузку для активного представления избранного
+    auto *cfg = getConfigManager();
+    std::string mode = cfg->getSetting("favorites_view_mode", "grid");
+    bool grid = (mode == "grid");
 
-  LOG_DEBUG("HandleFavPageChanged: sel=%d", sel);
-
-  auto *cfg = getConfigManager();
-  std::string mode = cfg->getSetting("favorites_view_mode", "grid");
-  bool grid = (mode == "grid");
-
-  // Выполняем смену внутренней вкладки и фокус в UI-потоке, чтобы избежать
-  // reentrancy
-  CallAfter([this, grid]() {
-    LOG_DEBUG("HandleFavPageChanged(CallAfter): applying fav view mode grid=%d",
-              (int)grid);
-    // Меняем внутреннюю viewBook без генерации внешних событий
-    m_favViewBook->ChangeSelection(grid ? 1 : 0);
-
-    if (grid) {
-      if (m_favCards)
-        m_favCards->SetFocusIgnoringChildren();
-    } else {
-      if (m_favList)
-        m_favList->SetFocusFromKbd();
+    if (grid && m_favCards) {
+      m_favCards->ResumeLogoLoading();
+    } else if (!grid && m_favList) {
+      m_favList->ResumeLogoLoading();
     }
-  });
+
+    // Существующая логика смены вкладки и фокуса (без изменений)
+    CallAfter([this, grid]() {
+      LOG_DEBUG(
+          "HandleFavPageChanged(CallAfter): applying fav view mode grid=%d",
+          (int)grid);
+      m_favViewBook->ChangeSelection(grid ? 1 : 0);
+
+      if (grid) {
+        if (m_favCards)
+          m_favCards->SetFocusIgnoringChildren();
+      } else {
+        if (m_favList)
+          m_favList->SetFocusFromKbd();
+      }
+    });
+  } else {
+    // Приостанавливаем загрузку для обоих представлений избранного
+    if (m_favList)
+      m_favList->PauseLogoLoading();
+    if (m_favCards)
+      m_favCards->PauseLogoLoading();
+  }
 }

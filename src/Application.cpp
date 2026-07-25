@@ -1,10 +1,11 @@
 #include "Application.h"
+#include "BackendFactory.h"
 #include "ConfigManager.h"
 #include "ErrorCode.h"
 #include "LogControl.h"
 #include "MainFrame.h"
 #include "PlaylistManager.h"
-#include "BackendFactory.h"
+#include "epg/EPGManager.h"
 
 #include <wx/filename.h>
 #include <wx/log.h>
@@ -55,6 +56,29 @@ Application::Application() {
   m_favoritesManager =
       std::make_unique<FavoritesManager>(favPathWx.ToStdString());
 
+  // Инициализация EPGManager
+  m_epgManager = std::make_unique<EPGManager>(m_configManager.get(),
+                                              m_playlistManager.get());
+
+  // Определяем путь кэша EPG
+  wxString cacheDir;
+#if defined(__linux__)
+  cacheDir = wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg";
+#elif defined(__APPLE__)
+  cacheDir = wxFileName::GetHomeDir() + "/Library/Caches/iptvplayer/epg";
+#elif defined(_WIN32)
+  cacheDir =
+      wxStandardPaths::Get().GetUserLocalDataDir() + "\\iptvplayer\\cache\\epg";
+#else
+  cacheDir = wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg";
+#endif
+
+  if (!wxFileName::DirExists(cacheDir)) {
+    wxFileName::Mkdir(cacheDir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
+  }
+  m_epgManager->SetCachePath(cacheDir.ToUTF8().data());
+
+  // init UI
   m_guiManager = std::make_unique<GUIManager>();
   m_guiManager->setApplication(this);
 }
@@ -66,6 +90,11 @@ Application::~Application() {
       std::cerr << "Failed to save settings: "
                 << m_configManager->getLastError() << std::endl;
     }
+  }
+
+  if (m_epgManager) {
+    m_epgManager->SaveToCache();
+    m_epgTimer->Stop();
   }
 }
 
@@ -150,11 +179,34 @@ bool Application::start() {
     // GUI
   }
 
+  // Инициализация EPGManager и таймера
+  if (m_epgManager) {
+    m_epgManager->LoadFromCache();
+    if (m_epgManager->IsAutoUpdateEnabled()) {
+      // Инициализация таймера (перенесена из конструктора)
+      m_epgTimer->SetOwner(this);
+      Bind(wxEVT_TIMER, &Application::OnEpgTimer, this, m_epgTimer->GetId());
+
+      int intervalHours = m_epgManager->GetUpdateIntervalHours();
+      if (intervalHours < 1)
+        intervalHours = 1;
+      
+      long intervalMs = intervalHours * 3600 * 1000;
+      m_epgTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
+      LOG_DEBUG(
+          "Application: EPG auto-update timer started (interval %d hours)",
+          intervalHours);
+    }
+  }
+
   std::cout << "Application started successfully" << std::endl;
   return true;
 }
 
-int Application::OnExit() { return 0; }
+int Application::OnExit() {
+  m_epgTimer->Stop();
+  return 0;
+}
 
 PlaylistManager *Application::getPlaylistManager() const noexcept {
   return m_playlistManager.get();
@@ -166,4 +218,11 @@ ConfigManager *Application::getConfigManager() const noexcept {
 
 GUIManager *Application::getGUIManager() const noexcept {
   return m_guiManager.get();
+}
+
+void Application::OnEpgTimer(wxTimerEvent &) {
+  if (!m_epgManager)
+    return;
+  LOG_DEBUG("Application: EPG auto-update timer triggered");
+  m_epgManager->Refresh();
 }
