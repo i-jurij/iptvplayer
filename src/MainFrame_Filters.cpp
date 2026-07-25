@@ -54,8 +54,26 @@ void MainFrame::FillFilterChoices(const std::vector<Channel> &channels) {
   m_langChoice->SetSelection(idx == wxNOT_FOUND ? 0 : idx);
 }
 
-void MainFrame::ApplyFiltersAndSort() {
+void MainFrame::ApplyFiltersAndSort(bool incremental) {
   PROFILE_SCOPE("MainFrame::ApplyFiltersAndSort");
+  // Если инкрементальное обновление — обновляем только UI без перезагрузки
+  if (incremental) {
+    // Обновляем список каналов (без перезагрузки данных)
+    if (m_channelList && m_channelList->GetModel()) {
+      m_channelList->Refresh();
+    }
+    if (m_channelCards) {
+      m_channelCards->RefreshCards();
+    }
+    // Обновляем заголовок
+    wxString header = wxString::Format("Playlist: %s / Channels: %zu",
+                                       wxString::FromUTF8(m_loadedPlaylistName),
+                                       m_allChannels.size());
+    m_channelsHeader->SetLabel(header);
+    return;
+  }
+
+  // --- Полная перестройка
   // If no original channels, nothing to do
   if (m_allChannels.empty()) {
     // Clear views

@@ -36,7 +36,7 @@ wxDEFINE_EVENT(EVT_UPDATE_ONE_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_PROGRESS, wxCommandEvent);
 wxDEFINE_EVENT(EVT_EPG_UPDATED, wxCommandEvent);
 
-MainFrame::MainFrame(Application* app)
+MainFrame::MainFrame(Application *app)
     : wxFrame(nullptr, wxID_ANY, "IPTV Player", wxDefaultPosition,
               wxSize(800, 600)),
       m_application(app), m_mainPanel(nullptr), m_notebook(nullptr),
@@ -149,7 +149,7 @@ MainFrame::MainFrame(Application* app)
           LOG_DEBUG("Notebook change ignored due to guard");
           return;
         }
-        
+
         int sel = evt.GetSelection();
         LOG_DEBUG("MainFrame: notebook page changed event: selection=%d, "
                   "pagePtr=%p, pageLabel='%s', m_videoPageIdx=%d, "
@@ -441,19 +441,19 @@ void MainFrame::UpdateEPGStatus(int status, const wxString &error) {
 void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
   auto *mgr = getPlaylistManager();
   if (!mgr) {
-    wxLogDebug("RemoveChannelFromPlaylist: PlaylistManager is null");
+    LOG_DEBUG("RemoveChannelFromPlaylist: PlaylistManager is null");
     return;
   }
 
   std::string playlistName = ch.getPlaylistName();
   if (playlistName.empty()) {
-    wxLogDebug("RemoveChannelFromPlaylist: channel has no playlist name");
+    LOG_DEBUG("RemoveChannelFromPlaylist: channel has no playlist name");
     return;
   }
 
   Playlist *playlist = mgr->findByTitle(playlistName);
   if (!playlist) {
-    wxLogDebug("RemoveChannelFromPlaylist: playlist not found");
+    LOG_DEBUG("RemoveChannelFromPlaylist: playlist not found");
     return;
   }
 
@@ -466,69 +466,94 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
   if (dlg.ShowModal() != wxID_YES)
     return;
 
+  // 1. Удаляем из Playlist (память)
   if (!playlist->removeChannel(ch)) {
-    wxLogDebug("RemoveChannelFromPlaylist: failed to remove channel");
+    LOG_DEBUG("RemoveChannelFromPlaylist: failed to remove channel");
     return;
   }
 
-  ErrorCode ec = mgr->savePlaylist(playlist);
-  if (ec != ErrorCode::OK) {
-    wxLogDebug("RemoveChannelFromPlaylist: failed to save playlist");
-    return;
+  // 2. Обновляем m_allChannels
+  auto it = std::find_if(
+      m_allChannels.begin(), m_allChannels.end(), [&](const Channel &c) {
+        return c.getName() == ch.getName() && c.getUrl() == ch.getUrl();
+      });
+  if (it != m_allChannels.end()) {
+    m_allChannels.erase(it);
   }
 
-  // Удалить файлы логотипов с диска
-  std::string iconPath = IconManager::GetIconPath(playlistName, ch.getName());
-  std::string svgPath = IconManager::GetSvgPath(playlistName, ch.getName());
-  std::string markerPath = iconPath.substr(0, iconPath.size() - 5) + ".marker";
-
-  auto removeFile = [](const std::string &path) {
-    wxString wxPath = wxString::FromUTF8(path);
-    if (wxFileExists(wxPath)) {
-      if (!wxRemoveFile(wxPath)) {
-        wxLogDebug("RemoveChannelFromPlaylist: failed to remove file %s",
-                   path.c_str());
-      }
-    }
-  };
-
-  removeFile(iconPath); // webp
-  std::string pngPath = iconPath.substr(0, iconPath.size() - 5) + ".png";
-  removeFile(pngPath);
-  removeFile(svgPath);
-  removeFile(markerPath);
-
-  // Удалить из кэша памяти
-  LogoCache::DropMaster(playlistName, ch.getName());
-
-  // Удалить сопоставление с EPG
-  Application *app = static_cast<Application *>(wxTheApp);
-  if (app && app->GetEPGManager()) {
-    app->GetEPGManager()->RemoveChannelMapping(ch.getTvgId());
-  }
-
-  // Удалить из избранного
-  if (app) {
-    app->getFavoritesManager().remove(ch.getName(), playlistName);
-  }
-
-  // Обновить UI
+  // 3. Обновляем UI (сохраняя позицию)
   if (m_loadedPlaylistName == playlistName) {
-    auto it = std::find_if(
-        m_allChannels.begin(), m_allChannels.end(), [&](const Channel &c) {
-          return c.getName() == ch.getName() && c.getUrl() == ch.getUrl();
-        });
-    if (it != m_allChannels.end()) {
-      m_allChannels.erase(it);
+    int topRow = 0;
+    if (m_channelList) {
+      topRow = m_channelList->GetTopVisibleRow();
     }
-    ApplyFiltersAndSort(); // обновляем отображение каналов
+
+    if (m_channelList) {
+      auto *model = m_channelList->GetModel();
+      if (model) {
+        model->RemoveChannel(ch.getName(), ch.getUrl());
+      }
+      int count = m_channelList->GetModel()->GetCount();
+      if (topRow >= count)
+        topRow = count - 1;
+      if (topRow < 0)
+        topRow = 0;
+      m_channelList->RestoreTopVisibleRow(topRow);
+      m_channelList->Refresh();
+    }
+
+    if (m_channelCards) {
+      m_channelCards->SetChannels(m_allChannels, m_loadedPlaylistName);
+      m_channelCards->RefreshCards();
+    }
+
+    wxString header = wxString::Format("Playlist: %s / Channels: %zu",
+                                       wxString::FromUTF8(m_loadedPlaylistName),
+                                       m_allChannels.size());
+    m_channelsHeader->SetLabel(header);
   } else {
-    RefreshPlaylistView(); // обновляем количество каналов в списке плейлистов
+    RefreshPlaylistView();
   }
+
+  // 4. Обновляем избранное
   refreshFavorites();
   SetStatusText(wxString::Format("Channel '%s' removed from playlist '%s'",
                                  wxString::FromUTF8(ch.getName()),
                                  wxString::FromUTF8(playlistName)),
                 0);
+
+  // 5. Фоновая очистка
+  std::string tvgId = ch.getTvgId();
+  std::string chName = ch.getName();
+  std::string iconPath = IconManager::GetIconPath(playlistName, chName);
+  std::string svgPath = IconManager::GetSvgPath(playlistName, chName);
+  std::string pngPath = iconPath.substr(0, iconPath.size() - 5) + ".png";
+  std::string markerPath = iconPath.substr(0, iconPath.size() - 5) + ".marker";
+
+  std::thread([mgr, playlist, playlistName, chName, tvgId, iconPath, svgPath,
+               pngPath, markerPath]() {
+    mgr->savePlaylist(playlist);
+    auto removeFile = [](const std::string &path) {
+      if (path.empty())
+        return;
+      wxString wxPath = wxString::FromUTF8(path);
+      if (wxFileExists(wxPath)) {
+        wxRemoveFile(wxPath);
+      }
+    };
+    removeFile(iconPath);
+    removeFile(pngPath);
+    removeFile(svgPath);
+    removeFile(markerPath);
+    LogoCache::DropMaster(playlistName, chName);
+    Application *app = static_cast<Application *>(wxTheApp);
+    if (app && app->GetEPGManager()) {
+      app->GetEPGManager()->RemoveChannelMapping(tvgId);
+    }
+    if (app) {
+      app->getFavoritesManager().remove(chName, playlistName);
+    }
+    LOG_DEBUG("RemoveChannelFromPlaylist: background cleanup finished");
+  }).detach();
 }
 

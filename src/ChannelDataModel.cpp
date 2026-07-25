@@ -226,9 +226,10 @@ void ChannelDataModel::SafeUpdateRowByName(
   if (expectedModelVer != 0) {
     uint64_t cur = m_channelsVersion.load(std::memory_order_relaxed);
     if (cur != expectedModelVer) {
-      LOG_DEBUG("SafeUpdateRowByName SKIP modelVer mismatch expected=%"
-                " cur=% playlist=%s name=%s",
-                expectedModelVer, cur, playlist.c_str(), name.c_str());
+      LOG_DEBUG("SafeUpdateRowByName SKIP modelVer mismatch expected=%llu "
+                "cur=%llu playlist=%s name=%s",
+                (unsigned long long)expectedModelVer, (unsigned long long)cur,
+                playlist.c_str(), name.c_str());
       return;
     }
   }
@@ -529,3 +530,16 @@ void ChannelDataModel::SetFavorites(
     Resort();
   }
 }
+
+void ChannelDataModel::RemoveChannel(const std::string &name,
+                                     const std::string &url) {
+  auto it =
+      std::find_if(m_channels.begin(), m_channels.end(), [&](const Channel &c) {
+        return c.getName() == name && c.getUrl() == url;
+      });
+  if (it != m_channels.end()) {
+    m_channels.erase(it);
+    Reset(m_channels.size()); // обновляет весь список
+  }
+}
+

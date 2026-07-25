@@ -85,6 +85,8 @@ public:
   // Signature: (row, highPriority)
   void SetEnqueueCallback(std::function<void(unsigned int, bool)> cb);
 
+  void RemoveChannel(const std::string &name, const std::string &url);
+
 private:
   mutable std::unordered_map<unsigned int, std::string> m_rowKeyCache;
 

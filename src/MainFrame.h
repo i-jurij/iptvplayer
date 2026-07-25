@@ -85,7 +85,7 @@ public:
   // -------------------------
   // Filters / Sorting API
   void FillFilterChoices(const std::vector<Channel> &channels);
-  void ApplyFiltersAndSort();
+  void ApplyFiltersAndSort(bool incremental = false);
   void ApplyFavoritesFiltersAndSort();
 
   // Apply show-logo flag coming from settings dialog (true = show logos)
