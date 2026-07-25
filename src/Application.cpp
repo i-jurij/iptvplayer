@@ -1,5 +1,4 @@
 #include "Application.h"
-#include "BackendFactory.h"
 #include "ConfigManager.h"
 #include "ErrorCode.h"
 #include "LogControl.h"

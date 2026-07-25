@@ -6,7 +6,6 @@ GUIManager::GUIManager() : m_mainFrame(nullptr), m_application(nullptr) {}
 
 GUIManager::~GUIManager() {
   if (m_mainFrame) {
-    m_mainFrame->Destroy();
     m_mainFrame = nullptr;
   }
 }
@@ -29,6 +28,5 @@ void GUIManager::setApplication(Application *app) {
 
   if (m_mainFrame) {
     m_mainFrame->SetApplication(app);
-    m_mainFrame->RefreshPlaylistView();
   }
 }
