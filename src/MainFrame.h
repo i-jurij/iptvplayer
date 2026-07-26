@@ -291,6 +291,8 @@ private:
   void onFavoriteSelected(const Channel &ch, size_t index, const wxRect &rect);
 
   std::atomic<uint64_t> m_showPanelToken{0};
+
+  void OpenPlaylistInternal(int playlistIndex);
 };
 
 #endif // MAINFRAME_H

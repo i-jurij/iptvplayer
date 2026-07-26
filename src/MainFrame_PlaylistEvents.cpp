@@ -44,6 +44,63 @@ void MainFrame::onPlaylistRightClick(wxListEvent &event) {
   PopupMenu(&menu);
 }
 
+void MainFrame::OpenPlaylistInternal(int playlistIndex) {
+  Playlist *pl = GetPlaylistByIndex(playlistIndex);
+  if (!pl) {
+    wxMessageBox("Playlist not found", "Error", wxOK | wxICON_ERROR, this);
+    return;
+  }
+
+  // Синхронизируем кнопку
+  ToggleHeaderGroup(m_btnChannels);
+
+  // Запоминаем новый плейлист
+  m_loadedPlaylistIndex = playlistIndex;
+  m_loadedPlaylistName = pl->getTitle();
+
+  if (auto *cfg = getConfigManager()) {
+    cfg->setSetting("last_opened_playlist", m_loadedPlaylistName);
+    cfg->saveSettings();
+  }
+
+  // Переключаем вкладку
+  showPanel(m_channelList->GetParent());
+
+  // Обновляем заголовок (заглушка, будет обновлён после загрузки)
+  m_channelsHeader->SetLabel("Loading channels...");
+
+  // 2) Все длительные операции — в CallAfter
+  wxTheApp->CallAfter([this, pl]() {
+    // Очистка логотипов предыдущего плейлиста
+    if (!m_loadedPlaylistName.empty()) {
+      LogoCache::ClearPlaylist(m_loadedPlaylistName);
+    }
+
+    // Очистка очередей загрузки логотипов
+    if (m_channelList) {
+      m_channelList->PauseLogoLoading();
+      m_channelList->ResumeLogoLoading();
+    }
+    if (m_channelCards) {
+      m_channelCards->PauseLogoLoading();
+      m_channelCards->ResumeLogoLoading();
+    }
+
+    // Загружаем каналы
+    const auto &channels = pl->getChannels();
+    const std::string playlistName = pl->getTitle();
+    loadPlaylistChannels(channels, playlistName);
+
+    // Обновляем заголовок
+    m_channelsHeader->SetLabel(wxString::Format(
+        "Playlist: %s / Channels: %zu", wxString::FromUTF8(pl->getTitle()),
+        pl->getChannelCount()));
+
+    // Обновляем избранное
+    refreshFavorites();
+  });
+}
+
 void MainFrame::onPlaylistActivated(wxListEvent &event) {
   if (event.GetId() != ID_PLAYLIST_LIST)
     return;
@@ -55,102 +112,18 @@ void MainFrame::onPlaylistActivated(wxListEvent &event) {
   }
 
   const wxUIntPtr data = m_playlistList->GetItemData(listIndex);
-  m_selectedPlaylistIndex = static_cast<int>(data);
-
-  Playlist *pl = GetPlaylistByIndex(m_selectedPlaylistIndex);
-  if (!pl) {
-    wxMessageBox("Playlist not found", "Error", wxOK | wxICON_ERROR, this);
-    return;
-  }
-
-  // Очистка логотипов предыдущего плейлиста
-  if (!m_loadedPlaylistName.empty()) {
-    LogoCache::ClearPlaylist(m_loadedPlaylistName);
-  }
-
-  // Очистка очередей загрузки логотипов
-  if (m_channelList) {
-    m_channelList->PauseLogoLoading();
-    m_channelList->ResumeLogoLoading();
-  }
-  if (m_channelCards) {
-    m_channelCards->PauseLogoLoading();
-    m_channelCards->ResumeLogoLoading();
-  }
-
-  // Запоминаем новый плейлист
-  m_loadedPlaylistIndex = m_selectedPlaylistIndex;
-  m_loadedPlaylistName = pl->getTitle();
-
-  if (auto *cfg = getConfigManager()) {
-    cfg->setSetting("last_opened_playlist", m_loadedPlaylistName);
-    cfg->saveSettings();
-  }
-
-  showPanel(m_channelList->GetParent());
-
-  const auto &channels = pl->getChannels();
-  const std::string playlistName = pl->getTitle();
-
-  loadPlaylistChannels(channels, playlistName);
-
-  m_channelsHeader->SetLabel(wxString::Format(
-      "Playlist: %s / Channels: %zu", wxString::FromUTF8(pl->getTitle()),
-      pl->getChannelCount()));
-
-  CallAfter([this]() { refreshFavorites(); });
+  int playlistIndex = static_cast<int>(data);
+  OpenPlaylistInternal(playlistIndex);
 }
 
 void MainFrame::onOpenPlaylist(wxCommandEvent &event) {
   if (event.GetId() != ID_PLAYLIST_LIST)
     return;
 
-  if (!validatePlaylistSelection()) {
+  if (!validatePlaylistSelection())
     return;
-  }
 
-  Playlist *pl = GetPlaylistByIndex(m_selectedPlaylistIndex);
-  if (!pl) {
-    wxMessageBox("Playlist not found", "Error", wxOK | wxICON_ERROR, this);
-    return;
-  }
-
-  // Очистка логотипов предыдущего плейлиста
-  if (!m_loadedPlaylistName.empty()) {
-    LogoCache::ClearPlaylist(m_loadedPlaylistName);
-  }
-
-  // Очистка очередей загрузки логотипов
-  if (m_channelList) {
-    m_channelList->PauseLogoLoading();
-    m_channelList->ResumeLogoLoading();
-  }
-  if (m_channelCards) {
-    m_channelCards->PauseLogoLoading();
-    m_channelCards->ResumeLogoLoading();
-  }
-
-  // Запоминаем новый плейлист
-  m_loadedPlaylistIndex = m_selectedPlaylistIndex;
-  m_loadedPlaylistName = pl->getTitle();
-
-  if (auto *cfg = getConfigManager()) {
-    cfg->setSetting("last_opened_playlist", m_loadedPlaylistName);
-    cfg->saveSettings();
-  }
-
-  showPanel(m_channelList->GetParent());
-
-  const auto &channels = pl->getChannels();
-  const std::string playlistName = pl->getTitle();
-
-  loadPlaylistChannels(channels, playlistName);
-
-  m_channelsHeader->SetLabel(wxString::Format(
-      "Playlist: %s / Channels: %zu", wxString::FromUTF8(pl->getTitle()),
-      pl->getChannelCount()));
-
-  CallAfter([this]() { refreshFavorites(); });
+  OpenPlaylistInternal(m_selectedPlaylistIndex);
 }
 
 //====================================================================
@@ -596,7 +569,7 @@ void MainFrame::onUpdateAllDone(wxCommandEvent &ev) {
         validNames.push_back(ch.getName());
 
       IconManager::CleanupUnusedIcons(pl->getTitle(), validNames);
-      
+
       if (pl->getTitle() == m_loadedPlaylistName) {
         m_playlistUpdated = true;
       }

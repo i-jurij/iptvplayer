@@ -333,7 +333,6 @@ void MainFrame::ApplyFavoritesFiltersAndSort() {
 
 void MainFrame::HandleFavPageChanged(int sel) {
   if (sel == m_favoritesPageIdx) {
-    // Возобновляем загрузку для активного представления избранного
     auto *cfg = getConfigManager();
     std::string mode = cfg->getSetting("favorites_view_mode", "grid");
     bool grid = (mode == "grid");
@@ -344,23 +343,17 @@ void MainFrame::HandleFavPageChanged(int sel) {
       m_favList->ResumeLogoLoading();
     }
 
-    // Существующая логика смены вкладки и фокуса (без изменений)
-    CallAfter([this, grid]() {
-      LOG_DEBUG(
-          "HandleFavPageChanged(CallAfter): applying fav view mode grid=%d",
-          (int)grid);
-      m_favViewBook->ChangeSelection(grid ? 1 : 0);
+    // Применяем view mode синхронно (без CallAfter)
+    m_favViewBook->ChangeSelection(grid ? 1 : 0);
 
-      if (grid) {
-        if (m_favCards)
-          m_favCards->SetFocusIgnoringChildren();
-      } else {
-        if (m_favList)
-          m_favList->SetFocusFromKbd();
-      }
-    });
+    if (grid) {
+      if (m_favCards)
+        m_favCards->SetFocusIgnoringChildren();
+    } else {
+      if (m_favList)
+        m_favList->SetFocusFromKbd();
+    }
   } else {
-    // Приостанавливаем загрузку для обоих представлений избранного
     if (m_favList)
       m_favList->PauseLogoLoading();
     if (m_favCards)

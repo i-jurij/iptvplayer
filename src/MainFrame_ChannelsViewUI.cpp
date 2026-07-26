@@ -91,10 +91,7 @@ void MainFrame::HandleChannelPageChanged(int sel) {
       return;
     }
     if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
-      CallAfter([this]() {
-        if (m_channelCards)
-          m_channelCards->SetFocusIgnoringChildren();
-      });
+      m_channelCards->SetFocusIgnoringChildren();
     }
   } else {
     // Приостанавливаем загрузку для обоих представлений каналов

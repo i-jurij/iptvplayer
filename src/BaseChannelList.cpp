@@ -981,17 +981,7 @@ void BaseChannelList::ResumeLogoLoading() {
   m_queuePaused.store(false);
 
   if (m_model && m_model->GetCount() > 0) {
-    const int id = GetId();
-    CallAfterSafeById(id, [id]() {
-      LOG_DEBUG("BaseChannelList::ResumeLogoLoading CallAfterSafeById run DoLazyLoad");
-      wxWindow *w = wxWindow::FindWindowById(id);
-      if (!w)
-        return;
-      auto *self = dynamic_cast<BaseChannelList *>(w);
-      if (!self || self->m_closing.load())
-        return;
-      self->DoLazyLoad();
-    });
+    CoalescedDoLazyLoadSchedule();
   }
   LOG_DEBUG("BaseChannelList::ResumeLogoLoading end");
 }
