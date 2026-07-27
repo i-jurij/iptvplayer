@@ -308,8 +308,25 @@ ConfigManager *MainFrame::getConfigManager() const {
 }
 
 ChannelCards *MainFrame::GetChannelCards() { return m_channelCards; }
+
 void MainFrame::ApplyFullscreen(bool fs) {
   ShowFullScreen(fs, wxFULLSCREEN_ALL);
+
+  // Обновляем отступы главного sizer’а
+  int border = fs ? 0 : 6;
+  if (m_mainSizerGaugeItem) {
+    m_mainSizerGaugeItem->SetBorder(border);
+  }
+  if (m_mainSizerHeaderItem) {
+    m_mainSizerHeaderItem->SetBorder(border);
+  }
+  if (m_mainSizerNotebookItem) {
+    m_mainSizerNotebookItem->SetBorder(border);
+  }
+  if (m_mainPanel) {
+    m_mainPanel->Layout();
+    m_mainPanel->Refresh();
+  }
 }
 
 void MainFrame::HandleEpgPageChanged(int sel) {

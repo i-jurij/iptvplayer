@@ -357,9 +357,9 @@ void VideoPanel::Stop() {
   void VideoPanel::ToggleFullscreen() {
     m_isFullscreen = !m_isFullscreen;
 
-    wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
-    if (frame) {
-      frame->ShowFullScreen(m_isFullscreen, wxFULLSCREEN_ALL);
+    MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+    if (mf) {
+      mf->ApplyFullscreen(m_isFullscreen);
     }
 
     if (m_isFullscreen) {

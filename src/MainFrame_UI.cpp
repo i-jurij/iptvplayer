@@ -88,7 +88,8 @@ void MainFrame::createMainPanel() {
   m_gaugeTop = makeGauge(m_mainPanel);
   m_gaugeTop->Hide();
   // add gauge first so it stays above headerPanel in the layout
-  mainSizer->Add(m_gaugeTop, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 6);
+  m_mainSizerGaugeItem =
+      mainSizer->Add(m_gaugeTop, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 6);
 
   // -------------------------------
   // NOTEBOOK
@@ -609,8 +610,9 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   // FINAL LAYOUT
   // -------------------------------
-  mainSizer->Add(headerPanel, 0, wxEXPAND | wxALL, 6);
-  mainSizer->Add(m_notebook, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
+  m_mainSizerHeaderItem = mainSizer->Add(headerPanel, 0, wxEXPAND | wxALL, 6);
+  m_mainSizerNotebookItem =
+      mainSizer->Add(m_notebook, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
   m_mainPanel->SetSizer(mainSizer);
 
   ToggleHeaderGroup(m_btnPlaylists);

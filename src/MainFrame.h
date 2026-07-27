@@ -112,6 +112,10 @@ public:
   void RemoveChannelFromPlaylist(const Channel &ch);
 
 private:
+  wxSizerItem *m_mainSizerGaugeItem = nullptr;
+  wxSizerItem *m_mainSizerHeaderItem = nullptr;
+  wxSizerItem *m_mainSizerNotebookItem = nullptr;
+  
   std::vector<std::future<void>> m_backgroundTasks;
   void CleanupFinishedTasks();
 
