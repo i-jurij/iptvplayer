@@ -120,73 +120,6 @@ bool EPGManager::LoadFromCache() {
   return true;
 }
 
-bool EPGManager::SaveToCache() const {
-  std::lock_guard<std::mutex> lock(m_mutex);
-
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto &allocator = doc.GetAllocator();
-
-  doc.AddMember("lastUpdate", static_cast<int64_t>(m_lastUpdate), allocator);
-
-  rapidjson::Value channelsArray(rapidjson::kArrayType);
-  for (const auto &chPair : m_channels) {
-    const auto &ch = chPair.second;
-    rapidjson::Value chVal(rapidjson::kObjectType);
-    chVal.AddMember("id", rapidjson::Value(ch.id.c_str(), allocator),
-                    allocator);
-    chVal.AddMember("displayName",
-                    rapidjson::Value(ch.displayName.c_str(), allocator),
-                    allocator);
-
-    rapidjson::Value progArray(rapidjson::kArrayType);
-    for (const auto &prog : ch.programs) {
-      rapidjson::Value progVal(rapidjson::kObjectType);
-      progVal.AddMember(
-          "title", rapidjson::Value(prog.title.c_str(), allocator), allocator);
-      progVal.AddMember("description",
-                        rapidjson::Value(prog.description.c_str(), allocator),
-                        allocator);
-      progVal.AddMember("category",
-                        rapidjson::Value(prog.category.c_str(), allocator),
-                        allocator);
-      progVal.AddMember("startTime", static_cast<int64_t>(prog.startTime),
-                        allocator);
-      progVal.AddMember("stopTime", static_cast<int64_t>(prog.stopTime),
-                        allocator);
-      progVal.AddMember("channelId",
-                        rapidjson::Value(prog.channelId.c_str(), allocator),
-                        allocator);
-      progArray.PushBack(progVal, allocator);
-    }
-    chVal.AddMember("programs", progArray, allocator);
-    channelsArray.PushBack(chVal, allocator);
-  }
-  doc.AddMember("channels", channelsArray, allocator);
-
-  rapidjson::Value mapObj(rapidjson::kObjectType);
-  for (const auto &m : m_channelMapping) {
-    mapObj.AddMember(rapidjson::Value(m.first.c_str(), allocator),
-                     rapidjson::Value(m.second.c_str(), allocator), allocator);
-  }
-  doc.AddMember("mapping", mapObj, allocator);
-
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  doc.Accept(writer);
-
-  std::ofstream file(m_cachePath);
-  if (!file.is_open()) {
-    LOG_ERROR("EPGManager: Failed to open cache file for writing: %s",
-              m_cachePath.c_str());
-    return false;
-  }
-  file << buffer.GetString();
-  file.close();
-  LOG_DEBUG("EPGManager: Saved to cache");
-  return true;
-}
-
 bool EPGManager::LoadFromUrl(const std::string &url,
                              const std::string &userAgent) {
   if (!m_playlistManager) {
@@ -205,38 +138,6 @@ bool EPGManager::LoadFromUrl(const std::string &url,
   }
 
   return ParseAndMerge(xmlData, url);
-}
-
-bool EPGManager::ParseAndMerge(const std::string &xmlData,
-                               const std::string &sourceUrl) {
-  EPGParserExpat parser;
-  if (!parser.Parse(xmlData)) {
-    m_lastError = "Failed to parse XML from " + sourceUrl;
-    LOG_ERROR("EPGManager: Failed to parse XML from %s", sourceUrl.c_str());
-    return false;
-  }
-
-  std::lock_guard<std::mutex> lock(m_mutex);
-
-  const auto &newChannels = parser.GetChannels();
-  for (const auto &newCh : newChannels) {
-    auto it = m_channels.find(newCh.id);
-    if (it != m_channels.end()) {
-      auto &existingCh = it->second;
-      existingCh.programs = newCh.programs;
-    } else {
-      m_channels[newCh.id] = newCh;
-    }
-  }
-
-  m_lastUpdate = std::time(nullptr);
-  m_loaded = true;
-  CleanExpiredPrograms();
-  SaveToCache();
-
-  LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu channels",
-            sourceUrl.c_str(), m_channels.size());
-  return true;
 }
 
 void EPGManager::CleanExpiredPrograms() {
@@ -433,13 +334,6 @@ std::vector<EpgSource> EPGManager::GetSources() const {
   return m_sources;
 }
 
-void EPGManager::SetMapping(const std::string &tvgId,
-                            const std::string &channelId) {
-  std::lock_guard<std::mutex> lock(m_mutex);
-  m_channelMapping[tvgId] = channelId;
-  SaveToCache();
-}
-
 std::string
 EPGManager::GetEpgChannelIdForTvgId(const std::string &tvgId) const {
   std::lock_guard<std::mutex> lock(m_mutex);
@@ -450,27 +344,158 @@ EPGManager::GetEpgChannelIdForTvgId(const std::string &tvgId) const {
   return "";
 }
 
-bool EPGManager::DeleteCache() {
+// ========================================================================
+// BuildCacheJson – собирает JSON под мьютексом, возвращает строку
+// ========================================================================
+std::string EPGManager::BuildCacheJson() const {
   std::lock_guard<std::mutex> lock(m_mutex);
-  std::string filePath = m_cachePath;
-  if (filePath.empty())
-    return false;
-  if (std::remove(filePath.c_str()) != 0) {
-    if (errno != ENOENT) {
-      LOG_ERROR("EPGManager: Failed to delete cache file: %s",
-                filePath.c_str());
-      return false;
+
+  rapidjson::Document doc;
+  doc.SetObject();
+  auto &allocator = doc.GetAllocator();
+
+  doc.AddMember("lastUpdate", static_cast<int64_t>(m_lastUpdate), allocator);
+
+  rapidjson::Value channelsArray(rapidjson::kArrayType);
+  for (const auto &chPair : m_channels) {
+    const auto &ch = chPair.second;
+    rapidjson::Value chVal(rapidjson::kObjectType);
+    chVal.AddMember("id", rapidjson::Value(ch.id.c_str(), allocator),
+                    allocator);
+    chVal.AddMember("displayName",
+                    rapidjson::Value(ch.displayName.c_str(), allocator),
+                    allocator);
+
+    rapidjson::Value progArray(rapidjson::kArrayType);
+    for (const auto &prog : ch.programs) {
+      rapidjson::Value progVal(rapidjson::kObjectType);
+      progVal.AddMember(
+          "title", rapidjson::Value(prog.title.c_str(), allocator), allocator);
+      progVal.AddMember("description",
+                        rapidjson::Value(prog.description.c_str(), allocator),
+                        allocator);
+      progVal.AddMember("category",
+                        rapidjson::Value(prog.category.c_str(), allocator),
+                        allocator);
+      progVal.AddMember("startTime", static_cast<int64_t>(prog.startTime),
+                        allocator);
+      progVal.AddMember("stopTime", static_cast<int64_t>(prog.stopTime),
+                        allocator);
+      progVal.AddMember("channelId",
+                        rapidjson::Value(prog.channelId.c_str(), allocator),
+                        allocator);
+      progArray.PushBack(progVal, allocator);
     }
+    chVal.AddMember("programs", progArray, allocator);
+    channelsArray.PushBack(chVal, allocator);
   }
-  m_channels.clear();
-  m_channelMapping.clear();
-  m_loaded = false;
-  LOG_DEBUG("EPGManager: Cache deleted");
+  doc.AddMember("channels", channelsArray, allocator);
+
+  rapidjson::Value mapObj(rapidjson::kObjectType);
+  for (const auto &m : m_channelMapping) {
+    mapObj.AddMember(rapidjson::Value(m.first.c_str(), allocator),
+                     rapidjson::Value(m.second.c_str(), allocator), allocator);
+  }
+  doc.AddMember("mapping", mapObj, allocator);
+
+  rapidjson::StringBuffer buffer;
+  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+  doc.Accept(writer);
+  return buffer.GetString();
+}
+
+// ========================================================================
+// SaveToCache – запись на диск БЕЗ удержания мьютекса
+// ========================================================================
+bool EPGManager::SaveToCache() const {
+  // 1) Собираем JSON под мьютексом
+  std::string jsonData = BuildCacheJson();
+
+  // 2) Пишем файл без мьютекса
+  std::ofstream file(m_cachePath);
+  if (!file.is_open()) {
+    LOG_ERROR("EPGManager: Failed to open cache file for writing: %s",
+              m_cachePath.c_str());
+    return false;
+  }
+  file << jsonData;
+  file.close();
+  LOG_DEBUG("EPGManager: Saved to cache");
   return true;
 }
 
-void EPGManager::RemoveChannelMapping(const std::string &tvgId) {
-  std::lock_guard<std::mutex> lock(m_mutex);
-  m_channelMapping.erase(tvgId);
+// ========================================================================
+// ParseAndMerge – обновление данных и сохранение без мьютекса
+// ========================================================================
+bool EPGManager::ParseAndMerge(const std::string &xmlData,
+                               const std::string &sourceUrl) {
+  EPGParserExpat parser;
+  if (!parser.Parse(xmlData)) {
+    m_lastError = "Failed to parse XML from " + sourceUrl;
+    LOG_ERROR("EPGManager: Failed to parse XML from %s", sourceUrl.c_str());
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const auto &newChannels = parser.GetChannels();
+    for (const auto &newCh : newChannels) {
+      auto it = m_channels.find(newCh.id);
+      if (it != m_channels.end()) {
+        it->second.programs = newCh.programs;
+      } else {
+        m_channels[newCh.id] = newCh;
+      }
+    }
+    m_lastUpdate = std::time(nullptr);
+    m_loaded = true;
+    CleanExpiredPrograms();
+  }
+
+  SaveToCache(); // без мьютекса
+  LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu channels",
+            sourceUrl.c_str(), m_channels.size());
+  return true;
+}
+
+// ========================================================================
+// SetMapping – обновление маппинга и сохранение без мьютекса
+// ========================================================================
+void EPGManager::SetMapping(const std::string &tvgId,
+                            const std::string &channelId) {
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_channelMapping[tvgId] = channelId;
+  }
   SaveToCache();
+}
+
+// ========================================================================
+// RemoveChannelMapping – удаление маппинга и сохранение без мьютекса
+// ========================================================================
+void EPGManager::RemoveChannelMapping(const std::string &tvgId) {
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_channelMapping.erase(tvgId);
+  }
+  SaveToCache(); // без мьютекса
+}
+
+// ========================================================================
+// DeleteCache – очистка данных и удаление файла
+// ========================================================================
+bool EPGManager::DeleteCache() {
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_channels.clear();
+    m_channelMapping.clear();
+    m_loaded = false;
+  }
+  // Сохраняем пустой кэш и удаляем файл
+  SaveToCache();
+  if (!m_cachePath.empty()) {
+    std::remove(m_cachePath.c_str());
+  }
+  LOG_DEBUG("EPGManager: Cache deleted");
+  return true;
 }

@@ -533,13 +533,30 @@ void ChannelDataModel::SetFavorites(
 
 void ChannelDataModel::RemoveChannel(const std::string &name,
                                      const std::string &url) {
-  auto it =
-      std::find_if(m_channels.begin(), m_channels.end(), [&](const Channel &c) {
-        return c.getName() == name && c.getUrl() == url;
-      });
-  if (it != m_channels.end()) {
-    m_channels.erase(it);
-    Reset(m_channels.size()); // обновляет весь список
+  LOG_DEBUG("ChannelDataModel::RemoveChannel: name='%s', url='%s'",
+            name.c_str(), url.c_str());
+  // Находим индекс удаляемого канала
+  size_t index = SIZE_MAX;
+  for (size_t i = 0; i < m_channels.size(); ++i) {
+    if (m_channels[i].getName() == name && m_channels[i].getUrl() == url) {
+      index = i;
+      break;
+    }
   }
-}
+  if (index == SIZE_MAX) {
+    LOG_DEBUG("RemoveChannel: channel not found: %s", name.c_str());
+    return;
+  }
 
+  // Удаляем из векторов
+  m_channels.erase(m_channels.begin() + index);
+  if (index < m_favorites.size()) {
+    m_favorites.erase(m_favorites.begin() + index);
+  }
+
+  // Инвалидируем кэш ключей (индексы сдвинулись)
+  m_rowKeyCache.clear();
+  LOG_DEBUG("ChannelDataModel::RemoveChannel: erased, calling Reset()");
+  Reset(m_channels.size());
+  LOG_DEBUG("ChannelDataModel::RemoveChannel: Reset() done");
+}

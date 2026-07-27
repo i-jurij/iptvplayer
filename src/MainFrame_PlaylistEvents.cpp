@@ -51,10 +51,7 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
     return;
   }
 
-  // Синхронизируем кнопку
-  ToggleHeaderGroup(m_btnChannels);
-
-  // Запоминаем новый плейлист
+  // --- Запоминаем новый плейлист и переключаем UI ---
   m_loadedPlaylistIndex = playlistIndex;
   m_loadedPlaylistName = pl->getTitle();
 
@@ -63,40 +60,25 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
     cfg->saveSettings();
   }
 
-  // Переключаем вкладку
+  ToggleHeaderGroup(m_btnChannels);
   showPanel(m_channelList->GetParent());
-
-  // Обновляем заголовок (заглушка, будет обновлён после загрузки)
   m_channelsHeader->SetLabel("Loading channels...");
 
-  // 2) Все длительные операции — в CallAfter
+  // --- Загрузка нового плейлиста (асинхронно) ---
   wxTheApp->CallAfter([this, pl]() {
     // Очистка логотипов предыдущего плейлиста
     if (!m_loadedPlaylistName.empty()) {
       LogoCache::ClearPlaylist(m_loadedPlaylistName);
     }
 
-    // Очистка очередей загрузки логотипов
-    if (m_channelList) {
-      m_channelList->PauseLogoLoading();
-      m_channelList->ResumeLogoLoading();
-    }
-    if (m_channelCards) {
-      m_channelCards->PauseLogoLoading();
-      m_channelCards->ResumeLogoLoading();
-    }
-
-    // Загружаем каналы
     const auto &channels = pl->getChannels();
     const std::string playlistName = pl->getTitle();
     loadPlaylistChannels(channels, playlistName);
 
-    // Обновляем заголовок
     m_channelsHeader->SetLabel(wxString::Format(
         "Playlist: %s / Channels: %zu", wxString::FromUTF8(pl->getTitle()),
         pl->getChannelCount()));
 
-    // Обновляем избранное
     refreshFavorites();
   });
 }

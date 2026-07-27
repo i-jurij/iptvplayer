@@ -18,6 +18,7 @@
 #include <wx/toolbar.h>
 #include <wx/wx.h>
 
+#include <future>
 #include <string>
 #include <vector>
 
@@ -111,6 +112,9 @@ public:
   void RemoveChannelFromPlaylist(const Channel &ch);
 
 private:
+  std::vector<std::future<void>> m_backgroundTasks;
+  void CleanupFinishedTasks();
+
   EPGPanel *m_epgPanel = nullptr;
   wxToggleButton *m_btnEpg = nullptr;
   int m_epgPageIdx = wxNOT_FOUND;

@@ -627,7 +627,7 @@ void BaseChannelList::EnqueueRowLoad(size_t row, bool highPriority) {
     uint64_t modelVer = m_model ? m_model->GetModelVersion() : 0;
     int priority = highPriority ? 0 : 1;
 
-    QueueItem qi{row, priority, modelVer, now};
+    QueueItem qi{row, priority, modelVer, now, 0};
     if (priority == 0)
       m_loadQueue.push_front(qi);
     else
@@ -643,9 +643,6 @@ void BaseChannelList::EnqueueRowLoad(size_t row, bool highPriority) {
   ScheduleProcessLoadQueue();
 }
 
-// ---------------------------------------------------------------------------
-// processLoadQueue
-// ---------------------------------------------------------------------------
 void BaseChannelList::processLoadQueue() {
   PROFILE_SCOPE("BaseChannelList::processLoadQueue");
 
@@ -712,6 +709,7 @@ void BaseChannelList::processLoadQueue() {
 
       toStart.push_back(qi);
 
+      // Удаляем ключ из очереди и из маппинга
       m_queuedKeys.erase(key);
 
       auto itLru = m_lruIter.find(key);
@@ -720,10 +718,14 @@ void BaseChannelList::processLoadQueue() {
         m_lruIter.erase(itLru);
       }
 
+      // Удаляем из m_keyToRow (маппинг key->row)
+      RemoveKeyMapping(key);
+
       it = m_loadQueue.erase(it);
     }
   }
 
+  // Запускаем загрузки для извлечённых элементов
   for (const auto &qi : toStart) {
     if (m_closing.load())
       break;
@@ -747,7 +749,6 @@ void BaseChannelList::processLoadQueue() {
 
     {
       std::lock_guard<std::mutex> lk(m_queueMutex);
-
       if (m_pendingLogoLoads.count(key))
         continue;
 
@@ -755,10 +756,12 @@ void BaseChannelList::processLoadQueue() {
 
       std::string host = ExtractHostSimple(url);
       m_inflightPerHost[host] = m_inflightPerHost[host] + 1;
-
-      m_inflightLoads.fetch_add(1);
-      m_diag_started.fetch_add(1);
     }
+
+    // Создаём RAII guard для inflight-счётчика
+    std::shared_ptr<InflightGuard> inflightGuard =
+        std::make_shared<InflightGuard>(m_inflightLoads);
+    m_diag_started.fetch_add(1);
 
     const uint64_t expectedModelVer = qi.modelVer;
     const int localWinId = GetId();
@@ -767,23 +770,83 @@ void BaseChannelList::processLoadQueue() {
     const std::string urlCopy = url;
     const std::string keyCopy = key;
     size_t rowCopy = row;
+    int currentDpi = m_lastDpi; // сохраняем DPI на момент запроса
 
     LogoCache::GetLogoAsync(
         pl, nm, urlCopy, logoSize, logoSize, dpi,
-        [localWinId, keyCopy, rowCopy, pl, nm, urlCopy,
-         expectedModelVer](LogoCache::LogoBitmapPtr bmpPtr) {
+        [localWinId, keyCopy, rowCopy, pl, nm, urlCopy, expectedModelVer,
+         currentDpi, inflightGuard, qi](LogoCache::LogoBitmapPtr bmpPtr) {
           auto bmp_copy = bmpPtr;
 
           CallAfterSafeById(localWinId, [keyCopy, rowCopy, pl, nm, urlCopy,
-                                         expectedModelVer,
-                                         bmp_copy](wxWindow *w) {
+                                         expectedModelVer, currentDpi,
+                                         inflightGuard, bmp_copy,
+                                         qi](wxWindow *w) {
             auto *list = dynamic_cast<BaseChannelList *>(w);
-            if (!list)
+            if (!list || list->m_closing.load()) {
+              // guard сам уменьшит m_inflightLoads при выходе
               return;
+            }
 
+            // Проверка DPI
+            int nowDpi = GetNormDPI(w);
+            if (nowDpi != currentDpi) {
+              // DPI изменился – игнорируем результат
+              std::lock_guard<std::mutex> lk(list->m_queueMutex);
+              list->m_pendingLogoLoads.erase(keyCopy);
+              // Хост-счётчик уменьшаем
+              std::string host = ExtractHostSimple(urlCopy);
+              auto hit = list->m_inflightPerHost.find(host);
+              if (hit != list->m_inflightPerHost.end()) {
+                hit->second = std::max(0, hit->second - 1);
+                if (hit->second == 0)
+                  list->m_inflightPerHost.erase(hit);
+              }
+              return;
+            }
+
+            // Обработка загруженного битмапа
+            if (!bmp_copy || !bmp_copy->IsOk()) {
+              // Неудачная загрузка – возможно, повторная попытка
+              {
+                std::lock_guard<std::mutex> lk(list->m_queueMutex);
+                list->m_pendingLogoLoads.erase(keyCopy);
+
+                std::string host = ExtractHostSimple(urlCopy);
+                auto hit = list->m_inflightPerHost.find(host);
+                if (hit != list->m_inflightPerHost.end()) {
+                  hit->second = std::max(0, hit->second - 1);
+                  if (hit->second == 0)
+                    list->m_inflightPerHost.erase(hit);
+                }
+
+                // Повторная постановка с учётом retryCount
+                if (list->m_queuedKeys.find(keyCopy) ==
+                    list->m_queuedKeys.end()) {
+                  int newRetry = qi.retryCount + 1;
+                  if (newRetry <= 3) {
+                    list->m_queuedKeys.insert(keyCopy);
+                    QueueItem retryQi{rowCopy, 1, expectedModelVer, NowMs(),
+                                      newRetry};
+                    list->m_loadQueue.push_back(retryQi);
+                    list->m_lruQueuedKeys.push_back(keyCopy);
+                    list->m_lruIter[keyCopy] =
+                        std::prev(list->m_lruQueuedKeys.end());
+                    // Восстанавливаем маппинг key->row для watchdog
+                    list->AddKeyMapping(keyCopy, rowCopy);
+                  } else {
+                    LOG_DEBUG("Logo load permanently failed for key=%s",
+                              keyCopy.c_str());
+                  }
+                }
+              }
+              list->ScheduleProcessLoadQueue();
+              return;
+            }
+
+            // Успешная загрузка
             {
               std::lock_guard<std::mutex> lk(list->m_queueMutex);
-
               list->m_pendingLogoLoads.erase(keyCopy);
 
               std::string host = ExtractHostSimple(urlCopy);
@@ -793,30 +856,6 @@ void BaseChannelList::processLoadQueue() {
                 if (hit->second == 0)
                   list->m_inflightPerHost.erase(hit);
               }
-            }
-
-            list->m_inflightLoads.fetch_sub(1);
-
-            if (list->m_closing.load())
-              return;
-
-            if (!bmp_copy || !bmp_copy->IsOk()) {
-              {
-                std::lock_guard<std::mutex> lk(list->m_queueMutex);
-                // Re-mark key как queued для повтора
-                if (list->m_queuedKeys.find(keyCopy) ==
-                    list->m_queuedKeys.end()) {
-                  list->m_queuedKeys.insert(keyCopy);
-                  QueueItem qi{rowCopy, 1, expectedModelVer, NowMs()};
-                  list->m_loadQueue.push_back(qi);
-                  list->m_lruQueuedKeys.push_back(keyCopy);
-                  list->m_lruIter[keyCopy] =
-                      std::prev(list->m_lruQueuedKeys.end());
-                }
-              }
-
-              list->ScheduleProcessLoadQueue();
-              return;
             }
 
             if (auto *model = list->GetModel()) {
@@ -999,6 +1038,8 @@ void BaseChannelList::OnDPIChanged(wxDPIChangedEvent &evt) {
   PROFILE_SCOPE("BaseChannelList::OnDPIChanged");
 
   int newDpi = GetNormDPI(this);
+  m_lastDpi = newDpi;
+
   PauseLogoLoading();
   LogoCache::OnDPIChanged(newDpi);
 
@@ -1123,14 +1164,18 @@ void BaseChannelList::RefreshProgramColumn() {
 void BaseChannelList::RefreshProgramColumnVisible() {
   if (m_closing.load() || !m_model)
     return;
+  Freeze();
   int top = GetTopVisibleRow();
   int visible = GetCountPerPage();
-  if (top < 0 || visible <= 0)
+  if (top < 0 || visible <= 0) {
+    Thaw();
     return;
+  }
   int end = std::min(top + visible, (int)m_model->GetCount());
   for (int row = top; row < end; ++row) {
     m_model->RowChanged(row);
   }
+  Thaw();
 }
 
 void BaseChannelList::OnEpgUpdateTimer(wxTimerEvent &) {
@@ -1144,4 +1189,15 @@ void BaseChannelList::OnProcessQueueTimer(wxTimerEvent &) {
     return;
   }
   processLoadQueue();
+}
+
+void BaseChannelList::ClearPendingLoads() {
+  std::lock_guard<std::mutex> lock(m_queueMutex);
+  m_loadQueue.clear();
+  m_pendingLogoLoads.clear();
+  m_queuedKeys.clear();
+  m_lruQueuedKeys.clear();
+  m_lruIter.clear();
+  m_inflightPerHost.clear();
+  // Если есть другие очереди — очистить их
 }

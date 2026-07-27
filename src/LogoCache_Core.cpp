@@ -212,6 +212,7 @@ void LogoCache::ClearScaledExceptSize(
 }
 
 void LogoCache::DropMaster(const std::string &p, const std::string &c) {
+  LOG_DEBUG("LogoCache::DropMaster: p='%s', c='%s'", p.c_str(), c.c_str());
   std::lock_guard<std::mutex> lock(s_mutex);
   auto mk = MakeMasterKey(p, c);
   auto it = s_cache.find(mk);
@@ -221,6 +222,7 @@ void LogoCache::DropMaster(const std::string &p, const std::string &c) {
     s_cache.erase(it);
     s_lru.remove(mk);
   }
+  LOG_DEBUG("LogoCache::DropMaster: done");
 }
 
 void LogoCache::OnDPIChanged(int) { ClearScaled(); }

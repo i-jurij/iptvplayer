@@ -45,6 +45,11 @@ public:
   void OnLazyLoad(wxTimerEvent &evt);
 
   void EnqueueRowLoad(size_t row, bool highPriority);
+  struct InflightGuard {
+    std::atomic<int> &counter;
+    InflightGuard(std::atomic<int> &c) : counter(c) { counter.fetch_add(1); }
+    ~InflightGuard() { counter.fetch_sub(1); }
+  };
   void processLoadQueue();
   void ResetVisibleRange();
   void CoalescedDoLazyLoadSchedule();
@@ -54,7 +59,11 @@ public:
   void RefreshProgramColumn();
   void RefreshProgramColumnVisible();
 
+  void ClearPendingLoads();
+
 protected:
+  int m_lastDpi = 96;
+
   bool m_epgUpdatePending = false;
   wxTimer m_epgUpdateTimer;
   void OnEpgUpdateTimer(wxTimerEvent &);
@@ -100,6 +109,7 @@ protected:
     int priority;
     uint64_t modelVer;
     uint64_t enqueueTs;
+    int retryCount;
   };
 
   std::deque<QueueItem> m_loadQueue;

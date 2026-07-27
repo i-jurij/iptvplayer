@@ -80,6 +80,8 @@ public:
   void RemoveChannelMapping(const std::string &tvgId);
 
 private:
+  std::string BuildCacheJson() const;
+
   mutable std::string m_lastError;
   
   ConfigManager *m_configManager;

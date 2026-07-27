@@ -58,18 +58,23 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
   PROFILE_SCOPE("MainFrame::ApplyFiltersAndSort");
   // Если инкрементальное обновление — обновляем только UI без перезагрузки
   if (incremental) {
-    // Обновляем список каналов (без перезагрузки данных)
+    LOG_DEBUG("ApplyFiltersAndSort(inc): start");
     if (m_channelList && m_channelList->GetModel()) {
+      LOG_DEBUG("ApplyFiltersAndSort(inc): refreshing list");
       m_channelList->Refresh();
+      LOG_DEBUG("ApplyFiltersAndSort(inc): list refreshed");
     }
     if (m_channelCards) {
+      LOG_DEBUG("ApplyFiltersAndSort(inc): refreshing cards");
       m_channelCards->RefreshCards();
+      LOG_DEBUG("ApplyFiltersAndSort(inc): cards refreshed");
     }
     // Обновляем заголовок
     wxString header = wxString::Format("Playlist: %s / Channels: %zu",
                                        wxString::FromUTF8(m_loadedPlaylistName),
                                        m_allChannels.size());
     m_channelsHeader->SetLabel(header);
+    LOG_DEBUG("ApplyFiltersAndSort(inc): header updated");
     return;
   }
 

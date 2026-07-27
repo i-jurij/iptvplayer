@@ -508,61 +508,51 @@ void MainFrame::createMainPanel() {
             }
             ApplyChannelsNoLogoToViews();
 
-            MainFrame *mf = this;
             if (delChk->GetValue()) {
-              ChannelCards *cards = mf->GetChannelCards();
-              std::thread([mf, cards]() {
-                if (cards) {
-                  cards->PauseLogoLoading();
-                  cards->ClearAllCaches(true, true);
-                }
-
-                ErrorCode ec = IconManager::DeleteAllIcons();
-
-                if (ec == ErrorCode::OK) {
-                  LogoCache::ClearAll();
-                  wxLogInfo("Background: icon files removed and in-memory "
-                            "cache cleared.");
-                } else if (ec == ErrorCode::FileNotFound) {
-                  wxLogInfo("Background: no icon files found to remove.");
-                } else {
-                  wxLogError("Background: failed to remove icon files, code=%d",
-                             static_cast<int>(ec));
-                }
-
-                wxTheApp->CallAfter([mf, ec]() {
-                  if (mf) {
-                    ChannelCards *c = mf->GetChannelCards();
-                    if (c) {
-                      c->ResumeLogoLoading();
-                      c->InvalidateAll();
-                    }
-
+              int winId = GetId(); // сохраняем ID
+              CleanupFinishedTasks();
+              m_backgroundTasks.push_back(
+                  std::async(std::launch::async, [winId]() {
+                    // Фоновая очистка файлов (без доступа к UI)
+                    ErrorCode ec = IconManager::DeleteAllIcons();
                     if (ec == ErrorCode::OK) {
-                      mf->SetStatusText("Logo cache deleted (disk and memory).",
-                                        0);
-                    } else if (ec == ErrorCode::FileNotFound) {
-                      mf->SetStatusText("Logo cache: nothing to delete.", 0);
-                    } else if (ec == ErrorCode::UnsafePath) {
-                      mf->SetStatusText(
-                          "Logo cache deletion refused (unsafe path).", 0);
-                      wxMessageBox("Refused to delete logo files: unsafe path "
-                                   "detected. See log for details.",
-                                   "Error", wxOK | wxICON_ERROR, mf);
-                    } else {
-                      mf->SetStatusText("Failed to delete logo cache. See log.",
-                                        0);
-                      wxMessageBox(
-                          "Failed to delete logo files. See log for details.",
-                          "Error", wxOK | wxICON_ERROR, mf);
+                      LogoCache::ClearAll();
                     }
-                  }
-                });
-              }).detach();
+                    // Возврат в UI поток через CallAfter с проверкой
+                    // существования окна
+                    wxTheApp->CallAfter([winId, ec]() {
+                      wxWindow *w = wxWindow::FindWindowById(winId);
+                      if (!w)
+                        return;
+                      auto *mf = dynamic_cast<MainFrame *>(w);
+                      if (!mf || mf->m_closing)
+                        return;
+
+                      ChannelCards *cards = mf->GetChannelCards();
+                      if (cards) {
+                        cards->ResumeLogoLoading();
+                        cards->InvalidateAll();
+                      }
+                      if (ec == ErrorCode::OK) {
+                        mf->SetStatusText(
+                            "Logo cache deleted (disk and memory).", 0);
+                      } else if (ec == ErrorCode::FileNotFound) {
+                        mf->SetStatusText("Logo cache: nothing to delete.", 0);
+                      } else {
+                        mf->SetStatusText(
+                            "Failed to delete logo cache. See log.", 0);
+                      }
+                    });
+                  }));
             } else {
-              if (mf)
-                mf->SetStatusText("Channel logos disabled (cache preserved).",
-                                  0);
+              // просто отключаем логотипы без удаления кэша
+              m_channelsNoLogo = true;
+              if (cfg) {
+                cfg->setSetting("nologo", "true");
+                cfg->saveSettings();
+              }
+              ApplyChannelsNoLogoToViews();
+              SetStatusText("Channel logos disabled (cache preserved).", 0);
             }
           } else {
             m_viewToolBar->ToggleTool(ID_SHOW_LOGO, true);
