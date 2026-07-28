@@ -10,8 +10,6 @@
 static int NewMenuId() { return wxWindow::NewControlId(); }
 
 void MainFrame::ShowMainMenu(const wxPoint &pos) {
-  if (m_videoPanel)
-    m_videoPanel->SetTabActive(false);
 
   wxMenu menu;
 
