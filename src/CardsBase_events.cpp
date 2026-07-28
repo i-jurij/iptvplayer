@@ -618,16 +618,16 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
   wxPoint pos = evt.GetPosition();
   if (pos == wxDefaultPosition) {
     pos = wxGetMousePosition();
-    pos = ScreenToClient(pos);
   }
 
+  wxPoint clientPos = ScreenToClient(pos);
   bool fav = false;
   wxRect rect;
-  int idx = HitTestIndex(pos, fav, &rect);
+  int idx = HitTestIndex(clientPos, fav, &rect);
   if (idx < 0)
     return;
 
-  int selection = GetPopupMenuSelectionFromUser(menu, pos);
+  int selection = GetPopupMenuSelectionFromUser(menu);
   if (selection == idProgramGuide) {
     MainFrame *mf = GetMainFrame();
     if (mf) {
@@ -641,4 +641,3 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
     }
   }
 }
-
