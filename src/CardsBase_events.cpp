@@ -283,8 +283,11 @@ void CardsBase::UpdateTooltip(int index) {
       }
     }
   }
-  
-  SetToolTip(tip);
+
+  CallAfter([this, tip]() {
+    SetToolTip(wxEmptyString);
+    SetToolTip(tip);
+  });
 }
 
 void CardsBase::UpdateHoverAtPoint(const wxPoint &clientPos) {
