@@ -24,14 +24,21 @@ inline bool validatePlaylistAccess(PlaylistManager* pm, std::size_t idx) {
 }
 
 // Отправка события в MainFrame
-inline void postEvent(MainFrame* frame, wxEventType evtType, int value) {
-    if (!frame || frame->IsBeingDeleted() || frame->isClosing()) return;
-    wxTheApp->CallAfter([frame, evtType, value]() {
-        if (frame && !frame->IsBeingDeleted() && !frame->isClosing()) {
-            wxCommandEvent ev(evtType);
-            ev.SetInt(value);
-            frame->GetEventHandler()->ProcessEvent(ev);
-        }
-    });
+// status - основной код (например, успех/неудача или количество)
+// index - дополнительный параметр (по умолчанию -1, означает "не использовать")
+inline void postEvent(MainFrame *frame, wxEventType evtType, int status,
+                      int index = -1) {
+  if (!frame || frame->IsBeingDeleted() || frame->isClosing())
+    return;
+  wxTheApp->CallAfter([frame, evtType, status, index]() {
+    if (frame && !frame->IsBeingDeleted() && !frame->isClosing()) {
+      wxCommandEvent ev(evtType);
+      ev.SetInt(status);
+      if (index != -1) {
+        ev.SetExtraLong(index);
+      }
+      frame->GetEventHandler()->ProcessEvent(ev);
+    }
+  });
 }
 

@@ -301,6 +301,21 @@ private:
   std::atomic<uint64_t> m_showPanelToken{0};
 
   void OpenPlaylistInternal(int playlistIndex);
+
+  // Восстановить UI после обновления (кнопки, гейдж, список плейлистов, тайтл)
+  void ResetUIAfterUpdate();
+
+  // Очистка логотипов и .marker файлов для одного плейлиста
+  void CleanupLogosForPlaylist(Playlist *pl);
+
+  // Очистка логотипов и .marker файлов для всех плейлистов
+  void CleanupLogosForAllPlaylists();
+
+  // Получить имя плейлиста в виде wxString
+  wxString GetPlaylistName(Playlist *pl) const;
+
+  // Перезагрузка каналов текущего плейлиста (если это он)
+  bool ReloadPlaylistIfCurrent(Playlist *pl);
 };
 
 #endif // MAINFRAME_H

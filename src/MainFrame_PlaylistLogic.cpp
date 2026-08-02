@@ -5,6 +5,7 @@
 #include "ConfigManager.h"
 #include "Dialogs.h"
 #include "FavoritesManager.h"
+#include "IconManager.h"
 #include "LogControl.h"
 #include "MainFrame.h"
 #include "Playlist.h"
@@ -529,4 +530,98 @@ void MainFrame::CheckAndSuggestPlaylist() {
                           wxString::FromUTF8(mgr->getLastError()));
     }
   }
+}
+
+// --------------------------------------------------------------------------
+// Вспомогательные методы
+// --------------------------------------------------------------------------
+
+void MainFrame::ResetUIAfterUpdate() {
+  // Восстанавливаем кнопки
+  if (m_updateBtn)
+    m_updateBtn->Enable(true);
+  if (m_updateAllBtn)
+    m_updateAllBtn->Enable(true);
+
+  // Скрываем гейдж
+  if (m_gaugeTop) {
+    m_gaugeTop->SetValue(0);
+    m_gaugeTop->Hide();
+  }
+  if (GetSizer())
+    GetSizer()->Layout();
+
+  // Сохраняем и обновляем список плейлистов
+  savePlaylistsToConfig();
+  RefreshPlaylistView();
+
+  // Восстанавливаем заголовок окна
+  wxString appName = wxGetApp().GetAppName();
+  if (appName.IsEmpty())
+    appName = "IPTV Player";
+  SetTitle(appName);
+}
+
+void MainFrame::CleanupLogosForPlaylist(Playlist *pl) {
+  if (!pl)
+    return;
+
+  std::vector<std::string> validNames;
+  validNames.reserve(pl->getChannelCount());
+  for (const auto &ch : pl->getChannels())
+    validNames.push_back(ch.getName());
+
+  IconManager::CleanupUnusedIcons(pl->getTitle(), validNames);
+
+  // Удаляем .marker файлы
+  const std::string playlist = pl->getTitle();
+  for (const auto &ch : pl->getChannels()) {
+    const std::string &name = ch.getName();
+    std::string markerPath = IconManager::GetIconPath(playlist, name);
+    if (markerPath.size() > 5)
+      markerPath = markerPath.substr(0, markerPath.size() - 5) + ".marker";
+    wxString mpath = wxString::FromUTF8(markerPath);
+    if (wxFileExists(mpath)) {
+      wxRemoveFile(mpath);
+    }
+  }
+}
+
+void MainFrame::CleanupLogosForAllPlaylists() {
+  auto *mgr = getPlaylistManager();
+  if (!mgr)
+    return;
+
+  for (const auto &plPtr : mgr->getPlaylists()) {
+    Playlist *pl = plPtr.get();
+    if (!pl)
+      continue;
+    CleanupLogosForPlaylist(pl);
+
+    if (pl->getTitle() == m_loadedPlaylistName) {
+      m_playlistUpdated = true;
+    }
+  }
+}
+
+wxString MainFrame::GetPlaylistName(Playlist *pl) const {
+  if (!pl)
+    return "-";
+  return wxString::FromUTF8(pl->getTitle());
+}
+
+bool MainFrame::ReloadPlaylistIfCurrent(Playlist *pl) {
+  if (!pl)
+    return false;
+  if (pl->getTitle() != m_loadedPlaylistName)
+    return false;
+
+  const auto &channels = pl->getChannels();
+  const std::string &plName = pl->getTitle();
+
+  loadPlaylistChannels(channels, wxString::FromUTF8(plName));
+  refreshFavorites();
+
+  LOG_INFO("Playlist '%s' reloaded after update", plName);
+  return true;
 }

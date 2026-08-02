@@ -3,6 +3,7 @@
 #include "Dialogs.h"
 #include "EventIDs.h"
 #include "IconManager.h"
+#include "LogControl.h"
 #include "MainFrame.h"
 #include "Playlist.h"
 #include "PlaylistManager.h"
@@ -515,141 +516,117 @@ void MainFrame::onUpdateAllDone(wxCommandEvent &ev) {
     return;
 
   const int updated = ev.GetInt();
+  wxString indicesStr = ev.GetString();
 
-  if (m_gaugeTop) {
-    m_gaugeTop->SetValue(0);
-    m_gaugeTop->Hide();
-  }
-  if (GetSizer())
-    GetSizer()->Layout();
-
-  if (m_updateAllBtn)
-    m_updateAllBtn->Enable(true);
-  if (m_updateBtn)
-    m_updateBtn->Enable(true);
-
-  savePlaylistsToConfig();
-  RefreshPlaylistView();
-
-  // restore title
-  wxString appName = wxGetApp().GetAppName();
-  if (appName.IsEmpty())
-    appName = "IPTV Player";
-  SetTitle(appName);
-
-  // --- Очистка логотипов для всех обновлённых плейлистов ---
-  auto *mgr = getPlaylistManager();
-  if (mgr) {
-    for (const auto &plPtr : mgr->getPlaylists()) {
-      Playlist *pl = plPtr.get();
-      if (!pl)
-        continue;
-
-      std::vector<std::string> validNames;
-      validNames.reserve(pl->getChannelCount());
-      for (const auto &ch : pl->getChannels())
-        validNames.push_back(ch.getName());
-
-      IconManager::CleanupUnusedIcons(pl->getTitle(), validNames);
-
-      if (pl->getTitle() == m_loadedPlaylistName) {
-        m_playlistUpdated = true;
+  // Парсим строку с индексами
+  std::vector<int> successIndices;
+  if (!indicesStr.IsEmpty()) {
+    wxArrayString parts = wxSplit(indicesStr, ',');
+    for (const auto &p : parts) {
+      long val;
+      if (p.ToLong(&val)) {
+        successIndices.push_back(static_cast<int>(val));
       }
     }
   }
 
-  SetStatusText(wxString::Format("Updated %d playlists.", updated));
-  wxLogInfo("UpdateAll done: %d playlists updated", updated);
+  // Восстанавливаем UI
+  ResetUIAfterUpdate();
+
+  // Очистка логотипов для всех плейлистов
+  CleanupLogosForAllPlaylists();
+
+  // Перезагрузка, если текущий загруженный плейлист обновлён
+  bool reloaded = false;
+  auto *mgr = getPlaylistManager();
+  if (updated > 0 && m_loadedPlaylistIndex >= 0 && mgr) {
+    if (std::find(successIndices.begin(), successIndices.end(),
+                  m_loadedPlaylistIndex) != successIndices.end()) {
+      Playlist *pl =
+          mgr->getPlaylist(static_cast<size_t>(m_loadedPlaylistIndex));
+      reloaded = ReloadPlaylistIfCurrent(pl);
+    }
+  }
+
+  // Сообщение о результате
+  if (updated > 0) {
+    if (reloaded) {
+      SetStatusText(wxString::Format(
+                        "Updated %d playlists and reloaded current.", updated),
+                    0);
+    } else {
+      SetStatusText(wxString::Format("Updated %d playlists.", updated), 0);
+    }
+    SetStatusText("Update finished.", 1);
+    LOG_INFO("UpdateAll done: %d playlists updated", updated);
+  } else {
+    SetStatusText("No playlists updated.", 0);
+    SetStatusText("Update failed or no changes.", 1);
+    LOG_WARN("UpdateAll done: 0 playlists updated");
+  }
+
+  if (GetSizer())
+    GetSizer()->Layout();
+  Refresh();
 }
 
 void MainFrame::onUpdateOneDone(wxCommandEvent &ev) {
   if (IsBeingDeleted())
     return;
 
-  const int success = ev.GetInt();
+  const int status = ev.GetInt();
+  const int index = ev.GetExtraLong();
 
-  if (GetSizer())
-    GetSizer()->Layout();
+  // Восстанавливаем UI
+  ResetUIAfterUpdate();
 
-  if (m_updateBtn)
-    m_updateBtn->Enable(true);
-  if (m_updateAllBtn)
-    m_updateAllBtn->Enable(true);
-
-  savePlaylistsToConfig();
-  RefreshPlaylistView();
-
-  wxString appName = wxGetApp().GetAppName();
-  if (appName.IsEmpty())
-    appName = "IPTV Player";
-  SetTitle(appName);
-
-  // --- Очистка старых логотипов ---
+  // Очистка логотипов для выделенного плейлиста
   if (validatePlaylistSelection(false)) {
     auto *mgr = getPlaylistManager();
     if (mgr && m_selectedPlaylistIndex >= 0) {
       Playlist *pl =
           mgr->getPlaylist(static_cast<size_t>(m_selectedPlaylistIndex));
-      if (pl) {
-        std::vector<std::string> validNames;
-        validNames.reserve(pl->getChannelCount());
-        for (const auto &ch : pl->getChannels())
-          validNames.push_back(ch.getName());
-
-        IconManager::CleanupUnusedIcons(pl->getTitle(), validNames);
-
-        if (pl->getTitle() == m_loadedPlaylistName) {
-          m_playlistUpdated = true;
-        }
-      }
-
-      if (pl) {
-        const std::string playlist = pl->getTitle();
-
-        for (const auto &ch : pl->getChannels()) {
-          const std::string &name = ch.getName();
-
-          std::string markerPath = IconManager::GetIconPath(playlist, name);
-          if (markerPath.size() > 5)
-            markerPath =
-                markerPath.substr(0, markerPath.size() - 5) + ".marker";
-
-          wxString mpath = wxString::FromUTF8(markerPath);
-          if (wxFileExists(mpath)) {
-            wxRemoveFile(mpath);
-          }
-        }
-      }
+      CleanupLogosForPlaylist(pl);
     }
   }
 
-  // Попробуем получить имя обновлённого плейлиста (если доступно)
-  wxString playlistName = "-";
-  if (auto *mgr = getPlaylistManager()) {
-    if (m_selectedPlaylistIndex >= 0 &&
+  // Определяем обновлённый плейлист
+  auto *mgr = getPlaylistManager();
+  Playlist *updatedPl = nullptr;
+  if (mgr) {
+    if (index != -1 && index >= 0 &&
+        index < static_cast<int>(mgr->getPlaylists().size())) {
+      updatedPl = mgr->getPlaylist(static_cast<size_t>(index));
+    }
+    if (!updatedPl && m_selectedPlaylistIndex >= 0 &&
         m_selectedPlaylistIndex <
             static_cast<int>(mgr->getPlaylists().size())) {
-      Playlist *pl =
+      updatedPl =
           mgr->getPlaylist(static_cast<size_t>(m_selectedPlaylistIndex));
-      if (pl)
-        playlistName = wxString::FromUTF8(pl->getTitle());
     }
   }
 
-  if (success) {
-    SetStatusText(
-        wxString::Format("Playlist '%s' updated successfully.", playlistName),
-        0);
-    SetStatusText("Update finished.", 1);
-    wxLogInfo("UpdateOne done: playlist '%s' updated successfully",
-              playlistName);
-  } else {
-    SetStatusText(
-        wxString::Format("Playlist '%s' update failed.", playlistName), 0);
-    SetStatusText("Update failed.", 1);
-    wxLogError("UpdateOne failed for playlist '%s': %s", playlistName,
-               wxString::FromUTF8(getPlaylistManager()->getLastError()));
+  // Перезагрузка, если обновлён текущий загруженный плейлист
+  bool reloaded = false;
+  if (status != 0 && updatedPl) {
+    reloaded = ReloadPlaylistIfCurrent(updatedPl);
   }
+
+  // Сообщение о результате
+  wxString plName = GetPlaylistName(updatedPl);
+  if (status != 0) {
+    SetStatusText(
+        reloaded ? "Update finished and reloaded." : "Update finished.", 0);
+    SetStatusText(
+        wxString::Format("Playlist '%s' updated successfully.", plName), 1);
+    LOG_INFO("UpdateOne done: playlist '%s' updated successfully", plName);
+  } else {
+    SetStatusText("Update failed.", 0);
+    SetStatusText(wxString::Format("Playlist '%s' update failed.", plName), 1);
+    LOG_ERROR("UpdateOne failed for playlist '%s': %s", plName,
+              wxString::FromUTF8(getPlaylistManager()->getLastError()));
+  }
+
   if (GetSizer())
     GetSizer()->Layout();
   Refresh();

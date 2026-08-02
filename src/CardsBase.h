@@ -220,6 +220,8 @@ protected:
 
   void RenderTile(size_t index);
 
+  bool RemoveChannel(const std::string &name, const std::string &playlistName);
+
 private:
   wxBitmap CreateTileBackground(int w, int h);
   // --- DPI & Layout ---

@@ -32,7 +32,9 @@ wxThread::ExitCode UpdateOneThread::Entry()
         std::cerr << "UpdateOneThread unknown exception" << std::endl;
     }
 
-    postEvent(m_frame, EVT_UPDATE_ONE_DONE, ok ? 1 : 0);
+    postEvent(m_frame, EVT_UPDATE_ONE_DONE, ok ? 1 : 0,
+              static_cast<int>(m_idx));
+    
     return (wxThread::ExitCode)0;
 }
 

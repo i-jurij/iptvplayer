@@ -108,3 +108,9 @@ void ChannelCards::OnCardClick(size_t index, bool fav, const wxRect &rect) {
   if (m_onSelect)
     m_onSelect(ch, index, rect);
 }
+
+bool ChannelCards::RemoveChannel(const std::string &name,
+                                 const std::string &playlistName) {
+  // Вызываем базовый метод удаления
+  return CardsBase::RemoveChannel(name, playlistName);
+}

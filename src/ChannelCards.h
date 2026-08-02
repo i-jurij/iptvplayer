@@ -12,6 +12,8 @@ public:
   void SetChannels(const std::vector<Channel> &channels,
                    const std::string &playlistName);
 
+  bool RemoveChannel(const std::string &name, const std::string &playlistName);
+
 private:
   std::string m_playlistName;
 

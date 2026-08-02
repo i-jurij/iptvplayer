@@ -496,12 +496,17 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
     m_channelsHeader->SetLabel(header);
     LOG_DEBUG("RemoveChannelFromPlaylist: header updated");
 
-    // 3c) Обновляем карточки (если они есть) – просто инвалидируем и
-    // перерисовываем
+    // 3c) Удаляем карточку (если она есть)
     if (m_channelCards) {
-      m_channelCards->InvalidateAll();
-      m_channelCards->RefreshCards();
-      LOG_DEBUG("RemoveChannelFromPlaylist: cards refreshed");
+      bool removed =
+          m_channelCards->RemoveChannel(ch.getName(), ch.getPlaylistName());
+      if (removed) {
+        LOG_DEBUG("RemoveChannelFromPlaylist: card removed");
+      } else {
+        LOG_DEBUG("RemoveChannelFromPlaylist: card not found, fallback to full "
+                  "refresh");
+        m_channelCards->SetChannels(m_allChannels, m_loadedPlaylistName);
+      }
     }
   } else {
     // Если удаляем канал из другого плейлиста, обновляем только список

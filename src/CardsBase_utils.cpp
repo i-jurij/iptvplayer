@@ -468,3 +468,76 @@ void CardsBase::DebugInternalMemory() {
 }
 
 // --------------------------------------------
+
+bool CardsBase::RemoveChannel(const std::string &name,
+                              const std::string &playlistName) {
+  // Ищем канал
+  auto it = std::find_if(
+      m_channels.begin(), m_channels.end(), [&](const Channel &ch) {
+        return ch.getName() == name && ch.getPlaylistName() == playlistName;
+      });
+
+  if (it == m_channels.end())
+    return false;
+
+  size_t removedIndex = std::distance(m_channels.begin(), it);
+
+  // Удаляем канал из вектора
+  m_channels.erase(it);
+
+  // Перестраиваем кэш тайлов с учётом сдвига индексов
+  {
+    std::lock_guard<std::mutex> lock(m_cacheMutex);
+
+    // 1) Перестраиваем DPI-кэш
+    std::unordered_map<int,
+                       std::unordered_map<size_t, LogoCache::LogoBitmapPtr>>
+        newCache;
+    for (auto &dpiLayer : m_tileCacheDPI) {
+      for (auto &kv : dpiLayer.second) {
+        size_t oldIdx = kv.first;
+        if (oldIdx == removedIndex)
+          continue; // удалённый тайл пропускаем
+        size_t newIdx = (oldIdx > removedIndex) ? oldIdx - 1 : oldIdx;
+        newCache[dpiLayer.first][newIdx] = kv.second;
+      }
+    }
+    m_tileCacheDPI = std::move(newCache);
+
+    // 2) Перестраиваем LRU
+    std::list<size_t> newLRU;
+    for (size_t oldIdx : m_tileLRU) {
+      if (oldIdx == removedIndex)
+        continue;
+      size_t newIdx = (oldIdx > removedIndex) ? oldIdx - 1 : oldIdx;
+      newLRU.push_back(newIdx);
+    }
+    m_tileLRU = std::move(newLRU);
+
+    // 3) Перестраиваем m_tileLRUCache (аналогично)
+    std::unordered_map<size_t, LogoCache::LogoBitmapPtr> newLRUCache;
+    for (auto &kv : m_tileLRUCache) {
+      size_t oldIdx = kv.first;
+      if (oldIdx == removedIndex)
+        continue;
+      size_t newIdx = (oldIdx > removedIndex) ? oldIdx - 1 : oldIdx;
+      newLRUCache[newIdx] = kv.second;
+    }
+    m_tileLRUCache = std::move(newLRUCache);
+
+    // 4) m_scaledKeyToIndices можно очистить — он перестроится при WarmUpTiles
+    m_scaledKeyToIndices.clear();
+  }
+
+  // Обновляем макет (пересчитываем количество колонок и размеры)
+  UpdateLayout();
+  InitLRULimits();
+
+  // Перерисовываем всю сетку (без сброса скролла, т.к. виртуальный размер
+  // изменился)
+  Refresh();
+
+  LOG_DEBUG("CardsBase: Removed channel '%s' from playlist '%s' (index %zu)",
+            name.c_str(), playlistName.c_str(), removedIndex);
+  return true;
+}

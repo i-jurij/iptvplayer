@@ -615,8 +615,12 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
   wxMenu menu;
   int idProgramGuide = wxNewId();
   int idCopyUrl = wxNewId();
+  int idCopyName = wxNewId();
+  int idRemove = wxNewId();
   menu.Append(idProgramGuide, "Program Guide");
   menu.Append(idCopyUrl, "Copy URL");
+  menu.Append(idCopyName, "Copy Name");
+  menu.Append(idRemove, "Remove from playlist");
 
   wxPoint pos = evt.GetPosition();
   if (pos == wxDefaultPosition) {
@@ -641,6 +645,18 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
       wxTheClipboard->SetData(
           new wxTextDataObject(wxString::FromUTF8(m_channels[idx].getUrl())));
       wxTheClipboard->Close();
+    }
+  } else if (selection == idCopyName) {
+    if (wxTheClipboard->Open()) {
+      wxTheClipboard->SetData(
+          new wxTextDataObject(wxString::FromUTF8(m_channels[idx].getName())));
+      wxTheClipboard->Close();
+    }
+  } // --- Добавляем обработку удаления ---
+  else if (selection == idRemove) {
+    MainFrame *mf = GetMainFrame();
+    if (mf) {
+      mf->RemoveChannelFromPlaylist(m_channels[idx]);
     }
   }
 }
