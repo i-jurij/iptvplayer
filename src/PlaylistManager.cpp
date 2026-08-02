@@ -21,23 +21,18 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <sstream>
 #include <thread>
 
-// ------------------------------------------------------------------
-//  Helper: safe conversion from std::wstring (UTF‑16/UTF‑32) to UTF‑8
-// ------------------------------------------------------------------
 static std::string wstringToUtf8(const std::wstring &ws) {
   wxString tmp(ws);
   return std::string(tmp.ToUTF8().data());
 }
 
-// ------------------------------------------------------------------
-//  Helper: write callback for libcurl
-// ------------------------------------------------------------------
 static size_t WriteCallback(char *ptr, size_t size, size_t nmemb,
                             void *userdata) {
   std::string *out = static_cast<std::string *>(userdata);
@@ -45,18 +40,15 @@ static size_t WriteCallback(char *ptr, size_t size, size_t nmemb,
   return size * nmemb;
 }
 
-// ------------------------------------------------------------------
-//  PlaylistManager implementation
-// ------------------------------------------------------------------
 PlaylistManager::PlaylistManager(const std::string &configDir)
     : m_configDir(configDir) {
-  CurlGlobal::instance(); // гарантируем глобальную инициализацию
+  CurlGlobal::instance();
 }
 
-PlaylistManager::~PlaylistManager() {}
+PlaylistManager::~PlaylistManager() { WaitForAddFromUrl(); }
 
 void PlaylistManager::setError(const std::string &msg) const {
-  m_lastError = msg;
+  setLastError(msg);
 }
 
 bool PlaylistManager::readFile(const std::string &path,
@@ -65,14 +57,14 @@ bool PlaylistManager::readFile(const std::string &path,
   std::ifstream in(fsPath, std::ios::binary | std::ios::ate);
   if (!in) {
     std::string utf8Path(fsPath.u8string().begin(), fsPath.u8string().end());
-    setError("Cannot open file: " + utf8Path);
+    setLastError("Cannot open file: " + utf8Path);
     return false;
   }
 
   std::streamsize size = in.tellg();
   if (size < 0 || size > 50 * 1024 * 1024) {
     std::string utf8Path(fsPath.u8string().begin(), fsPath.u8string().end());
-    setError("File too large or invalid: " + utf8Path);
+    setLastError("File too large or invalid: " + utf8Path);
     return false;
   }
 
@@ -81,7 +73,7 @@ bool PlaylistManager::readFile(const std::string &path,
   outContent.resize(static_cast<size_t>(size));
   if (!in.read(&outContent[0], size)) {
     std::string utf8Path(fsPath.u8string().begin(), fsPath.u8string().end());
-    setError("Error reading file: " + utf8Path);
+    setLastError("Error reading file: " + utf8Path);
     return false;
   }
 
@@ -93,8 +85,6 @@ std::size_t PlaylistManager::size() const {
   return m_playlists.size();
 }
 
-// --- Копирование файла с уникальным именем ---
-// --- Копирование файла с уникальным именем ---
 std::string PlaylistManager::copyIntoConfigFolder(const std::string &srcPath) {
   namespace fs = std::filesystem;
   std::string baseDir = m_configDir;
@@ -125,7 +115,6 @@ std::string PlaylistManager::copyIntoConfigFolder(const std::string &srcPath) {
   return std::string(dest.u8string().begin(), dest.u8string().end());
 }
 
-// --- Загрузка по URL ---
 ErrorCode PlaylistManager::downloadUrl(const std::string &url,
                                        std::string &content,
                                        const std::string &userAgent) {
@@ -133,7 +122,7 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
 
   CurlSession sess;
   if (!sess.get()) {
-    setError("Failed to initialize CURL");
+    setLastError("Failed to initialize CURL");
     return ErrorCode::CurlInitError;
   }
 
@@ -154,24 +143,25 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
 
   CURLcode rc = curl_easy_perform(sess.get());
   if (rc != CURLE_OK) {
-    setError("CURL error: " + std::string(curl_easy_strerror(rc)));
+    setLastError("CURL error: " + std::string(curl_easy_strerror(rc)));
     return ErrorCode::NetworkError;
   }
 
   long http = 0;
   curl_easy_getinfo(sess.get(), CURLINFO_RESPONSE_CODE, &http);
   if (http != 200) {
-    setError("HTTP error: " + std::to_string(http));
+    setLastError("HTTP error: " + std::to_string(http));
     return ErrorCode::HttpError;
   }
 
   return ErrorCode::OK;
 }
 
-// --- Загрузка контента плейлиста ---
 ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
-  if (!playlist)
+  if (!playlist) {
+    setLastError("Invalid playlist pointer");
     return ErrorCode::InvalidIndex;
+  }
 
   std::string content;
   bool ok = playlist->isUrl()
@@ -184,7 +174,7 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
 
   auto result = m_parser.parse(content);
   if (!result.success) {
-    setError(result.error);
+    setLastError(result.error);
     return result.code;
   }
 
@@ -203,7 +193,6 @@ bool PlaylistManager::isDuplicate(const std::string & /*title*/,
   return false;
 }
 
-// --- Добавление плейлиста из файла ---
 ErrorCode PlaylistManager::addPlaylistFromFile(const std::wstring &filePathW,
                                                const std::wstring &titleW) {
   std::string srcPath = wstringToUtf8(filePathW);
@@ -221,27 +210,25 @@ ErrorCode PlaylistManager::addPlaylistFromFile(const std::wstring &filePathW,
 
   playlistTitle = normalizePlaylistTitle(playlistTitle);
 
-  if (isDuplicate(playlistTitle, srcPath)) {
-    m_lastError = std::string("Duplicate playlist: ") + playlistTitle +
-                  " from " + srcPath;
-    return ErrorCode::DUPLICATE;
-  }
-
   auto playlist = std::make_unique<Playlist>(playlistTitle, srcPath, false);
-
   ErrorCode ec = loadPlaylistContent(playlist.get());
   if (ec != ErrorCode::OK)
     return ec;
 
-  Playlist *rawPtr = playlist.get();
-
+  size_t newIndex = 0;
   {
     std::lock_guard<std::mutex> lock(m_playlistsMutex);
+    for (const auto &existing : m_playlists) {
+      if (existing->getSource() == srcPath) {
+        setLastError("Duplicate playlist: " + playlistTitle);
+        return ErrorCode::DUPLICATE;
+      }
+    }
     m_playlists.push_back(std::move(playlist));
+    newIndex = m_playlists.size() - 1;
   }
 
-  // NEW: save only this playlist
-  return savePlaylist(rawPtr);
+  return savePlaylist(nullptr, newIndex);
 }
 
 std::string
@@ -288,7 +275,6 @@ PlaylistManager::derivePlaylistTitleFromUrl(const std::string &url) const {
   return normalizePlaylistTitle(filename);
 }
 
-// --- Добавление плейлиста из URL ---
 ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
                                               std::string &title,
                                               const std::string &userAgent) {
@@ -296,48 +282,61 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
     title = derivePlaylistTitleFromUrl(url);
   }
 
-  if (isDuplicate(title, url)) {
-    m_lastError = std::string("Duplicate playlist: ") + title + " from " + url;
-    return ErrorCode::DUPLICATE;
-  }
-
   auto playlist = std::make_unique<Playlist>(title, url, true);
   playlist->setUserAgent(userAgent);
 
-  std::thread([this, pl = std::move(playlist)]() mutable {
-    ErrorCode ec = loadPlaylistContent(pl.get());
+  if (m_addFromUrlFuture.valid()) {
+    m_addFromUrlFuture.wait();
+  }
 
-    if (ec == ErrorCode::OK) {
-      Playlist *rawPtr = pl.get();
+  m_addFromUrlFuture = std::async(
+      std::launch::async, [this, pl = std::move(playlist)]() mutable {
+        ErrorCode ec = loadPlaylistContent(pl.get());
+        if (ec != ErrorCode::OK) {
+          setLastError("Failed to load playlist: " + getLastError());
+          wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED,
+                             ID_ADD_FROM_URL_ERROR);
+          evt.SetString(wxString::FromUTF8(getLastError()));
+          wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+          return;
+        }
 
-      {
-        std::lock_guard<std::mutex> lock(m_playlistsMutex);
-        m_lastError = std::string("Added playlist: ") + pl->getTitle() +
-                      " from " + pl->getSource();
-        m_playlists.push_back(std::move(pl));
-      }
+        size_t newIndex = 0;
+        {
+          std::lock_guard<std::mutex> lock(m_playlistsMutex);
+          for (const auto &existing : m_playlists) {
+            if (existing->getSource() == pl->getSource()) {
+              setLastError("Duplicate playlist: " + pl->getTitle());
+              wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED,
+                                 ID_ADD_FROM_URL_ERROR);
+              evt.SetString(wxString::FromUTF8(getLastError()));
+              wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+              return;
+            }
+          }
+          m_playlists.push_back(std::move(pl));
+          newIndex = m_playlists.size() - 1;
+        }
 
-      // NEW: save only this playlist
-      savePlaylist(rawPtr);
+        ec = savePlaylist(nullptr, newIndex);
+        if (ec != ErrorCode::OK) {
+          setLastError("Failed to save playlist: " + getLastError());
+          wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED,
+                             ID_ADD_FROM_URL_ERROR);
+          evt.SetString(wxString::FromUTF8(getLastError()));
+          wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+          return;
+        }
 
-      wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED, ID_ADD_FROM_URL_SUCCESS);
-      wxQueueEvent(static_cast<wxEvtHandler *>(wxTheApp->GetTopWindow()),
-                   evt.Clone());
-    } else {
-      m_lastError = "Failed to load playlist";
-      wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED, ID_ADD_FROM_URL_ERROR);
-      evt.SetString(wxString::FromUTF8(getLastError()));
-      wxQueueEvent(static_cast<wxEvtHandler *>(wxTheApp->GetTopWindow()),
-                   evt.Clone());
-    }
-  }).detach();
+        wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED,
+                           ID_ADD_FROM_URL_SUCCESS);
+        wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+      });
 
   return ErrorCode::OK;
 }
 
-// --- Обновление плейлиста ---
 ErrorCode PlaylistManager::updatePlaylist(size_t index) {
-  // 1) Скопировать минимальные метаданные под lock
   std::string src;
   std::string title;
   std::string userAgent;
@@ -345,58 +344,46 @@ ErrorCode PlaylistManager::updatePlaylist(size_t index) {
   {
     std::lock_guard<std::mutex> lock(m_playlistsMutex);
     if (index >= m_playlists.size()) {
-      setError("Invalid playlist index");
+      setLastError("Invalid playlist index");
       return ErrorCode::InvalidIndex;
     }
     Playlist *pl = m_playlists[index].get();
     if (!pl) {
-      setError("Null playlist pointer");
+      setLastError("Null playlist pointer");
       return ErrorCode::Unknown;
     }
     src = pl->getSource();
     title = pl->getTitle();
     userAgent = pl->getUserAgent();
     isUrl = pl->isUrl();
-  } // mutex освобождён
+  }
 
-  // 2) Создать временный плейлист и загрузить контент без lock'а
   Playlist tmp(title, src, isUrl);
   tmp.setUserAgent(userAgent);
   ErrorCode ec = loadPlaylistContent(&tmp);
   if (ec != ErrorCode::OK) {
-    // loadPlaylistContent уже установил m_lastError
     return ec;
   }
 
-  // 3) Под коротким lock'ом записать результат в реальный плейлист
-  size_t oldCnt = 0;
   {
     std::lock_guard<std::mutex> lock(m_playlistsMutex);
     if (index >= m_playlists.size()) {
-      setError("Invalid playlist index (after load)");
+      setLastError("Invalid playlist index (after load)");
       return ErrorCode::InvalidIndex;
     }
     Playlist *pl = m_playlists[index].get();
     if (!pl) {
-      setError("Null playlist pointer (after load)");
+      setLastError("Null playlist pointer (after load)");
       return ErrorCode::Unknown;
     }
-    oldCnt = pl->getChannelCount();
     pl->setChannels(tmp.getChannels());
     pl->setLastUpdate(tmp.getLastUpdate());
   }
 
-  std::cout << "Updated playlist: " << title << " (channels: " << oldCnt
-            << " -> " << tmp.getChannelCount() << ")" << std::endl;
-
-  // 4) Сохраняем плейлист (savePlaylist использует файловые операции)
-  Playlist *plToSave = getPlaylist(static_cast<int>(index));
-  return savePlaylist(plToSave);
+  return savePlaylist(nullptr, index);
 }
 
-// --- Обновление всех URL-плейлистов ---
 int PlaylistManager::updateUrlPlaylists() {
-  // Собираем индексы под lock, затем обновляем без удержания глобального lock
   std::vector<size_t> indices;
   {
     std::lock_guard<std::mutex> lock(m_playlistsMutex);
@@ -412,11 +399,9 @@ int PlaylistManager::updateUrlPlaylists() {
       ++updated;
   }
 
-  std::cout << "Updated " << updated << " URL-based playlists" << std::endl;
   return updated;
 }
 
-// --- Автообновление плейлистов ---
 int PlaylistManager::updateAutoUpdatePlaylists() {
   std::vector<size_t> indices;
   {
@@ -433,11 +418,9 @@ int PlaylistManager::updateAutoUpdatePlaylists() {
       ++updated;
   }
 
-  std::cout << "Auto-updated " << updated << " playlists" << std::endl;
   return updated;
 }
 
-// --- Удаление плейлиста ---
 ErrorCode PlaylistManager::removePlaylist(size_t index) {
   return removePlaylist(index, false);
 }
@@ -445,13 +428,13 @@ ErrorCode PlaylistManager::removePlaylist(size_t index) {
 ErrorCode PlaylistManager::removePlaylist(size_t index, bool removeSource) {
   std::lock_guard<std::mutex> lock(m_playlistsMutex);
   if (index >= m_playlists.size()) {
-    setError("Invalid playlist index");
+    setLastError("Invalid playlist index");
     return ErrorCode::InvalidIndex;
   }
 
   Playlist *pl = m_playlists[index].get();
   if (!pl) {
-    setError("Null playlist pointer");
+    setLastError("Null playlist pointer");
     return ErrorCode::Unknown;
   }
 
@@ -482,20 +465,14 @@ ErrorCode PlaylistManager::removePlaylist(size_t index, bool removeSource) {
 
   m_playlists.erase(m_playlists.begin() + index);
 
-  std::cout << "Removed playlist: " << title
-            << (removeSource && !pl->isUrl() ? " (source deleted)"
-                                             : " (source kept)")
-            << std::endl;
-
   return ErrorCode::OK;
 }
 
-// --- Экспорт плейлиста ---
 ErrorCode PlaylistManager::exportPlaylist(size_t index,
                                           const std::string &outputPath) {
   std::lock_guard<std::mutex> lock(m_playlistsMutex);
   if (index >= m_playlists.size()) {
-    setError("Invalid playlist index");
+    setLastError("Invalid playlist index");
     return ErrorCode::InvalidIndex;
   }
 
@@ -504,69 +481,94 @@ ErrorCode PlaylistManager::exportPlaylist(size_t index,
 
   std::ofstream out(outputPath);
   if (!out.is_open()) {
-    setError("Cannot create file: " + outputPath);
+    setLastError("Cannot create file: " + outputPath);
     return ErrorCode::FileNotFound;
   }
 
   out << m3u;
   out.close();
 
-  std::cout << "Exported playlist to: " << outputPath << std::endl;
   return ErrorCode::OK;
 }
 
-// --- Редактирование плейлиста ---
 ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
                                         const std::string &source,
                                         const std::string &userAgent,
                                         bool autoUpdate) {
-  std::lock_guard<std::mutex> lock(m_playlistsMutex);
-  if (index >= m_playlists.size()) {
-    setError("Invalid playlist index");
-    return ErrorCode::InvalidIndex;
+  bool sourceChanged = false;
+  {
+    std::lock_guard<std::mutex> lock(m_playlistsMutex);
+    if (index >= m_playlists.size()) {
+      setLastError("Invalid playlist index");
+      return ErrorCode::InvalidIndex;
+    }
+    Playlist *pl = m_playlists[index].get();
+    if (!pl) {
+      setLastError("Null playlist pointer");
+      return ErrorCode::Unknown;
+    }
+    sourceChanged = (pl->getSource() != source);
+    pl->setTitle(title);
+    pl->setSource(source);
+    pl->setUserAgent(userAgent);
+    pl->setAutoUpdate(autoUpdate);
   }
-
-  Playlist *pl = m_playlists[index].get();
-  bool sourceChanged = (pl->getSource() != source);
-
-  pl->setTitle(title);
-  pl->setSource(source);
-  pl->setUserAgent(userAgent);
-  pl->setAutoUpdate(autoUpdate);
 
   if (sourceChanged) {
-    ErrorCode ec = loadPlaylistContent(pl);
+    Playlist tmp(title, source, true);
+    tmp.setUserAgent(userAgent);
+    ErrorCode ec = loadPlaylistContent(&tmp);
     if (ec != ErrorCode::OK)
       return ec;
+    {
+      std::lock_guard<std::mutex> lock(m_playlistsMutex);
+      if (index >= m_playlists.size()) {
+        setLastError("Invalid playlist index (after load)");
+        return ErrorCode::InvalidIndex;
+      }
+      Playlist *pl = m_playlists[index].get();
+      if (pl) {
+        pl->setChannels(tmp.getChannels());
+        pl->setLastUpdate(tmp.getLastUpdate());
+      }
+    }
   }
 
-  std::cout << "Edited playlist: " << title << std::endl;
-
-  return savePlaylist(pl);
+  return savePlaylist(nullptr, index);
 }
 
-// --- Доступ к плейлисту ---
 Playlist *PlaylistManager::getPlaylist(std::size_t idx) {
   std::lock_guard<std::mutex> lock(m_playlistsMutex);
-
   if (idx >= m_playlists.size())
     return nullptr;
-
   return m_playlists[idx].get();
 }
 
-// PlaylistManager::savePlaylist
-ErrorCode PlaylistManager::savePlaylist(const Playlist *pl) const {
-  if (!pl)
-    return ErrorCode::InvalidIndex;
+ErrorCode PlaylistManager::savePlaylist(const Playlist *pl, size_t idx) const {
+  if (idx != (size_t)-1) {
+    std::lock_guard<std::mutex> lock(m_playlistsMutex);
+    if (idx >= m_playlists.size()) {
+      setLastError("Invalid playlist index");
+      return ErrorCode::InvalidIndex;
+    }
+    pl = m_playlists[idx].get();
+    if (!pl) {
+      setLastError("Null playlist pointer");
+      return ErrorCode::Unknown;
+    }
+  } else {
+    if (!pl) {
+      setLastError("Null playlist pointer");
+      return ErrorCode::Unknown;
+    }
+  }
 
   namespace fs = std::filesystem;
   fs::path dir = fs::path(m_configDir) / "playlists";
-
   std::error_code ec;
   fs::create_directories(dir, ec);
   if (ec) {
-    setError(std::string("Cannot create playlists directory: ") + ec.message());
+    setLastError("Cannot create playlists directory: " + ec.message());
     return ErrorCode::FileNotFound;
   }
 
@@ -577,15 +579,14 @@ ErrorCode PlaylistManager::savePlaylist(const Playlist *pl) const {
   try {
     json = pl->toJson();
   } catch (const std::exception &ex) {
-    setError(std::string("Serialization failed: ") + ex.what());
+    setLastError("Serialization failed: " + std::string(ex.what()));
     return ErrorCode::Unknown;
   } catch (...) {
-    setError("Serialization failed: unknown error");
+    setLastError("Serialization failed: unknown error");
     return ErrorCode::Unknown;
   }
 
   if (!atomicWrite(filePath.string(), json)) {
-    // atomicWrite already set a detailed error message
     return ErrorCode::Unknown;
   }
 
@@ -594,21 +595,17 @@ ErrorCode PlaylistManager::savePlaylist(const Playlist *pl) const {
 
 ErrorCode PlaylistManager::savePlaylists() const {
   std::lock_guard<std::mutex> lock(m_playlistsMutex);
-
   for (const auto &pl : m_playlists) {
     ErrorCode ec = savePlaylist(pl.get());
     if (ec != ErrorCode::OK)
       return ec;
   }
-
   return ErrorCode::OK;
 }
 
-// --- Загрузка плейлистов из отдельных JSON-файлов ---
-// --- Загрузка плейлистов из отдельных JSON-файлов ---
 ErrorCode PlaylistManager::loadPlaylists() {
   namespace fs = std::filesystem;
-
+  std::lock_guard<std::mutex> lock(m_playlistsMutex);
   try {
     fs::path dir = fs::path(m_configDir) / "playlists";
 
@@ -620,7 +617,6 @@ ErrorCode PlaylistManager::loadPlaylists() {
     m_playlists.clear();
 
     for (const auto &entry : fs::directory_iterator(dir)) {
-
       if (!entry.is_regular_file() || entry.path().extension() != ".json")
         continue;
 
@@ -656,9 +652,6 @@ ErrorCode PlaylistManager::loadPlaylists() {
           continue;
         }
 
-        // --- NEW: don't load content from source here to avoid network calls
-        // при старте. Мы доверяем сохранённому JSON и загрузим/обновим только
-        // помеченные autoUpdate URL-плейлисты позже в фоне.
         m_playlists.push_back(std::move(pl));
       } catch (const std::exception &e) {
         std::cerr << "Exception while loading playlist file " << entry.path()
@@ -671,9 +664,6 @@ ErrorCode PlaylistManager::loadPlaylists() {
       }
     }
 
-    std::cout << "Loaded " << m_playlists.size() << " playlists from files"
-              << std::endl;
-
     return ErrorCode::OK;
   } catch (const std::exception &e) {
     std::cerr << "loadPlaylists fatal exception: " << e.what() << std::endl;
@@ -684,7 +674,6 @@ ErrorCode PlaylistManager::loadPlaylists() {
   }
 }
 
-// --- Методы поиска ---
 Playlist *PlaylistManager::findByTitle(const std::string &title) {
   std::lock_guard<std::mutex> lock(m_playlistsMutex);
   for (auto &pl : m_playlists) {
@@ -714,7 +703,6 @@ void PlaylistManager::clearAll() {
   m_playlists.clear();
 }
 
-// --- Генерация имени файла для плейлиста ---
 std::string
 PlaylistManager::makePlaylistFileName(const std::string &title) const {
   std::string base =
@@ -722,11 +710,8 @@ PlaylistManager::makePlaylistFileName(const std::string &title) const {
   return base + ".json";
 }
 
-// PlaylistManager::normalizePlaylistTitle
 std::string
 PlaylistManager::normalizePlaylistTitle(const std::string &rawTitle) const {
-  // Backwards-compatible wrapper that uses the shared utils normalizer,
-  // but preserves previous timestamp fallback behavior.
   std::string safe = rawTitle;
   if (safe.empty()) {
     auto now = std::chrono::system_clock::now();
@@ -756,8 +741,8 @@ bool PlaylistManager::atomicWrite(const std::string &path,
 
   fs::create_directories(dir, ec);
   if (ec) {
-    setError(std::string("atomicWrite: create_directories failed: ") +
-             ec.message());
+    setLastError(std::string("atomicWrite: create_directories failed: ") +
+                 ec.message());
     return false;
   }
 
@@ -768,8 +753,9 @@ bool PlaylistManager::atomicWrite(const std::string &path,
 
   FILE *fp = std::fopen(tmpName.c_str(), "wb");
   if (!fp) {
-    setError(std::string("atomicWrite: cannot open temp file for writing: ") +
-             tmpName);
+    setLastError(
+        std::string("atomicWrite: cannot open temp file for writing: ") +
+        tmpName);
     return false;
   }
 
@@ -777,7 +763,7 @@ bool PlaylistManager::atomicWrite(const std::string &path,
   if (fflush(fp) != 0) {
     std::fclose(fp);
     std::remove(tmpName.c_str());
-    setError("atomicWrite: fflush failed");
+    setLastError("atomicWrite: fflush failed");
     return false;
   }
 
@@ -785,13 +771,13 @@ bool PlaylistManager::atomicWrite(const std::string &path,
   if (h == INVALID_HANDLE_VALUE) {
     std::fclose(fp);
     std::remove(tmpName.c_str());
-    setError("atomicWrite: invalid file handle");
+    setLastError("atomicWrite: invalid file handle");
     return false;
   }
   if (!FlushFileBuffers(h)) {
     std::fclose(fp);
     std::remove(tmpName.c_str());
-    setError("atomicWrite: FlushFileBuffers failed");
+    setLastError("atomicWrite: FlushFileBuffers failed");
     return false;
   }
 
@@ -799,15 +785,15 @@ bool PlaylistManager::atomicWrite(const std::string &path,
 
   if (written != data.size()) {
     std::remove(tmpName.c_str());
-    setError("atomicWrite: failed to write all data to temp file");
+    setLastError("atomicWrite: failed to write all data to temp file");
     return false;
   }
 
   if (!MoveFileExA(tmpName.c_str(), target.string().c_str(),
                    MOVEFILE_REPLACE_EXISTING)) {
     std::remove(tmpName.c_str());
-    setError(std::string("atomicWrite: MoveFileExA failed, error=") +
-             std::to_string(GetLastError()));
+    setLastError(std::string("atomicWrite: MoveFileExA failed, error=") +
+                 std::to_string(GetLastError()));
     return false;
   }
 
@@ -820,7 +806,8 @@ bool PlaylistManager::atomicWrite(const std::string &path,
 
   int fd = mkstemp(tmplBuf.data());
   if (fd == -1) {
-    setError(std::string("atomicWrite: mkstemp failed: ") + ::strerror(errno));
+    setLastError(std::string("atomicWrite: mkstemp failed: ") +
+                 ::strerror(errno));
     return false;
   }
 
@@ -832,7 +819,8 @@ bool PlaylistManager::atomicWrite(const std::string &path,
       int err = errno;
       ::close(fd);
       ::unlink(tmplBuf.data());
-      setError(std::string("atomicWrite: write failed: ") + ::strerror(err));
+      setLastError(std::string("atomicWrite: write failed: ") +
+                   ::strerror(err));
       return false;
     }
     remaining -= static_cast<size_t>(w);
@@ -843,7 +831,7 @@ bool PlaylistManager::atomicWrite(const std::string &path,
     int err = errno;
     ::close(fd);
     ::unlink(tmplBuf.data());
-    setError(std::string("atomicWrite: fsync failed: ") + ::strerror(err));
+    setLastError(std::string("atomicWrite: fsync failed: ") + ::strerror(err));
     return false;
   }
 
@@ -852,10 +840,26 @@ bool PlaylistManager::atomicWrite(const std::string &path,
   if (std::rename(tmplBuf.data(), target.string().c_str()) != 0) {
     int err = errno;
     ::unlink(tmplBuf.data());
-    setError(std::string("atomicWrite: rename failed: ") + ::strerror(err));
+    setLastError(std::string("atomicWrite: rename failed: ") + ::strerror(err));
     return false;
   }
 
   return true;
 #endif
+}
+
+std::string PlaylistManager::getLastError() const {
+  std::lock_guard<std::mutex> lock(m_lastErrorMutex);
+  return m_lastError;
+}
+
+void PlaylistManager::setLastError(const std::string &msg) const {
+  std::lock_guard<std::mutex> lock(m_lastErrorMutex);
+  m_lastError = msg;
+}
+
+void PlaylistManager::WaitForAddFromUrl() {
+  if (m_addFromUrlFuture.valid()) {
+    m_addFromUrlFuture.wait();
+  }
 }
