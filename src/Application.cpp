@@ -76,6 +76,7 @@ Application::Application() {
     wxFileName::Mkdir(cacheDir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
   }
   m_epgManager->SetCachePath(cacheDir.ToUTF8().data());
+  m_epgTimer = new wxTimer(this);
 
   // init UI
   m_guiManager = std::make_unique<GUIManager>();
@@ -91,9 +92,14 @@ Application::~Application() {
     }
   }
 
+  if (m_epgTimer) {
+    m_epgTimer->Stop();
+    delete m_epgTimer; 
+    m_epgTimer = nullptr;
+  }
+
   if (m_epgManager) {
     m_epgManager->SaveToCache();
-    m_epgTimer->Stop();
   }
 }
 
@@ -182,19 +188,22 @@ bool Application::start() {
   if (m_epgManager) {
     m_epgManager->LoadFromCache();
     if (m_epgManager->IsAutoUpdateEnabled()) {
-      // Инициализация таймера (перенесена из конструктора)
-      m_epgTimer->SetOwner(this);
-      Bind(wxEVT_TIMER, &Application::OnEpgTimer, this, m_epgTimer->GetId());
+      if (m_epgTimer) { // проверка
+        m_epgTimer->SetOwner(this);
+        Bind(wxEVT_TIMER, &Application::OnEpgTimer, this, m_epgTimer->GetId());
 
-      int intervalHours = m_epgManager->GetUpdateIntervalHours();
-      if (intervalHours < 1)
-        intervalHours = 1;
-      
-      long intervalMs = intervalHours * 3600 * 1000;
-      m_epgTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
-      LOG_DEBUG(
-          "Application: EPG auto-update timer started (interval %d hours)",
-          intervalHours);
+        int intervalHours = m_epgManager->GetUpdateIntervalHours();
+        if (intervalHours < 1)
+          intervalHours = 1;
+
+        long intervalMs = intervalHours * 3600 * 1000;
+        m_epgTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
+        LOG_DEBUG(
+            "Application: EPG auto-update timer started (interval %d hours)",
+            intervalHours);
+      } else {
+        LOG_ERROR("Application: m_epgTimer is null, cannot start timer");
+      }
     }
   }
 
@@ -203,8 +212,10 @@ bool Application::start() {
 }
 
 int Application::OnExit() {
-  m_epgTimer->Stop();
-  return 0;
+  if (m_epgTimer) {
+    m_epgTimer->Stop();
+  }
+  return wxApp::OnExit();
 }
 
 PlaylistManager *Application::getPlaylistManager() const noexcept {
