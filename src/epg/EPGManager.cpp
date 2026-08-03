@@ -223,21 +223,23 @@ void EPGManager::WaitForRefresh() {
 }
 
 void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels) {
-  {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    
+    // Полная перестройка маппинга на основе переданных каналов
     m_channelMapping.clear();
+    
     for (const auto &ch : playlistChannels) {
-      std::string tvgId = ch.getTvgId();
-      if (tvgId.empty())
-        continue;
-      auto it = m_channels.find(tvgId);
-      if (it != m_channels.end()) {
-        m_channelMapping[tvgId] = tvgId;
-      }
+        std::string tvgId = ch.getTvgId();
+        if (tvgId.empty())
+            continue;
+        auto it = m_channels.find(tvgId);
+        if (it != m_channels.end()) {
+            m_channelMapping[tvgId] = tvgId;
+        }
     }
+    
     LOG_DEBUG("EPGManager: Matched %zu channels", m_channelMapping.size());
-  }
-  SaveToCache();
+    SaveToCache();
 }
 
 EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {

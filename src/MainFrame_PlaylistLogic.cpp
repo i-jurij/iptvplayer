@@ -150,16 +150,31 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
   if (m_epgPanel) {
     m_epgPanel->SetChannels(channels);
   }
-  
+
   // --- EPG INTEGRATION ---
-  // Сопоставление каналов с EPG и обновление колонки "Program" в списке
+  // --- Создание объединённого списка для маппинга ---
+  std::vector<Channel> unionChannels = channels; // копия каналов плейлиста
+
+  // Добавляем избранные каналы (уникальные по tvgId, чтобы избежать дублей)
+  auto favChannels = m_application->getFavoritesManager().list();
+  for (const auto &fav : favChannels) {
+    if (fav.getTvgId().empty())
+      continue;
+    // Проверяем, нет ли уже такого tvgId в unionChannels
+    bool exists = std::any_of(
+        unionChannels.begin(), unionChannels.end(),
+        [&fav](const Channel &ch) { return ch.getTvgId() == fav.getTvgId(); });
+    if (!exists) {
+      unionChannels.push_back(fav);
+    }
+  }
+
+  // --- Использование unionChannels для маппинга ---
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
     EPGManager *epg = app->GetEPGManager();
     if (epg && epg->IsLoaded()) {
-      // Сопоставляем каналы из текущего плейлиста с EPG-данными
-      epg->MatchChannels(channels);
-      // Обновляем колонку "Program" в списке каналов (если он активен)
+      epg->MatchChannels(unionChannels); // передаём объединённый список
       if (m_channelList) {
         m_channelList->RefreshProgramColumn();
       }
