@@ -527,6 +527,7 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   // 4) Есть программы – заполняем список, статус очищаем
   ClearStatus();
+  SaveState();
 
   wxDateTime dt(date);
   m_dateLabel->SetLabel(dt.Format("%A, %d %B %Y"));

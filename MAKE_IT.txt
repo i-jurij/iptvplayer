@@ -7,79 +7,571 @@ lokalize app
 при аварийном завершении остаются как минимум лого в кеше приложения
 от несуществующих плейлистов - добавить проверку на ненужные больше лого?
 ===========================================
-На основе анализа всего предоставленного кода EPG-системы выявлены следующие ключевые недоработки (в порядке приоритета):
+## Финальный код сопоставления каналов и EPG
 
----
-## Пошаговый план реализации EPG-системы
+Все изменения локализованы в файлах `EPGManager.h` и `EPGManager.cpp`.
 
-### Этап 1. Базовые фиксы (необходимы для работы)
+### 1. EPGManager.h – добавить/изменить
 
-**Шаг 1. Подключить список каналов в EPGPanel**
-- В `MainFrame::loadPlaylistChannels`, после применения фильтров, вызвать `m_epgPanel->SetChannels(channels)`.
-- Это обеспечит отображение каналов в левой панели EPG.
+**В секцию `public` (после объявления класса):**
 
-**Шаг 2. Обновлять EPGPanel при получении новых EPG-данных**
-- В обработчике `MainFrame::OnEPGUpdated` (или в `EPGPanel::OnEPGUpdated`) перезагрузить программы для текущего выбранного канала.
-- Если канал ещё не выбран – показывать пустой список.
+```cpp
+struct MatchResult {
+    std::string channelId;
+    std::string method;      // "manual", "exact_name", "token_sort", "fuzzy", "substring", "exact_tvgid_fallback"
+    int score = 0;
+    std::string confidence;  // "high", "medium", "low"
+};
 
-**Шаг 3. Добавить индикацию активности в EPGPanel**
-- Разместить `wxActivityIndicator` в панели EPG (например, справа от кнопки Refresh).
-- Включить анимацию перед вызовом `m_epgManager->Refresh()`.
-- Остановить анимацию по событию `EVT_EPG_UPDATED` (успех или ошибка).
+MatchResult FindBestMatch(const Channel& playlistChannel) const;
+void SetManualMapping(const std::string& tvgId, const std::string& epgId);
+std::vector<EpgProgram> GetProgramsForChannel(const std::string& tvgId, const std::string& channelName, time_t date) const;
 
----
+void LoadRegionalSuffixes(const std::string& path);
+void SetRegionalSuffixes(const std::vector<std::string>& suffixes);
+```
 
-### Этап 2. Автоматизация обновления
+**В секцию `private` добавить:**
 
-**Шаг 4. Запускать обновление EPG при старте приложения**
-- В `Application::start`, после `LoadFromCache()`, вызвать `m_epgManager->Refresh()`.
-- Это загрузит свежие данные (если есть источники) сразу после запуска.
+```cpp
+struct NormalizedChannel {
+    std::string id;
+    std::string normalizedName;
+    std::vector<std::string> tokens;
+};
 
-**Шаг 5. Перезапускать таймер автообновления при изменении настроек**
-- В `Application` добавить метод `RestartEpgTimer()`, который останавливает старый таймер и запускает новый с интервалом, считанным из `EPGManager`.
-- Вызывать этот метод:
-  - в `Application::start` (для первоначального запуска),
-  - после сохранения настроек в `SettingsDialog::SaveEPGSettings`.
+std::vector<NormalizedChannel> m_normalizedCache;
+std::unordered_map<std::string, std::string> m_manualMapping; // tvgId -> epgId
+std::vector<std::string> m_regionalSuffixes;
 
----
-
-### Этап 3. Синхронизация с удалением плейлистов
-
-**Шаг 6. Очищать EPG-сопоставления при удалении плейлиста**
-- В `MainFrame::onRemovePlaylist`, перед удалением плейлиста, пройти по его каналам и для каждого вызвать `EPGManager::RemoveChannelMapping(tvgId)`.
-- Альтернатива: добавить в `EPGManager` метод `RemovePlaylistMapping(playlistName)`, который ищет все сопоставления по `playlistName` и удаляет их.
-
----
-
-### Этап 4. Улучшение сопоставления каналов
-
-**Шаг 7. Реализовать fallback-сопоставление по имени канала**
-- В `EPGManager::MatchChannels`, если канал не нашёлся по `tvgId`, попробовать сопоставить по нормализованному названию (например, привести к нижнему регистру, удалить спецсимволы, убрать "(HD)" и т.п.).
-- Для этого в EPG-данных также использовать `displayName` для сравнения.
+void RebuildNormalizedCache();
+void NormalizeTvgId(std::string& id) const;
+std::string NormalizeName(const std::string& name) const;
+std::vector<std::string> Tokenize(const std::string& name) const;
+int LevenshteinDistance(const std::string& s1, const std::string& s2) const;
+int CalculateNameScore(const std::string& name1, const std::string& name2) const;
+void InitializeDefaultRegionalSuffixes();
+```
 
 ---
 
-### Этап 5. Улучшение пользовательского опыта
+### 2. EPGManager.cpp – новые/изменённые методы
 
-**Шаг 8. Добавить поиск по программам в EPGPanel**
-- Разместить поле `wxTextCtrl` над списком программ для фильтрации по названию.
-- По мере ввода текста фильтровать список `m_programList` (показывать только программы, содержащие подстроку в названии).
+#### 2.1. Конструктор – инициализация базовых суффиксов
 
-**Шаг 9. Сохранять состояние EPGPanel между переключениями вкладок**
-- В `EPGPanel` хранить `m_lastChannelId` и `m_lastDate` (например, в статических переменных или через сохранение в конфиг).
-- При повторном показе панели (в `HandleEpgPageChanged`) восстанавливать выбранный канал и дату, перезагружая программы.
+**Контекст:** в конструкторе `EPGManager`, после `LoadSourcesFromConfig();` добавить:
+
+```cpp
+EPGManager::EPGManager(ConfigManager *configManager,
+                       PlaylistManager *playlistManager)
+    : m_configManager(configManager), m_playlistManager(playlistManager) {
+    LoadSourcesFromConfig();
+    InitializeDefaultRegionalSuffixes();
+}
+```
+
+#### 2.2. `InitializeDefaultRegionalSuffixes`
+
+```cpp
+void EPGManager::InitializeDefaultRegionalSuffixes() {
+    m_regionalSuffixes = {
+        "(us)", "(uk)", "(ca)", "(au)", "(nz)", "(ie)",
+        "us", "uk", "ca", "au", "nz", "ie",
+        "(de)", "(fr)", "(es)", "(it)", "(pt)", "(nl)", "(be)",
+        "de", "fr", "es", "it", "pt", "nl", "be",
+        "(ru)", "(ua)", "(by)", "(kz)",
+        "ru", "ua", "by", "kz",
+        "(jp)", "(kr)", "(cn)", "(tw)", "(hk)",
+        "jp", "kr", "cn", "tw", "hk"
+    };
+}
+```
+
+#### 2.3. `LoadRegionalSuffixes` и `SetRegionalSuffixes`
+
+```cpp
+void EPGManager::LoadRegionalSuffixes(const std::string& path) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        LOG_DEBUG("EPGManager: Regional suffixes file not found, using defaults");
+        InitializeDefaultRegionalSuffixes();
+        return;
+    }
+
+    std::string json((std::istreambuf_iterator<char>(file)),
+                     std::istreambuf_iterator<char>());
+    file.close();
+
+    rapidjson::Document doc;
+    if (doc.Parse(json.c_str()).HasParseError() || !doc.IsArray()) {
+        LOG_WARN("EPGManager: Failed to parse regional_suffixes.json, using defaults");
+        InitializeDefaultRegionalSuffixes();
+        return;
+    }
+
+    m_regionalSuffixes.clear();
+    for (const auto& item : doc.GetArray()) {
+        if (item.IsString()) {
+            m_regionalSuffixes.push_back(item.GetString());
+        }
+    }
+
+    if (m_regionalSuffixes.empty()) {
+        LOG_WARN("EPGManager: regional_suffixes.json is empty, using defaults");
+        InitializeDefaultRegionalSuffixes();
+    } else {
+        LOG_DEBUG("EPGManager: Loaded %zu regional suffixes", m_regionalSuffixes.size());
+    }
+}
+
+void EPGManager::SetRegionalSuffixes(const std::vector<std::string>& suffixes) {
+    m_regionalSuffixes = suffixes;
+}
+```
+
+#### 2.4. `NormalizeTvgId`
+
+```cpp
+void EPGManager::NormalizeTvgId(std::string& id) const {
+    std::transform(id.begin(), id.end(), id.begin(), ::tolower);
+    id.erase(std::remove(id.begin(), id.end(), '.'), id.end());
+    id.erase(std::remove(id.begin(), id.end(), ' '), id.end());
+    id.erase(std::remove(id.begin(), id.end(), '_'), id.end());
+}
+```
+
+#### 2.5. `NormalizeName` (с использованием загруженных суффиксов)
+
+```cpp
+std::string EPGManager::NormalizeName(const std::string& name) const {
+    std::string result = name;
+    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+
+    // Удаляем суффиксы качества
+    const std::vector<std::string> qualitySuffixes = {
+        "(hd)", "(fhd)", "(4k)", "(uhd)", "(sd)",
+        "hd", "fhd", "4k", "uhd", "sd",
+        "[hd]", "[fhd]", "[4k]", "[uhd]", "[sd]"
+    };
+    for (const auto& suffix : qualitySuffixes) {
+        size_t pos = result.rfind(suffix);
+        if (pos != std::string::npos && pos + suffix.length() == result.length()) {
+            result = result.substr(0, pos);
+            while (!result.empty() && result.back() == ' ')
+                result.pop_back();
+            break;
+        }
+    }
+
+    // Удаляем региональные суффиксы (из конфига или дефолтные)
+    for (const auto& suffix : m_regionalSuffixes) {
+        size_t pos = result.rfind(suffix);
+        if (pos != std::string::npos && pos + suffix.length() == result.length()) {
+            result = result.substr(0, pos);
+            while (!result.empty() && result.back() == ' ')
+                result.pop_back();
+            break;
+        }
+    }
+
+    // Заменяем & на and
+    size_t pos = result.find('&');
+    while (pos != std::string::npos) {
+        result.replace(pos, 1, "and");
+        pos = result.find('&', pos + 3);
+    }
+
+    // Удаляем лишние пробелы
+    result.erase(std::unique(result.begin(), result.end(),
+        [](char a, char b) { return a == ' ' && b == ' '; }), result.end());
+
+    // Удаляем пунктуацию (кроме +)
+    result.erase(std::remove_if(result.begin(), result.end(),
+        [](char c) { return std::ispunct(c) && c != '+'; }), result.end());
+
+    return result;
+}
+```
+
+#### 2.6. `Tokenize`
+
+```cpp
+std::vector<std::string> EPGManager::Tokenize(const std::string& name) const {
+    std::vector<std::string> tokens;
+    std::string token;
+    for (char c : name) {
+        if (c == ' ') {
+            if (!token.empty()) {
+                tokens.push_back(token);
+                token.clear();
+            }
+        } else {
+            token += c;
+        }
+    }
+    if (!token.empty()) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+```
+
+#### 2.7. `LevenshteinDistance`
+
+```cpp
+int EPGManager::LevenshteinDistance(const std::string& s1, const std::string& s2) const {
+    const size_t m = s1.size();
+    const size_t n = s2.size();
+    if (m == 0) return static_cast<int>(n);
+    if (n == 0) return static_cast<int>(m);
+    std::vector<int> v0(n+1), v1(n+1);
+    for (size_t i = 0; i <= n; ++i) v0[i] = static_cast<int>(i);
+    for (size_t i = 0; i < m; ++i) {
+        v1[0] = static_cast<int>(i + 1);
+        for (size_t j = 0; j < n; ++j) {
+            int cost = (s1[i] == s2[j]) ? 0 : 1;
+            v1[j+1] = std::min({v1[j] + 1, v0[j+1] + 1, v0[j] + cost});
+        }
+        v0.swap(v1);
+    }
+    return v0[n];
+}
+```
+
+#### 2.8. `CalculateNameScore`
+
+```cpp
+int EPGManager::CalculateNameScore(const std::string& name1, const std::string& name2) const {
+    if (name1.empty() || name2.empty()) return 0;
+
+    if (name1 == name2) return 100;
+
+    if (name1.find(name2) != std::string::npos || name2.find(name1) != std::string::npos) {
+        return 85;
+    }
+
+    auto tokens1 = Tokenize(name1);
+    auto tokens2 = Tokenize(name2);
+    if (tokens1.size() == tokens2.size()) {
+        std::sort(tokens1.begin(), tokens1.end());
+        std::sort(tokens2.begin(), tokens2.end());
+        if (tokens1 == tokens2) return 80;
+    }
+
+    int dist = LevenshteinDistance(name1, name2);
+    int maxLen = std::max(name1.size(), name2.size());
+    if (maxLen == 0) return 0;
+    int similarity = 100 - (dist * 100) / maxLen;
+    if (similarity >= 60) return similarity;
+
+    std::unordered_set<std::string> set1(tokens1.begin(), tokens1.end());
+    std::unordered_set<std::string> set2(tokens2.begin(), tokens2.end());
+    int common = 0;
+    for (const auto& t : set1) {
+        if (set2.find(t) != set2.end()) common++;
+    }
+    int total = std::max(set1.size(), set2.size());
+    if (total > 0 && common > 0) {
+        int overlapScore = (common * 100) / total;
+        if (overlapScore >= 70) return overlapScore;
+    }
+
+    return similarity;
+}
+```
+
+#### 2.9. `RebuildNormalizedCache`
+
+```cpp
+void EPGManager::RebuildNormalizedCache() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    m_normalizedCache.clear();
+    for (const auto& ch : m_channels) {
+        NormalizedChannel nc;
+        nc.id = ch.first;
+        nc.normalizedName = NormalizeName(ch.second.displayName);
+        nc.tokens = Tokenize(nc.normalizedName);
+        m_normalizedCache.push_back(nc);
+    }
+}
+```
+
+#### 2.10. `FindBestMatch` (финальная версия с правильным приоритетом)
+
+```cpp
+EPGManager::MatchResult EPGManager::FindBestMatch(const Channel& playlistChannel) const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    MatchResult result;
+    result.score = 0;
+    result.confidence = "low";
+
+    std::string tvgId = playlistChannel.getTvgId();
+    std::string channelName = playlistChannel.getName();
+
+    // TIER 1: Ручное сопоставление (наивысший приоритет)
+    if (!tvgId.empty()) {
+        auto manualIt = m_manualMapping.find(tvgId);
+        if (manualIt != m_manualMapping.end()) {
+            auto it = m_channels.find(manualIt->second);
+            if (it != m_channels.end()) {
+                result.channelId = it->first;
+                result.method = "manual";
+                result.score = 100;
+                result.confidence = "high";
+                return result;
+            }
+        }
+    }
+
+    // TIER 2: Точное совпадение по нормализованному имени (ОСНОВНОЙ МЕТОД)
+    std::string plName = NormalizeName(channelName);
+    if (!plName.empty()) {
+        for (const auto& nc : m_normalizedCache) {
+            if (nc.normalizedName == plName) {
+                result.channelId = nc.id;
+                result.method = "exact_name";
+                result.score = 95;
+                result.confidence = "high";
+                return result;
+            }
+        }
+    }
+
+    // TIER 3: Token-sort
+    auto plTokens = Tokenize(plName);
+    std::sort(plTokens.begin(), plTokens.end());
+    for (const auto& nc : m_normalizedCache) {
+        auto epgTokens = nc.tokens;
+        std::sort(epgTokens.begin(), epgTokens.end());
+        if (plTokens.size() == epgTokens.size() && plTokens == epgTokens) {
+            result.channelId = nc.id;
+            result.method = "token_sort";
+            result.score = 85;
+            result.confidence = "medium";
+            return result;
+        }
+    }
+
+    // TIER 4: Нечёткое сравнение
+    int bestScore = 0;
+    std::string bestId;
+    for (const auto& nc : m_normalizedCache) {
+        int similarity = CalculateNameScore(plName, nc.normalizedName);
+        if (similarity > bestScore && similarity >= 60) {
+            bestScore = similarity;
+            bestId = nc.id;
+        }
+    }
+    if (!bestId.empty()) {
+        result.channelId = bestId;
+        result.method = "fuzzy";
+        result.score = bestScore;
+        result.confidence = (bestScore >= 80) ? "medium" : "low";
+        return result;
+    }
+
+    // TIER 5: Substring (last resort по имени)
+    if (plName.length() > 3) {
+        for (const auto& nc : m_normalizedCache) {
+            if (nc.normalizedName.find(plName) != std::string::npos ||
+                plName.find(nc.normalizedName) != std::string::npos) {
+                result.channelId = nc.id;
+                result.method = "substring";
+                result.score = 50;
+                result.confidence = "low";
+                return result;
+            }
+        }
+    }
+
+    // TIER 6: Точное совпадение по TVG-ID (FALLBACK)
+    if (!tvgId.empty()) {
+        std::string normalizedTvgId = tvgId;
+        NormalizeTvgId(normalizedTvgId);
+        for (const auto& ch : m_channels) {
+            std::string epgId = ch.first;
+            NormalizeTvgId(epgId);
+            if (epgId == normalizedTvgId) {
+                result.channelId = ch.first;
+                result.method = "exact_tvgid_fallback";
+                result.score = 70;
+                result.confidence = "medium";
+                return result;
+            }
+        }
+    }
+
+    return result;
+}
+```
+
+#### 2.11. `MatchChannels` (полностью заменяется)
+
+```cpp
+void EPGManager::MatchChannels(const std::vector<Channel>& playlistChannels) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    
+    RebuildNormalizedCache();
+    
+    m_channelMapping.clear();
+    int matched = 0;
+    int total = static_cast<int>(playlistChannels.size());
+    
+    for (const auto& ch : playlistChannels) {
+        MatchResult match = FindBestMatch(ch);
+        if (!match.channelId.empty()) {
+            std::string key = ch.getTvgId();
+            if (key.empty()) {
+                key = "name:" + ch.getName();
+            }
+            m_channelMapping[key] = match.channelId;
+            matched++;
+            
+            LOG_DEBUG("EPGManager: Matched '%s' → EPG '%s' (method=%s, score=%d, conf=%s)",
+                      ch.getName().c_str(), match.channelId.c_str(),
+                      match.method.c_str(), match.score, match.confidence.c_str());
+        } else {
+            LOG_DEBUG("EPGManager: No match for '%s' (tvgId='%s')",
+                      ch.getName().c_str(), ch.getTvgId().c_str());
+        }
+    }
+    
+    LOG_INFO("EPGManager: Matched %d/%d channels (%.1f%%)",
+             matched, total, (total > 0) ? (matched * 100.0 / total) : 0);
+    
+    SaveToCache();
+}
+```
+
+#### 2.12. `GetProgramsForChannel` (с поддержкой имени)
+
+```cpp
+std::vector<EpgProgram> EPGManager::GetProgramsForChannel(const std::string& tvgId, const std::string& channelName, time_t date) const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::vector<EpgProgram> result;
+    std::string channelId;
+
+    // Сначала по маппингу (ключ = tvgId или "name:...")
+    if (!tvgId.empty()) {
+        auto mapIt = m_channelMapping.find(tvgId);
+        if (mapIt != m_channelMapping.end()) {
+            channelId = mapIt->second;
+        }
+    }
+    if (channelId.empty() && !channelName.empty()) {
+        auto mapIt = m_channelMapping.find("name:" + channelName);
+        if (mapIt != m_channelMapping.end()) {
+            channelId = mapIt->second;
+        }
+    }
+    // Если всё ещё не найдено, пробуем найти по имени напрямую (на всякий случай)
+    if (channelId.empty() && !channelName.empty()) {
+        std::string plName = NormalizeName(channelName);
+        for (const auto& nc : m_normalizedCache) {
+            if (nc.normalizedName == plName) {
+                channelId = nc.id;
+                break;
+            }
+        }
+    }
+
+    if (channelId.empty()) {
+        return result;
+    }
+
+    auto chIt = m_channels.find(channelId);
+    if (chIt == m_channels.end()) {
+        return result;
+    }
+
+    time_t startOfDay = EpgTime::GetStartOfDay(date);
+    time_t endOfDay = EpgTime::GetEndOfDay(date);
+
+    const auto& programs = chIt->second.programs;
+    for (const auto& prog : programs) {
+        if (prog.startTime <= endOfDay && prog.stopTime >= startOfDay) {
+            result.push_back(prog);
+        }
+    }
+    return result;
+}
+```
+
+#### 2.13. `SetManualMapping`
+
+```cpp
+void EPGManager::SetManualMapping(const std::string& tvgId, const std::string& epgId) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    m_manualMapping[tvgId] = epgId;
+    SaveToCache();
+}
+```
 
 ---
 
-### Этап 6. Расширение парсинга XMLTV (дополнительно)
+### 3. Изменения в `BuildCacheJson` и `LoadFromCache` (добавить сохранение/загрузку `manualMapping`)
 
-**Шаг 10. Добавить поддержку дополнительных тегов в EPGParserExpat**
-- Расширить структуру `EpgProgram` полями: `icon`, `rating`, `credits` (режиссёр, актёры), `length`, `episode` и др.
-- В парсере обрабатывать соответствующие теги, заполняя эти поля.
-- При желании отображать эту информацию в деталях программы (в `EPGPanel`).
+**В `BuildCacheJson`, после добавления `mapping`:**
+
+```cpp
+rapidjson::Value manualObj(rapidjson::kObjectType);
+for (const auto& m : m_manualMapping) {
+    manualObj.AddMember(rapidjson::Value(m.first.c_str(), allocator),
+                        rapidjson::Value(m.second.c_str(), allocator), allocator);
+}
+doc.AddMember("manualMapping", manualObj, allocator);
+```
+
+**В `LoadFromCache`, после загрузки `mapping`:**
+
+```cpp
+if (doc.HasMember("manualMapping") && doc["manualMapping"].IsObject()) {
+    const auto& mapObj = doc["manualMapping"].GetObject();
+    m_manualMapping.clear();
+    for (const auto& m : mapObj) {
+        if (m.value.IsString()) {
+            m_manualMapping[m.name.GetString()] = m.value.GetString();
+        }
+    }
+}
+```
 
 ---
 
-### Порядок выполнения
+### 4. Изменения в `Application.cpp` (загрузка региональных суффиксов)
 
-Рекомендую начать с **шагов 1–3**, затем **4–5**, потом **6**, а остальные (7–10) делать по мере необходимости, так как они не критичны для базовой работы EPG.
+**В `Application::start()`, после инициализации `m_epgManager`:**
+
+```cpp
+if (m_epgManager) {
+    std::string configDir = ...; // путь к папке конфигурации
+    std::string suffixesPath = configDir + "/regional_suffixes.json";
+    m_epgManager->LoadRegionalSuffixes(suffixesPath);
+}
+```
+
+---
+
+### 5. Изменения в `EPGPanel.cpp` (передача имени в `GetProgramsForChannel`)
+
+**В `LoadProgramsForChannel` заменить:**
+
+```cpp
+auto programs = m_epgManager->GetProgramsForChannel(channelId, date);
+```
+
+**на:**
+
+```cpp
+auto programs = m_epgManager->GetProgramsForChannel(channelId, m_currentChannelName, date);
+```
+
+---
+
+### Итог
+
+- Все изменения локализованы и согласованы.
+- Приоритет: имя → tvgId (fallback).
+- Региональные суффиксы загружаются из конфига.
+- Ручное сопоставление сохраняется в кэш.
+- Код готов к интеграции.

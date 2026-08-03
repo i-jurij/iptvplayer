@@ -184,8 +184,8 @@ MainFrame::MainFrame(Application *app)
         int newSel = evt.GetSelection();
 
         if (oldSel == m_epgPageIdx && m_epgPanel) {
-          m_epgPanel->SaveState();
           m_epgPanel->ClearStatus();
+          m_epgPanel->SaveState();
         }
         if (newSel == m_epgPageIdx && m_epgPanel) {
           m_epgPanel->RestoreState();
