@@ -49,17 +49,78 @@ void EPGPanel::ChannelListModel::SetChannels(
 void EPGPanel::ChannelListModel::Filter(const wxString &filter) {
   m_filterText = filter;
   m_filteredChannels.clear();
+
   if (filter.IsEmpty() || !m_channels) {
     m_filteredChannels = *m_channels;
-  } else {
-    wxString lower = filter.Lower();
+    Reset(m_filteredChannels.size());
+    return;
+  }
+
+  wxString lowerFilter = filter.Lower();
+  wxArrayString parts = wxSplit(lowerFilter, ' ');
+
+  // Удаляем пустые части
+  parts.erase(std::remove_if(parts.begin(), parts.end(),
+                             [](const wxString &s) { return s.IsEmpty(); }),
+              parts.end());
+
+  // Если есть несколько слов — мультисловный поиск
+  if (parts.size() > 1) {
     for (const auto &ch : *m_channels) {
       wxString name = wxString::FromUTF8(ch.getName()).Lower();
-      if (name.Contains(lower)) {
+      bool allMatch = true;
+      for (const auto &p : parts) {
+        if (!name.Contains(p)) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch)
+        m_filteredChannels.push_back(ch);
+    }
+    Reset(m_filteredChannels.size());
+    return;
+  }
+
+  // Одно слово — улучшенный поиск
+  const wxString &needle = lowerFilter;
+
+  // 1) Сначала собираем каналы, название которых начинается с needle
+  std::vector<Channel> startsWith;
+  std::vector<Channel> contains;
+
+  for (const auto &ch : *m_channels) {
+    wxString name = wxString::FromUTF8(ch.getName()).Lower();
+    if (name.StartsWith(needle)) {
+      startsWith.push_back(ch);
+    } else if (name.Contains(needle)) {
+      contains.push_back(ch);
+    }
+  }
+
+  // 2) Формируем результат: сначала начинающиеся с needle, потом остальные
+  m_filteredChannels.reserve(startsWith.size() + contains.size());
+  m_filteredChannels.insert(m_filteredChannels.end(), startsWith.begin(),
+                            startsWith.end());
+  m_filteredChannels.insert(m_filteredChannels.end(), contains.begin(),
+                            contains.end());
+
+  // 3) Если ничего не найдено — можно добавить fuzzy-поиск (необязательно)
+  if (m_filteredChannels.empty()) {
+    // Fuzzy: ищем последовательность букв (без учёта регистра)
+    for (const auto &ch : *m_channels) {
+      wxString name = wxString::FromUTF8(ch.getName()).Lower();
+      size_t j = 0;
+      for (size_t i = 0; i < name.Length() && j < needle.Length(); ++i) {
+        if (name[i] == needle[j])
+          ++j;
+      }
+      if (j == needle.Length()) {
         m_filteredChannels.push_back(ch);
       }
     }
   }
+
   Reset(m_filteredChannels.size());
 }
 
