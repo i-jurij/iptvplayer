@@ -336,6 +336,13 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
   if (!showRemovePlaylistDialog(this, playlist, removeSource))
     return;
 
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (app && app->GetEPGManager()) {
+    for (const auto &ch : playlist->getChannels()) {
+      app->GetEPGManager()->RemoveChannelMapping(ch.getTvgId());
+    }
+  }
+  
   ErrorCode ec =
       mgr->removePlaylist(static_cast<size_t>(removeIndex), removeSource);
   if (ec != ErrorCode::OK) {

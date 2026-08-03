@@ -179,6 +179,18 @@ MainFrame::MainFrame(Application *app)
           }
         }
 
+        // ===== EPG =====
+        int oldSel = evt.GetOldSelection();
+        int newSel = evt.GetSelection();
+
+        if (oldSel == m_epgPageIdx && m_epgPanel) {
+          m_epgPanel->SaveState();
+          m_epgPanel->ClearStatus();
+        }
+        if (newSel == m_epgPageIdx && m_epgPanel) {
+          m_epgPanel->RestoreState();
+        }
+
         // --- Вызов обработчиков страниц ---
         HandleChannelPageChanged(sel);
         HandleFavPageChanged(sel);
@@ -360,6 +372,9 @@ void MainFrame::OnEPGUpdated(wxCommandEvent &event) {
   if (!m_epgUpdatePending) {
     m_epgUpdatePending = true;
     m_epgCoalesceTimer.StartOnce(1000); // 1000 мс задержка
+  }
+  if (m_epgPanel) {
+    m_epgPanel->RefreshCurrentChannel();
   }
 }
 

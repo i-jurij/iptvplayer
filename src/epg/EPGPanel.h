@@ -1,6 +1,7 @@
 #ifndef EPGPANEL_H
 #define EPGPANEL_H
 
+#include <wx/activityindicator.h>
 #include <wx/button.h>
 #include <wx/dataview.h>
 #include <wx/listctrl.h>
@@ -23,7 +24,20 @@ public:
   void SetCurrentChannel(const std::string &channelId,
                          const std::string &channelName);
 
+  void RefreshCurrentChannel();
+  void SaveState();
+  void RestoreState();
+  void ClearStatus();
+
 private:
+  void SetStatus(const wxString &brief, const wxString &detail);
+
+  static std::string s_lastChannelId;
+  static std::string s_lastChannelName;
+  static time_t s_lastDate;
+
+  wxActivityIndicator *m_activityIndicator;
+
   EPGManager *m_epgManager;
   const std::vector<Channel> *m_allChannels = nullptr;
   std::string m_currentChannelId;

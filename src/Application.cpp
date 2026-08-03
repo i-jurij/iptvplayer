@@ -187,24 +187,8 @@ bool Application::start() {
   // Инициализация EPGManager и таймера
   if (m_epgManager) {
     m_epgManager->LoadFromCache();
-    if (m_epgManager->IsAutoUpdateEnabled()) {
-      if (m_epgTimer) { // проверка
-        m_epgTimer->SetOwner(this);
-        Bind(wxEVT_TIMER, &Application::OnEpgTimer, this, m_epgTimer->GetId());
-
-        int intervalHours = m_epgManager->GetUpdateIntervalHours();
-        if (intervalHours < 1)
-          intervalHours = 1;
-
-        long intervalMs = intervalHours * 3600 * 1000;
-        m_epgTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
-        LOG_DEBUG(
-            "Application: EPG auto-update timer started (interval %d hours)",
-            intervalHours);
-      } else {
-        LOG_ERROR("Application: m_epgTimer is null, cannot start timer");
-      }
-    }
+    m_epgManager->Refresh(); 
+    RestartEpgTimer();
   }
 
   std::cout << "Application started successfully" << std::endl;
@@ -235,4 +219,20 @@ void Application::OnEpgTimer(wxTimerEvent &) {
     return;
   LOG_DEBUG("Application: EPG auto-update timer triggered");
   m_epgManager->Refresh();
+}
+
+void Application::RestartEpgTimer() {
+  if (m_epgTimer) {
+    m_epgTimer->Stop();
+    if (m_epgManager && m_epgManager->IsAutoUpdateEnabled()) {
+      int intervalHours = m_epgManager->GetUpdateIntervalHours();
+      if (intervalHours < 1)
+        intervalHours = 1;
+      long intervalMs = intervalHours * 3600 * 1000;
+      m_epgTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
+      LOG_DEBUG(
+          "Application: EPG auto-update timer restarted (interval %d hours)",
+          intervalHours);
+    }
+  }
 }

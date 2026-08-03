@@ -604,6 +604,7 @@ void SettingsDialog::SaveEPGSettings() {
   Application *app = static_cast<Application *>(wxTheApp);
   if (!app)
     return;
+
   auto *epgMgr = app->GetEPGManager();
   if (!epgMgr)
     return;
@@ -611,6 +612,8 @@ void SettingsDialog::SaveEPGSettings() {
   epgMgr->SetAutoUpdateEnabled(m_epgAutoUpdate->GetValue());
   epgMgr->SetUpdateIntervalHours(m_epgUpdateInterval->GetValue());
   epgMgr->SetDaysToKeep(m_epgDaysToKeep->GetValue());
+
+  app->RestartEpgTimer();
 }
 
 void SettingsDialog::UpdateEPGSourceList() {
