@@ -246,6 +246,7 @@ void EPGPanel::SetChannels(const std::vector<Channel> &channels) {
       !m_favoriteChannels.empty()) {
     SwitchMode(MODE_FAVORITES);
   }
+  UpdateModeButtons(m_currentMode);
 }
 
 void EPGPanel::SetFavoriteChannels(const std::vector<Channel> &channels) {
@@ -258,6 +259,7 @@ void EPGPanel::SetFavoriteChannels(const std::vector<Channel> &channels) {
       !m_favoriteChannels.empty()) {
     SwitchMode(MODE_FAVORITES);
   }
+  UpdateModeButtons(m_currentMode);
 }
 
 void EPGPanel::SetCurrentChannel(Channel channel) {
@@ -670,25 +672,24 @@ void EPGPanel::SaveState() {
 }
 
 void EPGPanel::RestoreState() {
-  if (!s_lastChannelId.empty()) {
-    // Создаём полный объект Channel для точного поиска
+  if (!s_lastChannelId.empty() || !s_lastChannelName.empty()) {
     Channel ch;
     ch.setTvgId(s_lastChannelId);
     ch.setName(s_lastChannelName);
-    ch.setPlaylistName(s_lastPlaylistName);
-    // Вызываем SetCurrentChannel, который сам восстановит выделение и загрузит
-    // программы
-    SetCurrentChannel(ch);
-  } else {
-    // Нет сохранённого канала – сброс
-    if (m_channelListView) {
-      m_channelListView->UnselectAll();
+    if (!s_lastPlaylistName.empty()) {
+      ch.setPlaylistName(s_lastPlaylistName);
     }
+    m_currentDate = s_lastDate; // восстанавливаем дату
+    SetCurrentChannel(
+        ch); // автоматически выбирает режим, выделяет, загружает программы
+  } else {
+    // Нет сохранённого канала – сбрасываем UI
     m_channelNameLabel->SetLabel("No channel selected");
     m_programList->DeleteAllItems();
     m_detailTitle->SetLabel("");
     m_detailDesc->SetLabel("");
-    ClearStatus();
+    if (m_channelListView) {
+      m_channelListView->UnselectAll();
+    }
   }
 }
-
