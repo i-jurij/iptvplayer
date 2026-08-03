@@ -27,6 +27,11 @@ std::mutex LogoCache::s_mutex;
 
 std::function<void(const std::string &)> LogoCache::s_onScaledReady;
 
+std::unordered_map<std::string, LogoCache::PendingOps>
+    LogoCache::s_masterPending;
+std::unordered_map<std::string, LogoCache::PendingOps>
+    LogoCache::s_scaledPending;
+
 wxColour LogoCache::GetDefaultCardBgColor() {
   if (wxSystemSettings::GetAppearance().IsDark()) {
     return wxColour(60, 63, 65); // #3C3F41 — мягкий графит
@@ -84,10 +89,26 @@ void LogoCache::TouchEntry(const std::string &mk) {
 // --- Cache Ops ---
 void LogoCache::ClearAll() {
   std::lock_guard<std::mutex> lock(s_mutex);
+  // Очищаем master-pending
+  for (auto &kv : s_masterPending) {
+    for (auto &cb : kv.second.callbacks) {
+      if (cb)
+        cb(nullptr);
+    }
+  }
+  s_masterPending.clear();
+  // Очищаем scaled-pending
+  for (auto &kv : s_scaledPending) {
+    for (auto &cb : kv.second.callbacks) {
+      if (cb)
+        cb(nullptr);
+    }
+  }
+  s_scaledPending.clear();
+  // Очищаем кэш
   s_scaledIndex.clear();
   s_cache.clear();
   s_lru.clear();
-  wxLogInfo("LogoCache::ClearAll cleared everything");
 }
 
 void LogoCache::ClearPlaylist(const std::string &p) {
@@ -108,6 +129,15 @@ void LogoCache::ClearPlaylist(const std::string &p) {
 
 void LogoCache::ClearScaled() {
   std::lock_guard<std::mutex> lock(s_mutex);
+  // Вызываем все ожидающие scaled-колбэки с nullptr
+  for (auto &kv : s_scaledPending) {
+    for (auto &cb : kv.second.callbacks) {
+      if (cb)
+        cb(nullptr);
+    }
+  }
+  s_scaledPending.clear();
+  // Очищаем scaled-кэш
   for (auto &kv : s_cache) {
     kv.second.scaled.clear();
   }
@@ -141,7 +171,17 @@ void LogoCache::ClearScaledRemoveSizes(
       bool toRemove = parsed && (removeSet.find(std::make_tuple(w, h, dpi)) !=
                                  removeSet.end());
       if (toRemove) {
-        s_scaledIndex.erase(it->first);
+        const std::string &sk = it->first;
+        // Очищаем ожидающие колбэки для этого scaled-ключа
+        auto pendingIt = s_scaledPending.find(sk);
+        if (pendingIt != s_scaledPending.end()) {
+          for (auto &pcb : pendingIt->second.callbacks) {
+            if (pcb)
+              pcb(nullptr);
+          }
+          s_scaledPending.erase(pendingIt);
+        }
+        s_scaledIndex.erase(sk);
         it = scaledMap.erase(it);
       } else {
         ++it;
@@ -149,6 +189,7 @@ void LogoCache::ClearScaledRemoveSizes(
     }
   }
 
+  // Очищаем LRU от записей, у которых больше нет scaled
   for (auto it = s_lru.begin(); it != s_lru.end();) {
     auto cacheIt = s_cache.find(*it);
     if (cacheIt == s_cache.end() || cacheIt->second.scaled.empty()) {
@@ -165,6 +206,14 @@ void LogoCache::ClearScaledExceptSize(
   std::lock_guard<std::mutex> lock(s_mutex);
 
   if (keepSizes.empty()) {
+    // Очищаем всё: вызываем все ожидающие scaled-колбэки с nullptr
+    for (auto &kv : s_scaledPending) {
+      for (auto &cb : kv.second.callbacks) {
+        if (cb)
+          cb(nullptr);
+      }
+    }
+    s_scaledPending.clear();
     for (auto &kv : s_cache) {
       for (auto &sk : kv.second.scaled) {
         s_scaledIndex.erase(sk.first);
@@ -172,7 +221,6 @@ void LogoCache::ClearScaledExceptSize(
       kv.second.scaled.clear();
     }
     s_lru.clear();
-
     return;
   }
 
@@ -193,7 +241,16 @@ void LogoCache::ClearScaledExceptSize(
       bool keep =
           parsed && (keepSet.find(std::make_tuple(w, h, dpi)) != keepSet.end());
       if (!keep) {
-        s_scaledIndex.erase(it->first);
+        // Очищаем ожидающие колбэки для этого scaled-ключа
+        auto pendingIt = s_scaledPending.find(sk);
+        if (pendingIt != s_scaledPending.end()) {
+          for (auto &pcb : pendingIt->second.callbacks) {
+            if (pcb)
+              pcb(nullptr);
+          }
+          s_scaledPending.erase(pendingIt);
+        }
+        s_scaledIndex.erase(sk);
         it = scaledMap.erase(it);
       } else {
         ++it;
@@ -201,6 +258,7 @@ void LogoCache::ClearScaledExceptSize(
     }
   }
 
+  // Очищаем LRU от записей без scaled
   for (auto it = s_lru.begin(); it != s_lru.end();) {
     auto cacheIt = s_cache.find(*it);
     if (cacheIt == s_cache.end() || cacheIt->second.scaled.empty()) {
@@ -212,17 +270,26 @@ void LogoCache::ClearScaledExceptSize(
 }
 
 void LogoCache::DropMaster(const std::string &p, const std::string &c) {
-  LOG_DEBUG("LogoCache::DropMaster: p='%s', c='%s'", p.c_str(), c.c_str());
   std::lock_guard<std::mutex> lock(s_mutex);
   auto mk = MakeMasterKey(p, c);
-  auto it = s_cache.find(mk);
-  if (it != s_cache.end()) {
-    for (auto &sk : it->second.scaled)
+  // Очищаем master-pending для этого ключа
+  auto mpIt = s_masterPending.find(mk);
+  if (mpIt != s_masterPending.end()) {
+    for (auto &cb : mpIt->second.callbacks) {
+      if (cb)
+        cb(nullptr);
+    }
+    s_masterPending.erase(mpIt);
+  }
+  // Удаляем мастер и все scaled-записи (scaled-pending не трогаем)
+  auto cacheIt = s_cache.find(mk);
+  if (cacheIt != s_cache.end()) {
+    for (auto &sk : cacheIt->second.scaled) {
       s_scaledIndex.erase(sk.first);
-    s_cache.erase(it);
+    }
+    s_cache.erase(cacheIt);
     s_lru.remove(mk);
   }
-  LOG_DEBUG("LogoCache::DropMaster: done");
 }
 
 void LogoCache::OnDPIChanged(int) { ClearScaled(); }

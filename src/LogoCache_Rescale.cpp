@@ -85,6 +85,62 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
                              const std::string &c, int w, int h, int dpi,
                              LogoCallback cb) {
   PROFILE_SCOPE("LogoCache::RescaleAsync");
+  // --- Проверка параметров и паузы ---
+  if (w <= 0 || h <= 0 || !master || !master->IsOk() ||
+      s_paused.load(std::memory_order_relaxed)) {
+    if (cb) {
+      auto cb_copy = cb;
+      wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+    }
+    return;
+  }
+
+  auto sk = MakeScaledKey(p, c, w, h, dpi);
+  auto mk = MakeMasterKey(p, c);
+  bool needRescale = false;
+
+  // --- Блок синхронизации: проверка кэша и установка pending ---
+  {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    // Проверка кэша на случай, если битмап уже появился
+    auto itCache = s_scaledIndex.find(sk);
+    if (itCache != s_scaledIndex.end()) {
+      auto sp = itCache->second.lock();
+      if (sp && sp->IsOk()) {
+        if (cb) {
+          auto cb_copy = cb;
+          auto bmp_copy = sp;
+          wxTheApp->CallAfter([cb_copy, bmp_copy]() { cb_copy(bmp_copy); });
+        }
+        return;
+      } else {
+        s_scaledIndex.erase(itCache);
+      }
+    }
+
+    auto it = s_scaledPending.find(sk);
+    if (it == s_scaledPending.end() || !it->second.isLoading) {
+      s_scaledPending[sk].isLoading = true;
+      needRescale = true;
+    }
+    if (cb) {
+      auto &ops = s_scaledPending[sk];
+      if (ops.callbacks.size() >= MAX_PENDING_PER_KEY) {
+        auto oldCb = ops.callbacks.front();
+        ops.callbacks.erase(ops.callbacks.begin());
+        if (oldCb) {
+          auto cb_copy = oldCb;
+          wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+        }
+      }
+      ops.callbacks.push_back(cb);
+    }
+  }
+
+  if (!needRescale) {
+    return;
+  }
+  // rescale
   if (w <= 0 || h <= 0 || !master || !master->IsOk() ||
       s_paused.load(std::memory_order_relaxed)) {
     if (cb) {
@@ -193,17 +249,43 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
 
       {
         std::lock_guard<std::mutex> lock(s_mutex);
-
+        auto itMaster = s_cache.find(mk);
+        if (itMaster == s_cache.end()) {
+          // Мастер удалён – не сохраняем, вызываем pending-колбэки с nullptr
+          auto pendingIt = s_scaledPending.find(sk);
+          if (pendingIt != s_scaledPending.end()) {
+            for (auto &pcb : pendingIt->second.callbacks) {
+              if (pcb) {
+                auto cb_copy = pcb;
+                wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+              }
+            }
+            s_scaledPending.erase(pendingIt);
+          }
+          // Выходим, не вызывая дополнительных колбэков (уже вызваны через pending)
+          return;
+        }
+        // Иначе сохраняем в кэш
         auto &entry = s_cache[mk];
-        entry.scaled[sk] = bmpPtr;
-
+        entry.scaled[sk] = bmpPtr; 
         auto now = std::chrono::steady_clock::now();
         entry.scaledLastAccess[sk] = now;
         entry.lastAccess = now;
-
-        s_scaledIndex[sk] = bmpPtr;
-
+        s_scaledIndex[sk] = bmpPtr; 
         TouchEntry(mk);
+
+        // Вызываем все ожидающие колбэки с результатом
+        auto pendingIt = s_scaledPending.find(sk);
+        if (pendingIt != s_scaledPending.end()) {
+          for (auto &pcb : pendingIt->second.callbacks) {
+            if (pcb) {
+              auto cb_copy = pcb;
+              auto bmp_copy = bmpPtr;
+              wxTheApp->CallAfter([cb_copy, bmp_copy]() { cb_copy(bmp_copy); });
+            }
+          }
+          s_scaledPending.erase(pendingIt);
+        }
       }
 
       MaybeAdjustLimits();
@@ -216,11 +298,6 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
           if (LogoCache::s_onScaledReady)
             LogoCache::s_onScaledReady(sk_copy);
         });
-      }
-
-      if (cb_copy) {
-        auto bmp_copy = bmpPtr;
-        wxTheApp->CallAfter([cb_copy, bmp_copy]() { cb_copy(bmp_copy); });
       }
     });
   });

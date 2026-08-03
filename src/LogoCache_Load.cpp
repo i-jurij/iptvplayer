@@ -75,6 +75,34 @@ void LogoCache::PutMaster(const std::string &p, const std::string &c,
 
 void LogoCache::EnsureMasterAsync(const std::string &p, const std::string &c,
                                   const std::string &url, LogoCallback cb) {
+  auto mk = MakeMasterKey(p, c);
+  bool needLoad = false;
+
+  {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    auto it = s_masterPending.find(mk);
+    if (it == s_masterPending.end() || !it->second.isLoading) {
+      s_masterPending[mk].isLoading = true;
+      needLoad = true;
+    }
+    if (cb) {
+      auto &ops = s_masterPending[mk];
+      if (ops.callbacks.size() >= MAX_PENDING_PER_KEY) {
+        auto oldCb = ops.callbacks.front();
+        ops.callbacks.erase(ops.callbacks.begin());
+        if (oldCb) {
+          auto cb_copy = oldCb;
+          wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+        }
+      }
+      ops.callbacks.push_back(cb);
+    }
+  }
+
+  if (!needLoad) {
+    return;
+  }
+
   IconManager::EnsureIconAsync(p, c, url, [=](wxBitmap master) {
     LogoBitmapPtr masterPtr = nullptr;
     if (master.IsOk() && master.GetWidth() > 0 && master.GetHeight() > 0)
@@ -83,10 +111,22 @@ void LogoCache::EnsureMasterAsync(const std::string &p, const std::string &c,
     if (masterPtr)
       PutMaster(p, c, masterPtr);
 
-    if (cb) {
-      auto cb_copy = cb;
-      auto master_copy = masterPtr;
-      wxTheApp->CallAfter([cb_copy, master_copy]() { cb_copy(master_copy); });
+    std::vector<LogoCallback> pendingCallbacks;
+    {
+      std::lock_guard<std::mutex> lock(s_mutex);
+      auto it = s_masterPending.find(mk);
+      if (it != s_masterPending.end()) {
+        pendingCallbacks.swap(it->second.callbacks);
+        s_masterPending.erase(it);
+      }
+    }
+
+    for (auto &pcb : pendingCallbacks) {
+      if (pcb) {
+        auto cb_copy = pcb;
+        auto master_copy = masterPtr;
+        wxTheApp->CallAfter([cb_copy, master_copy]() { cb_copy(master_copy); });
+      }
     }
   });
 }

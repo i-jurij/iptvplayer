@@ -133,6 +133,15 @@ private:
   static std::function<void(const std::string &)> s_onScaledReady;
 
   static void CleanupOldEntries();
+
+  struct PendingOps {
+    std::vector<LogoCallback> callbacks;
+    bool isLoading = false;
+  };
+
+  static std::unordered_map<std::string, PendingOps> s_masterPending;
+  static std::unordered_map<std::string, PendingOps> s_scaledPending;
+  static const size_t MAX_PENDING_PER_KEY = 32;
 };
 
 #endif
