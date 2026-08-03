@@ -354,12 +354,11 @@ void MainFrame::OnEpgToggle(wxCommandEvent &) {
   m_notebook->SetSelection(m_epgPageIdx);
 }
 
-void MainFrame::SwitchToEpgTab(const std::string &channelId,
-                               const std::string &channelName) {
+void MainFrame::SwitchToEpgTab(Channel channel) {
   if (!m_epgPanel)
     return;
   m_notebook->SetSelection(m_epgPageIdx);
-  m_epgPanel->SetCurrentChannel(channelId, channelName);
+  m_epgPanel->SetCurrentChannel(channel);
   ToggleHeaderGroup(m_btnEpg);
 }
 

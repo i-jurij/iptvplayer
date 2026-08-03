@@ -10,6 +10,7 @@
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 
+#include "Channel.h"
 #include "EPGData.h"
 
 class EPGManager;
@@ -21,8 +22,7 @@ public:
   ~EPGPanel();
 
   void SetChannels(const std::vector<Channel> &channels);
-  void SetCurrentChannel(const std::string &channelId,
-                         const std::string &channelName);
+  void SetCurrentChannel(Channel channel);
 
   void RefreshCurrentChannel();
   void SaveState();
@@ -30,6 +30,8 @@ public:
   void ClearStatus();
 
 private:
+  Channel m_currentChannel;
+  
   void SetStatus(const wxString &brief, const wxString &detail);
 
   static std::string s_lastChannelId;
@@ -73,7 +75,7 @@ private:
     GetItemByRow(unsigned int row) const; // не override, просто метод
     void Clear();
     const Channel &GetChannel(unsigned int row) const;
-    int FindChannel(const std::string &channelId) const;
+    int FindChannel(const Channel &ch) const;
 
   private:
     const std::vector<Channel> *m_channels = nullptr;

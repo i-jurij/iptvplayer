@@ -638,7 +638,7 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
   if (selection == idProgramGuide) {
     MainFrame *mf = GetMainFrame();
     if (mf) {
-      mf->SwitchToEpgTab(m_channels[idx].getTvgId(), m_channels[idx].getName());
+      mf->SwitchToEpgTab(m_channels[idx]);
     }
   } else if (selection == idCopyUrl) {
     if (wxTheClipboard->Open()) {

@@ -176,12 +176,27 @@ const Channel &EPGPanel::ChannelListModel::GetChannel(unsigned int row) const {
   return m_filteredChannels[row];
 }
 
-int EPGPanel::ChannelListModel::FindChannel(
-    const std::string &channelId) const {
-  for (size_t i = 0; i < m_filteredChannels.size(); ++i) {
-    if (m_filteredChannels[i].getTvgId() == channelId) {
-      return static_cast<int>(i);
+int EPGPanel::ChannelListModel::FindChannel(const Channel &ch) const {
+  // 1) Поиск по (playlistName + name)
+  if (!ch.getPlaylistName().empty()) {
+    for (size_t i = 0; i < m_filteredChannels.size(); ++i) {
+      if (m_filteredChannels[i].getName() == ch.getName() &&
+          m_filteredChannels[i].getPlaylistName() == ch.getPlaylistName()) {
+        return static_cast<int>(i);
+      }
     }
+  }
+  // 2) Поиск по tvgId (если есть)
+  if (!ch.getTvgId().empty()) {
+    for (size_t i = 0; i < m_filteredChannels.size(); ++i) {
+      if (m_filteredChannels[i].getTvgId() == ch.getTvgId())
+        return static_cast<int>(i);
+    }
+  }
+  // 3) Fallback по имени
+  for (size_t i = 0; i < m_filteredChannels.size(); ++i) {
+    if (m_filteredChannels[i].getName() == ch.getName())
+      return static_cast<int>(i);
   }
   return -1;
 }
@@ -227,33 +242,50 @@ EPGPanel::~EPGPanel() {
 
 void EPGPanel::SetChannels(const std::vector<Channel> &channels) {
   m_channelModel->SetChannels(channels);
-  if (!m_currentChannelId.empty()) {
-    int idx = m_channelModel->FindChannel(m_currentChannelId);
+  // Используем сохранённый объект для поиска
+  if (!m_currentChannel.getName().empty() ||
+      !m_currentChannel.getTvgId().empty()) {
+    int idx = m_channelModel->FindChannel(m_currentChannel);
     if (idx >= 0) {
       wxDataViewItem item = m_channelModel->GetItemByRow(idx);
       m_channelListView->SetCurrentItem(item);
       m_channelListView->Select(item);
+      m_channelListView->EnsureVisible(item);
+    } else {
+      m_channelListView->UnselectAll();
     }
   }
 }
 
-void EPGPanel::SetCurrentChannel(const std::string &channelId,
-                                 const std::string &channelName) {
-  m_currentChannelId = channelId;
-  m_currentChannelName = channelName;
+void EPGPanel::SetCurrentChannel(Channel channel) {
+  m_currentChannel = channel;
+  m_currentChannelId = channel.getTvgId();
+  m_currentChannelName = channel.getName();
   m_currentDate = std::time(nullptr);
 
   if (!m_channelModel)
     return;
 
-  int idx = m_channelModel->FindChannel(channelId);
+  // Сброс фильтра
+  if (m_searchCtrl && !m_searchCtrl->GetValue().IsEmpty()) {
+    m_searchCtrl->SetValue(wxEmptyString);
+    m_channelModel->Filter(wxEmptyString);
+  }
+
+  int idx = m_channelModel->FindChannel(channel);
   if (idx >= 0) {
     wxDataViewItem item = m_channelModel->GetItemByRow(idx);
     m_channelListView->SetCurrentItem(item);
     m_channelListView->Select(item);
-    m_channelNameLabel->SetLabel(wxString::FromUTF8(channelName));
-    LoadProgramsForChannel(channelId, m_currentDate);
+    m_channelListView->EnsureVisible(item);
+    m_channelListView->Refresh();
+    m_channelNameLabel->SetLabel(wxString::FromUTF8(m_currentChannelName));
+    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
     SaveState();
+  } else {
+    LOG_WARN("EPGPanel: Channel not found in model: %s (playlist: %s)",
+             channel.getName().c_str(), channel.getPlaylistName().c_str());
+    m_channelListView->UnselectAll();
   }
 }
 
@@ -421,10 +453,10 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   auto sources = m_epgManager->GetSources();
   if (!m_epgManager->IsLoaded()) {
     if (sources.empty()) {
-      SetStatus("No sources",
+      SetStatus("Warning",
                 "No EPG sources configured. Add sources in Settings.");
     } else {
-      SetStatus("Not loaded", "EPG not loaded yet. Try Refresh.");
+      SetStatus("Warning", "EPG not loaded yet. Try Refresh.");
     }
     return;
   }
@@ -432,7 +464,7 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   // 3) Получение программ
   auto programs = m_epgManager->GetProgramsForChannel(channelId, date);
   if (programs.empty()) {
-    SetStatus("No programs", "No programs for this date");
+    SetStatus("Warning", "No programs for this date");
     // Вывод сообщения в колонку Title (колонка 1)
     long item = m_programList->InsertItem(0, ""); // колонка Time пуста
     m_programList->SetItem(item, 1, "No programs for this date");
@@ -486,7 +518,7 @@ void EPGPanel::OnEPGUpdated(wxCommandEvent &event) {
     SetStatus("Update failed", error.IsEmpty() ? "EPG update error" : error);
     LOG_ERROR("EPG update error: %s", error.ToUTF8().data());
   } else if (status == EPG_STATUS_NO_SOURCES) {
-    SetStatus("No sources", "No EPG sources configured.");
+    SetStatus("Warning", "No EPG sources configured.");
   } else {
     SetStatus("", ""); // очистка
   }

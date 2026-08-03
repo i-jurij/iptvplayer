@@ -445,7 +445,7 @@ void ChannelList::ShowContextMenu(const Channel &ch) {
       [this, ch](wxCommandEvent &) {
         MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
         if (mf) {
-          mf->SwitchToEpgTab(ch.getTvgId(), ch.getName());
+          mf->SwitchToEpgTab(ch);
         } else {
           LOG_DEBUG("ShowContextMenu: MainFrame not found for Program Guide");
         }

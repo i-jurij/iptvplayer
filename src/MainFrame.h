@@ -106,8 +106,7 @@ public:
 
   void ShowMainMenu(const wxPoint &pos = wxDefaultPosition);
 
-  void SwitchToEpgTab(const std::string &channelId,
-                      const std::string &channelName);
+  void SwitchToEpgTab(Channel channel);
 
   void RemoveChannelFromPlaylist(const Channel &ch);
 
