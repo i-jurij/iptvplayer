@@ -13,25 +13,8 @@
 
 std::string EPGPanel::s_lastChannelId;
 std::string EPGPanel::s_lastChannelName;
+std::string EPGPanel::s_lastPlaylistName;
 time_t EPGPanel::s_lastDate = 0;
-
-void EPGPanel::SaveState() {
-  s_lastChannelId = m_currentChannelId;
-  s_lastChannelName = m_currentChannelName;
-  s_lastDate = m_currentDate;
-}
-
-void EPGPanel::RestoreState() {
-  if (!s_lastChannelId.empty()) {
-    m_currentChannelId = s_lastChannelId;
-    m_currentChannelName = s_lastChannelName;
-    m_currentDate = s_lastDate;
-    m_channelNameLabel->SetLabel(wxString::FromUTF8(m_currentChannelName));
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-    // (опционально) можно также попытаться выделить канал в списке, но не
-    // обязательно
-  }
-}
 
 // =========================================================================
 // Модель списка каналов
@@ -50,23 +33,26 @@ void EPGPanel::ChannelListModel::Filter(const wxString &filter) {
   m_filterText = filter;
   m_filteredChannels.clear();
 
-  if (filter.IsEmpty() || !m_channels) {
-    m_filteredChannels = *m_channels;
+  if (!m_currentSource) {
+    Reset(0);
+    return;
+  }
+
+  if (filter.IsEmpty()) {
+    m_filteredChannels = *m_currentSource;
     Reset(m_filteredChannels.size());
     return;
   }
 
   wxString lowerFilter = filter.Lower();
   wxArrayString parts = wxSplit(lowerFilter, ' ');
-
-  // Удаляем пустые части
   parts.erase(std::remove_if(parts.begin(), parts.end(),
                              [](const wxString &s) { return s.IsEmpty(); }),
               parts.end());
 
-  // Если есть несколько слов — мультисловный поиск
+  // Мультисловный поиск
   if (parts.size() > 1) {
-    for (const auto &ch : *m_channels) {
+    for (const auto &ch : *m_currentSource) {
       wxString name = wxString::FromUTF8(ch.getName()).Lower();
       bool allMatch = true;
       for (const auto &p : parts) {
@@ -84,12 +70,10 @@ void EPGPanel::ChannelListModel::Filter(const wxString &filter) {
 
   // Одно слово — улучшенный поиск
   const wxString &needle = lowerFilter;
-
-  // 1) Сначала собираем каналы, название которых начинается с needle
   std::vector<Channel> startsWith;
   std::vector<Channel> contains;
 
-  for (const auto &ch : *m_channels) {
+  for (const auto &ch : *m_currentSource) {
     wxString name = wxString::FromUTF8(ch.getName()).Lower();
     if (name.StartsWith(needle)) {
       startsWith.push_back(ch);
@@ -98,17 +82,15 @@ void EPGPanel::ChannelListModel::Filter(const wxString &filter) {
     }
   }
 
-  // 2) Формируем результат: сначала начинающиеся с needle, потом остальные
   m_filteredChannels.reserve(startsWith.size() + contains.size());
   m_filteredChannels.insert(m_filteredChannels.end(), startsWith.begin(),
                             startsWith.end());
   m_filteredChannels.insert(m_filteredChannels.end(), contains.begin(),
                             contains.end());
 
-  // 3) Если ничего не найдено — можно добавить fuzzy-поиск (необязательно)
+  // Fuzzy fallback
   if (m_filteredChannels.empty()) {
-    // Fuzzy: ищем последовательность букв (без учёта регистра)
-    for (const auto &ch : *m_channels) {
+    for (const auto &ch : *m_currentSource) {
       wxString name = wxString::FromUTF8(ch.getName()).Lower();
       size_t j = 0;
       for (size_t i = 0; i < name.Length() && j < needle.Length(); ++i) {
@@ -201,6 +183,17 @@ int EPGPanel::ChannelListModel::FindChannel(const Channel &ch) const {
   return -1;
 }
 
+void EPGPanel::ChannelListModel::SetSource(const std::vector<Channel> *source) {
+  m_currentSource = source;
+  if (m_currentSource) {
+    m_filteredChannels = *m_currentSource;
+  } else {
+    m_filteredChannels.clear();
+  }
+  m_filterText.Clear();
+  Reset(m_filteredChannels.size());
+}
+
 // =========================================================================
 // EPGPanel
 // =========================================================================
@@ -241,52 +234,74 @@ EPGPanel::~EPGPanel() {
 }
 
 void EPGPanel::SetChannels(const std::vector<Channel> &channels) {
-  m_channelModel->SetChannels(channels);
-  // Используем сохранённый объект для поиска
-  if (!m_currentChannel.getName().empty() ||
-      !m_currentChannel.getTvgId().empty()) {
-    int idx = m_channelModel->FindChannel(m_currentChannel);
-    if (idx >= 0) {
-      wxDataViewItem item = m_channelModel->GetItemByRow(idx);
-      m_channelListView->SetCurrentItem(item);
-      m_channelListView->Select(item);
-      m_channelListView->EnsureVisible(item);
-    } else {
-      m_channelListView->UnselectAll();
-    }
+  m_playlistChannels = channels;
+  // Если текущий режим Playlist – обновляем модель, иначе просто храним
+  if (m_currentMode == MODE_PLAYLIST) {
+    m_channelModel->SetSource(&m_playlistChannels);
+    // Восстанавливаем выделение
+    SelectCurrentChannelInList();
+  }
+  // Если режим Favorites, но playlist пуст – можно переключиться на Favorites
+  if (m_currentMode == MODE_PLAYLIST && m_playlistChannels.empty() &&
+      !m_favoriteChannels.empty()) {
+    SwitchMode(MODE_FAVORITES);
+  }
+}
+
+void EPGPanel::SetFavoriteChannels(const std::vector<Channel> &channels) {
+  m_favoriteChannels = channels;
+  if (m_currentMode == MODE_FAVORITES) {
+    m_channelModel->SetSource(&m_favoriteChannels);
+    SelectCurrentChannelInList();
+  }
+  if (m_currentMode == MODE_PLAYLIST && m_playlistChannels.empty() &&
+      !m_favoriteChannels.empty()) {
+    SwitchMode(MODE_FAVORITES);
   }
 }
 
 void EPGPanel::SetCurrentChannel(Channel channel) {
+  // Сохраняем канал
   m_currentChannel = channel;
   m_currentChannelId = channel.getTvgId();
   m_currentChannelName = channel.getName();
   m_currentDate = std::time(nullptr);
 
-  if (!m_channelModel)
-    return;
-
-  // Сброс фильтра
-  if (m_searchCtrl && !m_searchCtrl->GetValue().IsEmpty()) {
-    m_searchCtrl->SetValue(wxEmptyString);
-    m_channelModel->Filter(wxEmptyString);
-  }
-
-  int idx = m_channelModel->FindChannel(channel);
-  if (idx >= 0) {
-    wxDataViewItem item = m_channelModel->GetItemByRow(idx);
-    m_channelListView->SetCurrentItem(item);
-    m_channelListView->Select(item);
-    m_channelListView->EnsureVisible(item);
-    m_channelListView->Refresh();
-    m_channelNameLabel->SetLabel(wxString::FromUTF8(m_currentChannelName));
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-    SaveState();
+  // Определяем, в каком списке находится канал
+  if (IsChannelInSource(channel, m_playlistChannels)) {
+    if (m_currentMode != MODE_PLAYLIST) {
+      SwitchMode(MODE_PLAYLIST);
+    }
+  } else if (IsChannelInSource(channel, m_favoriteChannels)) {
+    if (m_currentMode != MODE_FAVORITES) {
+      SwitchMode(MODE_FAVORITES);
+    }
   } else {
-    LOG_WARN("EPGPanel: Channel not found in model: %s (playlist: %s)",
-             channel.getName().c_str(), channel.getPlaylistName().c_str());
-    m_channelListView->UnselectAll();
+    // Канал не найден ни в одном списке – оставляем текущий режим, но пробуем
+    // выделить по имени (может быть, он появится после обновления)
+    LOG_WARN("EPGPanel: Channel '%s' not found in any source",
+             channel.getName().c_str());
   }
+
+  // Теперь выделяем в текущем источнике
+  SelectCurrentChannelInList();
+
+  // Обновляем лейбл и загружаем программы
+  m_channelNameLabel->SetLabel(wxString::FromUTF8(channel.getName()));
+  LoadProgramsForChannel(channel.getTvgId(), m_currentDate);
+  SaveState();
+}
+
+bool EPGPanel::IsChannelInSource(const Channel &ch,
+                                 const std::vector<Channel> &source) const {
+  for (const auto &c : source) {
+    if (c.getName() == ch.getName() &&
+        c.getPlaylistName() == ch.getPlaylistName())
+      return true;
+    if (!ch.getTvgId().empty() && c.getTvgId() == ch.getTvgId())
+      return true;
+  }
+  return false;
 }
 
 void EPGPanel::SetupUI() {
@@ -300,6 +315,42 @@ void EPGPanel::SetupUI() {
   // ---- Левая панель ----
   wxPanel *leftPanel = new wxPanel(splitter, wxID_ANY);
   wxBoxSizer *leftSizer = new wxBoxSizer(wxVERTICAL);
+
+  // Создаём панель для кнопок переключения
+  wxPanel *modePanel = new wxPanel(leftPanel, wxID_ANY);
+  wxBoxSizer *modeSizer = new wxBoxSizer(wxHORIZONTAL);
+
+  m_btnPlaylist = new wxToggleButton(modePanel, wxID_ANY, "Playlist");
+  m_btnFavorites = new wxToggleButton(modePanel, wxID_ANY, "Favorites");
+
+  modeSizer->Add(m_btnPlaylist, 0, wxRIGHT, 5);
+  modeSizer->Add(m_btnFavorites, 0);
+
+  modePanel->SetSizer(modeSizer);
+  leftSizer->Add(modePanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 5);
+
+  // Привязываем события
+  m_btnPlaylist->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
+    if (m_btnPlaylist->GetValue()) {
+      SwitchMode(MODE_PLAYLIST);
+    } else {
+      // Если кнопка сброшена, но другая не активна – принудительно включаем её
+      if (!m_btnFavorites->GetValue()) {
+        m_btnPlaylist->SetValue(true);
+      }
+    }
+  });
+
+  m_btnFavorites->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
+    if (m_btnFavorites->GetValue()) {
+      SwitchMode(MODE_FAVORITES);
+    } else {
+      if (!m_btnPlaylist->GetValue()) {
+        m_btnFavorites->SetValue(true);
+      }
+    }
+  });
+
 
   m_searchCtrl =
       new wxTextCtrl(leftPanel, wxID_ANY, wxEmptyString, wxDefaultPosition,
@@ -385,6 +436,7 @@ void EPGPanel::OnChannelSelected(wxDataViewEvent &event) {
   if (ch.getTvgId().empty())
     return;
 
+  m_currentChannel = ch;
   m_currentChannelId = ch.getTvgId();
   m_currentChannelName = ch.getName();
 
@@ -554,3 +606,89 @@ void EPGPanel::ClearStatus() {
     mf->SetStatusText("", 1);
   }
 }
+
+void EPGPanel::SwitchMode(Mode mode) {
+  if (m_currentMode == mode)
+    return;
+  m_currentMode = mode;
+  UpdateModeButtons(mode);
+
+  const std::vector<Channel> *source = nullptr;
+  if (mode == MODE_PLAYLIST) {
+    source = &m_playlistChannels;
+  } else {
+    source = &m_favoriteChannels;
+  }
+
+  m_channelModel->SetSource(source);
+  // Сброс поиска
+  if (m_searchCtrl) {
+    m_searchCtrl->SetValue(wxEmptyString);
+    m_channelModel->Filter(wxEmptyString);
+  }
+
+  // Восстановить выделение, если текущий канал есть в новом источнике
+  SelectCurrentChannelInList();
+
+  // Обновить заголовок (по желанию)
+  // Можно добавить статус в статусную строку
+  MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+  if (mf) {
+    wxString modeName = (mode == MODE_PLAYLIST) ? "Playlist" : "Favorites";
+    mf->SetStatusText(wxString::Format("EPG mode: %s", modeName), 1);
+  }
+}
+
+void EPGPanel::UpdateModeButtons(Mode mode) {
+  if (m_btnPlaylist && m_btnFavorites) {
+    m_btnPlaylist->SetValue(mode == MODE_PLAYLIST);
+    m_btnFavorites->SetValue(mode == MODE_FAVORITES);
+  }
+}
+
+void EPGPanel::SelectCurrentChannelInList() {
+  if (!m_channelModel || m_currentChannel.getName().empty())
+    return;
+
+  int idx = m_channelModel->FindChannel(m_currentChannel);
+  if (idx >= 0) {
+    wxDataViewItem item = m_channelModel->GetItemByRow(idx);
+    m_channelListView->SetCurrentItem(item);
+    m_channelListView->Select(item);
+    m_channelListView->EnsureVisible(item);
+    m_channelListView->Refresh();
+  } else {
+    m_channelListView->UnselectAll();
+  }
+}
+
+void EPGPanel::SaveState() {
+  s_lastChannelId = m_currentChannelId;
+  s_lastChannelName = m_currentChannelName;
+  s_lastPlaylistName = m_currentChannel.getPlaylistName();
+  s_lastDate = m_currentDate;
+}
+
+void EPGPanel::RestoreState() {
+  if (!s_lastChannelId.empty()) {
+    // Создаём полный объект Channel для точного поиска
+    Channel ch;
+    ch.setTvgId(s_lastChannelId);
+    ch.setName(s_lastChannelName);
+    ch.setPlaylistName(s_lastPlaylistName);
+    // Вызываем SetCurrentChannel, который сам восстановит выделение и загрузит
+    // программы
+    SetCurrentChannel(ch);
+  } else {
+    // Нет сохранённого канала – сброс
+    if (m_channelListView) {
+      m_channelListView->UnselectAll();
+    }
+    m_channelNameLabel->SetLabel("No channel selected");
+    m_programList->DeleteAllItems();
+    m_detailTitle->SetLabel("");
+    m_detailDesc->SetLabel("");
+    ClearStatus();
+  }
+}
+

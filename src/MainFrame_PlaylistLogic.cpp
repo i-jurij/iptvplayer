@@ -149,6 +149,8 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
 
   if (m_epgPanel) {
     m_epgPanel->SetChannels(channels);
+    auto favChannels = m_application->getFavoritesManager().list();
+    m_epgPanel->SetFavoriteChannels(favChannels);
   }
 
   // --- EPG INTEGRATION ---
@@ -210,6 +212,11 @@ void MainFrame::refreshFavorites() {
   if (!m_application)
     return;
 
+  if (m_epgPanel) {
+    auto favChannels = m_application->getFavoritesManager().list();
+    m_epgPanel->SetFavoriteChannels(favChannels);
+  }
+  
   auto favChannels = m_application->getFavoritesManager().list();
 
   if (m_favHeader) {

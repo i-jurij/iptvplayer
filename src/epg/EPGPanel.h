@@ -9,12 +9,15 @@
 #include <wx/splitter.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
+#include <wx/tglbtn.h>
 
 #include "Channel.h"
 #include "EPGData.h"
 
 class EPGManager;
 class Channel;
+
+enum Mode { MODE_PLAYLIST, MODE_FAVORITES };
 
 class EPGPanel : public wxPanel {
 public:
@@ -29,13 +32,27 @@ public:
   void RestoreState();
   void ClearStatus();
 
+  void SetFavoriteChannels(const std::vector<Channel> &channels);
+  void SwitchMode(Mode mode);
+
 private:
+  std::vector<Channel> m_playlistChannels;
+  std::vector<Channel> m_favoriteChannels;
+  Mode m_currentMode = MODE_PLAYLIST;
+  wxToggleButton *m_btnPlaylist = nullptr;
+  wxToggleButton *m_btnFavorites = nullptr;
+  void UpdateModeButtons(Mode mode);
+  void SelectCurrentChannelInList();
+  bool IsChannelInSource(const Channel &ch,
+                         const std::vector<Channel> &source) const;
+
   Channel m_currentChannel;
   
   void SetStatus(const wxString &brief, const wxString &detail);
 
   static std::string s_lastChannelId;
   static std::string s_lastChannelName;
+  static std::string s_lastPlaylistName;
   static time_t s_lastDate;
 
   wxActivityIndicator *m_activityIndicator;
@@ -76,8 +93,10 @@ private:
     void Clear();
     const Channel &GetChannel(unsigned int row) const;
     int FindChannel(const Channel &ch) const;
+    void SetSource(const std::vector<Channel> *source);
 
   private:
+    const std::vector<Channel> *m_currentSource = nullptr;
     const std::vector<Channel> *m_channels = nullptr;
     std::vector<Channel> m_filteredChannels;
     wxString m_filterText;
