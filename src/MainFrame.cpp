@@ -34,7 +34,6 @@
 wxDEFINE_EVENT(EVT_UPDATE_ALL_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_ONE_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_PROGRESS, wxCommandEvent);
-wxDEFINE_EVENT(EVT_EPG_UPDATED, wxCommandEvent);
 
 MainFrame::MainFrame(Application *app)
     : wxFrame(nullptr, wxID_ANY, "IPTV Player", wxDefaultPosition,
@@ -221,11 +220,20 @@ MainFrame::MainFrame(Application *app)
 
   Bind(wxEVT_BUTTON, &MainFrame::onAddIPTVPlaylist, this, ID_ADD_IPTV_PLAYLIST);
 
-  Bind(EVT_EPG_UPDATED, &MainFrame::OnEPGUpdated, this);
-
   m_epgCoalesceTimer.SetOwner(this);
   Bind(wxEVT_TIMER, &MainFrame::OnEpgCoalesceTimer, this,
        m_epgCoalesceTimer.GetId());
+
+  // Установка колбэка для EPGManager
+  if (m_application && m_application->GetEPGManager()) {
+    m_application->GetEPGManager()->SetOnUpdateFinished(
+        [this](int status, const std::string &error) {
+          wxCommandEvent evt;
+          evt.SetInt(status);
+          evt.SetString(wxString::FromUTF8(error));
+          this->OnEPGUpdated(evt);
+        });
+  }
 }
 
 MainFrame::~MainFrame() {
@@ -363,13 +371,18 @@ void MainFrame::SwitchToEpgTab(Channel channel) {
 }
 
 void MainFrame::OnEPGUpdated(wxCommandEvent &event) {
-  // Коалесцирование: запускаем таймер, если ещё не запущен
+  int status = event.GetInt();
+  wxString error = event.GetString();
+
+  // Обновляем панель EPG сразу
+  if (m_epgPanel) {
+    m_epgPanel->OnEpgUpdateFinished(status, error);
+  }
+
+  // Запускаем коалесцирующий таймер для обновления остальных представлений
   if (!m_epgUpdatePending) {
     m_epgUpdatePending = true;
-    m_epgCoalesceTimer.StartOnce(1000); // 1000 мс задержка
-  }
-  if (m_epgPanel) {
-    m_epgPanel->RefreshCurrentChannel();
+    m_epgCoalesceTimer.StartOnce(1000);
   }
 
   event.Skip();

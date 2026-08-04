@@ -26,14 +26,15 @@ public:
 
   void SetChannels(const std::vector<Channel> &channels);
   void SetCurrentChannel(Channel channel);
-
-  void RefreshCurrentChannel();
+  
   void SaveState();
   void RestoreState();
   void ClearStatus();
 
   void SetFavoriteChannels(const std::vector<Channel> &channels);
   void SwitchMode(Mode mode);
+
+  void OnEpgUpdateFinished(int status, const wxString &error = wxEmptyString);
 
 private:
   enum {
@@ -124,7 +125,6 @@ private:
   void OnManageSources(wxCommandEvent &event);
   void LoadProgramsForChannel(const std::string &channelId, time_t date);
   void OnProgramSelected(wxListEvent &event);
-  void OnEPGUpdated(wxCommandEvent &event);
   void ShowMessage(const wxString &msg);
 
   wxDECLARE_EVENT_TABLE();

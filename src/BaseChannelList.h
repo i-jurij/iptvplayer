@@ -63,10 +63,6 @@ public:
 
 protected:
   int m_lastDpi = 96;
-
-  bool m_epgUpdatePending = false;
-  wxTimer m_epgUpdateTimer;
-  void OnEpgUpdateTimer(wxTimerEvent &);
   
   PerformanceMode m_perfMode{PerformanceMode::Balanced};
 

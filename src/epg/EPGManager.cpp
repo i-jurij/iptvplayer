@@ -385,12 +385,12 @@ void EPGManager::Refresh() {
         int status = anySuccess ? EPG_STATUS_OK
                                 : (sourcesCopy.empty() ? EPG_STATUS_NO_SOURCES
                                                        : EPG_STATUS_ERROR);
-        wxTheApp->CallAfter([status, lastError]() {
-            wxCommandEvent evt(EVT_EPG_UPDATED);
-            evt.SetInt(status);
-            evt.SetString(wxString::FromUTF8(lastError));
-            wxTheApp->GetTopWindow()->GetEventHandler()->ProcessEvent(evt);
-        });
+
+        if (m_onUpdateFinished) {
+          wxTheApp->CallAfter([this, status, lastError]() {
+            m_onUpdateFinished(status, lastError);
+          });
+        }
     });
 }
 
@@ -901,4 +901,9 @@ std::string EPGManager::getLastError() const {
 void EPGManager::setLastError(const std::string &msg) const {
     std::lock_guard<std::mutex> lock(m_lastErrorMutex);
     m_lastError = msg;
+}
+
+void EPGManager::SetOnUpdateFinished(
+    std::function<void(int, const std::string &)> callback) {
+  m_onUpdateFinished = callback;
 }

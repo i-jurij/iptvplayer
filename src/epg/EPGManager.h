@@ -2,18 +2,20 @@
 #define EPGMANAGER_H
 
 #include "EPGData.h"
+
+#include <wx/event.h>
+
 #include <future>
 #include <mutex>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <wx/event.h>
+
 
 class ConfigManager;
 class PlaylistManager;
 class Channel;
-
-wxDECLARE_EVENT(EVT_EPG_UPDATED, wxCommandEvent);
 
 class EPGManager {
 public:
@@ -77,7 +79,12 @@ public:
   std::string getLastError() const;
   void setLastError(const std::string &msg) const;
 
+  void
+  SetOnUpdateFinished(std::function<void(int, const std::string &)> callback);
+
 private:
+  std::function<void(int, const std::string &)> m_onUpdateFinished;
+
   // ---------- Внутренние структуры ----------
   struct NormalizedChannel {
     std::string id;

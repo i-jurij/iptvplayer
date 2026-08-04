@@ -199,18 +199,6 @@ wxBEGIN_EVENT_TABLE(BaseChannelList, wxDataViewCtrl)
                               this);
   m_pendingWatchdogTimer.Start(kPendingWatchdogIntervalMs, wxTIMER_CONTINUOUS);
 
-  m_epgUpdateTimer.SetOwner(this, wxID_HIGHEST + 4);
-  Bind(wxEVT_TIMER, &BaseChannelList::OnEpgUpdateTimer, this,
-       m_epgUpdateTimer.GetId());
-
-  Bind(EVT_EPG_UPDATED, [this](wxCommandEvent &evt) {
-    if (!m_epgUpdatePending) {
-      m_epgUpdatePending = true;
-      m_epgUpdateTimer.StartOnce(200); // 200 мс задержки
-    }
-    evt.Skip();
-  });
-
   m_processQueueTimer.SetOwner(this, wxID_HIGHEST + 6);
   Bind(wxEVT_TIMER, &BaseChannelList::OnProcessQueueTimer, this,
        m_processQueueTimer.GetId());
@@ -1176,11 +1164,6 @@ void BaseChannelList::RefreshProgramColumnVisible() {
     m_model->RowChanged(row);
   }
   Thaw();
-}
-
-void BaseChannelList::OnEpgUpdateTimer(wxTimerEvent &) {
-  m_epgUpdatePending = false;
-  RefreshProgramColumn();
 }
 
 void BaseChannelList::OnProcessQueueTimer(wxTimerEvent &) {

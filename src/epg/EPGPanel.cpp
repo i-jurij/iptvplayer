@@ -220,8 +220,6 @@ EPGPanel::EPGPanel(wxWindow *parent)
   }
 
   SetupUI();
-
-  Bind(EVT_EPG_UPDATED, &EPGPanel::OnEPGUpdated, this);
 }
 
 EPGPanel::~EPGPanel() {
@@ -561,16 +559,16 @@ void EPGPanel::OnProgramSelected(wxListEvent &event) {
   m_detailDesc->SetLabel(wxString::FromUTF8(prog.description));
 }
 
-void EPGPanel::OnEPGUpdated(wxCommandEvent &event) {
-  LOG_DEBUG("EPGPanel::OnEPGUpdated: status=%d, error=%s", event.GetInt(),
-            event.GetString().ToUTF8().data());
-  
+void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
+  LOG_DEBUG("EPGPanel::OnEpgUpdateFinished: status=%d, error=%s", status,
+            error.ToUTF8().data());
+
   m_activityIndicator->Stop();
   m_activityIndicator->Hide();
-
-  int status = event.GetInt();
-  wxString error = event.GetString();
-
+  if (auto *parent = m_activityIndicator->GetParent()) {
+    parent->Layout();
+  }
+  
   if (status == EPG_STATUS_OK) {
     SetStatus("Updated", "EPG updated successfully.");
   } else if (status == EPG_STATUS_ERROR) {
@@ -590,12 +588,6 @@ void EPGPanel::OnEPGUpdated(wxCommandEvent &event) {
 
 void EPGPanel::ShowMessage(const wxString &msg) {
   wxMessageBox(msg, "Info", wxOK | wxICON_INFORMATION, this);
-}
-
-void EPGPanel::RefreshCurrentChannel() {
-  if (!m_currentChannelId.empty()) {
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-  }
 }
 
 void EPGPanel::SetStatus(const wxString &brief, const wxString &detail) {
