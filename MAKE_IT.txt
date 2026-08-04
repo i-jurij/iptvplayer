@@ -7,111 +7,438 @@ lokalize app
 при аварийном завершении остаются как минимум лого в кеше приложения
 от несуществующих плейлистов - добавить проверку на ненужные больше лого?
 ===========================================
-## Пошаговый план реализации улучшенного диалога добавления EPG-источника
+## Пошаговый код реализации улучшенного диалога добавления EPG-источника
+
+Начнём с Шага 1 и Шага 2 вместе, так как они связаны: создаём HTML-файл и диалог для его отображения.
 
 ---
 
-### Шаг 1. Создать внешний HTML-файл с информацией об источниках
-**Цель:** хранить список популярных EPG-источников в отдельном файле, чтобы легко обновлять без перекомпиляции.  
-**Действие:**  
-- Создать файл `resources/epg_sources.html` с таблицей источников (регион, название, URL, примечания).  
-- Добавить базовый CSS для красивого отображения.  
-- Включить файл в систему контроля версий.
+### Шаг 1. Создать файл `resources/epg_sources.html`
+
+**Файл:** `resources/epg_sources.html` (создать в папке `resources` рядом с исходниками)
+
+```html
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: sans-serif; margin: 10px; }
+        table { border-collapse: collapse; width: 100%; }
+        th { background-color: #e0e0e0; text-align: left; padding: 6px; border: 1px solid #ccc; }
+        td { padding: 6px; border: 1px solid #ccc; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        .note { margin-top: 10px; font-style: italic; color: #666; }
+        h2 { margin-top: 0; }
+    </style>
+</head>
+<body>
+    <h2>Popular EPG Sources (XMLTV)</h2>
+    <p><i>Note: URLs may change. Verify before using.</i></p>
+    <table>
+        <tr><th>Region</th><th>Name</th><th>URL</th><th>Notes</th></tr>
+        <tr><td>International</td><td>EPG.pw</td><td>https://epg.pw/xmltv/epg_CN.xml</td><td>Popular, many channels</td></tr>
+        <tr><td>International</td><td>EPG.one</td><td>https://epg.one/epg.xml.gz</td><td>Reliable</td></tr>
+        <tr><td>International</td><td>IPTV-Content</td><td>https://iptv-content.webhop.net/guide.xml</td><td>Free</td></tr>
+        <tr><td>UK</td><td>Freeview-EPG</td><td>https://github.com/dp247/Freeview-EPG</td><td>UK Free-to-air</td></tr>
+        <tr><td>UK</td><td>Sky UK EPG</td><td>https://github.com/Permanently/sky-epg-xmltv</td><td>Daily</td></tr>
+        <tr><td>Russia</td><td>Teleguide</td><td>http://www.teleguide.info/download/new3/xmltv.xml.gz</td><td>Russian channels</td></tr>
+        <tr><td>Russia</td><td>IPTVX.one</td><td>https://iptvx.one/epg/epg.xml.gz</td><td>Russian</td></tr>
+        <tr><td>Russia</td><td>EPG.it999</td><td>http://epg.it999.ru/edem.xml.gz</td><td>Russian</td></tr>
+        <tr><td>Japan</td><td>JPIPTV</td><td>https://github.com/Karmakstylez/JPIPTV</td><td>Japanese</td></tr>
+        <tr><td>Finland</td><td>Teleguide Finland</td><td>http://www.teleguide.info/download/new3/tvguide.zip</td><td>Finnish</td></tr>
+        <tr><td>Various</td><td>iptv-org/epg</td><td>https://github.com/iptv-org/epg</td><td>Tools to generate EPG</td></tr>
+    </table>
+    <p class="note">Tip: Use search engines to find EPG for your specific region or provider.</p>
+</body>
+</html>
+```
 
 ---
 
-### Шаг 2. Реализовать диалог информации об источниках (`EpgSourcesInfoDialog`)
-**Цель:** показать окно с HTML-страницей, загруженной из внешнего файла.  
-**Действие:**  
-- Создать класс `EpgSourcesInfoDialog` (наследник `wxDialog`).  
-- В конструкторе загрузить HTML-файл из каталога ресурсов (`wxStandardPaths::Get().GetResourcesDir()`).  
-- Если файл не найден, показать встроенную заглушку.  
-- Отобразить HTML через `wxHtmlWindow`.  
-- Добавить кнопку OK для закрытия.
+### Шаг 2. Реализовать диалог `EpgSourcesInfoDialog`
+
+**Файл:** `EpgSourcesInfoDialog.h`
+
+```cpp
+#ifndef EPGSOURCESINFODIALOG_H
+#define EPGSOURCESINFODIALOG_H
+
+#include <wx/dialog.h>
+
+class EpgSourcesInfoDialog : public wxDialog {
+public:
+    EpgSourcesInfoDialog(wxWindow* parent);
+};
+
+#endif
+```
+
+**Файл:** `EpgSourcesInfoDialog.cpp`
+
+```cpp
+#include "EpgSourcesInfoDialog.h"
+#include <wx/html/htmlwin.h>
+#include <wx/sizer.h>
+#include <wx/button.h>
+#include <wx/filename.h>
+#include <wx/stdpaths.h>
+#include <wx/log.h>
+
+EpgSourcesInfoDialog::EpgSourcesInfoDialog(wxWindow* parent)
+    : wxDialog(parent, wxID_ANY, "Popular EPG Sources",
+               wxDefaultPosition, wxSize(700, 450),
+               wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
+
+    wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
+
+    wxHtmlWindow* html = new wxHtmlWindow(this, wxID_ANY, wxDefaultPosition,
+                                          wxDefaultSize, wxHW_SCROLLBAR_AUTO);
+
+    // Ищем файл в ресурсах
+    wxString resourceDir = wxStandardPaths::Get().GetResourcesDir();
+    wxFileName htmlFile(resourceDir, "epg_sources.html");
+
+    // Если не найден – пробуем в текущей директории (для отладки)
+    if (!htmlFile.FileExists()) {
+        htmlFile.SetPath(wxGetCwd());
+    }
+
+    wxString page;
+    if (htmlFile.FileExists()) {
+        wxString content;
+        if (htmlFile.GetContents(content)) {
+            page = content;
+        } else {
+            wxLogError("Cannot read epg_sources.html");
+        }
+    }
+
+    // Fallback, если файл не загружен
+    if (page.IsEmpty()) {
+        page = "<html><body><h2>Popular EPG Sources</h2>"
+               "<p><i>No external file found. Please check installation.</i></p>"
+               "<p>Visit <a href='https://github.com/iptv-org/epg'>iptv-org/epg</a> for tools and sources.</p>"
+               "</body></html>";
+    }
+
+    html->SetPage(page);
+    mainSizer->Add(html, 1, wxEXPAND | wxALL, 10);
+
+    wxSizer* btnSizer = CreateButtonSizer(wxOK);
+    if (btnSizer) mainSizer->Add(btnSizer, 0, wxALL | wxALIGN_RIGHT, 10);
+
+    SetSizerAndFit(mainSizer);
+    CentreOnParent();
+}
+```
 
 ---
 
-### Шаг 3. Реализовать основной диалог добавления источника (`AddEpgSourceDialog`)
-**Цель:** предоставить простой интерфейс для ввода URL или выбора локального файла с автоматическим заполнением имени.  
-**Действие:**  
-- Создать класс `AddEpgSourceDialog` (наследник `wxDialog`).  
-- UI:  
-  - Информационная строка + кнопка "More info about popular sources →" (открывает `EpgSourcesInfoDialog`).  
-  - Поле "URL / Path" (`wxTextCtrl`) с кнопкой "Browse..." (`wxButton`).  
-  - Поле "Name (optional)" (`wxTextCtrl`) с подсказкой об автозаполнении.  
-  - Кнопки OK/Cancel.  
-- Логика:  
-  - При вводе текста в поле URL/пути или выборе файла через Browse – автоматически заполнять поле "Name", если оно пустое.  
-  - При нажатии OK – валидировать:  
-    * Поле не пустое.  
-    * Если значение не начинается с `http://` или `https://`, проверить существование файла.  
-  - Возвращать через методы: `GetUrlOrPath()`, `GetName()`, `IsFileSource()`.
+### Шаг 3. Реализовать основной диалог `AddEpgSourceDialog`
+
+**Файл:** `AddEpgSourceDialog.h`
+
+```cpp
+#ifndef ADD_EPG_SOURCE_DIALOG_H
+#define ADD_EPG_SOURCE_DIALOG_H
+
+#include <wx/dialog.h>
+#include <wx/textctrl.h>
+#include <wx/button.h>
+#include <wx/stattext.h>
+
+class AddEpgSourceDialog : public wxDialog {
+public:
+    AddEpgSourceDialog(wxWindow* parent);
+
+    wxString GetUrlOrPath() const;
+    wxString GetName() const;
+    bool IsFileSource() const;
+
+private:
+    wxTextCtrl* m_urlCtrl;
+    wxTextCtrl* m_nameCtrl;
+    wxButton* m_browseBtn;
+    wxButton* m_infoBtn;
+
+    void OnBrowse(wxCommandEvent& event);
+    void OnInfo(wxCommandEvent& event);
+    void OnOk(wxCommandEvent& event);
+    void AutoFillName();
+};
+
+#endif
+```
+
+**Файл:** `AddEpgSourceDialog.cpp`
+
+```cpp
+#include "AddEpgSourceDialog.h"
+#include "EpgSourcesInfoDialog.h"
+#include <wx/sizer.h>
+#include <wx/filedlg.h>
+#include <wx/msgdlg.h>
+#include <wx/filename.h>
+
+AddEpgSourceDialog::AddEpgSourceDialog(wxWindow* parent)
+    : wxDialog(parent, wxID_ANY, "Add EPG Source",
+               wxDefaultPosition, wxSize(550, -1),
+               wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
+
+    wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
+
+    // Информационная строка + кнопка "More info"
+    wxBoxSizer* infoSizer = new wxBoxSizer(wxHORIZONTAL);
+    wxStaticText* hint = new wxStaticText(this, wxID_ANY,
+        "Enter XMLTV URL or choose a local file.");
+    infoSizer->Add(hint, 0, wxALIGN_CENTER_VERTICAL);
+    infoSizer->AddStretchSpacer();
+    m_infoBtn = new wxButton(this, wxID_ANY, "More info about popular sources →");
+    infoSizer->Add(m_infoBtn, 0);
+    mainSizer->Add(infoSizer, 0, wxEXPAND | wxALL, 10);
+
+    // Основная сетка
+    wxFlexGridSizer* grid = new wxFlexGridSizer(2, 5, 10);
+    grid->AddGrowableCol(1);
+
+    grid->Add(new wxStaticText(this, wxID_ANY, "URL / Path:"), 0, wxALIGN_CENTER_VERTICAL);
+    wxBoxSizer* rowSizer = new wxBoxSizer(wxHORIZONTAL);
+    m_urlCtrl = new wxTextCtrl(this, wxID_ANY, "https://");
+    m_browseBtn = new wxButton(this, wxID_ANY, "Browse...");
+    rowSizer->Add(m_urlCtrl, 1, wxEXPAND | wxRIGHT, 5);
+    rowSizer->Add(m_browseBtn, 0);
+    grid->Add(rowSizer, 1, wxEXPAND);
+
+    grid->Add(new wxStaticText(this, wxID_ANY, "Name (optional):"), 0, wxALIGN_CENTER_VERTICAL);
+    m_nameCtrl = new wxTextCtrl(this, wxID_ANY, "");
+    grid->Add(m_nameCtrl, 1, wxEXPAND);
+
+    mainSizer->Add(grid, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
+
+    // Подсказка под полем имени
+    wxStaticText* nameNote = new wxStaticText(this, wxID_ANY,
+        "If empty, name will be auto-filled from URL or file name.");
+    nameNote->SetForegroundColour(*wxLIGHT_GREY);
+    mainSizer->Add(nameNote, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+
+    // Кнопки OK/Cancel
+    wxSizer* btnSizer = CreateButtonSizer(wxOK | wxCANCEL);
+    if (btnSizer) mainSizer->Add(btnSizer, 0, wxEXPAND | wxALL, 10);
+
+    SetSizerAndFit(mainSizer);
+    CentreOnParent();
+
+    // Bind events
+    m_browseBtn->Bind(wxEVT_BUTTON, &AddEpgSourceDialog::OnBrowse, this);
+    m_infoBtn->Bind(wxEVT_BUTTON, &AddEpgSourceDialog::OnInfo, this);
+    m_urlCtrl->Bind(wxEVT_TEXT, &AddEpgSourceDialog::AutoFillName, this);
+}
+
+void AddEpgSourceDialog::OnBrowse(wxCommandEvent&) {
+    wxFileDialog dlg(this, "Select XMLTV file", wxEmptyString, wxEmptyString,
+                     "XMLTV files (*.xml;*.xml.gz;*.gz)|*.xml;*.xml.gz;*.gz|All files (*.*)|*.*",
+                     wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dlg.ShowModal() == wxID_OK) {
+        m_urlCtrl->SetValue(dlg.GetPath());
+        AutoFillName();
+    }
+}
+
+void AddEpgSourceDialog::OnInfo(wxCommandEvent&) {
+    EpgSourcesInfoDialog dlg(this);
+    dlg.ShowModal();
+}
+
+void AddEpgSourceDialog::OnOk(wxCommandEvent& event) {
+    wxString value = m_urlCtrl->GetValue();
+    if (value.IsEmpty()) {
+        wxMessageBox("Please enter a URL or select a file.", "Error", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    // Проверяем, что если это файл – он существует
+    if (!value.StartsWith("http://") && !value.StartsWith("https://")) {
+        if (!wxFileExists(value)) {
+            wxMessageBox("File does not exist.", "Error", wxOK | wxICON_ERROR, this);
+            return;
+        }
+    }
+    EndModal(wxID_OK);
+}
+
+void AddEpgSourceDialog::AutoFillName() {
+    if (!m_nameCtrl->GetValue().IsEmpty()) return; // если пользователь уже ввёл имя, не трогаем
+
+    wxString value = m_urlCtrl->GetValue();
+    if (value.IsEmpty()) return;
+
+    wxString name;
+    // Проверяем, это URL или файл
+    if (value.StartsWith("http://") || value.StartsWith("https://")) {
+        // Из URL
+        wxString path = value.AfterLast('/').BeforeFirst('?');
+        if (path.EndsWith(".xml") || path.EndsWith(".gz") || path.EndsWith(".xml.gz")) {
+            path = path.BeforeLast('.');
+        }
+        name = path.IsEmpty() ? value.BeforeFirst('/').AfterFirst('/') : path;
+    } else {
+        // Из пути файла
+        wxFileName fn(value);
+        name = fn.GetName();
+    }
+
+    if (!name.IsEmpty()) {
+        m_nameCtrl->SetValue(name);
+    }
+}
+
+wxString AddEpgSourceDialog::GetUrlOrPath() const {
+    return m_urlCtrl->GetValue();
+}
+
+wxString AddEpgSourceDialog::GetName() const {
+    return m_nameCtrl->GetValue();
+}
+
+bool AddEpgSourceDialog::IsFileSource() const {
+    wxString val = m_urlCtrl->GetValue();
+    return !val.StartsWith("http://") && !val.StartsWith("https://");
+}
+```
 
 ---
 
 ### Шаг 4. Обновить `EPGPanel::OnManageSources`
-**Цель:** заменить вызов `SettingsDialog` на новый диалог и интегрировать добавление источника в `EPGManager`.  
-**Действие:**  
-- В `EPGPanel::OnManageSources`:  
-  1. Создать `AddEpgSourceDialog`.  
-  2. Если пользователь нажал OK – получить URL/путь и имя.  
-  3. Если имя пустое – сгенерировать его (дублируем логику автозаполнения из диалога).  
-  4. Проверить дубликат по `url` в `EPGManager::GetSources()`.  
-  5. Добавить источник (`EpgSource`) в список и сохранить через `SetSources()`.  
-  6. Загрузить EPG через `LoadFromUrl()` или `LoadFromFile()` в зависимости от типа.  
-  7. Обновить статус через `SetStatus()`.
+
+**Файл:** `EPGPanel.cpp` – заменить существующий метод `OnManageSources`.
+
+```cpp
+void EPGPanel::OnManageSources(wxCommandEvent &) {
+    AddEpgSourceDialog dlg(wxTheApp->GetTopWindow());
+    if (dlg.ShowModal() != wxID_OK) return;
+
+    Application* app = static_cast<Application*>(wxTheApp);
+    if (!app) return;
+    auto* epgMgr = app->GetEPGManager();
+    if (!epgMgr) return;
+
+    wxString urlOrPath = dlg.GetUrlOrPath();
+    wxString name = dlg.GetName();
+    if (name.IsEmpty()) {
+        // Если имя пустое, генерируем (дублируем логику из диалога)
+        if (dlg.IsFileSource()) {
+            wxFileName fn(urlOrPath);
+            name = fn.GetName();
+        } else {
+            wxString path = urlOrPath.AfterLast('/').BeforeFirst('?');
+            if (path.EndsWith(".xml") || path.EndsWith(".gz") || path.EndsWith(".xml.gz")) {
+                path = path.BeforeLast('.');
+            }
+            name = path.IsEmpty() ? urlOrPath.BeforeFirst('/').AfterFirst('/') : path;
+        }
+    }
+
+    // Проверка дубликата
+    auto sources = epgMgr->GetSources();
+    std::string urlUtf8 = urlOrPath.ToUTF8().data();
+    for (const auto& src : sources) {
+        if (src.url == urlUtf8) {
+            wxMessageBox("This EPG source already exists.", "Info", wxOK | wxICON_INFORMATION);
+            return;
+        }
+    }
+
+    // Добавляем источник
+    EpgSource src;
+    src.url = urlUtf8;
+    src.name = name.ToUTF8().data();
+    src.lastUpdate = 0;
+    sources.push_back(src);
+    epgMgr->SetSources(sources);
+    epgMgr->SaveSourcesToConfig();
+
+    // Загружаем EPG
+    bool success;
+    if (dlg.IsFileSource()) {
+        success = epgMgr->LoadFromFile(urlUtf8);
+    } else {
+        success = epgMgr->LoadFromUrl(urlUtf8, "");
+    }
+
+    if (success) {
+        SetStatus("Source added", "EPG source added, refresh started.");
+    } else {
+        SetStatus("Error", "Failed to add source: " + wxString::FromUTF8(epgMgr->getLastError()));
+    }
+}
+```
 
 ---
 
-### Шаг 5. Добавить метод `LoadFromFile` в `EPGManager`
-**Цель:** поддержка загрузки EPG из локального XMLTV-файла.  
-**Действие:**  
-- В `EPGManager.h` объявить `bool LoadFromFile(const std::string& filePath);`.  
-- В `EPGManager.cpp` реализовать:  
-  - Открыть файл в бинарном режиме.  
-  - Прочитать содержимое в строку.  
-  - Передать строку в `ParseAndMerge()` с источником `"file://" + filePath`.  
-  - Обработать ошибки (файл не найден, не читается).
+### Шаг 5. Добавить `LoadFromFile` в `EPGManager`
+
+**Файл:** `EPGManager.h` – добавить объявление.
+
+```cpp
+bool LoadFromFile(const std::string& filePath);
+```
+
+**Файл:** `EPGManager.cpp` – реализация.
+
+```cpp
+bool EPGManager::LoadFromFile(const std::string& filePath) {
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open()) {
+        setLastError("Cannot open file: " + filePath);
+        LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
+        return false;
+    }
+    std::string content((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+    file.close();
+    return ParseAndMerge(content, "file://" + filePath);
+}
+```
 
 ---
 
-### Шаг 6. Настроить сборку и инсталляцию для `epg_sources.html`
-**Цель:** обеспечить копирование HTML-файла в каталог ресурсов при сборке и установке.  
-**Действие:**  
-- В `CMakeLists.txt` (или системе сборки):  
-  - Добавить команду `configure_file` для копирования в каталог сборки (для отладки).  
-  - Добавить `install(FILES ...)` для копирования в системный каталог (Linux) или в папку с приложением (Windows).  
-- В установщике (Inno Setup, NSIS) включить `epg_sources.html` в список файлов для копирования.  
-- Убедиться, что в коде `wxStandardPaths::Get().GetResourcesDir()` возвращает корректный путь на всех платформах.
+### Шаг 6. Настроить сборку и инсталляцию
+
+**Добавить в `CMakeLists.txt` (пример для Linux):**
+
+```cmake
+# Копирование в каталог сборки
+configure_file(
+    ${CMAKE_SOURCE_DIR}/resources/epg_sources.html
+    ${CMAKE_BINARY_DIR}/resources/epg_sources.html
+    COPYONLY
+)
+
+# Установка
+install(FILES ${CMAKE_SOURCE_DIR}/resources/epg_sources.html
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/iptvplayer)
+```
+
+**Для Windows (Inno Setup):**
+
+```pascal
+[Files]
+Source: "resources\epg_sources.html"; DestDir: "{app}\resources"; Flags: ignoreversion
+```
 
 ---
 
-### Шаг 7. Тестирование и отладка
-**Цель:** проверить все сценарии работы диалога.  
-**Действие:**  
-- Добавление URL-источника – EPG загружается и отображается в панели.  
-- Добавление локального файла – загрузка работает.  
-- Кнопка "More info" – открывается окно с таблицей (если файл есть) или заглушкой.  
-- Автозаполнение имени – работает для URL и файлов.  
-- Валидация – не даёт добавить пустое поле или несуществующий файл.  
-- Дубликаты – блокируются.
+### Шаг 7. Добавить `#include` в нужные файлы
+
+- В `EPGPanel.cpp` добавить `#include "AddEpgSourceDialog.h"`.
+- В `AddEpgSourceDialog.cpp` добавить `#include "EpgSourcesInfoDialog.h"`.
+- Убедиться, что `EPGManager.h` включён в `EPGPanel.cpp`.
 
 ---
 
-### Шаг 8. Документация
-**Цель:** описать изменения для пользователей и разработчиков.  
-**Действие:**  
-- Добавить в `README.md` раздел о настройке EPG-источников.  
-- Обновить `CHANGELOG.md` с описанием нового функционала.  
-- При необходимости добавить комментарии в коде для новых классов и методов.
+### Шаг 8. Удалить устаревший код (опционально)
+
+В `SettingsDialog` можно оставить метод `ShowAddEpgSourceDialog` для обратной совместимости, но он больше не используется из `EPGPanel`. Метод `OnEPGAddSource` в `SettingsDialog` можно оставить, если он используется в самом диалоге настроек.
 
 ---
 
-### Результат
-После реализации всех шагов пользователь получит:
-- Простой диалог для добавления EPG-источников (URL или файл).  
-- Информационное окно с актуальным списком популярных источников (из внешнего HTML).  
-- Возможность загружать локальные XMLTV-файлы.  
-- Автоматическое заполнение имени для удобства.  
-
-Готовы перейти к коду для каждого шага. Начнём с Шага 1?
+Все изменения готовы. Код компактен, использует существующие подходы и не требует новых зависимостей. Переходите к интеграции и тестированию.

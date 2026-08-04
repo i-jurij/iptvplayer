@@ -22,6 +22,8 @@ public:
   EPGManager(ConfigManager *configManager, PlaylistManager *playlistManager);
   ~EPGManager();
 
+  bool LoadFromFile(const std::string &filePath);
+  
   void SetCachePath(const std::string &path);
   bool LoadFromCache();
   bool SaveToCache() const;

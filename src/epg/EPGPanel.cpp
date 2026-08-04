@@ -6,11 +6,15 @@
 #include "EventIDs.h"
 #include "MainFrame.h"
 #include "SettingsDialog.h"
-#include <ctime>
+#include "epg/AddEpgSourceDialog.h"
+
 #include <wx/datetime.h>
+#include <wx/filename.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/string.h>
+
+#include <ctime>
 
 std::string EPGPanel::s_lastChannelId;
 std::string EPGPanel::s_lastChannelName;
@@ -488,11 +492,65 @@ void EPGPanel::OnRefreshEPG(wxCommandEvent &) {
 }
 
 void EPGPanel::OnManageSources(wxCommandEvent &) {
-  if (SettingsDialog::ShowAddEpgSourceDialog(wxTheApp->GetTopWindow())) {
+  AddEpgSourceDialog dlg(wxTheApp->GetTopWindow());
+  if (dlg.ShowModal() != wxID_OK)
+    return;
+
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app)
+    return;
+  auto *epgMgr = app->GetEPGManager();
+  if (!epgMgr)
+    return;
+
+  wxString urlOrPath = dlg.GetUrlOrPath();
+  wxString name = dlg.GetName();
+  if (name.IsEmpty()) {
+    if (dlg.IsFileSource()) {
+      wxFileName fn(urlOrPath);
+      name = fn.GetName();
+    } else {
+      wxString path = urlOrPath.AfterLast('/').BeforeFirst('?');
+      if (path.EndsWith(".xml") || path.EndsWith(".gz") ||
+          path.EndsWith(".xml.gz")) {
+        path = path.BeforeLast('.');
+      }
+      name = path.IsEmpty() ? urlOrPath.BeforeFirst('/').AfterFirst('/') : path;
+    }
+  }
+
+  auto sources = epgMgr->GetSources();
+  std::string urlUtf8 = urlOrPath.ToUTF8().data();
+  for (const auto &src : sources) {
+    if (src.url == urlUtf8) {
+      wxMessageBox("This EPG source already exists.", "Info",
+                   wxOK | wxICON_INFORMATION);
+      return;
+    }
+  }
+
+  EpgSource src;
+  src.url = urlUtf8;
+  src.name = name.ToUTF8().data();
+  src.lastUpdate = 0;
+  sources.push_back(src);
+  epgMgr->SetSources(sources);
+  epgMgr->SaveSourcesToConfig();
+
+  bool success;
+  if (dlg.IsFileSource()) {
+    success = epgMgr->LoadFromFile(urlUtf8);
+  } else {
+    success = epgMgr->LoadFromUrl(urlUtf8, "");
+  }
+
+  if (success) {
     SetStatus("Source added", "EPG source added, refresh started.");
+  } else {
+    SetStatus("Error", "Failed to add source: " +
+                           wxString::FromUTF8(epgMgr->getLastError()));
   }
 }
-
 void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
                                       time_t date) {
   m_programList->DeleteAllItems();

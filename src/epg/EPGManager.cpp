@@ -907,3 +907,16 @@ void EPGManager::SetOnUpdateFinished(
     std::function<void(int, const std::string &)> callback) {
   m_onUpdateFinished = callback;
 }
+
+bool EPGManager::LoadFromFile(const std::string &filePath) {
+  std::ifstream file(filePath, std::ios::binary);
+  if (!file.is_open()) {
+    setLastError("Cannot open file: " + filePath);
+    LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
+    return false;
+  }
+  std::string content((std::istreambuf_iterator<char>(file)),
+                      std::istreambuf_iterator<char>());
+  file.close();
+  return ParseAndMerge(content, "file://" + filePath);
+}

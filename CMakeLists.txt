@@ -132,6 +132,7 @@ set(SOURCES
     src/epg/EPGManager.cpp
     src/epg/EPGParserExpat.cpp
     src/epg/EPGPanel.cpp
+    src/epg/AddEpgSourceDialog.cpp
 )
 
 # ------------------------
@@ -167,6 +168,40 @@ add_custom_command(TARGET iptvplayer POST_BUILD
 
 install(TARGETS iptvplayer DESTINATION bin)
 install(DIRECTORY ${ICONS_DIR}/ DESTINATION share/iptvplayer/icons)
+
+# ------------------------
+# Start EPG sources info HTML
+# ------------------------
+set(EPG_SOURCES_HTML ${CMAKE_SOURCE_DIR}/resources/epg_sources.json)
+
+# Копирование в каталог сборки (для отладки)
+add_custom_command(TARGET iptvplayer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${EPG_SOURCES_HTML}
+            $<TARGET_FILE_DIR:iptvplayer>/epg_sources.json
+    COMMENT "Copying epg_sources.json to build directory"
+)
+
+# Установка в системный каталог (Linux/macOS) или рядом с .exe (Windows)
+if(WIN32)
+    install(FILES ${EPG_SOURCES_HTML} DESTINATION .)
+elseif(APPLE)
+    # Для macOS: кладём внутрь Resources бандла
+    set( BUNDLE_RESOURCES_DIR "${CMAKE_BINARY_DIR}/iptvplayer.app/Contents/Resources" )
+    add_custom_command(TARGET iptvplayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${EPG_SOURCES_HTML}
+                ${BUNDLE_RESOURCES_DIR}/epg_sources.json
+        COMMENT "Copying epg_sources.json to macOS app bundle"
+    )
+    install(FILES ${EPG_SOURCES_HTML}
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/iptvplayer.app/Contents/Resources)
+else()
+    # Linux и другие Unix
+    install(FILES ${EPG_SOURCES_HTML} 
+            DESTINATION share/iptvplayer)
+endif()
+# --- END EPG sources ---
 
 set(DATADIR "${CMAKE_INSTALL_PREFIX}/share")
 target_compile_definitions(${PROJECT_NAME} PRIVATE DATADIR=\"${DATADIR}\")
