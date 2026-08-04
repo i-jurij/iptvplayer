@@ -568,7 +568,7 @@ void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
   if (auto *parent = m_activityIndicator->GetParent()) {
     parent->Layout();
   }
-  
+
   if (status == EPG_STATUS_OK) {
     SetStatus("Updated", "EPG updated successfully.");
   } else if (status == EPG_STATUS_ERROR) {
@@ -631,13 +631,8 @@ void EPGPanel::SwitchMode(Mode mode) {
   // Восстановить выделение, если текущий канал есть в новом источнике
   SelectCurrentChannelInList();
 
-  // Обновить заголовок (по желанию)
-  // Можно добавить статус в статусную строку
-  MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
-  if (mf) {
-    wxString modeName = (mode == MODE_PLAYLIST) ? "Playlist" : "Favorites";
-    mf->SetStatusText(wxString::Format("EPG mode: %s", modeName), 1);
-  }
+  wxString modeName = (mode == MODE_PLAYLIST) ? "Playlist" : "Favorites";
+  SetStatus("", wxString::Format("EPG mode: %s", modeName));
 }
 
 void EPGPanel::UpdateModeButtons(Mode mode) {
