@@ -21,10 +21,8 @@ void MainFrame::onQuit(wxCommandEvent &WXUNUSED(event)) {
 void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
   showInfo(this,
            "IPTV Player v1.0.0\n\n"
-           "Milestone 2: Playlist Management\n\n"
-           "Add/update/edit/remove/export playlists.\n\n"
-           "Pictures : Wahyu Setyanto - Flaticon "
-           "(https://www.flaticon.com/authors/wahyusetyanto)",
+           "Milestone 5: EPG Management\n\n"
+           "Author: I-Jurij",
            "About IPTV Player");
 }
 
