@@ -10,6 +10,7 @@
 #include <wx/datetime.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
+#include <wx/string.h>
 
 std::string EPGPanel::s_lastChannelId;
 std::string EPGPanel::s_lastChannelName;
@@ -412,7 +413,7 @@ void EPGPanel::SetupUI() {
   m_refreshBtn = new wxButton(rightPanel, ID_REFRESH_EPG, "↻ Refresh");
   bottomBtnSizer->Add(m_refreshBtn, 0, wxRIGHT, FromDIP(5));
   m_activityIndicator = new wxActivityIndicator(rightPanel, wxID_ANY);
-  bottomBtnSizer->Add(m_activityIndicator, 0, wxLEFT | wxALIGN_CENTER_VERTICAL,
+  bottomBtnSizer->Add(m_activityIndicator, 0, wxLEFT | wxRIGHT | wxALIGN_CENTER_VERTICAL,
                       FromDIP(5));
   m_activityIndicator->Hide(); // по умолчанию скрыт
   m_manageSourcesBtn =
@@ -476,6 +477,10 @@ void EPGPanel::OnRefreshEPG(wxCommandEvent &) {
   if (m_epgManager) {
     m_activityIndicator->Show();
     m_activityIndicator->Start();
+    // Принудительно обновляем layout, чтобы индикатор появился в правильном месте
+    if (auto *parent = m_activityIndicator->GetParent()) {
+      parent->Layout();
+    }
     SetStatus("Updating...", "EPG refresh started in background.");
     m_epgManager->Refresh();
   }
@@ -557,6 +562,9 @@ void EPGPanel::OnProgramSelected(wxListEvent &event) {
 }
 
 void EPGPanel::OnEPGUpdated(wxCommandEvent &event) {
+  LOG_DEBUG("EPGPanel::OnEPGUpdated: status=%d, error=%s", event.GetInt(),
+            event.GetString().ToUTF8().data());
+  
   m_activityIndicator->Stop();
   m_activityIndicator->Hide();
 
@@ -591,15 +599,17 @@ void EPGPanel::RefreshCurrentChannel() {
 }
 
 void EPGPanel::SetStatus(const wxString &brief, const wxString &detail) {
-  MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+  MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
   if (mf) {
     mf->SetStatusText(brief, 0);
     mf->SetStatusText(detail, 1);
+  } else {
+    LOG_ERROR("EPGPanel: Cannot find MainFrame to set status");
   }
 }
 
 void EPGPanel::ClearStatus() {
-  MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+  MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
   if (mf) {
     mf->SetStatusText("", 0);
     mf->SetStatusText("", 1);

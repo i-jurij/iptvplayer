@@ -363,10 +363,6 @@ void MainFrame::SwitchToEpgTab(Channel channel) {
 }
 
 void MainFrame::OnEPGUpdated(wxCommandEvent &event) {
-  int status = event.GetInt();
-  wxString error = event.GetString();
-  UpdateEPGStatus(status, error);
-
   // Коалесцирование: запускаем таймер, если ещё не запущен
   if (!m_epgUpdatePending) {
     m_epgUpdatePending = true;
@@ -375,6 +371,8 @@ void MainFrame::OnEPGUpdated(wxCommandEvent &event) {
   if (m_epgPanel) {
     m_epgPanel->RefreshCurrentChannel();
   }
+
+  event.Skip();
 }
 
 void MainFrame::OnEpgCoalesceTimer(wxTimerEvent &) {
@@ -394,28 +392,6 @@ void MainFrame::OnEpgCoalesceTimer(wxTimerEvent &) {
     m_favCards->InvalidateAll();
     m_favCards->Refresh();
   }
-}
-
-void MainFrame::UpdateEPGStatus(int status, const wxString &error) {
-  wxString statusText;
-  switch (status) {
-  case EPG_STATUS_OK:
-    statusText = "EPG updated";
-    break;
-  case EPG_STATUS_LOADING:
-    statusText = "EPG loading...";
-    break;
-  case EPG_STATUS_ERROR:
-    statusText = "EPG error: " + error;
-    break;
-  case EPG_STATUS_NO_SOURCES:
-    statusText = "No EPG sources configured";
-    break;
-  default:
-    statusText = "EPG status unknown";
-  }
-  // Используем поле 1 статусбара (второе поле)
-  SetStatusText(statusText, 1);
 }
 
 void MainFrame::CleanupFinishedTasks() {

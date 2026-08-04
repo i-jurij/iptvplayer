@@ -124,7 +124,6 @@ private:
   void HandleEpgPageChanged(int sel);
   void OnEpgToggle(wxCommandEvent &event);
   void OnEPGUpdated(wxCommandEvent &event);
-  void UpdateEPGStatus(int status, const wxString &error = wxEmptyString);
   wxTimer m_epgCoalesceTimer;
   bool m_epgUpdatePending = false;
   void OnEpgCoalesceTimer(wxTimerEvent &event);
