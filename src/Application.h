@@ -35,6 +35,8 @@ public:
 
     void RestartEpgTimer();
 
+    wxString m_configDir;
+
   private:
     std::unique_ptr<EPGManager> m_epgManager;
     wxTimer *m_epgTimer = nullptr;

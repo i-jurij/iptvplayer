@@ -36,6 +36,8 @@ public:
   void SwitchMode(Mode mode);
 
 private:
+  std::vector<EpgProgram> m_currentPrograms;
+  
   std::vector<Channel> m_playlistChannels;
   std::vector<Channel> m_favoriteChannels;
   Mode m_currentMode = MODE_PLAYLIST;

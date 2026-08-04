@@ -35,6 +35,7 @@ Application::Application() {
   baseDir = wxString(home) + "/iptvplayer";
 #endif
 
+  m_configDir = baseDir;
   wxFileName configFile(baseDir, "config.json");
   wxFileName playlistsPath(baseDir, "");
 
@@ -175,20 +176,23 @@ bool Application::OnInit() {
 }
 
 bool Application::start() {
-  // Настройки уже загружены в OnInit(), здесь только плейлисты
+  // Загрузка плейлистов
   ErrorCode plStatus = m_playlistManager->loadPlaylists();
   if (plStatus != ErrorCode::OK) {
     std::cerr << "Failed to load playlists: "
               << m_playlistManager->getLastError() << std::endl;
-    // плейлисты могут быть пустыми/ошибочными, но это не критично для старта
-    // GUI
   }
 
-  // Инициализация EPGManager и таймера
+  // Инициализация EPGManager
   if (m_epgManager) {
     m_epgManager->LoadFromCache();
-    m_epgManager->Refresh(); 
+    m_epgManager->Refresh();
     RestartEpgTimer();
+
+    // Загрузка региональных суффиксов из конфигурационной директории
+    std::string suffixesPath =
+        (m_configDir + "/regional_suffixes.json").ToUTF8().data();
+    m_epgManager->LoadRegionalSuffixes(suffixesPath);
   }
 
   std::cout << "Application started successfully" << std::endl;

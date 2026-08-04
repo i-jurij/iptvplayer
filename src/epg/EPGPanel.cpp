@@ -516,7 +516,9 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   }
 
   // 3) Получение программ
-  auto programs = m_epgManager->GetProgramsForChannel(channelId, date);
+  auto programs = m_epgManager->GetProgramsForChannel(
+      channelId, m_currentChannelName, date);
+  m_currentPrograms = programs;
   if (programs.empty()) {
     SetStatus("Warning", "No programs for this date");
     // Вывод сообщения в колонку Title (колонка 1)
@@ -549,13 +551,10 @@ void EPGPanel::OnProgramSelected(wxListEvent &event) {
   long sel = event.GetIndex();
   if (sel == -1)
     return;
-  if (!m_epgManager)
+  if (sel < 0 || sel >= (int)m_currentPrograms.size())
     return;
-  auto programs =
-      m_epgManager->GetProgramsForChannel(m_currentChannelId, m_currentDate);
-  if (sel < 0 || sel >= (int)programs.size())
-    return;
-  const EpgProgram &prog = programs[sel];
+
+  const EpgProgram &prog = m_currentPrograms[sel];
   m_detailTitle->SetLabel(wxString::FromUTF8(prog.title));
   m_detailDesc->SetLabel(wxString::FromUTF8(prog.description));
 }
