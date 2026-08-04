@@ -199,18 +199,16 @@ void EPGPanel::ChannelListModel::SetSource(const std::vector<Channel> *source) {
 // =========================================================================
 wxBEGIN_EVENT_TABLE(EPGPanel, wxPanel)
     EVT_DATAVIEW_SELECTION_CHANGED(wxID_ANY, EPGPanel::OnChannelSelected)
-        EVT_TEXT(wxID_ANY, EPGPanel::OnSearchText)
-            EVT_BUTTON(wxID_ANY, EPGPanel::OnPrevDay)
-                EVT_BUTTON(wxID_ANY,
-                           EPGPanel::OnNextDay) EVT_BUTTON(wxID_ANY,
-                                                           EPGPanel::OnToday)
-                    EVT_BUTTON(wxID_ANY, EPGPanel::OnRefreshEPG)
-                        EVT_BUTTON(wxID_ANY, EPGPanel::OnManageSources)
-                            EVT_LIST_ITEM_SELECTED(wxID_ANY,
-                                                   EPGPanel::OnProgramSelected)
-                                wxEND_EVENT_TABLE()
+    EVT_TEXT(wxID_ANY, EPGPanel::OnSearchText)
+    EVT_BUTTON(ID_PREV_DAY, EPGPanel::OnPrevDay)
+    EVT_BUTTON(ID_NEXT_DAY, EPGPanel::OnNextDay)
+    EVT_BUTTON(ID_TODAY, EPGPanel::OnToday)
+    EVT_BUTTON(ID_REFRESH_EPG, EPGPanel::OnRefreshEPG)
+    EVT_BUTTON(ID_MANAGE_SOURCES, EPGPanel::OnManageSources)
+    EVT_LIST_ITEM_SELECTED(wxID_ANY, EPGPanel::OnProgramSelected)
+wxEND_EVENT_TABLE()
 
-                                    EPGPanel::EPGPanel(wxWindow *parent)
+EPGPanel::EPGPanel(wxWindow *parent)
     : wxPanel(parent, wxID_ANY), m_currentDate(std::time(nullptr)),
       m_channelModel(new ChannelListModel()) {
   Application *app = static_cast<Application *>(wxTheApp);
@@ -382,9 +380,9 @@ void EPGPanel::SetupUI() {
 
   wxBoxSizer *navSizer = new wxBoxSizer(wxHORIZONTAL);
   m_dateLabel = new wxStaticText(rightPanel, wxID_ANY, "");
-  m_prevDayBtn = new wxButton(rightPanel, wxID_ANY, "<");
-  m_todayBtn = new wxButton(rightPanel, wxID_ANY, "Today");
-  m_nextDayBtn = new wxButton(rightPanel, wxID_ANY, ">");
+  m_prevDayBtn = new wxButton(rightPanel, ID_PREV_DAY, "<");
+  m_todayBtn = new wxButton(rightPanel, ID_TODAY, "Today");
+  m_nextDayBtn = new wxButton(rightPanel, ID_NEXT_DAY, ">");
 
   navSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(10));
   navSizer->Add(m_prevDayBtn, 0, wxRIGHT, FromDIP(2));
@@ -411,13 +409,14 @@ void EPGPanel::SetupUI() {
   rightSizer->Add(detailSizer, 0, wxEXPAND | wxALL, FromDIP(5));
 
   wxBoxSizer *bottomBtnSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_refreshBtn = new wxButton(rightPanel, wxID_ANY, "↻ Refresh");
+  m_refreshBtn = new wxButton(rightPanel, ID_REFRESH_EPG, "↻ Refresh");
   bottomBtnSizer->Add(m_refreshBtn, 0, wxRIGHT, FromDIP(5));
   m_activityIndicator = new wxActivityIndicator(rightPanel, wxID_ANY);
   bottomBtnSizer->Add(m_activityIndicator, 0, wxLEFT | wxALIGN_CENTER_VERTICAL,
                       FromDIP(5));
   m_activityIndicator->Hide(); // по умолчанию скрыт
-  m_manageSourcesBtn = new wxButton(rightPanel, wxID_ANY, "⚙ Manage Sources");
+  m_manageSourcesBtn =
+      new wxButton(rightPanel, ID_MANAGE_SOURCES, "⚙ Manage Sources");
   bottomBtnSizer->Add(m_manageSourcesBtn, 0);
   rightSizer->Add(bottomBtnSizer, 0, wxALIGN_LEFT | wxALL, FromDIP(5));
 
@@ -483,10 +482,8 @@ void EPGPanel::OnRefreshEPG(wxCommandEvent &) {
 }
 
 void EPGPanel::OnManageSources(wxCommandEvent &) {
-  MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
-  if (mf) {
-    SettingsDialog dlg(mf, mf->getConfigManager());
-    dlg.ShowModal();
+  if (SettingsDialog::ShowAddEpgSourceDialog(wxTheApp->GetTopWindow())) {
+    SetStatus("Source added", "EPG source added, refresh started.");
   }
 }
 

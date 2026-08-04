@@ -36,8 +36,16 @@ public:
   void SwitchMode(Mode mode);
 
 private:
-  std::vector<EpgProgram> m_currentPrograms;
+  enum {
+    ID_PREV_DAY = wxID_HIGHEST + 100,
+    ID_NEXT_DAY,
+    ID_TODAY,
+    ID_REFRESH_EPG,
+    ID_MANAGE_SOURCES
+  };
   
+  std::vector<EpgProgram> m_currentPrograms;
+
   std::vector<Channel> m_playlistChannels;
   std::vector<Channel> m_favoriteChannels;
   Mode m_currentMode = MODE_PLAYLIST;

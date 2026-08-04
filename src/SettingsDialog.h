@@ -12,8 +12,15 @@ class ConfigManager;
 class SettingsDialog : public wxDialog {
 public:
   SettingsDialog(MainFrame *parent, ConfigManager *cfg);
+  // Добавляет EPG-источник (без UI) – возвращает true при успехе
+  static bool AddEpgSourceToManager(const wxString &url, const wxString &name);
+
+  // Показывает диалог запроса URL/имени и вызывает AddEpgSourceToManager
+  static bool ShowAddEpgSourceDialog(wxWindow *parent);
 
 private:
+  static bool GetEpgSourceFromUser(wxWindow *parent, wxString &url,
+                                   wxString &name);
   // EPG controls
   wxCheckBox *m_epgAutoUpdate = nullptr;
   wxSpinCtrl *m_epgUpdateInterval = nullptr;

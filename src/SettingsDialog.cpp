@@ -636,40 +636,52 @@ void SettingsDialog::UpdateEPGSourceList() {
 }
 
 void SettingsDialog::OnEPGAddSource(wxCommandEvent &) {
-  wxTextEntryDialog dlg(this, "Enter EPG source URL:", "Add EPG Source",
-                        "https://");
-  if (dlg.ShowModal() != wxID_OK)
+  wxString url, name;
+  if (!GetEpgSourceFromUser(this, url, name))
     return;
 
-  wxString url = dlg.GetValue();
-  if (url.IsEmpty())
-    return;
-
-  wxTextEntryDialog nameDlg(
-      this, "Enter a name for this source (optional):", "Source Name");
-  wxString name;
-  if (nameDlg.ShowModal() == wxID_OK) {
-    name = nameDlg.GetValue();
+  if (AddEpgSourceToManager(url, name)) {
+    UpdateEPGSourceList(); // обновляем список в диалоге
   }
+}
 
+bool SettingsDialog::ShowAddEpgSourceDialog(wxWindow *parent) {
+  wxString url, name;
+  if (!GetEpgSourceFromUser(parent, url, name))
+    return false;
+  return AddEpgSourceToManager(url, name);
+}
+
+bool SettingsDialog::AddEpgSourceToManager(const wxString &url,
+                                           const wxString &name) {
   Application *app = static_cast<Application *>(wxTheApp);
   if (!app)
-    return;
+    return false;
   auto *epgMgr = app->GetEPGManager();
   if (!epgMgr)
-    return;
+    return false;
 
-  EpgSource src;
-  src.url = url.ToUTF8().data();
-  src.name = name.ToUTF8().data();
-  src.lastUpdate = 0;
-
+  // Проверка дубликата по URL
   auto sources = epgMgr->GetSources();
-  sources.push_back(src);
-  epgMgr->SetSources(sources);
+  for (const auto &src : sources) {
+    if (src.url == url.ToUTF8().data()) {
+      wxMessageBox("This EPG source already exists.", "Info",
+                   wxOK | wxICON_INFORMATION);
+      return false;
+    }
+  }
 
-  UpdateEPGSourceList();
+  EpgSource newSrc;
+  newSrc.url = url.ToUTF8().data();
+  newSrc.name = name.ToUTF8().data();
+  newSrc.lastUpdate = 0;
+  sources.push_back(newSrc);
+
+  epgMgr->SetSources(sources);
   epgMgr->SaveSourcesToConfig();
+  epgMgr->Refresh(); // запускаем обновление сразу
+
+  return true;
 }
 
 void SettingsDialog::OnEPGEditSource(wxCommandEvent &) {
@@ -781,4 +793,31 @@ void SettingsDialog::OnEPGDeleteCache(wxCommandEvent &) {
   } else {
     wxMessageBox("Failed to delete EPG cache.", "Error", wxOK | wxICON_ERROR);
   }
+}
+
+bool SettingsDialog::GetEpgSourceFromUser(wxWindow *parent, wxString &url,
+                                          wxString &name) {
+  wxTextEntryDialog urlDlg(parent, "Enter EPG source URL:", "Add EPG Source",
+                           "https://");
+  if (urlDlg.ShowModal() != wxID_OK)
+    return false;
+  url = urlDlg.GetValue();
+  if (url.IsEmpty())
+    return false;
+
+  wxTextEntryDialog nameDlg(
+      parent, "Enter a name for this source (optional):", "Source Name");
+  if (nameDlg.ShowModal() == wxID_OK) {
+    name = nameDlg.GetValue();
+  }
+  if (name.IsEmpty()) {
+    // Авто-имя из URL
+    wxString path = url.AfterLast('/').BeforeFirst('?');
+    if (path.EndsWith(".xml") || path.EndsWith(".gz") ||
+        path.EndsWith(".xml.gz")) {
+      path = path.BeforeLast('.');
+    }
+    name = path.IsEmpty() ? url.BeforeFirst('/').AfterFirst('/') : path;
+  }
+  return true;
 }
