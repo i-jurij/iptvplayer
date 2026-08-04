@@ -199,14 +199,15 @@ void EPGPanel::ChannelListModel::SetSource(const std::vector<Channel> *source) {
 // EPGPanel
 // =========================================================================
 wxBEGIN_EVENT_TABLE(EPGPanel, wxPanel)
-    EVT_DATAVIEW_SELECTION_CHANGED(wxID_ANY, EPGPanel::OnChannelSelected)
-    EVT_TEXT(wxID_ANY, EPGPanel::OnSearchText)
+    EVT_DATAVIEW_SELECTION_CHANGED(ID_CHANNEL_LIST, EPGPanel::OnChannelSelected)
+    EVT_DATAVIEW_ITEM_ACTIVATED(ID_CHANNEL_LIST, EPGPanel::OnChannelActivated)
+    EVT_TEXT(ID_SEARCH_CTRL, EPGPanel::OnSearchText)
     EVT_BUTTON(ID_PREV_DAY, EPGPanel::OnPrevDay)
     EVT_BUTTON(ID_NEXT_DAY, EPGPanel::OnNextDay)
     EVT_BUTTON(ID_TODAY, EPGPanel::OnToday)
     EVT_BUTTON(ID_REFRESH_EPG, EPGPanel::OnRefreshEPG)
     EVT_BUTTON(ID_MANAGE_SOURCES, EPGPanel::OnManageSources)
-    EVT_LIST_ITEM_SELECTED(wxID_ANY, EPGPanel::OnProgramSelected)
+    EVT_LIST_ITEM_SELECTED(ID_PROGRAM_LIST, EPGPanel::OnProgramSelected)
 wxEND_EVENT_TABLE()
 
 EPGPanel::EPGPanel(wxWindow *parent)
@@ -350,15 +351,14 @@ void EPGPanel::SetupUI() {
     }
   });
 
-
   m_searchCtrl =
-      new wxTextCtrl(leftPanel, wxID_ANY, wxEmptyString, wxDefaultPosition,
-                     wxDefaultSize, wxTE_PROCESS_ENTER);
+      new wxTextCtrl(leftPanel, ID_SEARCH_CTRL, wxEmptyString,
+                     wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
   m_searchCtrl->SetHint("Search channel...");
   leftSizer->Add(m_searchCtrl, 0, wxEXPAND | wxALL, 5);
 
-  m_channelListView = new wxDataViewCtrl(leftPanel, wxID_ANY);
-  m_channelListView->AssociateModel(m_channelModel); // исправлено
+  m_channelListView = new wxDataViewCtrl(leftPanel, ID_CHANNEL_LIST);
+  m_channelListView->AssociateModel(m_channelModel);
   m_channelListView->AppendTextColumn("Channel", 0, wxDATAVIEW_CELL_INERT, 200,
                                       wxALIGN_LEFT);
   leftSizer->Add(m_channelListView, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
@@ -391,7 +391,7 @@ void EPGPanel::SetupUI() {
   rightSizer->Add(navSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                   FromDIP(5));
 
-  m_programList = new wxListCtrl(rightPanel, wxID_ANY, wxDefaultPosition,
+  m_programList = new wxListCtrl(rightPanel, ID_PROGRAM_LIST, wxDefaultPosition,
                                  wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
   m_programList->InsertColumn(0, "Time", wxLIST_FORMAT_LEFT, 100);
   m_programList->InsertColumn(1, "Title", wxLIST_FORMAT_LEFT, 300);
@@ -427,21 +427,24 @@ void EPGPanel::SetupUI() {
   SetSizer(mainSizer);
 }
 
-void EPGPanel::OnChannelSelected(wxDataViewEvent &event) {
+void EPGPanel::OnChannelSelected(wxDataViewEvent &) {}
+
+void EPGPanel::OnChannelActivated(wxDataViewEvent &event) {
   wxDataViewItem item = event.GetItem();
   if (!item.IsOk())
     return;
+
   unsigned int row = m_channelModel->GetRow(item);
   const Channel &ch = m_channelModel->GetChannel(row);
-  if (ch.getTvgId().empty())
-    return;
 
   m_currentChannel = ch;
   m_currentChannelId = ch.getTvgId();
   m_currentChannelName = ch.getName();
 
   m_channelNameLabel->SetLabel(wxString::FromUTF8(m_currentChannelName));
+    
   LoadProgramsForChannel(m_currentChannelId, m_currentDate);
+  SaveState();
 }
 
 void EPGPanel::OnSearchText(wxCommandEvent &) {

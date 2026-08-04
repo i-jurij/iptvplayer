@@ -42,9 +42,12 @@ private:
     ID_NEXT_DAY,
     ID_TODAY,
     ID_REFRESH_EPG,
-    ID_MANAGE_SOURCES
+    ID_MANAGE_SOURCES,
+    ID_CHANNEL_LIST = wxID_HIGHEST + 200,
+    ID_SEARCH_CTRL,
+    ID_PROGRAM_LIST
   };
-  
+
   std::vector<EpgProgram> m_currentPrograms;
 
   std::vector<Channel> m_playlistChannels;
@@ -117,6 +120,7 @@ private:
 
   void SetupUI();
   void OnChannelSelected(wxDataViewEvent &event);
+  void OnChannelActivated(wxDataViewEvent &event);
   void OnSearchText(wxCommandEvent &event);
   void OnPrevDay(wxCommandEvent &event);
   void OnNextDay(wxCommandEvent &event);
