@@ -67,6 +67,11 @@ else()
 endif()
 
 # ------------------------
+# ZLIB (для gzip распаковки)
+# ------------------------
+find_package(ZLIB REQUIRED)
+
+# ------------------------
 # Player backend (mpv logic, OpenGL — all in src/player)
 # ------------------------
 add_subdirectory(src/player)
@@ -147,6 +152,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
     wx_all
     player_backend_mpv
+    ZLIB::ZLIB
 )
 
 if(_CURL_TARGET)

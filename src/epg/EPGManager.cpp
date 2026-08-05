@@ -12,14 +12,22 @@
 
 #include <wx/event.h>
 #include <wx/filename.h>
+#include <wx/mstream.h>
 #include <wx/stdpaths.h>
+#include <wx/stream.h>
+#include <wx/string.h>
 #include <wx/window.h>
+#include <wx/zipstrm.h>
 
-#include <chrono>
-#include <fstream>
-#include <future>
+#include <zlib.h>
+
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstring>
+#include <fstream>
+#include <future>
+#include <memory>
 #include <unordered_set>
 
 // ---------- Конструктор / Деструктор ----------
@@ -33,6 +41,68 @@ EPGManager::EPGManager(ConfigManager *configManager,
 EPGManager::~EPGManager() {
     WaitForRefresh();
     SaveToCache();
+}
+
+static bool DecompressIfNeeded(std::string &data) {
+  // gzip (магические байты 1F 8B)
+  if (data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1F &&
+      static_cast<unsigned char>(data[1]) == 0x8B) {
+    z_stream zs;
+    memset(&zs, 0, sizeof(zs));
+    if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
+      return false;
+    }
+    zs.next_in = reinterpret_cast<Bytef *>(data.data());
+    zs.avail_in = data.size();
+
+    std::string out;
+    char buf[16384];
+    int ret;
+    do {
+      zs.next_out = reinterpret_cast<Bytef *>(buf);
+      zs.avail_out = sizeof(buf);
+      ret = inflate(&zs, Z_NO_FLUSH);
+      if (ret != Z_OK && ret != Z_STREAM_END) {
+        inflateEnd(&zs);
+        return false;
+      }
+      out.append(buf, sizeof(buf) - zs.avail_out);
+    } while (ret != Z_STREAM_END);
+    inflateEnd(&zs);
+    data.swap(out);
+    return true;
+  }
+
+  // ZIP (магические байты 50 4B 03 04)
+  if (data.size() >= 4 && static_cast<unsigned char>(data[0]) == 0x50 &&
+      static_cast<unsigned char>(data[1]) == 0x4B &&
+      static_cast<unsigned char>(data[2]) == 0x03 &&
+      static_cast<unsigned char>(data[3]) == 0x04) {
+    wxMemoryInputStream memIn(data.data(), data.size());
+    wxZipInputStream zipIn(memIn);
+    if (!zipIn.IsOk()) {
+      return false;
+    }
+    std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
+    if (!entry || entry->IsDir()) {
+      return false;
+    }
+    wxMemoryOutputStream memOut;
+    zipIn.Read(memOut);
+    if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
+      return false;
+    }
+    // Извлечь данные из wxMemoryOutputStream
+    wxStreamBuffer *buf = memOut.GetOutputStreamBuffer();
+    if (!buf)
+      return false;
+    data.assign(static_cast<const char *>(buf->GetBufferStart()),
+                buf->GetBufferSize());
+    return true;
+  }
+
+  // Не сжато
+  return true;
 }
 
 // ---------- Региональные суффиксы ----------
@@ -301,6 +371,11 @@ bool EPGManager::LoadFromUrl(const std::string &url,
         return false;
     }
 
+    if (!DecompressIfNeeded(xmlData)) {
+      setLastError("Failed to decompress data from " + url);
+      LOG_ERROR("EPGManager: Failed to decompress data from %s", url.c_str());
+      return false;
+    }
     return ParseAndMerge(xmlData, url);
 }
 
@@ -918,5 +993,10 @@ bool EPGManager::LoadFromFile(const std::string &filePath) {
   std::string content((std::istreambuf_iterator<char>(file)),
                       std::istreambuf_iterator<char>());
   file.close();
+  if (!DecompressIfNeeded(content)) {
+    setLastError("Failed to decompress file: " + filePath);
+    LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
+    return false;
+  }
   return ParseAndMerge(content, "file://" + filePath);
 }

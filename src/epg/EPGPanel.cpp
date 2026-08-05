@@ -6,7 +6,6 @@
 #include "EventIDs.h"
 #include "MainFrame.h"
 #include "SettingsDialog.h"
-#include "epg/AddEpgSourceDialog.h"
 
 #include <wx/datetime.h>
 #include <wx/filename.h>
@@ -492,70 +491,36 @@ void EPGPanel::OnRefreshEPG(wxCommandEvent &) {
 }
 
 void EPGPanel::OnManageSources(wxCommandEvent &) {
-  AddEpgSourceDialog dlg(wxTheApp->GetTopWindow());
-  if (dlg.ShowModal() != wxID_OK)
-    return;
+  wxString urlOrPath, name;
+  bool isFile;
+  int result = SettingsDialog::ShowAddEpgSourceDialog(wxTheApp->GetTopWindow(),
+                                                      urlOrPath, name, isFile);
 
-  Application *app = static_cast<Application *>(wxTheApp);
-  if (!app)
-    return;
-  auto *epgMgr = app->GetEPGManager();
-  if (!epgMgr)
-    return;
-
-  wxString urlOrPath = dlg.GetUrlOrPath();
-  wxString name = dlg.GetName();
-  if (name.IsEmpty()) {
-    if (dlg.IsFileSource()) {
-      wxFileName fn(urlOrPath);
-      name = fn.GetName();
-    } else {
-      wxString path = urlOrPath.AfterLast('/').BeforeFirst('?');
-      if (path.EndsWith(".xml") || path.EndsWith(".gz") ||
-          path.EndsWith(".xml.gz")) {
-        path = path.BeforeLast('.');
-      }
-      name = path.IsEmpty() ? urlOrPath.BeforeFirst('/').AfterFirst('/') : path;
-    }
+  if (result == -1) {
+    return; // отмена
   }
 
-  auto sources = epgMgr->GetSources();
-  std::string urlUtf8 = urlOrPath.ToUTF8().data();
-  for (const auto &src : sources) {
-    if (src.url == urlUtf8) {
-      wxMessageBox("This EPG source already exists.", "Info",
-                   wxOK | wxICON_INFORMATION);
-      return;
-    }
-  }
-
-  EpgSource src;
-  src.url = urlUtf8;
-  src.name = name.ToUTF8().data();
-  src.lastUpdate = 0;
-  sources.push_back(src);
-  epgMgr->SetSources(sources);
-  epgMgr->SaveSourcesToConfig();
-
-  bool success;
-  if (dlg.IsFileSource()) {
-    success = epgMgr->LoadFromFile(urlUtf8);
-  } else {
-    success = epgMgr->LoadFromUrl(urlUtf8, "");
-  }
-
-  if (success) {
+  if (result == 0) {
     SetStatus("Source added", "EPG source added, refresh started.");
+  } else if (result == 1) {
+    SetStatus("Warning", "EPG source already exists.");
   } else {
-    SetStatus("Error", "Failed to add source: " +
-                           wxString::FromUTF8(epgMgr->getLastError()));
+    SetStatus("Error", "Failed to add EPG source.");
   }
 }
+
 void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
                                       time_t date) {
   m_programList->DeleteAllItems();
   m_detailTitle->SetLabel("");
   m_detailDesc->SetLabel("");
+
+  // ---- Если есть ошибка загрузки/парсинга, показываем её в колонке Title ----
+  if (m_hasError && !m_lastError.IsEmpty()) {
+    long item = m_programList->InsertItem(0, "");
+    m_programList->SetItem(item, 1, "⚠ " + m_lastError);
+    return;
+  }
 
   // 1) Проверка менеджера
   if (!m_epgManager) {
@@ -632,13 +597,21 @@ void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
 
   if (status == EPG_STATUS_OK) {
     SetStatus("Updated", "EPG updated successfully.");
+    m_hasError = false;
+    m_lastError.Clear();
   } else if (status == EPG_STATUS_ERROR) {
     SetStatus("Update failed", error.IsEmpty() ? "EPG update error" : error);
     LOG_ERROR("EPG update error: %s", error.ToUTF8().data());
+    m_lastError = error;
+    m_hasError = true;
   } else if (status == EPG_STATUS_NO_SOURCES) {
     SetStatus("Warning", "No EPG sources configured.");
+    m_hasError = false;
+    m_lastError.Clear();
   } else {
     SetStatus("", ""); // очистка
+    m_hasError = false;
+    m_lastError.Clear();
   }
 
   // Перезагрузить программы для текущего канала

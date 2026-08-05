@@ -37,6 +37,9 @@ public:
   void OnEpgUpdateFinished(int status, const wxString &error = wxEmptyString);
 
 private:
+  wxString m_lastError;    // последняя ошибка загрузки/парсинга
+  bool m_hasError = false; // флаг наличия ошибки
+  
   enum {
     ID_PREV_DAY = wxID_HIGHEST + 100,
     ID_NEXT_DAY,

@@ -12,9 +12,17 @@ class ConfigManager;
 class SettingsDialog : public wxDialog {
 public:
   SettingsDialog(MainFrame *parent, ConfigManager *cfg);
+  // Показывает диалог и возвращает данные через ссылки.
+  // Возвращает: 0 – успех, 1 – дубликат, 2 – ошибка (или отмена – тогда
+  // возвращает -1)
+  static int ShowAddEpgSourceDialog(wxWindow *parent, wxString &urlOrPath,
+                                    wxString &name, bool &isFile);
 
-  // Показывает диалог запроса URL/имени и вызывает AddEpgSourceToManager
-  static bool ShowAddEpgSourceDialog(wxWindow *parent);
+  // Добавляет EPG-источник в менеджер (проверка дубликата, сохранение, запуск
+  // Refresh) Возвращает: 0 – успех, 1 – дубликат, 2 – ошибка (app или epgMgr ==
+  // nullptr)
+  static int AddEpgSourceToManager(const wxString &urlOrPath,
+                                   const wxString &name, bool isFile);
 
 private:
   // EPG controls

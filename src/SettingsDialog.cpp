@@ -637,38 +637,48 @@ void SettingsDialog::UpdateEPGSourceList() {
 }
 
 void SettingsDialog::OnEPGAddSource(wxCommandEvent &) {
-  if (ShowAddEpgSourceDialog(this)) {
+  wxString urlOrPath, name;
+  bool isFile;
+  int result = ShowAddEpgSourceDialog(this, urlOrPath, name, isFile);
+
+  if (result == -1) {
+    return; // отмена
+  }
+
+  if (result == 0) {
     UpdateEPGSourceList();
     wxMessageBox("EPG source added successfully.", "Success",
                  wxOK | wxICON_INFORMATION);
+  } else if (result == 1) {
+    wxMessageBox("This EPG source already exists.", "Info",
+                 wxOK | wxICON_INFORMATION);
+  } else {
+    wxMessageBox("Failed to add EPG source.", "Error", wxOK | wxICON_ERROR);
   }
 }
 
-bool SettingsDialog::ShowAddEpgSourceDialog(wxWindow *parent) {
-  AddEpgSourceDialog dlg(parent);
-  if (dlg.ShowModal() != wxID_OK)
-    return false;
-
+int SettingsDialog::AddEpgSourceToManager(const wxString &urlOrPath,
+                                          const wxString &name, bool isFile) {
   Application *app = static_cast<Application *>(wxTheApp);
   if (!app)
-    return false;
+    return 2;
   auto *epgMgr = app->GetEPGManager();
   if (!epgMgr)
-    return false;
+    return 2;
 
-  wxString urlOrPath = dlg.GetUrlOrPath();
-  wxString name = dlg.GetName();
-  if (name.IsEmpty()) {
-    if (dlg.IsFileSource()) {
+  wxString finalName = name;
+  if (finalName.IsEmpty()) {
+    if (isFile) {
       wxFileName fn(urlOrPath);
-      name = fn.GetName();
+      finalName = fn.GetName();
     } else {
       wxString path = urlOrPath.AfterLast('/').BeforeFirst('?');
       if (path.EndsWith(".xml") || path.EndsWith(".gz") ||
           path.EndsWith(".xml.gz")) {
         path = path.BeforeLast('.');
       }
-      name = path.IsEmpty() ? urlOrPath.BeforeFirst('/').AfterFirst('/') : path;
+      finalName =
+          path.IsEmpty() ? urlOrPath.BeforeFirst('/').AfterFirst('/') : path;
     }
   }
 
@@ -676,29 +686,35 @@ bool SettingsDialog::ShowAddEpgSourceDialog(wxWindow *parent) {
   std::string urlUtf8 = urlOrPath.ToUTF8().data();
   for (const auto &src : sources) {
     if (src.url == urlUtf8) {
-      wxMessageBox("This EPG source already exists.", "Info",
-                   wxOK | wxICON_INFORMATION, parent);
-      return false;
+      return 1; // дубликат
     }
   }
 
   EpgSource src;
   src.url = urlUtf8;
-  src.name = name.ToUTF8().data();
+  src.name = finalName.ToUTF8().data();
   src.lastUpdate = 0;
   sources.push_back(src);
   epgMgr->SetSources(sources);
   epgMgr->SaveSourcesToConfig();
+  epgMgr->Refresh(); // асинхронная загрузка
 
-  bool success = dlg.IsFileSource() ? epgMgr->LoadFromFile(urlUtf8)
-                                    : epgMgr->LoadFromUrl(urlUtf8, "");
-  if (!success) {
-    wxMessageBox("Failed to load EPG: " +
-                     wxString::FromUTF8(epgMgr->getLastError()),
-                 "Error", wxOK | wxICON_ERROR, parent);
-    return false;
+  return 0; // успех
+}
+
+int SettingsDialog::ShowAddEpgSourceDialog(wxWindow *parent,
+                                           wxString &urlOrPath, wxString &name,
+                                           bool &isFile) {
+  AddEpgSourceDialog dlg(parent);
+  if (dlg.ShowModal() != wxID_OK) {
+    return -1; // отмена
   }
-  return true;
+
+  urlOrPath = dlg.GetUrlOrPath();
+  name = dlg.GetName();
+  isFile = dlg.IsFileSource();
+
+  return AddEpgSourceToManager(urlOrPath, name, isFile);
 }
 
 void SettingsDialog::OnEPGEditSource(wxCommandEvent &) {
