@@ -11,6 +11,7 @@
 #include <functional>
 #include <string>
 
+bool IsValidUrl(const wxString &url);
 bool IsWindowsPlatform();
 bool IsMacPlatform();
 bool IsLinuxPlatform();

@@ -2,6 +2,7 @@
 #define EPGMANAGER_H
 
 #include "EPGData.h"
+#include "PlaylistManager.h"
 
 #include <wx/event.h>
 
@@ -84,7 +85,17 @@ public:
   void
   SetOnUpdateFinished(std::function<void(int, const std::string &)> callback);
 
+  void AbortDownload();
+
+  bool HasMapping() const { return !m_channelMapping.empty(); }
+
+  const DownloadProgress &GetDownloadProgress() const {
+    return m_downloadProgress;
+  }
+
 private:
+  DownloadProgress m_downloadProgress;
+  
   std::function<void(int, const std::string &)> m_onUpdateFinished;
 
   // ---------- Внутренние структуры ----------

@@ -24,6 +24,15 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <wx/uri.h>
+
+bool IsValidUrl(const wxString &url) {
+  if (url.IsEmpty())
+    return false;
+  
+  wxURI uri(url);
+  return uri.HasScheme() && !uri.GetScheme().IsEmpty();
+}
 
 // ============================================================================
 // Платформенный детект (Windows / macOS / Linux, Wayland / X11)

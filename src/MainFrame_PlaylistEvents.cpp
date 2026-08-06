@@ -145,6 +145,7 @@ void MainFrame::onAddPlaylistFile(wxCommandEvent &WXUNUSED(event)) {
 void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
   if (!validateApplication() || !validatePlaylistManager())
     return;
+  
   AddPlaylistUrlDialog dlg(this);
   if (dlg.ShowModal() != wxID_OK)
     return;
@@ -155,6 +156,12 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
   std::string url = dlg.GetUrl().ToUTF8().data();
   std::string title = dlg.GetTitle().ToUTF8().data();
   std::string userAgent = dlg.GetUserAgent().ToUTF8().data();
+
+  if (!IsValidUrl(url)) {
+    wxMessageBox("Invalid URL. Please enter a valid address.", "Error",
+                 wxOK | wxICON_ERROR);
+    return;
+  }
 
   // show top gauge and initialize UI indicators
   SetStatusText("Loading playlist from URL...", 0);

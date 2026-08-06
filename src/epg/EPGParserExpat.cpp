@@ -133,6 +133,16 @@ void EPGParserExpat::OnEndElement(const std::string &name) {
         !m_currentProgram.title.empty() && m_currentProgram.startTime > 0) {
       for (auto &ch : m_channels) {
         if (ch.id == m_currentProgram.channelId) {
+          if (!m_currentProgram.channelId.empty() &&
+              !m_currentProgram.title.empty() &&
+              m_currentProgram.startTime > 0 && m_currentProgram.stopTime > 0) {
+            for (auto &ch : m_channels) {
+              if (ch.id == m_currentProgram.channelId) {
+                ch.programs.push_back(m_currentProgram);
+                break;
+              }
+            }
+          }
           ch.programs.push_back(m_currentProgram);
           break;
         }

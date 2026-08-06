@@ -7,142 +7,168 @@ lokalize app
 при аварийном завершении остаются как минимум лого в кеше приложения
 от несуществующих плейлистов - добавить проверку на ненужные больше лого?
 ===========================================
-## Поддержка gzip и ZIP-распаковки в EPGManager без внешних зависимостей
 
-**Краткий ответ:**
-- **zlib** есть во всех основных системах (Linux, macOS, Windows) и уже используется в wxWidgets.
-- **ZIP** будем распаковывать через **встроенный `wxZipInputStream`** (из wxWidgets), который работает с памятью через `wxMemoryInputStream`.
+    Добавить валидацию URL в диалогах добавления плейлиста (аналогично EPG).
 
----
+    При желании можно добавить проверку содержимого на наличие #EXTM3U или #EXTINF перед парсингом, но парсер уже это делает.
+===================================================================
 
-### Изменения в `EPGManager.cpp`
+## Полный уточнённый пошаговый план обработки ошибок и валидации EPG
 
-#### 1. Добавить необходимые заголовки
+### Этап 1. Загрузка (`EPGManager::LoadFromUrl` и `PlaylistManager::downloadUrl`)
 
-```cpp
-#include <wx/zipstrm.h>
-#include <wx/mstream.h>
-#include <wx/wfstream.h>
-#include <wx/zlib.h>   // для gzip (если использовать wxZlibInputStream)
-#include <zlib.h>      // для ручной распаковки gzip (альтернатива)
-```
+**Шаг 1.1. Убрать жёсткий таймаут в libcurl**  
+- **Файл:** `PlaylistManager.cpp` (метод `downloadUrl`)  
+- **Действие:** удалить или закомментировать `curl_easy_setopt(sess.get(), CURLOPT_TIMEOUT, 30L)`. Вместо этого полагаться на колбэк прогресса для контроля зависаний.
 
-Мы будем использовать **wxZlibInputStream** для gzip и **wxZipInputStream** для ZIP — они встроены в wxWidgets и не требуют отдельной линковки (кроме стандартных компонентов wxWidgets).
+**Шаг 1.2. Добавить колбэк прогресса**  
+- **Файл:** `PlaylistManager.cpp` (метод `downloadUrl`)  
+- **Действие:** добавить `curl_easy_setopt(sess.get(), CURLOPT_XFERINFOFUNCTION, ProgressCallback)` и `curl_easy_setopt(sess.get(), CURLOPT_NOPROGRESS, 0L)`. Передавать в `CURLOPT_XFERINFODATA` структуру с флагом отмены, указателями на скачанные байты и общий размер.
 
-#### 2. Вспомогательная функция распаковки
+**Шаг 1.3. Создать структуру данных для прогресса**  
+- **Файл:** `EPGManager.h` или отдельный заголовок  
+- **Действие:** определить структуру `DownloadProgress` с полями: `double totalBytes`, `double downloadedBytes`, `bool abort`, `std::chrono::steady_clock::time_point lastProgressTime`, `double lastDownloadedBytes`, `bool stalled`.
 
-```cpp
-static bool DecompressGzip(const std::string& compressed, std::string& decompressed) {
-    wxMemoryInputStream memIn(compressed.data(), compressed.size());
-    wxZlibInputStream zlibIn(memIn);
-    if (!zlibIn.IsOk()) {
-        return false;
-    }
-    wxStringOutputStream out;
-    zlibIn.Read(out);
-    if (zlibIn.GetLastError() != wxSTREAM_NO_ERROR) {
-        return false;
-    }
-    decompressed = out.GetString().ToStdString();
-    return true;
-}
+**Шаг 1.4. Реализовать колбэк прогресса**  
+- **Файл:** `PlaylistManager.cpp` (статическая функция)  
+- **Действие:** при каждом вызове обновлять `downloadedBytes` и `totalBytes` (если известен). Проверять `abort` – если `true`, возвращать `-1` для прерывания. Проверять зависание: если `downloadedBytes` не меняется более 30 секунд – устанавливать `abort = true` и возвращать `-1`.
 
-static bool DecompressZip(const std::string& compressed, std::string& decompressed) {
-    wxMemoryInputStream memIn(compressed.data(), compressed.size());
-    wxZipInputStream zipIn(memIn);
-    if (!zipIn.IsOk()) {
-        return false;
-    }
+**Шаг 1.5. Передавать флаг отмены из UI**  
+- **Файл:** `EPGManager.h` / `EPGPanel`  
+- **Действие:** добавить в `EPGManager` метод `AbortDownload()`, который устанавливает флаг `m_abortDownload = true` в структуре прогресса. В `EPGPanel` при нажатии кнопки «Отменить» вызывать этот метод.
 
-    // Ищем первый файл в архиве (обычно это единственный XML)
-    std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
-    if (!entry || entry->IsDir()) {
-        return false;
-    }
+**Шаг 1.6. Ограничить размер загружаемых данных**  
+- **Файл:** `EPGManager.cpp` (метод `LoadFromUrl`)  
+- **Действие:** после `downloadUrl` проверить `xmlData.size() > 100 * 1024 * 1024`. Если превышает – установить ошибку `"Downloaded EPG exceeds 100 MB"` и вернуть `false`.
 
-    wxStringOutputStream out;
-    zipIn.Read(out);
-    if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
-        return false;
-    }
-    decompressed = out.GetString().ToStdString();
-    return true;
-}
-```
+**Шаг 1.7. Проверить содержимое на валидность XML**  
+- **Файл:** `EPGManager.cpp` (метод `LoadFromUrl`)  
+- **Действие:** после распаковки (если была) проверить, что `xmlData` содержит `"<?xml"` или `"<tv"` (без учёта регистра). Если нет – проверить наличие `"<html"` или `"<!DOCTYPE"`. При обнаружении HTML – установить ошибку `"Server returned HTML instead of XML (first 200 chars: ...)"` и вернуть `false`.
 
-#### 3. Изменить `LoadFromUrl` (добавить автоопределение формата)
-
-```cpp
-bool EPGManager::LoadFromUrl(const std::string &url, const std::string &userAgent) {
-    if (!m_playlistManager) {
-        setLastError("PlaylistManager is null");
-        LOG_ERROR("EPGManager: PlaylistManager is null");
-        return false;
-    }
-
-    std::string xmlData;
-    ErrorCode ec = m_playlistManager->downloadUrl(url, xmlData, userAgent);
-    if (ec != ErrorCode::OK) {
-        setLastError("Failed to download EPG from " + url + ": " +
-                     m_playlistManager->getLastError());
-        LOG_ERROR("EPGManager: Failed to download EPG from %s", url.c_str());
-        return false;
-    }
-
-    // Определяем тип сжатия по магическим байтам
-    bool isGzip = (xmlData.size() >= 2 &&
-                   static_cast<unsigned char>(xmlData[0]) == 0x1F &&
-                   static_cast<unsigned char>(xmlData[1]) == 0x8B);
-
-    bool isZip = (xmlData.size() >= 4 &&
-                  static_cast<unsigned char>(xmlData[0]) == 0x50 &&
-                  static_cast<unsigned char>(xmlData[1]) == 0x4B &&
-                  static_cast<unsigned char>(xmlData[2]) == 0x03 &&
-                  static_cast<unsigned char>(xmlData[3]) == 0x04);
-
-    if (isGzip) {
-        std::string decompressed;
-        if (DecompressGzip(xmlData, decompressed)) {
-            LOG_DEBUG("EPGManager: Decompressed gzip (%zu -> %zu bytes)",
-                      xmlData.size(), decompressed.size());
-            xmlData.swap(decompressed);
-        } else {
-            setLastError("Failed to decompress gzip data from " + url);
-            LOG_ERROR("EPGManager: Failed to decompress gzip from %s", url.c_str());
-            return false;
-        }
-    } else if (isZip) {
-        std::string decompressed;
-        if (DecompressZip(xmlData, decompressed)) {
-            LOG_DEBUG("EPGManager: Decompressed zip (%zu -> %zu bytes)",
-                      xmlData.size(), decompressed.size());
-            xmlData.swap(decompressed);
-        } else {
-            setLastError("Failed to decompress zip data from " + url);
-            LOG_ERROR("EPGManager: Failed to decompress zip from %s", url.c_str());
-            return false;
-        }
-    }
-
-    return ParseAndMerge(xmlData, url);
-}
-```
+**Шаг 1.8. Логировать размер и первые байты**  
+- **Файл:** `EPGManager.cpp` (метод `LoadFromUrl`)  
+- **Действие:** добавить `LOG_DEBUG` с размером `xmlData.size()` и первыми 200 символами (для диагностики).
 
 ---
 
-### Что изменилось
+### Этап 2. Распаковка (`DecompressIfNeeded`)
 
-- **Поддержка ZIP** через `wxZipInputStream` (без внешних утилит).
-- **Поддержка gzip** через `wxZlibInputStream` (тоже встроен).
-- **Автоопределение** формата по магическим байтам.
-- **Отсутствие внешних зависимостей** (кроме стандартного wxWidgets, который уже подключён).
+**Шаг 2.1. Проверка результатов распаковки**  
+- **Файл:** `EPGManager.cpp` (функция `DecompressIfNeeded`)  
+- **Действие:** после распаковки gzip или zip проверить, что результат не пуст и содержит XML-признаки (`<?xml` или `<tv`). Если нет – вернуть `false` с ошибкой.
+
+**Шаг 2.2. Обработка ZIP с несколькими файлами**  
+- **Файл:** `EPGManager.cpp` (функция `DecompressIfNeeded`)  
+- **Действие:** при обработке ZIP-архива перебрать все записи с помощью `zipIn.GetNextEntry()`. Выбрать первую запись, которая не является директорией и имеет расширение `.xml` (или содержимое содержит XML-теги – прочитать небольшой буфер). Если ни один файл не подходит – установить ошибку `"ZIP archive does not contain XMLTV file"` и вернуть `false`.
+
+**Шаг 2.3. Проверка целостности распакованных данных**  
+- **Файл:** `EPGManager.cpp` (функция `DecompressIfNeeded`)  
+- **Действие:** если размер распакованных данных превышает 200 МБ – считать ошибкой (защита от zip-бомб).
 
 ---
 
-### Почему это безопасно
+### Этап 3. Парсинг (`EPGParserExpat` и `ParseAndMerge`)
 
-- `wxZipInputStream` читает только первый файл в архиве (обычно это и есть XMLTV).
-- При ошибках распаковки возвращается `false`, логируется ошибка.
-- Если данные не сжаты, они передаются в `ParseAndMerge` без изменений.
+**Шаг 3.1. Проверка наличия каналов**  
+- **Файл:** `EPGManager.cpp` (метод `ParseAndMerge`)  
+- **Действие:** после парсинга и заполнения `m_channels` проверить `!m_channels.empty()`. Если пусто – установить ошибку `"No channels found in XMLTV"` и вернуть `false`.
 
-Теперь программа сможет загружать как `.xml`, так и `.xml.gz`, и `.zip` EPG-источники. Включая финскую ссылку, которую вы упомянули.
+**Шаг 3.2. Игнорирование невалидных программ**  
+- **Файл:** `EPGParserExpat.cpp` (метод `OnEndElement`)  
+- **Действие:** при добавлении программы проверять `m_currentProgram.startTime > 0 && m_currentProgram.stopTime > 0`. Если нет – не добавлять (уже есть).
+
+**Шаг 3.3. Каналы без `id`**  
+- **Файл:** `EPGParserExpat.cpp` (метод `OnEndElement` для канала)  
+- **Действие:** оставить как есть – каналы без `id` всё равно будут сопоставляться по имени в `MatchChannels`.
+
+**Шаг 3.4. Логирование ошибок парсинга дат**  
+- **Файл:** `EPGData.h` (функция `ParseXmltvTime`)  
+- **Действие:** в блоке `catch` добавить `LOG_DEBUG("Failed to parse time string: %s", timeStr.c_str())` для диагностики.
+
+---
+
+### Этап 4. Маппинг (`MatchChannels`)
+
+**Шаг 4.1. Проверка пустого маппинга**  
+- **Файл:** `EPGManager.cpp` (метод `MatchChannels`)  
+- **Действие:** после сопоставления проверить `m_channelMapping.empty()`. Если пусто – установить флаг ошибки в `EPGPanel` (через `OnEpgUpdateFinished`), чтобы в колонке Title появилось сообщение `"No EPG channels matched"`.
+
+**Шаг 4.2. Логирование результата маппинга**  
+- **Файл:** `EPGManager.cpp` (метод `MatchChannels`)  
+- **Действие:** уже есть `LOG_INFO` с процентом совпадений. Дополнительно логировать, если процент слишком низкий (например, `<5%`) – предупреждение.
+
+---
+
+### Этап 5. Отображение ошибок в UI
+
+**Шаг 5.1. Панель EPG**  
+- **Файл:** `EPGPanel.cpp` (метод `OnEpgUpdateFinished`)  
+- **Действие:** при статусе `EPG_STATUS_ERROR` или `EPG_STATUS_NO_SOURCES` сохранять сообщение в `m_lastError` и устанавливать `m_hasError = true`. Ошибка отображается в колонке Title (уже реализовано).
+
+**Шаг 5.2. Статусная строка**  
+- **Файл:** `EPGPanel.cpp` (метод `SetStatus`)  
+- **Действие:** уже обновляется через `SetStatus` в `OnEpgUpdateFinished`. Дополнительно добавить вывод сообщения при отсутствии маппинга.
+
+**Шаг 5.3. Диалог настроек**  
+- **Файл:** `SettingsDialog.cpp` (метод `OnEPGAddSource`)  
+- **Действие:** уже использует `wxMessageBox` для результатов добавления источника. Изменений не требуется.
+
+**Шаг 5.4. Прогресс-бар в панели EPG**  
+- **Файл:** `EPGPanel.cpp` (метод `SetupUI`)  
+- **Действие:** добавить элементы прогресса (полоса, текст, скорость, кнопка «Отменить») справа от «Manage Sources». Изначально скрыты. Показывать при вызове `Refresh()` и скрывать при завершении.
+
+**Шаг 5.5. Обновление прогресса из колбэка**  
+- **Файл:** `EPGManager.cpp` / `PlaylistManager.cpp`  
+- **Действие:** через `wxTheApp->CallAfter` из колбэка прогресса обновлять UI-элементы (полоса, текст с размером и скоростью). Использовать таймер для обновления скорости (каждые 1 секунду).
+
+**Шаг 5.6. Обработка отмены**  
+- **Файл:** `EPGPanel.cpp` (обработчик кнопки «Отменить»)  
+- **Действие:** вызывать `m_epgManager->AbortDownload()`. После отмены скрывать прогресс и показывать сообщение `"Download cancelled"` в статусной строке.
+
+---
+
+### Этап 6. Таймауты и прерывание (без жёстких таймаутов)
+
+**Шаг 6.1. Автоматическое прерывание при остановке прогресса**  
+- **Файл:** колбэк прогресса (см. шаг 1.4)  
+- **Действие:** если `downloadedBytes` не меняется более 30 секунд – прерывать загрузку (возвращать `-1`). Устанавливать ошибку `"Download stalled – no progress for 30s"`.
+
+**Шаг 6.2. Обработка при выходе из приложения**  
+- **Файл:** `Application.cpp` (метод `OnExit`)  
+- **Действие:** вызывать `m_epgManager->WaitForRefresh()` с таймаутом 5 секунд (оставить). Добавить логирование, если поток не завершился за это время.
+
+**Шаг 6.3. Отмена через UI**  
+- **Файл:** `EPGPanel` (кнопка «Отменить»)  
+- **Действие:** устанавливать `m_abortDownload = true`, что прерывает загрузку через колбэк.
+
+---
+
+### Этап 7. Логирование и диагностика
+
+**Шаг 7.1. Размер и содержимое**  
+- **Файл:** `EPGManager.cpp` (метод `LoadFromUrl`)  
+- **Действие:** логировать размер загруженных данных и первые 200 символов для диагностики.
+
+**Шаг 7.2. Количество каналов и программ**  
+- **Файл:** `EPGManager.cpp` (метод `ParseAndMerge`)  
+- **Действие:** логировать количество каналов и программ после парсинга.
+
+**Шаг 7.3. Результат маппинга**  
+- **Файл:** `EPGManager.cpp` (метод `MatchChannels`)  
+- **Действие:** логировать процент совпадений (уже есть).
+
+**Шаг 7.4. Длительность загрузки**  
+- **Файл:** `EPGManager.cpp` (метод `Refresh`)  
+- **Действие:** замерить время выполнения `LoadFromUrl` и добавить в `LOG_DEBUG`.
+
+---
+
+### Порядок выполнения
+1. Сначала реализовать этапы 1–2 (загрузка и распаковка) – это основа.
+2. Затем этап 3 (парсинг) – проверка наличия каналов.
+3. Затем этап 4 (маппинг) – обработка пустого маппинга.
+4. Затем этап 5 (UI) – прогресс и отображение ошибок.
+5. Затем этап 6 (таймауты) – прерывание при остановке прогресса.
+6. Затем этап 7 (логирование) – добавить диагностику.
+
+Все изменения локализованы в указанных файлах. План готов к реализации.

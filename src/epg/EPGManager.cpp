@@ -30,26 +30,32 @@
 #include <memory>
 #include <unordered_set>
 
-// ---------- Конструктор / Деструктор ----------
-EPGManager::EPGManager(ConfigManager *configManager,
-                       PlaylistManager *playlistManager)
-    : m_configManager(configManager), m_playlistManager(playlistManager) {
-    LoadSourcesFromConfig();
-    InitializeDefaultRegionalSuffixes();
-}
+static bool IsValidXmltv(const std::string &data) {
+  if (data.empty())
+    return false;
+  std::string lower = data;
+  std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
-EPGManager::~EPGManager() {
-    WaitForRefresh();
-    SaveToCache();
+  // Проверка на HTML-страницу ошибки
+  if (lower.find("<!doctype html") != std::string::npos ||
+      lower.find("<html") != std::string::npos) {
+    LOG_ERROR("IsValidXmltv: Data appears to be HTML (not XMLTV)");
+    return false;
+  }
+
+  // Проверка признаков XMLTV
+  return lower.find("<?xml") != std::string::npos ||
+         lower.find("<tv") != std::string::npos;
 }
 
 static bool DecompressIfNeeded(std::string &data) {
-  // gzip (магические байты 1F 8B)
+  // ========== GZIP ==========
   if (data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1F &&
       static_cast<unsigned char>(data[1]) == 0x8B) {
     z_stream zs;
     memset(&zs, 0, sizeof(zs));
     if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
+      LOG_ERROR("DecompressIfNeeded: inflateInit2 failed");
       return false;
     }
     zs.next_in = reinterpret_cast<Bytef *>(data.data());
@@ -64,16 +70,30 @@ static bool DecompressIfNeeded(std::string &data) {
       ret = inflate(&zs, Z_NO_FLUSH);
       if (ret != Z_OK && ret != Z_STREAM_END) {
         inflateEnd(&zs);
+        LOG_ERROR("DecompressIfNeeded: inflate error %d", ret);
         return false;
       }
       out.append(buf, sizeof(buf) - zs.avail_out);
     } while (ret != Z_STREAM_END);
     inflateEnd(&zs);
+
+    // Проверка размера распакованных данных (защита от zip-бомб)
+    if (out.size() > 200 * 1024 * 1024) {
+      LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 200 MB");
+      return false;
+    }
+
+    // Проверка на валидность XML
+    if (!IsValidXmltv(out)) {
+      LOG_ERROR("DecompressIfNeeded: decompressed gzip is not valid XMLTV");
+      return false;
+    }
+
     data.swap(out);
     return true;
   }
 
-  // ZIP (магические байты 50 4B 03 04)
+  // ========== ZIP ==========
   if (data.size() >= 4 && static_cast<unsigned char>(data[0]) == 0x50 &&
       static_cast<unsigned char>(data[1]) == 0x4B &&
       static_cast<unsigned char>(data[2]) == 0x03 &&
@@ -81,28 +101,114 @@ static bool DecompressIfNeeded(std::string &data) {
     wxMemoryInputStream memIn(data.data(), data.size());
     wxZipInputStream zipIn(memIn);
     if (!zipIn.IsOk()) {
+      LOG_ERROR("DecompressIfNeeded: wxZipInputStream not OK");
       return false;
     }
+
+    std::string extracted;
+    bool foundXml = false;
+
+    // Перебираем все записи в архиве
     std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
-    if (!entry || entry->IsDir()) {
+    while (entry) {
+      if (!entry->IsDir()) {
+        // Проверяем расширение .xml или содержимое
+        wxString name = entry->GetName();
+        bool isXml = name.EndsWith(".xml") || name.EndsWith(".XML") ||
+                     name.EndsWith(".xml.gz") || name.EndsWith(".XML.GZ");
+        if (isXml) {
+          wxMemoryOutputStream memOut;
+          zipIn.Read(memOut);
+          if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
+            LOG_ERROR("DecompressIfNeeded: error reading ZIP entry");
+            return false;
+          }
+          wxStreamBuffer *buf = memOut.GetOutputStreamBuffer();
+          if (buf) {
+            extracted.assign(static_cast<const char *>(buf->GetBufferStart()),
+                             buf->GetBufferSize());
+            foundXml = true;
+            break;
+          }
+        }
+      }
+      entry.reset(zipIn.GetNextEntry());
+    }
+
+    if (!foundXml) {
+      // Если нет файла с расширением .xml, пробуем взять первый не-директорий и
+      // проверить содержимое (повторный проход – упрощённо, можно переоткрыть
+      // поток)
+      wxMemoryInputStream memIn2(data.data(), data.size());
+      wxZipInputStream zipIn2(memIn2);
+      if (zipIn2.IsOk()) {
+        std::unique_ptr<wxZipEntry> entry2(zipIn2.GetNextEntry());
+        while (entry2) {
+          if (!entry2->IsDir()) {
+            wxMemoryOutputStream memOut2;
+            zipIn2.Read(memOut2);
+            if (zipIn2.GetLastError() == wxSTREAM_NO_ERROR) {
+              wxStreamBuffer *buf2 = memOut2.GetOutputStreamBuffer();
+              if (buf2) {
+                extracted.assign(
+                    static_cast<const char *>(buf2->GetBufferStart()),
+                    buf2->GetBufferSize());
+                if (IsValidXmltv(extracted)) {
+                  foundXml = true;
+                  break;
+                }
+              }
+            }
+          }
+          entry2.reset(zipIn2.GetNextEntry());
+        }
+      }
+    }
+
+    if (!foundXml || extracted.empty()) {
+      LOG_ERROR("DecompressIfNeeded: ZIP archive does not contain XMLTV file");
       return false;
     }
-    wxMemoryOutputStream memOut;
-    zipIn.Read(memOut);
-    if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
+
+    // Проверка размера распакованных данных
+    if (extracted.size() > 200 * 1024 * 1024) {
+      LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 200 MB");
       return false;
     }
-    // Извлечь данные из wxMemoryOutputStream
-    wxStreamBuffer *buf = memOut.GetOutputStreamBuffer();
-    if (!buf)
-      return false;
-    data.assign(static_cast<const char *>(buf->GetBufferStart()),
-                buf->GetBufferSize());
+
+    data.swap(extracted);
     return true;
   }
 
-  // Не сжато
+  // Не сжато – проверяем, что это XML
+  if (!IsValidXmltv(data)) {
+    LOG_ERROR("DecompressIfNeeded: data is not valid XMLTV (no <?xml or <tv)");
+    return false;
+  }
+
   return true;
+}
+
+// ---------- Конструктор / Деструктор ----------
+EPGManager::EPGManager(ConfigManager *configManager,
+                       PlaylistManager *playlistManager)
+    : m_configManager(configManager), m_playlistManager(playlistManager) {
+    LoadSourcesFromConfig();
+    InitializeDefaultRegionalSuffixes();
+}
+
+EPGManager::~EPGManager() {
+  auto start = std::chrono::steady_clock::now();
+  WaitForRefresh();
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::steady_clock::now() - start)
+                     .count();
+  if (elapsed >= 5000) {
+    LOG_WARN(
+        "EPGManager::~EPGManager: WaitForRefresh exceeded 5 seconds (%lld ms)",
+        elapsed);
+  }
+  SaveToCache();
 }
 
 // ---------- Региональные суффиксы ----------
@@ -356,28 +462,52 @@ std::string EPGManager::BuildCacheJson() const {
 // ---------- Загрузка из URL и парсинг ----------
 bool EPGManager::LoadFromUrl(const std::string &url,
                              const std::string &userAgent) {
-    if (!m_playlistManager) {
-        setLastError("PlaylistManager is null");
-        LOG_ERROR("EPGManager: PlaylistManager is null");
-        return false;
-    }
+  if (!m_playlistManager) {
+    setLastError("PlaylistManager is null");
+    LOG_ERROR("EPGManager: PlaylistManager is null");
+    return false;
+  }
 
-    std::string xmlData;
-    ErrorCode ec = m_playlistManager->downloadUrl(url, xmlData, userAgent);
-    if (ec != ErrorCode::OK) {
-        setLastError("Failed to download EPG from " + url + ": " +
-                     m_playlistManager->getLastError());
-        LOG_ERROR("EPGManager: Failed to download EPG from %s", url.c_str());
-        return false;
-    }
+  // Сброс состояния прогресса
+  m_downloadProgress.abort = false;
+  m_downloadProgress.totalBytes = 0;
+  m_downloadProgress.downloadedBytes = 0;
 
-    if (!DecompressIfNeeded(xmlData)) {
-      setLastError("Failed to decompress data from " + url);
-      LOG_ERROR("EPGManager: Failed to decompress data from %s", url.c_str());
-      return false;
-    }
-    return ParseAndMerge(xmlData, url);
+  std::string xmlData;
+  ErrorCode ec = m_playlistManager->downloadUrl(url, xmlData, userAgent,
+                                                &m_downloadProgress);
+  if (ec != ErrorCode::OK) {
+    setLastError("Failed to download EPG from " + url + ": " +
+                 m_playlistManager->getLastError());
+    LOG_ERROR("EPGManager: Failed to download EPG from %s", url.c_str());
+    return false;
+  }
+
+  // Проверка размера (защита)
+  if (xmlData.size() > 100 * 1024 * 1024) {
+    setLastError("Downloaded EPG exceeds 100 MB");
+    LOG_ERROR("EPGManager: Downloaded data exceeds 100 MB from %s",
+              url.c_str());
+    return false;
+  }
+
+  // Распаковка
+  if (!DecompressIfNeeded(xmlData)) {
+    setLastError("Failed to decompress data from " + url);
+    LOG_ERROR("EPGManager: Failed to decompress data from %s", url.c_str());
+    return false;
+  }
+
+  LOG_DEBUG("EPGManager: Downloaded %zu bytes from %s", xmlData.size(),
+            url.c_str());
+  if (xmlData.size() > 200) {
+    LOG_DEBUG("EPGManager: First 200 bytes: %.200s", xmlData.c_str());
+  }
+
+  return ParseAndMerge(xmlData, url);
 }
+
+void EPGManager::AbortDownload() { m_downloadProgress.abort = true; }
 
 bool EPGManager::ParseAndMerge(const std::string &xmlData,
                                const std::string &sourceUrl) {
@@ -399,6 +529,14 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
                 m_channels[newCh.id] = newCh;
             }
         }
+
+        if (m_channels.empty()) {
+          setLastError("No channels found in XMLTV from " + sourceUrl);
+          LOG_ERROR("EPGManager: No channels found in XMLTV from %s",
+                    sourceUrl.c_str());
+          return false;
+        }
+
         m_lastUpdate = std::time(nullptr);
         m_loaded = true;
         CleanExpiredPrograms();
@@ -759,7 +897,15 @@ void EPGManager::MatchChannels(const std::vector<Channel>& playlistChannels) {
     
     LOG_INFO("EPGManager: Matched %d/%d channels (%.1f%%)",
              matched, total, (total > 0) ? (matched * 100.0 / total) : 0);
-    
+    if (total > 0) {
+      int percent = (matched * 100) / total;
+      if (percent < 5 && matched > 0) {
+        LOG_WARN("EPGManager: Low match rate: %d/%d channels (%.1f%%). Check "
+                 "tvgId or channel names.",
+                 matched, total, (matched * 100.0 / total));
+      }
+    }
+
     SaveToCache();
 }
 

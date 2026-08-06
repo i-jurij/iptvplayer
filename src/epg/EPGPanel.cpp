@@ -307,6 +307,24 @@ bool EPGPanel::IsChannelInSource(const Channel &ch,
   return false;
 }
 
+void EPGPanel::ShowProgressControls(bool show) {
+  m_progressGauge->Show(show);
+  m_progressText->Show(show);
+  m_cancelBtn->Show(show);
+  if (show) {
+    m_progressGauge->SetValue(0);
+    m_progressText->SetLabel("Downloading...");
+    m_prevDownloaded = 0.0;
+    m_prevTime = std::chrono::steady_clock::now();
+    m_progressTimer.Start(500);
+  } else {
+    m_progressTimer.Stop();
+  }
+  if (auto *parent = m_progressGauge->GetParent()) {
+    parent->Layout();
+  }
+}
+
 void EPGPanel::SetupUI() {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -422,6 +440,29 @@ void EPGPanel::SetupUI() {
   bottomBtnSizer->Add(m_manageSourcesBtn, 0);
   rightSizer->Add(bottomBtnSizer, 0, wxALIGN_LEFT | wxALL, FromDIP(5));
 
+  // ---- Прогресс загрузки (скрыт по умолчанию) ----
+  m_progressGauge = new wxGauge(rightPanel, wxID_ANY, 100, wxDefaultPosition,
+                                wxSize(150, -1));
+  m_progressText = new wxStaticText(rightPanel, wxID_ANY, "");
+  m_cancelBtn = new wxButton(rightPanel, ID_CANCEL_DOWNLOAD, "Cancel");
+  m_cancelBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnCancelDownload, this);
+
+  wxBoxSizer *progressSizer = new wxBoxSizer(wxHORIZONTAL);
+  progressSizer->Add(m_progressGauge, 0, wxRIGHT, 5);
+  progressSizer->Add(m_progressText, 0, wxRIGHT, 10);
+  progressSizer->Add(m_cancelBtn, 0);
+  rightSizer->Add(progressSizer, 0, wxALIGN_LEFT | wxALL, 5);
+
+  // Изначально скрываем
+  m_progressGauge->Hide();
+  m_progressText->Hide();
+  m_cancelBtn->Hide();
+
+  // Привязываем таймер
+  m_progressTimer.SetOwner(this, wxID_HIGHEST + 301);
+  Bind(wxEVT_TIMER, &EPGPanel::OnProgressTimer, this, wxID_HIGHEST + 301);
+
+  // set right panel
   rightPanel->SetSizer(rightSizer);
 
   splitter->SplitVertically(leftPanel, rightPanel, 250);
@@ -485,6 +526,9 @@ void EPGPanel::OnRefreshEPG(wxCommandEvent &) {
     if (auto *parent = m_activityIndicator->GetParent()) {
       parent->Layout();
     }
+
+    ShowProgressControls(true);
+
     SetStatus("Updating...", "EPG refresh started in background.");
     m_epgManager->Refresh();
   }
@@ -538,6 +582,14 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
     } else {
       SetStatus("Warning", "EPG not loaded yet. Try Refresh.");
     }
+    return;
+  }
+
+  // ---- ПРОВЕРКА МАППИНГА ----
+  if (!m_epgManager->HasMapping()) {
+    SetStatus("Warning", "No EPG channels matched to playlist.");
+    long item = m_programList->InsertItem(0, "");
+    m_programList->SetItem(item, 1, "⚠ No EPG channels matched");
     return;
   }
 
@@ -618,6 +670,8 @@ void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
   if (!m_currentChannelId.empty()) {
     LoadProgramsForChannel(m_currentChannelId, m_currentDate);
   }
+
+  ShowProgressControls(false);
 }
 
 void EPGPanel::ShowMessage(const wxString &msg) {
@@ -719,5 +773,68 @@ void EPGPanel::RestoreState() {
     if (m_channelListView) {
       m_channelListView->UnselectAll();
     }
+  }
+}
+
+static wxString FormatSize(double bytes) {
+  const char *units[] = {"B", "KB", "MB", "GB"};
+  int i = 0;
+  while (bytes >= 1024 && i < 3) {
+    bytes /= 1024;
+    i++;
+  }
+  return wxString::Format("%.1f %s", bytes, units[i]);
+}
+
+void EPGPanel::OnProgressTimer(wxTimerEvent &) {
+  if (!m_epgManager) {
+    ShowProgressControls(false);
+    return;
+  }
+  const auto &prog = m_epgManager->GetDownloadProgress();
+  if (prog.abort.load()) {
+    ShowProgressControls(false);
+    return;
+  }
+
+  double total = prog.totalBytes.load();
+  double downloaded = prog.downloadedBytes.load();
+
+  if (total > 0) {
+    int percent = static_cast<int>((downloaded / total) * 100);
+    m_progressGauge->SetValue(percent);
+  } else {
+    // Если неизвестен общий размер, показываем неопределённый прогресс
+    // (мигающий)
+    m_progressGauge->Pulse();
+  }
+
+  // Формируем текст с размером и скоростью
+  wxString text = FormatSize(downloaded);
+  if (total > 0) {
+    text += " / " + FormatSize(total);
+  }
+
+  // Скорость
+  auto now = std::chrono::steady_clock::now();
+  double elapsed = std::chrono::duration<double>(now - m_prevTime).count();
+  if (elapsed > 0.5) {
+    double speed =
+        (downloaded - m_prevDownloaded) / elapsed; // bytes per second
+    if (speed > 0) {
+      text += "  " + FormatSize(speed) + "/s";
+    }
+    m_prevDownloaded = downloaded;
+    m_prevTime = now;
+  }
+
+  m_progressText->SetLabel(text);
+}
+
+void EPGPanel::OnCancelDownload(wxCommandEvent &) {
+  if (m_epgManager) {
+    m_epgManager->AbortDownload();
+    ShowProgressControls(false);
+    SetStatus("Cancelled", "EPG download cancelled by user.");
   }
 }

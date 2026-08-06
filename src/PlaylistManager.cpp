@@ -115,9 +115,47 @@ std::string PlaylistManager::copyIntoConfigFolder(const std::string &srcPath) {
   return std::string(dest.u8string().begin(), dest.u8string().end());
 }
 
+static int ProgressCallback(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
+                            curl_off_t ultotal, curl_off_t ulnow) {
+  (void)ultotal; // не используется
+  (void)ulnow;
+  
+  DownloadProgress *prog = static_cast<DownloadProgress *>(clientp);
+  if (!prog)
+    return 0;
+
+  // Обновляем общий размер (если известен)
+  if (dltotal > 0) {
+    prog->totalBytes = static_cast<double>(dltotal);
+  }
+  prog->downloadedBytes = static_cast<double>(dlnow);
+
+  // Проверка отмены
+  if (prog->abort.load()) {
+    return -1; // прервать загрузку
+  }
+
+  // Проверка зависания (если прогресс не меняется >30 сек)
+  auto now = std::chrono::steady_clock::now();
+  if (prog->lastDownloadedBytes == dlnow) {
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+        now - prog->lastProgressTime);
+    if (elapsed.count() > 30) {
+      prog->abort = true;
+      return -1;
+    }
+  } else {
+    prog->lastDownloadedBytes = dlnow;
+    prog->lastProgressTime = now;
+  }
+
+  return 0;
+}
+
 ErrorCode PlaylistManager::downloadUrl(const std::string &url,
                                        std::string &content,
-                                       const std::string &userAgent) {
+                                       const std::string &userAgent,
+                                       DownloadProgress *progress) {
   CurlGlobal::instance();
 
   CurlSession sess;
@@ -133,13 +171,24 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
   curl_easy_setopt(sess.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
   curl_easy_setopt(sess.get(), CURLOPT_WRITEDATA, &content);
   curl_easy_setopt(sess.get(), CURLOPT_FOLLOWLOCATION, 1L);
-  curl_easy_setopt(sess.get(), CURLOPT_TIMEOUT, 30L);
+  // Убираем жёсткий таймаут:
+  // curl_easy_setopt(sess.get(), CURLOPT_TIMEOUT, 30L);
   curl_easy_setopt(sess.get(), CURLOPT_SSL_VERIFYPEER, 1L);
   curl_easy_setopt(sess.get(), CURLOPT_SSL_VERIFYHOST, 2L);
-  curl_easy_setopt(sess.get(), CURLOPT_MAXFILESIZE, 50 * 1024 * 1024L);
+  curl_easy_setopt(sess.get(), CURLOPT_MAXFILESIZE,
+                   100 * 1024 * 1024L); // 100 MB лимит
 
   if (!userAgent.empty())
     curl_easy_setopt(sess.get(), CURLOPT_USERAGENT, userAgent.c_str());
+
+  // Прогресс
+  if (progress) {
+    curl_easy_setopt(sess.get(), CURLOPT_XFERINFOFUNCTION, ProgressCallback);
+    curl_easy_setopt(sess.get(), CURLOPT_XFERINFODATA, progress);
+    curl_easy_setopt(sess.get(), CURLOPT_NOPROGRESS, 0L);
+    progress->lastProgressTime = std::chrono::steady_clock::now();
+    progress->lastDownloadedBytes = 0.0;
+  }
 
   CURLcode rc = curl_easy_perform(sess.get());
   if (rc != CURLE_OK) {
@@ -152,6 +201,12 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
   if (http != 200) {
     setLastError("HTTP error: " + std::to_string(http));
     return ErrorCode::HttpError;
+  }
+
+  // Если загрузка была отменена
+  if (progress && progress->abort.load()) {
+    setLastError("Download aborted by user or stalled");
+    return ErrorCode::NetworkError;
   }
 
   return ErrorCode::OK;

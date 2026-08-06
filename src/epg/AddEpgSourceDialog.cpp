@@ -181,6 +181,22 @@ void AddEpgSourceDialog::ShowInfoDialog() {
       // ---- Обработка двойного клика с динамической подсказкой ----
       wxTimer *timer = new wxTimer(&infoDlg);
       timer->SetOwner(&infoDlg, wxID_HIGHEST + 1000);
+      // ---- обработчик закрытия диалога ----
+      infoDlg.Bind(wxEVT_CLOSE_WINDOW, [timer](wxCloseEvent &evt) {
+        timer->Stop();
+        evt.Skip();
+      });
+
+      // пользователь нажимает OK остановить таймер
+      infoDlg.Bind(
+          wxEVT_BUTTON,
+          [timer](wxCommandEvent &evt) {
+            if (evt.GetId() == wxID_OK) {
+              timer->Stop();
+            }
+            evt.Skip();
+          },
+          wxID_OK);
 
       list->Bind(wxEVT_LIST_ITEM_ACTIVATED,
                  [hint, timer, list](wxListEvent &evt) {

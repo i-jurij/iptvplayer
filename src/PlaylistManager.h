@@ -10,6 +10,15 @@
 #include <string>
 #include <vector>
 
+struct DownloadProgress {
+  std::atomic<bool> abort{false};
+  std::atomic<double> totalBytes{0.0};
+  std::atomic<double> downloadedBytes{0.0};
+  std::chrono::steady_clock::time_point lastProgressTime;
+  double lastDownloadedBytes = 0.0;
+  bool stalled = false;
+};
+
 class CurlGlobal {
 public:
   static CurlGlobal &instance() {
@@ -49,7 +58,8 @@ public:
   ErrorCode addPlaylistFromUrl(const std::string &url, std::string &title,
                                const std::string &userAgent);
   ErrorCode downloadUrl(const std::string &url, std::string &content,
-                        const std::string &userAgent);
+                        const std::string &userAgent,
+                        DownloadProgress *progress = nullptr);
 
   std::string derivePlaylistTitleFromFile(const std::string &path) const;
   std::string derivePlaylistTitleFromUrl(const std::string &url) const;

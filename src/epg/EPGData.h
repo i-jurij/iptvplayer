@@ -1,6 +1,7 @@
 #ifndef EPGDATA_H
 #define EPGDATA_H
 
+#include "LogControl.h"
 #include <ctime>
 #include <string>
 #include <vector>
@@ -77,29 +78,56 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   if (timeStr.length() < 14)
     return 0;
 
-  int year = std::stoi(timeStr.substr(0, 4));
-  int month = std::stoi(timeStr.substr(4, 2));
-  int day = std::stoi(timeStr.substr(6, 2));
-  int hour = std::stoi(timeStr.substr(8, 2));
-  int minute = std::stoi(timeStr.substr(10, 2));
-  int second = std::stoi(timeStr.substr(12, 2));
+  try {
+    int year = std::stoi(timeStr.substr(0, 4));
+    int month = std::stoi(timeStr.substr(4, 2));
+    int day = std::stoi(timeStr.substr(6, 2));
+    int hour = std::stoi(timeStr.substr(8, 2));
+    int minute = std::stoi(timeStr.substr(10, 2));
+    int second = std::stoi(timeStr.substr(12, 2));
 
-  // Парсим как UTC
-  wxDateTime dt(year, wxDateTime::Month(month - 1), day, hour, minute, second);
-  dt.MakeUTC();
+    // Валидация диапазонов
+    if (year < 1970 || year > 2100)
+      return 0;
+    if (month < 1 || month > 12)
+      return 0;
+    if (day < 1 || day > 31)
+      return 0;
+    if (hour < 0 || hour > 23)
+      return 0;
+    if (minute < 0 || minute > 59)
+      return 0;
+    if (second < 0 || second > 59)
+      return 0;
 
-  // Если есть смещение, применяем его
-  if (timeStr.length() >= 19) {
-    char sign = timeStr[14];
-    int offsetHours = std::stoi(timeStr.substr(15, 2));
-    int offsetMinutes = std::stoi(timeStr.substr(17, 2));
-    int offsetSeconds = offsetHours * 3600 + offsetMinutes * 60;
-    if (sign == '-')
-      offsetSeconds = -offsetSeconds;
-    dt -= wxTimeSpan(0, 0, offsetSeconds);
+    wxDateTime dt(year, wxDateTime::Month(month - 1), day, hour, minute,
+                  second);
+    dt.MakeUTC();
+
+    if (!dt.IsValid())
+      return 0;
+
+    // Если есть смещение, применяем его
+    if (timeStr.length() >= 19) {
+      char sign = timeStr[14];
+      int offsetHours = std::stoi(timeStr.substr(15, 2));
+      int offsetMinutes = std::stoi(timeStr.substr(17, 2));
+      if (offsetHours < 0 || offsetHours > 14 || offsetMinutes < 0 ||
+          offsetMinutes > 59)
+        return dt.GetTicks(); // игнорируем невалидное смещение
+      int offsetSeconds = offsetHours * 3600 + offsetMinutes * 60;
+      if (sign == '-')
+        offsetSeconds = -offsetSeconds;
+      dt -= wxTimeSpan(0, 0, offsetSeconds);
+      if (!dt.IsValid())
+        return 0;
+    }
+
+    return dt.GetTicks();
+  } catch (const std::exception &) {
+    LOG_DEBUG("Failed to parse time string: %s", timeStr.c_str());
+    return 0;
   }
-
-  return dt.GetTicks();
 }
 
 inline bool EpgTime::IsSameDay(time_t timestamp, time_t date) {

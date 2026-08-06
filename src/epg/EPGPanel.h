@@ -4,15 +4,19 @@
 #include <wx/activityindicator.h>
 #include <wx/button.h>
 #include <wx/dataview.h>
+#include <wx/gauge.h>
 #include <wx/listctrl.h>
 #include <wx/panel.h>
 #include <wx/splitter.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 #include <wx/tglbtn.h>
+#include <wx/timer.h>
 
 #include "Channel.h"
 #include "EPGData.h"
+
+#include <chrono>
 
 class EPGManager;
 class Channel;
@@ -37,9 +41,22 @@ public:
   void OnEpgUpdateFinished(int status, const wxString &error = wxEmptyString);
 
 private:
+  wxGauge *m_progressGauge;
+  wxStaticText *m_progressText;
+  wxButton *m_cancelBtn;
+  wxTimer m_progressTimer;
+
+  double m_prevDownloaded = 0.0;
+  std::chrono::steady_clock::time_point m_prevTime;
+
+  void OnProgressTimer(wxTimerEvent &event);
+  void OnCancelDownload(wxCommandEvent &event);
+  void UpdateProgressUI();
+  void ShowProgressControls(bool show);
+  
   wxString m_lastError;    // последняя ошибка загрузки/парсинга
   bool m_hasError = false; // флаг наличия ошибки
-  
+
   enum {
     ID_PREV_DAY = wxID_HIGHEST + 100,
     ID_NEXT_DAY,
@@ -48,7 +65,8 @@ private:
     ID_MANAGE_SOURCES,
     ID_CHANNEL_LIST = wxID_HIGHEST + 200,
     ID_SEARCH_CTRL,
-    ID_PROGRAM_LIST
+    ID_PROGRAM_LIST,
+    ID_CANCEL_DOWNLOAD = wxID_HIGHEST + 300
   };
 
   std::vector<EpgProgram> m_currentPrograms;
