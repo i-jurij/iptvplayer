@@ -41,6 +41,8 @@ public:
   void OnEpgUpdateFinished(int status, const wxString &error = wxEmptyString);
 
 private:
+  bool m_refreshing = false;
+  
   wxGauge *m_progressGauge;
   wxStaticText *m_progressText;
   wxButton *m_cancelBtn;

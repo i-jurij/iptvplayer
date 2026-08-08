@@ -85,6 +85,9 @@ public:
   void
   SetOnUpdateFinished(std::function<void(int, const std::string &)> callback);
 
+  using RefreshStartedCallback = std::function<void()>;
+  void SetOnRefreshStarted(RefreshStartedCallback callback);
+
   void AbortDownload();
 
   bool HasMapping() const { return !m_channelMapping.empty(); }
@@ -94,9 +97,13 @@ public:
   }
 
 private:
+  std::atomic<bool> m_isRefreshing{false};
+  bool IsRefreshing() const { return m_isRefreshing.load(); }
+
   DownloadProgress m_downloadProgress;
-  
+
   std::function<void(int, const std::string &)> m_onUpdateFinished;
+  RefreshStartedCallback m_onRefreshStarted;
 
   // ---------- Внутренние структуры ----------
   struct NormalizedChannel {

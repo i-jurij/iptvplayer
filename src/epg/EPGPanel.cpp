@@ -224,6 +224,23 @@ EPGPanel::EPGPanel(wxWindow *parent)
   }
 
   SetupUI();
+
+  if (m_epgManager) {
+    m_epgManager->SetOnRefreshStarted([this]() {
+      // Колбэк выполняется в основном потоке через CallAfter
+      if (!m_refreshing) {
+        m_refreshing = true;
+        m_refreshBtn->Enable(false);
+        m_activityIndicator->Show();
+        m_activityIndicator->Start();
+        ShowProgressControls(true);
+        SetStatus("Updating...", "EPG refresh started.");
+        if (auto *parent = m_activityIndicator->GetParent()) {
+          parent->Layout();
+        }
+      }
+    });
+  }
 }
 
 EPGPanel::~EPGPanel() {
@@ -428,35 +445,38 @@ void EPGPanel::SetupUI() {
   detailSizer->Add(m_detailDesc, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
   rightSizer->Add(detailSizer, 0, wxEXPAND | wxALL, FromDIP(5));
 
-  wxBoxSizer *bottomBtnSizer = new wxBoxSizer(wxHORIZONTAL);
+  // ---- Нижняя панель с кнопками и прогрессом в одной строке ----
+  wxBoxSizer *bottomRowSizer = new wxBoxSizer(wxHORIZONTAL);
+
   m_refreshBtn = new wxButton(rightPanel, ID_REFRESH_EPG, "↻ Refresh");
-  bottomBtnSizer->Add(m_refreshBtn, 0, wxRIGHT, FromDIP(5));
+  bottomRowSizer->Add(m_refreshBtn, 0, wxRIGHT, FromDIP(5));
+
   m_activityIndicator = new wxActivityIndicator(rightPanel, wxID_ANY);
-  bottomBtnSizer->Add(m_activityIndicator, 0, wxLEFT | wxRIGHT | wxALIGN_CENTER_VERTICAL,
-                      FromDIP(5));
-  m_activityIndicator->Hide(); // по умолчанию скрыт
+  bottomRowSizer->Add(m_activityIndicator, 0,
+                      wxLEFT | wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(5));
+  m_activityIndicator->Hide();
+
   m_manageSourcesBtn =
       new wxButton(rightPanel, ID_MANAGE_SOURCES, "⚙ Manage Sources");
-  bottomBtnSizer->Add(m_manageSourcesBtn, 0);
-  rightSizer->Add(bottomBtnSizer, 0, wxALIGN_LEFT | wxALL, FromDIP(5));
+  bottomRowSizer->Add(m_manageSourcesBtn, 0);
 
-  // ---- Прогресс загрузки (скрыт по умолчанию) ----
+  // Прогресс-бар, текст и кнопка Cancel (изначально скрыты)
   m_progressGauge = new wxGauge(rightPanel, wxID_ANY, 100, wxDefaultPosition,
                                 wxSize(150, -1));
   m_progressText = new wxStaticText(rightPanel, wxID_ANY, "");
   m_cancelBtn = new wxButton(rightPanel, ID_CANCEL_DOWNLOAD, "Cancel");
   m_cancelBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnCancelDownload, this);
 
-  wxBoxSizer *progressSizer = new wxBoxSizer(wxHORIZONTAL);
-  progressSizer->Add(m_progressGauge, 0, wxRIGHT, FromDIP(5));
-  progressSizer->Add(m_progressText, 0, wxRIGHT, FromDIP(10));
-  progressSizer->Add(m_cancelBtn, 0);
-  rightSizer->Add(progressSizer, 0, wxALIGN_LEFT | wxALL, FromDIP(5));
+  bottomRowSizer->Add(m_progressGauge, 0, wxRIGHT, FromDIP(5));
+  bottomRowSizer->Add(m_progressText, 0, wxRIGHT, FromDIP(10));
+  bottomRowSizer->Add(m_cancelBtn, 0);
 
-  // Изначально скрываем
+  // Изначально скрыты
   m_progressGauge->Hide();
   m_progressText->Hide();
   m_cancelBtn->Hide();
+
+  rightSizer->Add(bottomRowSizer, 0, wxEXPAND | wxALL, FromDIP(5));
 
   // Привязываем таймер
   m_progressTimer.SetOwner(this, wxID_HIGHEST + 301);
@@ -519,17 +539,12 @@ void EPGPanel::OnToday(wxCommandEvent &) {
 }
 
 void EPGPanel::OnRefreshEPG(wxCommandEvent &) {
+  if (m_refreshing) {
+    SetStatus("Info", "EPG update already in progress.");
+    return;
+  }
   if (m_epgManager) {
-    m_activityIndicator->Show();
-    m_activityIndicator->Start();
-    // Принудительно обновляем layout, чтобы индикатор появился в правильном месте
-    if (auto *parent = m_activityIndicator->GetParent()) {
-      parent->Layout();
-    }
-
-    ShowProgressControls(true);
-
-    SetStatus("Updating...", "EPG refresh started in background.");
+    // Колбэк начала обновления сработает автоматически
     m_epgManager->Refresh();
   }
 }
@@ -641,6 +656,8 @@ void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
   LOG_DEBUG("EPGPanel::OnEpgUpdateFinished: status=%d, error=%s", status,
             error.ToUTF8().data());
 
+  m_refreshing = false;
+  m_refreshBtn->Enable(true);
   m_activityIndicator->Stop();
   m_activityIndicator->Hide();
   if (auto *parent = m_activityIndicator->GetParent()) {
