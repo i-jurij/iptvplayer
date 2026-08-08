@@ -5,7 +5,6 @@
 #include <expat.h>
 #include <string>
 
-// Определение XMLCALL для всех платформ
 #ifndef XMLCALL
 #ifdef _WIN32
 #define XMLCALL __cdecl
@@ -15,7 +14,8 @@
 #endif
 
 bool EPGParserExpat::Parse(const std::string &xmlData) {
-  XML_Parser parser = XML_ParserCreate(nullptr);
+  // FIX: явно указываем кодировку UTF-8
+  XML_Parser parser = XML_ParserCreate("UTF-8");
   if (!parser) {
     LOG_ERROR("EPGParserExpat: Failed to create XML parser");
     return false;
@@ -84,12 +84,11 @@ void XMLCALL EPGParserExpat::TextHandler(void *userData, const char *s,
 }
 
 // ---------------------------------------------------------------------
-// Основные обработчики (без изменений, см. предыдущий код)
-// ---------------------------------------------------------------------
 void EPGParserExpat::OnStartElement(
     const std::string &name,
     const std::vector<std::pair<std::string, std::string>> &attrs) {
   m_currentText.clear();
+
   if (name == "channel") {
     m_state = STATE_CHANNEL;
     m_currentChannel = EpgChannel();
@@ -101,12 +100,21 @@ void EPGParserExpat::OnStartElement(
     }
   } else if (name == "programme") {
     m_state = STATE_PROGRAMME;
+    // FIX: явно обнуляем программу, чтобы не осталось данных от предыдущей
     m_currentProgram = EpgProgram();
     for (const auto &attr : attrs) {
       if (attr.first == "start") {
         m_currentProgram.startTime = EpgTime::ParseXmltvTime(attr.second);
+        if (m_currentProgram.startTime == 0) {
+          LOG_WARN("EPGParserExpat: Failed to parse 'start' time: %s",
+                   attr.second.c_str());
+        }
       } else if (attr.first == "stop") {
         m_currentProgram.stopTime = EpgTime::ParseXmltvTime(attr.second);
+        if (m_currentProgram.stopTime == 0) {
+          LOG_WARN("EPGParserExpat: Failed to parse 'stop' time: %s",
+                   attr.second.c_str());
+        }
       } else if (attr.first == "channel") {
         m_currentProgram.channelId = attr.second;
       }
@@ -129,24 +137,23 @@ void EPGParserExpat::OnEndElement(const std::string &name) {
     }
     m_state = STATE_NONE;
   } else if (name == "programme") {
+    // FIX: только одна проверка и одно добавление (без дублирования)
     if (!m_currentProgram.channelId.empty() &&
-        !m_currentProgram.title.empty() && m_currentProgram.startTime > 0) {
+        !m_currentProgram.title.empty() && m_currentProgram.startTime > 0 &&
+        m_currentProgram.stopTime > m_currentProgram.startTime) {
+      // Проверяем, что канал существует
       for (auto &ch : m_channels) {
         if (ch.id == m_currentProgram.channelId) {
-          if (!m_currentProgram.channelId.empty() &&
-              !m_currentProgram.title.empty() &&
-              m_currentProgram.startTime > 0 && m_currentProgram.stopTime > 0) {
-            for (auto &ch : m_channels) {
-              if (ch.id == m_currentProgram.channelId) {
-                ch.programs.push_back(m_currentProgram);
-                break;
-              }
-            }
-          }
           ch.programs.push_back(m_currentProgram);
           break;
         }
       }
+    } else {
+      LOG_WARN("EPGParserExpat: Skipped programme (channel='%s', title='%s', "
+               "start=%ld, stop=%ld)",
+               m_currentProgram.channelId.c_str(),
+               m_currentProgram.title.c_str(), m_currentProgram.startTime,
+               m_currentProgram.stopTime);
     }
     m_state = STATE_NONE;
   } else if (m_state == STATE_CHANNEL && name == "display-name") {

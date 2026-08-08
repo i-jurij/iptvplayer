@@ -75,6 +75,7 @@ inline time_t EpgTime::GetCurrentLocalTime() {
 }
 
 // Парсинг XMLTV-времени
+// Вместо всей функции предоставляем исправленный участок
 inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   if (timeStr.length() < 8)
     return 0;
@@ -103,28 +104,20 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   if (datePart.length() < 8)
     return 0;
 
-  // ---- 2. Дополнение недостающих частей нулями ----
   std::string padded = datePart;
   if (padded.length() < 14)
     padded += std::string(14 - padded.length(), '0');
 
-  // ---- 3. Парсинг компонентов через sscanf ----
   int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
   if (sscanf(padded.c_str(), "%04d%02d%02d%02d%02d%02d", &year, &month, &day,
              &hour, &minute, &second) != 6)
     return 0;
 
-  // ---- 4. Валидация базовых диапазонов ----
-  if (year < 1970 || year > 2100)
-    return 0;
-  if (month < 1 || month > 12)
-    return 0;
-  if (day < 1)
-    return 0;
-  if (hour > 23 || minute > 59 || second > 59)
+  if (year < 1970 || year > 2100 || month < 1 || month > 12 || day < 1 ||
+      hour > 23 || minute > 59 || second > 59)
     return 0;
 
-  // ---- 5. ★ КАЛЕНДАРНАЯ ВАЛИДАЦИЯ дня ----
+  // ---- Валидация дня в месяце ----
   static const int daysInMonth[] = {31, 28, 31, 30, 31, 30,
                                     31, 31, 30, 31, 30, 31};
   int maxDay = daysInMonth[month - 1];
@@ -137,52 +130,59 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
     return 0;
   }
 
-  // ---- 6. ★ ПРАВИЛЬНЫЙ ПОРЯДОК: день, месяц, год ----
-  wxDateTime dt(day, static_cast<wxDateTime::Month>(month - 1), year, hour,
-                minute, second);
-  if (!dt.IsValid())
-    return 0;
+  // ---- Создание времени с учётом зоны ----
+  if (zonePart.empty()) {
+    // FIX: если зона не указана, считаем время в UTC
+    wxDateTime dt(day, static_cast<wxDateTime::Month>(month - 1), year, hour,
+                  minute, second, wxDateTime::UTC);
+    if (dt.IsValid())
+      return dt.GetTicks();
+    else
+      return 0;
+  }
 
-  // ---- 7. Обработка временной зоны ----
-  if (!zonePart.empty()) {
-    int sign = 1;
-    size_t pos = 0;
-    if (zonePart[0] == '-') {
-      sign = -1;
-      pos = 1;
-    } else if (zonePart[0] == '+') {
-      sign = 1;
-      pos = 1;
-    } else if (zonePart[0] == 'Z' || zonePart[0] == 'z') {
-      sign = 0;
-    }
+  // ---- Обработка временной зоны ----
+  int sign = 1;
+  size_t pos = 0;
+  if (zonePart[0] == '-') {
+    sign = -1;
+    pos = 1;
+  } else if (zonePart[0] == '+') {
+    sign = 1;
+    pos = 1;
+  } else if (zonePart[0] == 'Z' || zonePart[0] == 'z') {
+    sign = 0;
+  }
 
-    int zoneHours = 0, zoneMinutes = 0;
-    if (sign != 0) {
-      std::string zoneDigits = zonePart.substr(pos);
-      zoneDigits.erase(std::remove_if(zoneDigits.begin(), zoneDigits.end(),
-                                      [](char c) { return !std::isdigit(c); }),
-                       zoneDigits.end());
+  int zoneHours = 0, zoneMinutes = 0;
+  if (sign != 0) {
+    std::string zoneDigits = zonePart.substr(pos);
+    zoneDigits.erase(std::remove_if(zoneDigits.begin(), zoneDigits.end(),
+                                    [](char c) { return !std::isdigit(c); }),
+                     zoneDigits.end());
 
-      if (zoneDigits.length() >= 2) {
-        zoneHours = std::stoi(zoneDigits.substr(0, 2));
-        if (zoneDigits.length() >= 4)
-          zoneMinutes = std::stoi(zoneDigits.substr(2, 2));
-        if (zoneHours > 14)
-          zoneHours = 0;
-        if (zoneMinutes > 59)
-          zoneMinutes = 0;
-        int offsetSeconds = (zoneHours * 3600 + zoneMinutes * 60) * sign;
-        dt -= wxTimeSpan(0, 0, offsetSeconds);
-      }
+    if (zoneDigits.length() >= 2) {
+      zoneHours = std::stoi(zoneDigits.substr(0, 2));
+      if (zoneDigits.length() >= 4)
+        zoneMinutes = std::stoi(zoneDigits.substr(2, 2));
+      if (zoneHours > 14)
+        zoneHours = 0;
+      if (zoneMinutes > 59)
+        zoneMinutes = 0;
     }
   }
 
+  // Создаём время в UTC и корректируем на смещение (если зона указана)
+  wxDateTime dt(day, static_cast<wxDateTime::Month>(month - 1), year, hour,
+                minute, second, wxDateTime::UTC);
   if (!dt.IsValid())
     return 0;
 
-  // ---- 8. Преобразование в UTC ----
-  dt.MakeUTC();
+  if (sign != 0) {
+    int offsetSeconds = (zoneHours * 3600 + zoneMinutes * 60) * sign;
+    dt -= wxTimeSpan(0, 0, offsetSeconds);
+  }
+
   return dt.GetTicks();
 }
 
@@ -194,7 +194,7 @@ static inline bool GetLocalTm(time_t t, wxDateTime::Tm &tm) {
   wxDateTime dt(t);
   if (!dt.IsValid())
     return false;
-  
+
   tm = dt.GetTm();
   return true;
 }

@@ -83,7 +83,10 @@ static bool DecompressIfNeeded(std::string &data) {
       LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
       return false;
     }
-
+    if (out.empty()) {
+      LOG_ERROR("DecompressIfNeeded: decompressed GZIP data is empty");
+      return false;
+    }
     // Проверка на валидность XML
     if (!IsValidXmltv(out)) {
       LOG_ERROR("DecompressIfNeeded: decompressed gzip is not valid XMLTV");
@@ -166,11 +169,14 @@ static bool DecompressIfNeeded(std::string &data) {
       }
     }
 
-    if (!foundXml || extracted.empty()) {
+    if (!foundXml) {
       LOG_ERROR("DecompressIfNeeded: ZIP archive does not contain XMLTV file");
       return false;
     }
-
+    if (extracted.empty()) {
+      LOG_ERROR("DecompressIfNeeded: ZIP archive contains no data");
+      return false;
+    }
     // Проверка размера распакованных данных
     if (extracted.size() > 1024 * 1024 * 1024) {
       LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 1 GB");
@@ -537,9 +543,17 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     return false;
   }
 
+  const auto &newChannels = parser.GetChannels();
+  // Дополнительная проверка: если парсер не нашёл ни одного канала
+  if (newChannels.empty()) {
+    setLastError("No channels found in XMLTV from " + sourceUrl);
+    LOG_ERROR("EPGManager: No channels found in XMLTV from %s",
+              sourceUrl.c_str());
+    return false;
+  }
+
   {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
-    const auto &newChannels = parser.GetChannels();
     for (const auto &newCh : newChannels) {
       auto it = m_channels.find(newCh.id);
       if (it != m_channels.end()) {
@@ -549,6 +563,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
       }
     }
 
+    // Проверка, что после слияния есть хотя бы один канал
     if (m_channels.empty()) {
       setLastError("No channels found in XMLTV from " + sourceUrl);
       LOG_ERROR("EPGManager: No channels found in XMLTV from %s",
