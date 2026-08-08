@@ -712,7 +712,7 @@ int SettingsDialog::ShowAddEpgSourceDialog(wxWindow *parent,
 
   urlOrPath = dlg.GetUrlOrPath();
   name = dlg.GetName();
-  isFile = dlg.IsFileSource();
+  isFile = !IsNetworkUrl(urlOrPath);
 
   return AddEpgSourceToManager(urlOrPath, name, isFile);
 }

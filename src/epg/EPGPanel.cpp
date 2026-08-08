@@ -448,10 +448,10 @@ void EPGPanel::SetupUI() {
   m_cancelBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnCancelDownload, this);
 
   wxBoxSizer *progressSizer = new wxBoxSizer(wxHORIZONTAL);
-  progressSizer->Add(m_progressGauge, 0, wxRIGHT, 5);
-  progressSizer->Add(m_progressText, 0, wxRIGHT, 10);
+  progressSizer->Add(m_progressGauge, 0, wxRIGHT, FromDIP(5));
+  progressSizer->Add(m_progressText, 0, wxRIGHT, FromDIP(10));
   progressSizer->Add(m_cancelBtn, 0);
-  rightSizer->Add(progressSizer, 0, wxALIGN_LEFT | wxALL, 5);
+  rightSizer->Add(progressSizer, 0, wxALIGN_LEFT | wxALL, FromDIP(5));
 
   // Изначально скрываем
   m_progressGauge->Hide();

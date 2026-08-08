@@ -1,4 +1,5 @@
 #include "AddEpgSourceDialog.h"
+#include "Utils.h"
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -249,11 +250,18 @@ void AddEpgSourceDialog::OnOk(wxCommandEvent &) {
                  wxOK | wxICON_ERROR, this);
     return;
   }
-  if (!value.StartsWith("http://") && !value.StartsWith("https://")) {
+  // Если это не сетевой URL — проверяем существование файла
+  if (!IsNetworkUrl(value)) {
+    wxFileName fn(value);
+    if (!fn.IsAbsolute()) {
+      fn.MakeAbsolute();
+      value = fn.GetFullPath();
+    }
     if (!wxFileExists(value)) {
       wxMessageBox("File does not exist.", "Error", wxOK | wxICON_ERROR, this);
       return;
     }
+    m_urlCtrl->SetValue(value); // сохраняем абсолютный путь
   }
   EndModal(wxID_OK);
 }
@@ -292,9 +300,3 @@ wxString AddEpgSourceDialog::GetUrlOrPath() const {
 
 //-----------------------------------------------------------------------------
 wxString AddEpgSourceDialog::GetName() const { return m_nameCtrl->GetValue(); }
-
-//-----------------------------------------------------------------------------
-bool AddEpgSourceDialog::IsFileSource() const {
-  wxString val = m_urlCtrl->GetValue();
-  return !val.StartsWith("http://") && !val.StartsWith("https://");
-}

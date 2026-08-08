@@ -1,5 +1,7 @@
 #include "Utils.h"
 
+#include <curl/curl.h>
+
 #include <wx/app.h>
 #include <wx/dir.h>
 #include <wx/ffile.h>
@@ -12,6 +14,7 @@
 #include <wx/stdpaths.h>
 #include <wx/thread.h>
 #include <wx/tokenzr.h>
+#include <wx/uri.h>
 
 #include <algorithm>
 #include <cctype>
@@ -24,14 +27,142 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
-#include <wx/uri.h>
 
-bool IsValidUrl(const wxString &url) {
+bool IsNetworkUrl(const wxString &url) {
   if (url.IsEmpty())
     return false;
-  
+
   wxURI uri(url);
-  return uri.HasScheme() && !uri.GetScheme().IsEmpty();
+  if (!uri.HasScheme())
+    return false;
+
+  wxString scheme = uri.GetScheme();
+  scheme.MakeLower();
+  if (scheme == "file")
+    return false;
+
+  return true;
+}
+
+// Структура для сбора заголовков
+struct HeaderData {
+  long long contentLength;
+  HeaderData() : contentLength(-1) {}
+};
+
+static size_t HeaderCallback(char *buffer, size_t size, size_t nitems,
+                             void *userdata) {
+  HeaderData *hd = static_cast<HeaderData *>(userdata);
+  std::string line(buffer, size * nitems);
+  std::string prefix = "Content-Length:";
+  if (line.find(prefix) == 0) {
+    std::string val = line.substr(prefix.size());
+    // удаляем пробелы и \r\n
+    val.erase(0, val.find_first_not_of(" \t\r\n"));
+    val.erase(val.find_last_not_of(" \t\r\n") + 1);
+    hd->contentLength = std::stoll(val);
+  }
+  return size * nitems;
+}
+
+UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
+                                           const std::string &userAgent,
+                                           int timeoutSeconds,
+                                           long long maxFileSize) {
+  UrlAvailabilityResult result;
+  result.available = false;
+  result.httpCode = 0;
+  result.contentLength = -1;
+  result.errorText.clear();
+
+  // Валидация URL
+  if (!IsNetworkUrl(wxString::FromUTF8(url))) {
+    result.errorText = "Invalid URL";
+    return result;
+  }
+
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    result.errorText = "CURL init failed";
+    return result;
+  }
+
+  // Общие опции
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)timeoutSeconds);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+  if (!userAgent.empty()) {
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
+  }
+
+  HeaderData headerData;
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerData);
+
+  // Пытаемся HEAD
+  curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+  curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "HEAD");
+
+  CURLcode res = curl_easy_perform(curl);
+  long httpCode = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+  result.httpCode = httpCode;
+
+  if (res != CURLE_OK) {
+    result.errorText = "CURL error: " + std::string(curl_easy_strerror(res));
+    curl_easy_cleanup(curl);
+    return result;
+  }
+
+  // Если HEAD вернул 405, пробуем GET с Range: 0-0
+  if (httpCode == 405) {
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
+    curl_easy_setopt(curl, CURLOPT_RANGE, "0-0");
+    // Отключаем вывод данных
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+                     [](char *, size_t size, size_t nmemb, void *) -> size_t {
+                       return size * nmemb; // игнорируем
+                     });
+    res = curl_easy_perform(curl);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+    result.httpCode = httpCode;
+    if (res != CURLE_OK) {
+      result.errorText =
+          "CURL error on GET Range: " + std::string(curl_easy_strerror(res));
+      curl_easy_cleanup(curl);
+      return result;
+    }
+    // При Range запросе ожидаем 206 или 200
+    if (httpCode != 200 && httpCode != 206) {
+      result.errorText = "HTTP " + std::to_string(httpCode);
+      curl_easy_cleanup(curl);
+      return result;
+    }
+    // Content-Length может быть в заголовке Content-Range, но мы уже сохранили
+    // из HEAD (если был) Если не было, то извлекаем из Content-Range Для
+    // простоты оставим как есть
+  } else if (httpCode != 200) {
+    result.errorText = "HTTP " + std::to_string(httpCode);
+    curl_easy_cleanup(curl);
+    return result;
+  }
+
+  // Если дошли сюда, то доступен
+  result.available = true;
+  result.contentLength = headerData.contentLength;
+
+  // Проверка размера
+  if (maxFileSize > 0 && result.contentLength > maxFileSize) {
+    result.available = false;
+    result.errorText = "File too large (" +
+                       std::to_string(result.contentLength) + " bytes, limit " +
+                       std::to_string(maxFileSize) + ")";
+  }
+
+  curl_easy_cleanup(curl);
+  return result;
 }
 
 // ============================================================================

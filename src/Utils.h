@@ -11,12 +11,32 @@
 #include <functional>
 #include <string>
 
-bool IsValidUrl(const wxString &url);
+struct UrlAvailabilityResult {
+  bool available;          // true, если код 200
+  long httpCode;           // HTTP-статус или 0 при ошибке curl
+  long long contentLength; // размер в байтах, -1 если неизвестен
+  std::string errorText;   // описание ошибки
+};
+
+/// Проверяет доступность URL (HEAD-запрос с таймаутом).
+/// Возвращает структуру с результатами.
+UrlAvailabilityResult CheckUrlAvailability(
+    const std::string &url, const std::string &userAgent = "",
+    int timeoutSeconds = 5,
+    long long maxFileSize = 250 * 1024 * 1024 // 250 МБ по умолчанию
+);
+
+bool IsNetworkUrl(const wxString &url);
+inline bool IsNetworkUrl(const std::string &url) {
+  return IsNetworkUrl(wxString::FromUTF8(url));
+}
+
 bool IsWindowsPlatform();
 bool IsMacPlatform();
 bool IsLinuxPlatform();
 bool IsWaylandSession();
 bool IsX11Session();
+
 wxString FindExecutableInPath(const wxString &name);
 bool IsFileExecutable(const wxString &path);
 bool IsSafeSubpath(const wxString &base, const wxString &candidate);

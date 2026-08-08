@@ -157,7 +157,7 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
   std::string title = dlg.GetTitle().ToUTF8().data();
   std::string userAgent = dlg.GetUserAgent().ToUTF8().data();
 
-  if (!IsValidUrl(url)) {
+  if (!IsNetworkUrl(url)) {
     wxMessageBox("Invalid URL. Please enter a valid address.", "Error",
                  wxOK | wxICON_ERROR);
     return;

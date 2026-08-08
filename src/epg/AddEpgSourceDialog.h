@@ -11,7 +11,6 @@ public:
 
   wxString GetUrlOrPath() const;
   wxString GetName() const;
-  bool IsFileSource() const;
 
 private:
   wxTextCtrl *m_urlCtrl;

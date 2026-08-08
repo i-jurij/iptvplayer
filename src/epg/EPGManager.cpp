@@ -5,6 +5,7 @@
 #include "../LogControl.h"
 #include "../PlaylistManager.h"
 #include "EPGParserExpat.h"
+#include "Utils.h"
 
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -78,8 +79,8 @@ static bool DecompressIfNeeded(std::string &data) {
     inflateEnd(&zs);
 
     // Проверка размера распакованных данных (защита от zip-бомб)
-    if (out.size() > 200 * 1024 * 1024) {
-      LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 200 MB");
+    if (out.size() > 1024 * 1024 * 1024) { // 1 ГБ
+      LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
       return false;
     }
 
@@ -171,8 +172,8 @@ static bool DecompressIfNeeded(std::string &data) {
     }
 
     // Проверка размера распакованных данных
-    if (extracted.size() > 200 * 1024 * 1024) {
-      LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 200 MB");
+    if (extracted.size() > 1024 * 1024 * 1024) {
+      LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 1 GB");
       return false;
     }
 
@@ -468,6 +469,21 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     return false;
   }
 
+  // ---- Проверка доступности ----
+  UrlAvailabilityResult check =
+      CheckUrlAvailability(url, userAgent, 5, 250 * 1024 * 1024);
+  if (!check.available) {
+    std::string err = "Availability check failed: " + check.errorText;
+    setLastError(err);
+    LOG_ERROR("EPGManager: %s", err.c_str());
+    return false;
+  }
+  // Можно залогировать размер
+  if (check.contentLength > 0) {
+    LOG_DEBUG("EPGManager: URL %s, Content-Length: %lld bytes", url.c_str(),
+              check.contentLength);
+  }
+  
   // Сброс состояния прогресса
   m_downloadProgress.abort = false;
   m_downloadProgress.totalBytes = 0;
@@ -584,17 +600,25 @@ void EPGManager::Refresh() {
             lastError = "No EPG sources configured";
             setLastError(lastError);
         } else {
-            for (const auto &src : sourcesCopy) {
-                if (LoadFromUrl(src.url, "")) {
-                    anySuccess = true;
-                } else {
-                    lastError = getLastError();
-                }
+          for (const auto &src : sourcesCopy) {
+            bool success = false;
+            if (IsNetworkUrl(src.url)) {
+              success = LoadFromUrl(src.url, "");
+            } else {
+              success = LoadFromFile(src.url);
             }
+            if (success) {
+              anySuccess = true;
+            } else {
+              lastError = getLastError();
+            }
+          }
         }
+
         if (anySuccess) {
             SaveToCache();
         }
+
         int status = anySuccess ? EPG_STATUS_OK
                                 : (sourcesCopy.empty() ? EPG_STATUS_NO_SOURCES
                                                        : EPG_STATUS_ERROR);
