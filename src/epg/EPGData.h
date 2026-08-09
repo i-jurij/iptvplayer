@@ -2,6 +2,7 @@
 #define EPGDATA_H
 
 #include "LogControl.h"
+#include "Utils.h"
 
 #include <wx/datetime.h>
 
@@ -38,7 +39,6 @@ struct EpgSource {
 
 namespace EpgTime {
 time_t ParseXmltvTime(const std::string &timeStr);
-bool IsSameDay(time_t timestamp, time_t date);
 time_t GetStartOfDay(time_t date);
 time_t GetEndOfDay(time_t date);
 time_t GetCurrentLocalTime();
@@ -186,67 +186,38 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   return dt.GetTicks();
 }
 
-// Вспомогательная функция для безопасного получения локального времени
-static inline bool GetLocalTm(time_t t, wxDateTime::Tm &tm) {
-  if (t == 0)
-    return false;
-
-  wxDateTime dt(t);
-  if (!dt.IsValid())
-    return false;
-
-  tm = dt.GetTm();
-  return true;
-}
-
 inline time_t EpgTime::GetStartOfDay(time_t date) {
-  wxDateTime::Tm tm;
-  if (!GetLocalTm(date, tm))
+  wxDateTime dt = GetLocalDateTime(date);
+  if (!dt.IsValid())
     return 0;
-
+  wxDateTime::Tm tm = dt.GetTm();
   wxDateTime start(tm.mday, static_cast<wxDateTime::Month>(tm.mon), tm.year, 0,
                    0, 0);
   if (!start.IsValid())
     return 0;
-
   start.MakeUTC();
   return start.GetTicks();
 }
 
 inline time_t EpgTime::GetEndOfDay(time_t date) {
-  wxDateTime::Tm tm;
-  if (!GetLocalTm(date, tm))
+  wxDateTime dt = GetLocalDateTime(date);
+  if (!dt.IsValid())
     return 0;
-
+  wxDateTime::Tm tm = dt.GetTm();
   wxDateTime end(tm.mday, static_cast<wxDateTime::Month>(tm.mon), tm.year, 23,
                  59, 59);
   if (!end.IsValid())
     return 0;
-
   end.MakeUTC();
   return end.GetTicks();
 }
 
-inline bool EpgTime::IsSameDay(time_t timestamp, time_t date) {
-  wxDateTime::Tm tsTm, dTm;
-  if (!GetLocalTm(timestamp, tsTm) || !GetLocalTm(date, dTm))
-    return false;
-  return (tsTm.year == dTm.year && tsTm.mon == dTm.mon &&
-          tsTm.mday == dTm.mday);
-}
-
 inline std::string EpgTime::FormatTime(time_t t) {
-  if (t == 0)
-    return "";
-  wxDateTime dt(t);
-  return dt.Format("%d.%m.%Y %H:%M").ToStdString();
+  return FormatLocalTime(t, "%d.%m.%Y %H:%M");
 }
 
 inline std::string EpgTime::FormatTimeShort(time_t t) {
-  if (t == 0)
-    return "";
-  wxDateTime dt(t);
-  return dt.Format("%H:%M").ToStdString();
+  return FormatLocalTime(t, "%H:%M");
 }
 
 #endif

@@ -454,6 +454,25 @@ wxString formatTimestamp(std::time_t timestamp) {
   return wxString(oss.str());
 }
 
+int GetLocalTimezoneOffset() {
+  wxDateTime now = wxDateTime::Now();
+  wxDateTime utc = now.ToUTC();
+  return static_cast<int>(now.GetTicks() - utc.GetTicks());
+}
+
+wxDateTime GetLocalDateTime(time_t t) {
+  if (t == 0)
+    return wxDateTime();
+  int offset = GetLocalTimezoneOffset();
+  return wxDateTime(t + offset);
+}
+
+std::string FormatLocalTime(time_t t, const wxString &format) {
+  wxDateTime dt = GetLocalDateTime(t);
+  if (!dt.IsValid())
+    return "";
+  return dt.Format(format).ToStdString();
+}
 // ============================================================================
 // Пути к иконкам
 // ============================================================================

@@ -756,8 +756,8 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   int row = 0;
   for (const auto &prog : programs) {
-    wxDateTime start(prog.startTime);
-    wxDateTime stop(prog.stopTime);
+    wxDateTime start = GetLocalDateTime(prog.startTime);
+    wxDateTime stop = GetLocalDateTime(prog.stopTime);
     wxString timeRange = start.Format("%H:%M") + " - " + stop.Format("%H:%M");
 
     m_programGrid->AppendRows(1);
