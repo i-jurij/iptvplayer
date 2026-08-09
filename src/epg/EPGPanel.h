@@ -5,7 +5,7 @@
 #include <wx/button.h>
 #include <wx/dataview.h>
 #include <wx/gauge.h>
-#include <wx/listctrl.h>
+#include <wx/grid.h>
 #include <wx/panel.h>
 #include <wx/splitter.h>
 #include <wx/stattext.h>
@@ -42,7 +42,7 @@ public:
 
 private:
   bool m_refreshing = false;
-  
+
   wxGauge *m_progressGauge;
   wxStaticText *m_progressText;
   wxButton *m_cancelBtn;
@@ -107,7 +107,7 @@ private:
   wxButton *m_prevDayBtn;
   wxButton *m_todayBtn;
   wxButton *m_nextDayBtn;
-  wxListCtrl *m_programList;
+  wxGrid *m_programGrid;
   wxStaticText *m_detailTitle;
   wxStaticText *m_detailDesc;
   wxButton *m_refreshBtn;
@@ -151,7 +151,9 @@ private:
   void OnRefreshEPG(wxCommandEvent &event);
   void OnManageSources(wxCommandEvent &event);
   void LoadProgramsForChannel(const std::string &channelId, time_t date);
-  void OnProgramSelected(wxListEvent &event);
+  void AdjustProgramColumns();
+  void OnProgramListResize(wxSizeEvent &event);
+  void OnProgramSelected(wxGridEvent &event);
   void ShowMessage(const wxString &msg);
 
   wxDECLARE_EVENT_TABLE();

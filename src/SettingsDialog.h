@@ -8,6 +8,7 @@
 
 class MainFrame;
 class ConfigManager;
+class EpgSourceManagerPanel;
 
 class SettingsDialog : public wxDialog {
 public:
@@ -25,29 +26,16 @@ public:
                                    const wxString &name, bool isFile);
 
 private:
-  // EPG controls
-  wxCheckBox *m_epgAutoUpdate = nullptr;
-  wxSpinCtrl *m_epgUpdateInterval = nullptr;
-  wxSpinCtrl *m_epgDaysToKeep = nullptr;
-  wxListCtrl *m_epgSourceList = nullptr;
-  wxButton *m_epgAddSource = nullptr;
-  wxButton *m_epgEditSource = nullptr;
-  wxButton *m_epgRemoveSource = nullptr;
-  wxButton *m_epgRefreshNow = nullptr;
-  wxButton *m_epgDeleteCache = nullptr;
-
-  void OnEPGAddSource(wxCommandEvent &event);
-  void OnEPGEditSource(wxCommandEvent &event);
-  void OnEPGRemoveSource(wxCommandEvent &event);
-  void OnEPGRefreshNow(wxCommandEvent &event);
-  void OnEPGDeleteCache(wxCommandEvent &event);
-  void UpdateEPGSourceList();
-  void LoadEPGSettings();
-  void SaveEPGSettings();
-
   // Контролы
   wxCheckBox *m_noLogoCheck = nullptr;
   wxCheckBox *m_autoUpdateCheck = nullptr;
+  wxCheckBox *m_deleteLogoCacheOnDisableCheck = nullptr;
+  wxButton *m_deleteDiskCacheBtn = nullptr;
+  wxButton *m_deleteRamCacheBtn = nullptr;
+  wxButton *m_reloadMissingLogosBtn = nullptr;
+
+  // Панель управления EPG
+  EpgSourceManagerPanel *m_epgPanel = nullptr;
 
   // Ссылки
   ConfigManager *m_config = nullptr;
@@ -62,11 +50,6 @@ private:
   void OnOk(wxCommandEvent &event);
   void OnCancel(wxCommandEvent &event);
   void OnRestoreDefaults(wxCommandEvent &event);
-  
-  wxCheckBox *m_deleteLogoCacheOnDisableCheck = nullptr;
-  wxButton *m_deleteDiskCacheBtn = nullptr;
-  wxButton *m_deleteRamCacheBtn = nullptr;
-  wxButton *m_reloadMissingLogosBtn = nullptr;
 
   void OnDeleteDiskCacheNow(wxCommandEvent &WXUNUSED(event));
   void OnDeleteRamCacheNow(wxCommandEvent &WXUNUSED(event));

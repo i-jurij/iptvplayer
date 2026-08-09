@@ -137,6 +137,7 @@ set(SOURCES
     src/epg/EPGManager.cpp
     src/epg/EPGParserExpat.cpp
     src/epg/EPGPanel.cpp
+    src/epg/EpgSourceManagerPanel.cpp
     src/epg/AddEpgSourceDialog.cpp
 )
 
