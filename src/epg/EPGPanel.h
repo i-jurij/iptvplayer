@@ -109,7 +109,7 @@ private:
   wxButton *m_nextDayBtn;
   wxGrid *m_programGrid;
   wxStaticText *m_detailTitle;
-  wxStaticText *m_detailDesc;
+  wxTextCtrl *m_detailDesc;
   wxButton *m_refreshBtn;
   wxButton *m_manageSourcesBtn;
 

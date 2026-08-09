@@ -482,13 +482,27 @@ void EPGPanel::SetupUI() {
   // Добавляем в правую панель (вместо старого m_programList)
   rightSizer->Add(m_programGrid, 1, wxEXPAND | wxALL, FromDIP(5));
 
+  // ---- Блок деталей ----
   wxStaticBox *detailBox = new wxStaticBox(rightPanel, wxID_ANY, "Details");
   wxStaticBoxSizer *detailSizer = new wxStaticBoxSizer(detailBox, wxVERTICAL);
+
   m_detailTitle = new wxStaticText(rightPanel, wxID_ANY, "");
-  m_detailDesc = new wxStaticText(rightPanel, wxID_ANY, "");
   m_detailTitle->SetFont(m_detailTitle->GetFont().MakeBold());
   detailSizer->Add(m_detailTitle, 0, wxALL, FromDIP(5));
-  detailSizer->Add(m_detailDesc, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+
+  // Создаём многострочный текст с прокруткой
+  m_detailDesc =
+      new wxTextCtrl(rightPanel, wxID_ANY, "", wxDefaultPosition, wxDefaultSize,
+                     wxTE_MULTILINE | wxTE_READONLY | wxTE_WORDWRAP);
+  m_detailDesc->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+  m_detailDesc->SetForegroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+  m_detailDesc->SetMinSize(wxSize(-1, FromDIP(80))); // минимальная высота
+  m_detailDesc->SetMaxSize(wxSize(-1, FromDIP(200)));
+  detailSizer->Add(m_detailDesc, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                   FromDIP(5));
+
   rightSizer->Add(detailSizer, 0, wxEXPAND | wxALL, FromDIP(5));
 
   // ---- Нижняя панель с кнопками и прогрессом в одной строке ----
@@ -674,8 +688,7 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
     m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());
 
   m_detailTitle->SetLabel("");
-  m_detailDesc->SetLabel("");
-
+  m_detailDesc->SetValue("");
   // ---- Если есть ошибка ----
   if (m_hasError && !m_lastError.IsEmpty()) {
     m_programGrid->AppendRows(1);
@@ -764,7 +777,7 @@ void EPGPanel::OnProgramSelected(wxGridEvent &event) {
 
   const EpgProgram &prog = m_currentPrograms[row];
   m_detailTitle->SetLabel(wxString::FromUTF8(prog.title));
-  m_detailDesc->SetLabel(wxString::FromUTF8(prog.description));
+  m_detailDesc->SetValue(wxString::FromUTF8(prog.description));
 }
 
 void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
@@ -904,7 +917,7 @@ void EPGPanel::RestoreState() {
       m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());
     }
     m_detailTitle->SetLabel("");
-    m_detailDesc->SetLabel("");
+    m_detailDesc->SetValue("");
     if (m_channelListView) {
       m_channelListView->UnselectAll();
     }
