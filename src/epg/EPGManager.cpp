@@ -17,6 +17,7 @@
 #include <wx/stdpaths.h>
 #include <wx/stream.h>
 #include <wx/string.h>
+#include <wx/timer.h>
 #include <wx/window.h>
 #include <wx/zipstrm.h>
 
@@ -199,9 +200,12 @@ static bool DecompressIfNeeded(std::string &data) {
 // ---------- Конструктор / Деструктор ----------
 EPGManager::EPGManager(ConfigManager *configManager,
                        PlaylistManager *playlistManager)
-    : m_configManager(configManager), m_playlistManager(playlistManager) {
+    : wxEvtHandler(), m_configManager(configManager),
+      m_playlistManager(playlistManager) {
   LoadSourcesFromConfig();
   InitializeDefaultRegionalSuffixes();
+  m_autoUpdateTimer = new wxTimer(this);
+  m_autoUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnAutoUpdateTimer, this);
 }
 
 EPGManager::~EPGManager() {
@@ -216,6 +220,41 @@ EPGManager::~EPGManager() {
         elapsed);
   }
   SaveToCache();
+  if (m_autoUpdateTimer) {
+    m_autoUpdateTimer->Stop();
+    delete m_autoUpdateTimer;
+  }
+}
+
+void EPGManager::StartAutoUpdate() {
+  if (!m_autoUpdateTimer || !m_autoUpdateEnabled)
+    return;
+  if (m_autoUpdateTimer->IsRunning())
+    return;
+  int intervalHours = m_updateIntervalHours;
+  if (intervalHours < 1)
+    intervalHours = 1;
+  long intervalMs = intervalHours * 3600 * 1000;
+  m_autoUpdateTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
+  LOG_DEBUG("EPGManager: Auto-update started (interval %d hours)",
+            intervalHours);
+}
+
+void EPGManager::StopAutoUpdate() {
+  if (m_autoUpdateTimer && m_autoUpdateTimer->IsRunning()) {
+    m_autoUpdateTimer->Stop();
+    LOG_DEBUG("EPGManager: Auto-update stopped");
+  }
+}
+
+void EPGManager::RestartAutoUpdate() {
+  StopAutoUpdate();
+  StartAutoUpdate();
+}
+
+void EPGManager::OnAutoUpdateTimer(wxTimerEvent &) {
+  LOG_DEBUG("EPGManager: Auto-update timer triggered");
+  Refresh();
 }
 
 void EPGManager::SetOnRefreshStarted(RefreshStartedCallback callback) {

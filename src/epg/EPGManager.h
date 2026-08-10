@@ -12,13 +12,14 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <wx/timer.h>
 
 
 class ConfigManager;
 class PlaylistManager;
 class Channel;
 
-class EPGManager {
+class EPGManager : public wxEvtHandler {
 public:
   EPGManager(ConfigManager *configManager, PlaylistManager *playlistManager);
   ~EPGManager();
@@ -96,7 +97,14 @@ public:
     return m_downloadProgress;
   }
 
+  void StartAutoUpdate();
+  void StopAutoUpdate();
+  void RestartAutoUpdate();
+
 private:
+  wxTimer *m_autoUpdateTimer = nullptr;
+  void OnAutoUpdateTimer(wxTimerEvent &event);
+  
   std::atomic<bool> m_isRefreshing{false};
   bool IsRefreshing() const { return m_isRefreshing.load(); }
 

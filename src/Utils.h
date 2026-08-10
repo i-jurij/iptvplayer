@@ -118,8 +118,6 @@ PerformanceTuning GetPerformanceTuning(size_t availMB, unsigned cores,
                                        size_t modelCount);
 
 wxString formatTimestamp(std::time_t timestamp);
-// Возвращает смещение локального часового пояса относительно UTC в секундах
-int GetLocalTimezoneOffset();
 /// Преобразует time_t (UTC) в wxDateTime с локальным временем.
 /// Если t == 0, возвращает невалидный объект wxDateTime.
 wxDateTime GetLocalDateTime(time_t t);

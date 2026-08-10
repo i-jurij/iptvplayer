@@ -103,7 +103,7 @@ private:
   wxTextCtrl *m_searchCtrl;
   wxDataViewCtrl *m_channelListView;
   wxStaticText *m_channelNameLabel;
-  wxStaticText *m_dateLabel;
+  wxStaticText *m_dateLabel; 
   wxButton *m_prevDayBtn;
   wxButton *m_todayBtn;
   wxButton *m_nextDayBtn;
@@ -145,6 +145,7 @@ private:
   void OnChannelSelected(wxDataViewEvent &event);
   void OnChannelActivated(wxDataViewEvent &event);
   void OnSearchText(wxCommandEvent &event);
+  void UpdateDateLabel();
   void OnPrevDay(wxCommandEvent &event);
   void OnNextDay(wxCommandEvent &event);
   void OnToday(wxCommandEvent &event);

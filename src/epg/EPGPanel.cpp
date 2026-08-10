@@ -8,7 +8,9 @@
 #include "SettingsDialog.h"
 #include "epg/EpgSourceManagerPanel.h"
 
+#include <wx/artprov.h>
 #include <wx/datetime.h>
+#include <wx/event.h>
 #include <wx/filename.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
@@ -206,16 +208,13 @@ wxBEGIN_EVENT_TABLE(EPGPanel, wxPanel)
         EVT_DATAVIEW_ITEM_ACTIVATED(ID_CHANNEL_LIST,
                                     EPGPanel::OnChannelActivated)
             EVT_TEXT(ID_SEARCH_CTRL, EPGPanel::OnSearchText)
-                EVT_BUTTON(ID_PREV_DAY, EPGPanel::OnPrevDay)
-                    EVT_BUTTON(ID_NEXT_DAY, EPGPanel::OnNextDay)
-                        EVT_BUTTON(ID_TODAY, EPGPanel::OnToday)
-                            EVT_BUTTON(ID_REFRESH_EPG, EPGPanel::OnRefreshEPG)
-                                EVT_BUTTON(ID_MANAGE_SOURCES,
-                                           EPGPanel::OnManageSources)
-                                    wxEND_EVENT_TABLE()
+                EVT_BUTTON(ID_REFRESH_EPG, EPGPanel::OnRefreshEPG)
+                    EVT_BUTTON(ID_MANAGE_SOURCES, EPGPanel::OnManageSources)
+                        wxEND_EVENT_TABLE()
 
-                                        EPGPanel::EPGPanel(wxWindow *parent)
-    : wxPanel(parent, wxID_ANY), m_currentDate(std::time(nullptr)),
+                            EPGPanel::EPGPanel(wxWindow *parent)
+    : wxPanel(parent, wxID_ANY),
+      m_currentDate(EpgTime::GetStartOfDay(std::time(nullptr))),
       m_channelModel(new ChannelListModel()) {
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
@@ -286,7 +285,7 @@ void EPGPanel::SetCurrentChannel(Channel channel) {
   m_currentChannel = channel;
   m_currentChannelId = channel.getTvgId();
   m_currentChannelName = channel.getName();
-  m_currentDate = std::time(nullptr);
+  m_currentDate = EpgTime::GetStartOfDay(std::time(nullptr));
 
   // Определяем, в каком списке находится канал
   if (IsChannelInSource(channel, m_playlistChannels)) {
@@ -409,26 +408,62 @@ void EPGPanel::SetupUI() {
   wxPanel *rightPanel = new wxPanel(splitter, wxID_ANY);
   wxBoxSizer *rightSizer = new wxBoxSizer(wxVERTICAL);
 
+  // ---- Верхняя строка: название + дата + навигация ----
+  wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
+
+  // 1. Название канала
   m_channelNameLabel =
       new wxStaticText(rightPanel, wxID_ANY, "No channel selected");
   wxFont titleFont = m_channelNameLabel->GetFont();
   titleFont.SetWeight(wxFONTWEIGHT_BOLD);
   m_channelNameLabel->SetFont(titleFont);
-  rightSizer->Add(m_channelNameLabel, 0, wxALL, FromDIP(12));
+  topSizer->Add(m_channelNameLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+                FromDIP(20));
 
-  wxBoxSizer *navSizer = new wxBoxSizer(wxHORIZONTAL);
+  // 2. Дата
   m_dateLabel = new wxStaticText(rightPanel, wxID_ANY, "");
-  m_prevDayBtn = new wxButton(rightPanel, ID_PREV_DAY, "<");
-  m_todayBtn = new wxButton(rightPanel, ID_TODAY, "Today");
-  m_nextDayBtn = new wxButton(rightPanel, ID_NEXT_DAY, ">");
+  topSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(15));
 
-  navSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(10));
-  navSizer->Add(m_prevDayBtn, 0, wxRIGHT, FromDIP(2));
-  navSizer->Add(m_todayBtn, 0, wxRIGHT, FromDIP(2));
-  navSizer->Add(m_nextDayBtn, 0);
-  navSizer->AddStretchSpacer(1);
-  rightSizer->Add(navSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
-                  FromDIP(5));
+  // 3. Кнопка "Назад"
+  wxBitmap backBmp = wxArtProvider::GetBitmap(wxART_GO_BACK, wxART_BUTTON,
+                                              wxSize(FromDIP(20), FromDIP(20)));
+  if (backBmp.IsOk()) {
+    m_prevDayBtn = new wxBitmapButton(rightPanel, ID_PREV_DAY, backBmp);
+  } else {
+    m_prevDayBtn = new wxButton(rightPanel, ID_PREV_DAY, "\u2190");
+  }
+  m_prevDayBtn->SetToolTip("Previous day");
+  topSizer->Add(m_prevDayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+
+  // 4. Кнопка "Сегодня"
+  m_todayBtn = new wxButton(rightPanel, ID_TODAY, "Today");
+  topSizer->Add(m_todayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+
+  // 5. Кнопка "Вперед"
+  wxBitmap forwardBmp = wxArtProvider::GetBitmap(
+      wxART_GO_FORWARD, wxART_BUTTON, wxSize(FromDIP(20), FromDIP(20)));
+  if (forwardBmp.IsOk()) {
+    m_nextDayBtn = new wxBitmapButton(rightPanel, ID_NEXT_DAY, forwardBmp);
+  } else {
+    m_nextDayBtn = new wxButton(rightPanel, ID_NEXT_DAY, "\u2192");
+  }
+  m_nextDayBtn->SetToolTip("Next day");
+  topSizer->Add(m_nextDayBtn, 0, wxALIGN_CENTER_VERTICAL);
+
+  // Устанавливаем одинаковую высоту для всех кнопок и минимальную ширину для
+  // навигационных
+  int btnHeight = FromDIP(30);
+  int navWidth = FromDIP(40); // шире, чем было
+  m_prevDayBtn->SetMinSize(wxSize(navWidth, btnHeight));
+  m_todayBtn->SetMinSize(wxSize(-1, btnHeight)); // ширина автоматическая
+  m_nextDayBtn->SetMinSize(wxSize(navWidth, btnHeight));
+
+  rightSizer->Add(topSizer, 0, wxEXPAND);
+
+  // Привязка событий
+  m_prevDayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnPrevDay, this);
+  m_todayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnToday, this);
+  m_nextDayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnNextDay, this);
 
   // ---- Создаём wxGrid для программ ----
   m_programGrid =
@@ -486,13 +521,13 @@ void EPGPanel::SetupUI() {
   wxStaticBox *detailBox = new wxStaticBox(rightPanel, wxID_ANY, "Details");
   wxStaticBoxSizer *detailSizer = new wxStaticBoxSizer(detailBox, wxVERTICAL);
 
-  m_detailTitle = new wxStaticText(rightPanel, wxID_ANY, "");
+  m_detailTitle = new wxStaticText(detailBox, wxID_ANY, "");
   m_detailTitle->SetFont(m_detailTitle->GetFont().MakeBold());
   detailSizer->Add(m_detailTitle, 0, wxALL, FromDIP(5));
 
   // Создаём многострочный текст с прокруткой
   m_detailDesc =
-      new wxTextCtrl(rightPanel, wxID_ANY, "", wxDefaultPosition, wxDefaultSize,
+      new wxTextCtrl(detailBox, wxID_ANY, "", wxDefaultPosition, wxDefaultSize,
                      wxTE_MULTILINE | wxTE_READONLY | wxTE_WORDWRAP);
   m_detailDesc->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
@@ -577,23 +612,33 @@ void EPGPanel::OnSearchText(wxCommandEvent &) {
   m_channelListView->Refresh();
 }
 
+void EPGPanel::UpdateDateLabel() {
+  wxDateTime dt = GetLocalDateTime(m_currentDate);
+  m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
+}
+
 void EPGPanel::OnPrevDay(wxCommandEvent &) {
   m_currentDate -= 24 * 3600;
-  if (!m_currentChannelId.empty()) {
+  UpdateDateLabel();
+  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
     LoadProgramsForChannel(m_currentChannelId, m_currentDate);
   }
 }
 
 void EPGPanel::OnNextDay(wxCommandEvent &) {
   m_currentDate += 24 * 3600;
-  if (!m_currentChannelId.empty()) {
+  UpdateDateLabel();
+  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
     LoadProgramsForChannel(m_currentChannelId, m_currentDate);
   }
 }
 
 void EPGPanel::OnToday(wxCommandEvent &) {
-  m_currentDate = std::time(nullptr);
-  if (!m_currentChannelId.empty()) {
+  wxDateTime now = wxDateTime::Now();
+  wxDateTime startOfDay(now.GetDay(), now.GetMonth(), now.GetYear(), 0, 0, 0);
+  m_currentDate = startOfDay.GetTicks();
+  UpdateDateLabel();
+  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
     LoadProgramsForChannel(m_currentChannelId, m_currentDate);
   }
 }
@@ -748,11 +793,8 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   ClearStatus();
   SaveState();
 
-  wxDateTime dt(date);
-  m_dateLabel->SetLabel(dt.Format("%A, %d %B %Y"));
-  if (auto *parent = m_dateLabel->GetParent()) {
-    parent->Layout();
-  }
+  wxDateTime dt = GetLocalDateTime(date);
+  m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
 
   int row = 0;
   for (const auto &prog : programs) {
@@ -907,11 +949,16 @@ void EPGPanel::RestoreState() {
       ch.setPlaylistName(s_lastPlaylistName);
     }
     m_currentDate = s_lastDate; // восстанавливаем дату
-    SetCurrentChannel(
-        ch); // автоматически выбирает режим, выделяет, загружает программы
+    SetCurrentChannel(ch);
   } else {
     // Нет сохранённого канала – сбрасываем UI
     m_channelNameLabel->SetLabel("No channel selected");
+
+    // Устанавливаем дату на начало сегодняшнего дня (локально) в UTC
+    m_currentDate = EpgTime::GetStartOfDay(std::time(nullptr));
+    wxDateTime dt = GetLocalDateTime(m_currentDate);
+    m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
+
     m_programGrid->ClearGrid();
     if (m_programGrid->GetNumberRows() > 0) {
       m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());

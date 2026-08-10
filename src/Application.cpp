@@ -56,29 +56,6 @@ Application::Application() {
   m_favoritesManager =
       std::make_unique<FavoritesManager>(favPathWx.ToStdString());
 
-  // Инициализация EPGManager
-  m_epgManager = std::make_unique<EPGManager>(m_configManager.get(),
-                                              m_playlistManager.get());
-
-  // Определяем путь кэша EPG
-  wxString cacheDir;
-#if defined(__linux__)
-  cacheDir = wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg";
-#elif defined(__APPLE__)
-  cacheDir = wxFileName::GetHomeDir() + "/Library/Caches/iptvplayer/epg";
-#elif defined(_WIN32)
-  cacheDir =
-      wxStandardPaths::Get().GetUserLocalDataDir() + "\\iptvplayer\\cache\\epg";
-#else
-  cacheDir = wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg";
-#endif
-
-  if (!wxFileName::DirExists(cacheDir)) {
-    wxFileName::Mkdir(cacheDir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
-  }
-  m_epgManager->SetCachePath(cacheDir.ToUTF8().data());
-  m_epgTimer = new wxTimer(this);
-
   // init UI
   m_guiManager = std::make_unique<GUIManager>();
   m_guiManager->setApplication(this);
@@ -93,14 +70,9 @@ Application::~Application() {
     }
   }
 
-  if (m_epgTimer) {
-    m_epgTimer->Stop();
-    delete m_epgTimer; 
-    m_epgTimer = nullptr;
-  }
-
   if (m_epgManager) {
     m_epgManager->SaveToCache();
+    m_epgManager->SaveSourcesToConfig();
   }
 }
 
@@ -140,6 +112,27 @@ bool Application::OnInit() {
                    wxOK | wxICON_ERROR);
       return false;
     }
+
+    // Создаём EPGManager после загрузки настроек (но до GUI)
+    m_epgManager = std::make_unique<EPGManager>(m_configManager.get(),
+                                                m_playlistManager.get());
+    // Определяем путь кэша EPG
+    wxString cacheDir;
+    #if defined(__linux__)
+        cacheDir = wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg";
+    #elif defined(__APPLE__)
+        cacheDir = wxFileName::GetHomeDir() + "/Library/Caches/iptvplayer/epg";
+    #elif defined(_WIN32)
+        cacheDir = wxStandardPaths::Get().GetUserLocalDataDir() +
+                  "\\iptvplayer\\cache\\epg";
+    #else
+        cacheDir = wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg";
+    #endif
+
+    if (!wxFileName::DirExists(cacheDir)) {
+      wxFileName::Mkdir(cacheDir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
+    }
+    m_epgManager->SetCachePath(cacheDir.ToUTF8().data());
 
     // 2) Затем инициализируем GUI (создаём главное окно)
     if (!m_guiManager->initialize()) {
@@ -186,8 +179,7 @@ bool Application::start() {
   // Инициализация EPGManager
   if (m_epgManager) {
     m_epgManager->LoadFromCache();
-    m_epgManager->Refresh();
-    RestartEpgTimer();
+    m_epgManager->StartAutoUpdate();
 
     // Загрузка региональных суффиксов из конфигурационной директории
     std::string suffixesPath =
@@ -200,9 +192,6 @@ bool Application::start() {
 }
 
 int Application::OnExit() {
-  if (m_epgTimer) {
-    m_epgTimer->Stop();
-  }
   return wxApp::OnExit();
 }
 
@@ -218,25 +207,3 @@ GUIManager *Application::getGUIManager() const noexcept {
   return m_guiManager.get();
 }
 
-void Application::OnEpgTimer(wxTimerEvent &) {
-  if (!m_epgManager)
-    return;
-  LOG_DEBUG("Application: EPG auto-update timer triggered");
-  m_epgManager->Refresh();
-}
-
-void Application::RestartEpgTimer() {
-  if (m_epgTimer) {
-    m_epgTimer->Stop();
-    if (m_epgManager && m_epgManager->IsAutoUpdateEnabled()) {
-      int intervalHours = m_epgManager->GetUpdateIntervalHours();
-      if (intervalHours < 1)
-        intervalHours = 1;
-      long intervalMs = intervalHours * 3600 * 1000;
-      m_epgTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
-      LOG_DEBUG(
-          "Application: EPG auto-update timer restarted (interval %d hours)",
-          intervalHours);
-    }
-  }
-}

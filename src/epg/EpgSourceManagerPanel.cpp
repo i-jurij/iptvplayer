@@ -70,23 +70,27 @@ void EpgSourceManagerPanel::SetupUI() {
     wxFlexGridSizer *grid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
     grid->AddGrowableCol(1);
 
-    grid->Add(new wxStaticText(this, wxID_ANY, "Auto-update:"), 0,
+    // Все элементы должны иметь родителем settingsBox, а не this
+    grid->Add(new wxStaticText(settingsBox, wxID_ANY, "Auto-update:"), 0,
               wxALIGN_CENTER_VERTICAL);
-    m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, "");
+    m_autoUpdateCheck = new wxCheckBox(settingsBox, wxID_ANY, "");
     grid->Add(m_autoUpdateCheck, 0, wxEXPAND);
 
-    grid->Add(new wxStaticText(this, wxID_ANY, "Update interval (hours):"), 0,
-              wxALIGN_CENTER_VERTICAL);
-    m_updateIntervalSpin = new wxSpinCtrl(this, wxID_ANY, wxEmptyString,
-                                          wxDefaultPosition, wxSize(80, -1));
+    grid->Add(
+        new wxStaticText(settingsBox, wxID_ANY, "Update interval (hours):"), 0,
+        wxALIGN_CENTER_VERTICAL);
+    m_updateIntervalSpin =
+        new wxSpinCtrl(settingsBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                       wxSize(FromDIP(80), -1));
     m_updateIntervalSpin->SetRange(1, 168);
     m_updateIntervalSpin->SetValue(24);
     grid->Add(m_updateIntervalSpin, 0, wxEXPAND);
 
-    grid->Add(new wxStaticText(this, wxID_ANY, "Days to keep in cache:"), 0,
-              wxALIGN_CENTER_VERTICAL);
-    m_daysToKeepSpin = new wxSpinCtrl(this, wxID_ANY, wxEmptyString,
-                                      wxDefaultPosition, wxSize(80, -1));
+    grid->Add(new wxStaticText(settingsBox, wxID_ANY, "Days to keep in cache:"),
+              0, wxALIGN_CENTER_VERTICAL);
+    m_daysToKeepSpin =
+        new wxSpinCtrl(settingsBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                       wxSize(FromDIP(80), -1));
     m_daysToKeepSpin->SetRange(1, 30);
     m_daysToKeepSpin->SetValue(3);
     grid->Add(m_daysToKeepSpin, 0, wxEXPAND);
@@ -135,6 +139,7 @@ void EpgSourceManagerPanel::SaveSettings() {
   m_epgMgr->SetAutoUpdateEnabled(m_autoUpdateCheck->GetValue());
   m_epgMgr->SetUpdateIntervalHours(m_updateIntervalSpin->GetValue());
   m_epgMgr->SetDaysToKeep(m_daysToKeepSpin->GetValue());
+  m_epgMgr->RestartAutoUpdate();
   m_dirty = false;
 }
 

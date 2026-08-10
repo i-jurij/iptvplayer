@@ -33,14 +33,10 @@ public:
     FavoritesManager &getFavoritesManager() { return *m_favoritesManager; }
     EPGManager *GetEPGManager() const { return m_epgManager.get(); }
 
-    void RestartEpgTimer();
-
     wxString m_configDir;
 
   private:
     std::unique_ptr<EPGManager> m_epgManager;
-    wxTimer *m_epgTimer = nullptr;
-    void OnEpgTimer(wxTimerEvent &event);
     
     std::unique_ptr<ConfigManager>   m_configManager;
     std::unique_ptr<PlaylistManager> m_playlistManager;
