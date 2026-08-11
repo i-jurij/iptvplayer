@@ -118,9 +118,6 @@ PerformanceTuning GetPerformanceTuning(size_t availMB, unsigned cores,
                                        size_t modelCount);
 
 wxString formatTimestamp(std::time_t timestamp);
-/// Преобразует time_t (UTC) в wxDateTime с локальным временем.
-/// Если t == 0, возвращает невалидный объект wxDateTime.
-wxDateTime GetLocalDateTime(time_t t);
 /// Форматирует локальное время time_t в строку по указанному формату.
 /// Возвращает пустую строку, если t == 0 или время невалидно.
 std::string FormatLocalTime(time_t t, const wxString &format);

@@ -454,16 +454,15 @@ wxString formatTimestamp(std::time_t timestamp) {
   return wxString(oss.str());
 }
 
-wxDateTime GetLocalDateTime(time_t t) {
-  return wxDateTime(t, wxDateTime::UTC).ToTimezone(wxDateTime::Local);
-}
-
 std::string FormatLocalTime(time_t t, const wxString &format) {
-  wxDateTime dt = GetLocalDateTime(t);
+  if (t <= 0)
+    return "";
+  wxDateTime dt(t); // интерпретирует t как локальное время
   if (!dt.IsValid())
     return "";
   return dt.Format(format).ToStdString();
 }
+
 // ============================================================================
 // Пути к иконкам
 // ============================================================================

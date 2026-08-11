@@ -214,7 +214,7 @@ wxBEGIN_EVENT_TABLE(EPGPanel, wxPanel)
 
                             EPGPanel::EPGPanel(wxWindow *parent)
     : wxPanel(parent, wxID_ANY),
-      m_currentDate(EpgTime::GetStartOfDay(std::time(nullptr))),
+      m_currentDate(EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks())),
       m_channelModel(new ChannelListModel()) {
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
@@ -285,7 +285,7 @@ void EPGPanel::SetCurrentChannel(Channel channel) {
   m_currentChannel = channel;
   m_currentChannelId = channel.getTvgId();
   m_currentChannelName = channel.getName();
-  m_currentDate = EpgTime::GetStartOfDay(std::time(nullptr));
+  m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
 
   // Определяем, в каком списке находится канал
   if (IsChannelInSource(channel, m_playlistChannels)) {
@@ -613,7 +613,7 @@ void EPGPanel::OnSearchText(wxCommandEvent &) {
 }
 
 void EPGPanel::UpdateDateLabel() {
-  wxDateTime dt = GetLocalDateTime(m_currentDate);
+  wxDateTime dt(m_currentDate);
   m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
 }
 
@@ -634,9 +634,7 @@ void EPGPanel::OnNextDay(wxCommandEvent &) {
 }
 
 void EPGPanel::OnToday(wxCommandEvent &) {
-  wxDateTime now = wxDateTime::Now();
-  wxDateTime startOfDay(now.GetDay(), now.GetMonth(), now.GetYear(), 0, 0, 0);
-  m_currentDate = startOfDay.GetTicks();
+  m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
   UpdateDateLabel();
   if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
     LoadProgramsForChannel(m_currentChannelId, m_currentDate);
@@ -792,14 +790,12 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   ClearStatus();
   SaveState();
-
-  wxDateTime dt = GetLocalDateTime(date);
-  m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
+  UpdateDateLabel();
 
   int row = 0;
   for (const auto &prog : programs) {
-    wxDateTime start = GetLocalDateTime(prog.startTime);
-    wxDateTime stop = GetLocalDateTime(prog.stopTime);
+    wxDateTime start(prog.startTime);
+    wxDateTime stop(prog.stopTime);
     wxString timeRange = start.Format("%H:%M") + " - " + stop.Format("%H:%M");
 
     m_programGrid->AppendRows(1);
@@ -955,9 +951,8 @@ void EPGPanel::RestoreState() {
     m_channelNameLabel->SetLabel("No channel selected");
 
     // Устанавливаем дату на начало сегодняшнего дня (локально) в UTC
-    m_currentDate = EpgTime::GetStartOfDay(std::time(nullptr));
-    wxDateTime dt = GetLocalDateTime(m_currentDate);
-    m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
+    m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
+    UpdateDateLabel();
 
     m_programGrid->ClearGrid();
     if (m_programGrid->GetNumberRows() > 0) {

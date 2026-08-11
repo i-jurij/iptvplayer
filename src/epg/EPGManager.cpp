@@ -610,7 +610,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
       return false;
     }
 
-    m_lastUpdate = std::time(nullptr);
+    m_lastUpdate = wxDateTime::Now().GetTicks();
     m_loaded = true;
     CleanExpiredPrograms();
   }
@@ -623,7 +623,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
 
 // ---------- Очистка устаревших программ ----------
 void EPGManager::CleanExpiredPrograms() {
-  time_t now = std::time(nullptr);
+  time_t now = wxDateTime::Now().GetTicks();
   time_t threshold = now - m_daysToKeep * 24 * 3600;
   for (auto &chPair : m_channels) {
     auto &programs = chPair.second.programs;
@@ -1032,7 +1032,7 @@ EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {
     return EpgProgram();
   }
 
-  time_t now = std::time(nullptr);
+  time_t now = wxDateTime::Now().GetTicks();
   const auto &programs = chIt->second.programs;
   for (const auto &prog : programs) {
     if (prog.startTime <= now && prog.stopTime > now) {
@@ -1078,7 +1078,7 @@ EPGManager::GetProgramsForChannel(const std::string &tvgId,
   if (channelId.empty()) {
     return result;
   }
-  
+
   auto chIt = m_channels.find(channelId);
   if (chIt == m_channels.end()) {
     return result;

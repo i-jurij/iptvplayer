@@ -62,7 +62,7 @@ inline bool EpgProgram::IsFuture() const {
 
 inline wxDateTime::Tm EpgProgram::GetLocalStartTime() const {
   wxDateTime dt(startTime);
-  return dt.GetTm(); // автоматически преобразует в локальное время
+  return dt.GetTm();
 }
 
 inline wxDateTime::Tm EpgProgram::GetLocalStopTime() const {
@@ -187,29 +187,27 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
 }
 
 inline time_t EpgTime::GetStartOfDay(time_t date) {
-  wxDateTime dt = GetLocalDateTime(date);
+  if (date <= 0)
+    return 0;
+  wxDateTime dt(date); // интерпретирует date как локальное время
   if (!dt.IsValid())
     return 0;
-  wxDateTime::Tm tm = dt.GetTm();
-  wxDateTime start(tm.mday, static_cast<wxDateTime::Month>(tm.mon), tm.year, 0,
-                   0, 0);
-  if (!start.IsValid())
-    return 0;
-  start.MakeUTC();
-  return start.GetTicks();
+  wxDateTime::Tm tm = dt.GetTm(); // локальные компоненты (день, месяц, год)
+  wxDateTime startOfDay(tm.mday, static_cast<wxDateTime::Month>(tm.mon),
+                        tm.year, 0, 0, 0, 0); // локальное начало дня
+  return startOfDay.GetTicks(); // преобразует локальное начало дня в UTC-тики
 }
 
 inline time_t EpgTime::GetEndOfDay(time_t date) {
-  wxDateTime dt = GetLocalDateTime(date);
+  if (date <= 0)
+    return 0;
+  wxDateTime dt(date);
   if (!dt.IsValid())
     return 0;
   wxDateTime::Tm tm = dt.GetTm();
-  wxDateTime end(tm.mday, static_cast<wxDateTime::Month>(tm.mon), tm.year, 23,
-                 59, 59);
-  if (!end.IsValid())
-    return 0;
-  end.MakeUTC();
-  return end.GetTicks();
+  wxDateTime endOfDay(tm.mday, static_cast<wxDateTime::Month>(tm.mon), tm.year,
+                      23, 59, 59, 0);
+  return endOfDay.GetTicks();
 }
 
 inline std::string EpgTime::FormatTime(time_t t) {
