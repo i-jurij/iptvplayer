@@ -562,13 +562,11 @@ void EPGPanel::SetupUI() {
   m_cancelBtn = new wxButton(rightPanel, ID_CANCEL_DOWNLOAD, "Cancel");
   m_cancelBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnCancel, this);
 
-  // ★ Изменения здесь:
-  bottomRowSizer->Add(m_progressGauge, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
+  bottomRowSizer->Add(m_progressGauge, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(5));
+  bottomRowSizer->Add(m_progressText, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                       FromDIP(5));
-  bottomRowSizer->Add(m_progressText, 1,
-                      wxRIGHT | wxALIGN_CENTER_VERTICAL | wxEXPAND,
-                      FromDIP(10));
-  bottomRowSizer->Add(m_cancelBtn, 0, wxALIGN_CENTER_VERTICAL);
+  bottomRowSizer->AddStretchSpacer(1);
+  bottomRowSizer->Add(m_cancelBtn, 0, wxALIGN_CENTER_VERTICAL, FromDIP(5));
 
   // Изначально скрыты
   m_progressGauge->Hide();

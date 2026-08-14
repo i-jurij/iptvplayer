@@ -953,8 +953,6 @@ bool EPGManager::LoadMappingForPlaylist(const std::string &playlistId,
   std::string currentHash = ComputePlaylistHash(channels);
   if (currentHash != channelHash)
     return false;
-  if (m_epgChannelsHash != epgHashAtMatch)
-    return false;
 
   {
     std::unique_lock lock(m_mappingMutex);
@@ -1046,8 +1044,16 @@ EPGManager::GetEpgChannelIdForTvgId(const std::string &tvgId) const {
 // --------------------------------------------------------------------------
 std::string
 EPGManager::ComputePlaylistHash(const std::vector<Channel> &channels) const {
+  std::vector<Channel> sorted = channels;
+  std::sort(sorted.begin(), sorted.end(),
+            [](const Channel &a, const Channel &b) {
+              int cmp = a.getName().compare(b.getName());
+              if (cmp != 0)
+                return cmp < 0;
+              return a.getUrl() < b.getUrl();
+            });
   std::string concatenated;
-  for (const auto &ch : channels) {
+  for (const auto &ch : sorted) {
     concatenated += ch.getUrl() + "|" + ch.getName() + "|";
   }
   return stable_hash(concatenated);
