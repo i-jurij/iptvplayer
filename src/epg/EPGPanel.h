@@ -40,7 +40,17 @@ public:
 
   void OnEpgUpdateFinished(int status, const wxString &error = wxEmptyString);
 
+  // Управление прогрессом матчинга
+  void ShowMatchProgress(bool show);
+  void UpdateMatchProgress(int matched, int total, int progress);
+  void OnCancel(wxCommandEvent &event);
+
+  void SetActive(bool active);
+  bool IsActive() const { return m_isActive; }
+
 private:
+  bool m_isActive = false;
+
   bool m_refreshing = false;
 
   wxGauge *m_progressGauge;
@@ -52,7 +62,6 @@ private:
   std::chrono::steady_clock::time_point m_prevTime;
 
   void OnProgressTimer(wxTimerEvent &event);
-  void OnCancelDownload(wxCommandEvent &event);
   void UpdateProgressUI();
   void ShowProgressControls(bool show);
   

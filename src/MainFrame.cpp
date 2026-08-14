@@ -185,9 +185,11 @@ MainFrame::MainFrame(Application *app)
         if (oldSel == m_epgPageIdx && m_epgPanel) {
           m_epgPanel->ClearStatus();
           m_epgPanel->SaveState();
+          m_epgPanel->SetActive(false);
         }
         if (newSel == m_epgPageIdx && m_epgPanel) {
           m_epgPanel->RestoreState();
+          m_epgPanel->SetActive(true);
         }
 
         // --- Вызов обработчиков страниц ---
@@ -588,3 +590,11 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
   LOG_DEBUG("RemoveChannelFromPlaylist: END");
 }
 
+void MainFrame::RefreshEpgDisplay() {
+  if (m_channelList)
+    m_channelList->RefreshProgramColumn();
+  if (m_channelCards) {
+    m_channelCards->InvalidateAll();
+    m_channelCards->RefreshCards();
+  }
+}

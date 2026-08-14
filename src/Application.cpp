@@ -71,7 +71,6 @@ Application::~Application() {
   }
 
   if (m_epgManager) {
-    m_epgManager->SaveToCache();
     m_epgManager->SaveSourcesToConfig();
   }
 }
@@ -81,19 +80,9 @@ bool Application::OnInit() {
     setlocale(LC_ALL, "");
     wxLocale *m_locale = new wxLocale();
 
-    // В релизе :
-    // ENABLE_PROFILER = 0,
-    // g_verboseLogging = false,
-    // wxLog::SetActiveTarget(new wxLogNull())
-
     // log enable
     wxLog::SetLogLevel(wxLOG_Debug);
-    // wxLog::SetLogLevel(wxLOG_Info);
-
-    // Перенаправляем все сообщения wxLog в консоль
     wxLog::SetActiveTarget(new wxLogStderr());
-    // Чтобы полностью отключить вывод:
-    // wxLog::SetActiveTarget(new wxLogNull());
 
     wxInitAllImageHandlers();
 
@@ -103,7 +92,7 @@ bool Application::OnInit() {
       m_locale->AddCatalog("iptvplayer");
     }
 
-    // 1) СНАЧАЛА грузим настройки, чтобы MainFrame видел уже загруженный конфиг
+    // 1) Загружаем настройки
     ErrorCode cfgStatus = m_configManager->loadSettings();
     if (cfgStatus != ErrorCode::OK) {
       std::cerr << "Failed to load settings: "
@@ -113,28 +102,24 @@ bool Application::OnInit() {
       return false;
     }
 
-    // Создаём EPGManager после загрузки настроек (но до GUI)
+    // 2) Создаём EPGManager
     m_epgManager = std::make_unique<EPGManager>(m_configManager.get(),
                                                 m_playlistManager.get());
-    // Определяем путь кэша EPG
-    wxString cacheDir;
-    #if defined(__linux__)
-        cacheDir = wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg";
-    #elif defined(__APPLE__)
-        cacheDir = wxFileName::GetHomeDir() + "/Library/Caches/iptvplayer/epg";
-    #elif defined(_WIN32)
-        cacheDir = wxStandardPaths::Get().GetUserLocalDataDir() +
-                  "\\iptvplayer\\cache\\epg";
-    #else
-        cacheDir = wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg";
-    #endif
 
-    if (!wxFileName::DirExists(cacheDir)) {
-      wxFileName::Mkdir(cacheDir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
+    // 3) Устанавливаем путь к БД (вместе с конфигом, а не в кэше)
+    wxString dbPath = m_configDir + "/epg.db";
+    m_epgManager->SetDbPath(dbPath.ToUTF8().data());
+    m_epgManager->OpenDatabase();
+
+    // 4) Удаляем старый JSON-кэш (если остался)
+    wxString oldCachePath =
+        wxFileName::GetHomeDir() + "/.cache/iptvplayer/epg/epg_cache.json";
+    if (wxFileExists(oldCachePath)) {
+      wxRemoveFile(oldCachePath);
+      LOG_DEBUG("Removed old EPG cache file: %s", oldCachePath.ToUTF8().data());
     }
-    m_epgManager->SetCachePath(cacheDir.ToUTF8().data());
 
-    // 2) Затем инициализируем GUI (создаём главное окно)
+    // 5) Инициализируем GUI
     if (!m_guiManager->initialize()) {
       LOG_ERROR("Failed to initialize GUI", "Error", wxOK | wxICON_ERROR);
       return false;
@@ -143,7 +128,7 @@ bool Application::OnInit() {
     MainFrame *mf = m_guiManager->getMainFrame();
     mf->Show(true);
 
-    // 3) Старт приложения (загрузка плейлистов и прочее)
+    // 6) Старт приложения
     if (!start()) {
       LOG_ERROR("Failed to initialize application", "Error",
                 wxOK | wxICON_ERROR);
@@ -178,7 +163,6 @@ bool Application::start() {
 
   // Инициализация EPGManager
   if (m_epgManager) {
-    m_epgManager->LoadFromCache();
     m_epgManager->StartAutoUpdate();
 
     // Загрузка региональных суффиксов из конфигурационной директории
@@ -191,9 +175,7 @@ bool Application::start() {
   return true;
 }
 
-int Application::OnExit() {
-  return wxApp::OnExit();
-}
+int Application::OnExit() { return wxApp::OnExit(); }
 
 PlaylistManager *Application::getPlaylistManager() const noexcept {
   return m_playlistManager.get();
@@ -206,4 +188,3 @@ ConfigManager *Application::getConfigManager() const noexcept {
 GUIManager *Application::getGUIManager() const noexcept {
   return m_guiManager.get();
 }
-

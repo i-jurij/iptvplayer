@@ -707,6 +707,12 @@ ErrorCode PlaylistManager::loadPlaylists() {
           continue;
         }
 
+        // Если uniqueId отсутствует – генерируем и сразу сохраняем
+        if (pl->getUniqueId().empty()) {
+          pl->setUniqueId(GenerateUUID());
+          savePlaylist(pl.get()); // фиксируем ID на диске
+        }
+
         m_playlists.push_back(std::move(pl));
       } catch (const std::exception &e) {
         std::cerr << "Exception while loading playlist file " << entry.path()

@@ -557,14 +557,18 @@ void EPGPanel::SetupUI() {
 
   // Прогресс-бар, текст и кнопка Cancel (изначально скрыты)
   m_progressGauge = new wxGauge(rightPanel, wxID_ANY, 100, wxDefaultPosition,
-                                wxSize(150, -1));
+                                wxSize(FromDIP(150), -1));
   m_progressText = new wxStaticText(rightPanel, wxID_ANY, "");
   m_cancelBtn = new wxButton(rightPanel, ID_CANCEL_DOWNLOAD, "Cancel");
-  m_cancelBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnCancelDownload, this);
+  m_cancelBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnCancel, this);
 
-  bottomRowSizer->Add(m_progressGauge, 0, wxRIGHT, FromDIP(5));
-  bottomRowSizer->Add(m_progressText, 0, wxRIGHT, FromDIP(10));
-  bottomRowSizer->Add(m_cancelBtn, 0);
+  // ★ Изменения здесь:
+  bottomRowSizer->Add(m_progressGauge, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
+                      FromDIP(5));
+  bottomRowSizer->Add(m_progressText, 1,
+                      wxRIGHT | wxALIGN_CENTER_VERTICAL | wxEXPAND,
+                      FromDIP(10));
+  bottomRowSizer->Add(m_cancelBtn, 0, wxALIGN_CENTER_VERTICAL);
 
   // Изначально скрыты
   m_progressGauge->Hide();
@@ -1021,10 +1025,69 @@ void EPGPanel::OnProgressTimer(wxTimerEvent &) {
   m_progressText->SetLabel(text);
 }
 
-void EPGPanel::OnCancelDownload(wxCommandEvent &) {
+void EPGPanel::SetActive(bool active) { m_isActive = active; }
+
+// --------------------------------------------------------------------------
+// Показать/скрыть прогресс матчинга
+// --------------------------------------------------------------------------
+void EPGPanel::ShowMatchProgress(bool show) {
+  // Показываем/скрываем элементы управления
+  m_progressGauge->Show(show);
+  m_progressText->Show(show);
+  m_cancelBtn->Show(show);
+
+  if (show) {
+    // Сброс индикатора
+    m_progressGauge->SetValue(0);
+    m_progressText->SetLabel("Matching channels...");
+    // Отключаем кнопки, чтобы не мешать операции
+    m_refreshBtn->Enable(false);
+    m_manageSourcesBtn->Enable(false);
+  } else {
+    // Включаем кнопки обратно
+    m_refreshBtn->Enable(true);
+    m_manageSourcesBtn->Enable(true);
+  }
+
+  // Обновляем layout
+  if (auto *parent = m_progressGauge->GetParent()) {
+    parent->Layout();
+  }
+}
+
+void EPGPanel::UpdateMatchProgress(int matched, int total, int progress) {
+  if (!m_progressGauge->IsShown())
+    return;
+
+  int percent = (total > 0) ? (progress * 100 / total) : 0;
+  m_progressGauge->SetValue(percent);
+  m_progressText->SetLabel(wxString::Format(
+      "Matching channels: %d/%d matched, %d%%", matched, progress, percent));
+
+  // Обновляем статус-бар только если вкладка EPG активна
+  if (m_isActive) {
+    MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
+    if (mf) {
+      m_progressText->SetLabel(wxString::Format("Matching: %d/%d (%d%%)",
+                                                matched, progress, percent));
+    }
+  }
+}
+
+void EPGPanel::OnCancel(wxCommandEvent &) {
   if (m_epgManager) {
     m_epgManager->AbortDownload();
-    ShowProgressControls(false);
-    SetStatus("Cancelled", "EPG download cancelled by user.");
+    m_epgManager->CancelMatching();
+  }
+
+  ShowProgressControls(false);
+  ShowMatchProgress(false);
+
+  if (m_isActive) { // <-- изменено
+    MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
+    if (mf) {
+      mf->SetStatusText("Cancelled", 1);
+      mf->SetStatusText("Operation cancelled by user.", 0);
+    }
   }
 }

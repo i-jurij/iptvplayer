@@ -615,6 +615,12 @@ void MainFrame::createMainPanel() {
       mainSizer->Add(m_notebook, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
   m_mainPanel->SetSizer(mainSizer);
 
+  // Добавляем панель в sizer самого фрейма
+  wxBoxSizer *frameSizer = new wxBoxSizer(wxVERTICAL);
+  frameSizer->Add(m_mainPanel, 1, wxEXPAND);
+  SetSizer(frameSizer);
+  Layout(); // Принудительно пересчитать размеры
+  
   ToggleHeaderGroup(m_btnPlaylists);
 
   CallAfter([this]() {

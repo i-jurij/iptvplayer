@@ -31,6 +31,28 @@ if(_pos EQUAL -1)
 endif()
 
 # ------------------------
+# Local wxSQLite3 install
+# ------------------------
+set(LOCAL_WXSQLITE3_INSTALL "${CMAKE_SOURCE_DIR}/third_party/wxsqlite3/install" CACHE PATH "Local wxSQLite3 install dir")
+
+# Путь к заголовкам
+set(WXSQLITE3_INCLUDE_DIR "${LOCAL_WXSQLITE3_INSTALL}/include")
+
+# Поиск статической библиотеки (имя может быть libwxcode_gtk3u_wxsqlite3-3.3.a)
+file(GLOB WXSQLITE3_LIBRARY "${LOCAL_WXSQLITE3_INSTALL}/lib/libwxcode*.a")
+if(NOT WXSQLITE3_LIBRARY)
+    message(FATAL_ERROR "wxSQLite3 library not found in ${LOCAL_WXSQLITE3_INSTALL}/lib")
+endif()
+message(STATUS "wxSQLite3 library: ${WXSQLITE3_LIBRARY}")
+
+# Создаём импортную цель для удобства
+add_library(wxsqlite3 STATIC IMPORTED)
+set_target_properties(wxsqlite3 PROPERTIES
+    IMPORTED_LOCATION "${WXSQLITE3_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${WXSQLITE3_INCLUDE_DIR}"
+)
+
+# ------------------------
 # Aggregate wx_all target
 # ------------------------
 set(_wx_components core base aui xrc xml net adv gl)
@@ -139,6 +161,8 @@ set(SOURCES
     src/epg/EPGPanel.cpp
     src/epg/EpgSourceManagerPanel.cpp
     src/epg/AddEpgSourceDialog.cpp
+    src/epg/EPGDatabase.cpp
+    src/epg/HashUtils.cpp
 )
 
 # ------------------------
@@ -148,12 +172,14 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${WXSQLITE3_INCLUDE_DIR}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     wx_all
     player_backend_mpv
     ZLIB::ZLIB
+    wxsqlite3
 )
 
 if(_CURL_TARGET)

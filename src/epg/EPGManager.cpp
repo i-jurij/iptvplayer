@@ -5,6 +5,7 @@
 #include "../LogControl.h"
 #include "../PlaylistManager.h"
 #include "EPGParserExpat.h"
+#include "HashUtils.h"
 #include "Utils.h"
 
 #include <rapidjson/document.h>
@@ -32,36 +33,39 @@
 #include <memory>
 #include <unordered_set>
 
+// --------------------------------------------------------------------------
+// Вспомогательные статические функции
+// --------------------------------------------------------------------------
 static bool IsValidXmltv(const std::string &data) {
   if (data.empty())
     return false;
   std::string lower = data;
-  std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+  std::transform(
+      lower.begin(), lower.end(), lower.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-  // Проверка на HTML-страницу ошибки
   if (lower.find("<!doctype html") != std::string::npos ||
       lower.find("<html") != std::string::npos) {
     LOG_ERROR("IsValidXmltv: Data appears to be HTML (not XMLTV)");
     return false;
   }
-
-  // Проверка признаков XMLTV
   return lower.find("<?xml") != std::string::npos ||
          lower.find("<tv") != std::string::npos;
 }
 
 static bool DecompressIfNeeded(std::string &data) {
-  // ========== GZIP ==========
+  // GZIP
   if (data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1F &&
       static_cast<unsigned char>(data[1]) == 0x8B) {
+    std::vector<unsigned char> inbuf(data.begin(), data.end());
     z_stream zs;
     memset(&zs, 0, sizeof(zs));
     if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
       LOG_ERROR("DecompressIfNeeded: inflateInit2 failed");
       return false;
     }
-    zs.next_in = reinterpret_cast<Bytef *>(data.data());
-    zs.avail_in = data.size();
+    zs.next_in = inbuf.data();
+    zs.avail_in = inbuf.size();
 
     std::string out;
     char buf[16384];
@@ -79,8 +83,7 @@ static bool DecompressIfNeeded(std::string &data) {
     } while (ret != Z_STREAM_END);
     inflateEnd(&zs);
 
-    // Проверка размера распакованных данных (защита от zip-бомб)
-    if (out.size() > 1024 * 1024 * 1024) { // 1 ГБ
+    if (out.size() > 1024 * 1024 * 1024) {
       LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
       return false;
     }
@@ -88,17 +91,15 @@ static bool DecompressIfNeeded(std::string &data) {
       LOG_ERROR("DecompressIfNeeded: decompressed GZIP data is empty");
       return false;
     }
-    // Проверка на валидность XML
     if (!IsValidXmltv(out)) {
       LOG_ERROR("DecompressIfNeeded: decompressed gzip is not valid XMLTV");
       return false;
     }
-
     data.swap(out);
     return true;
   }
 
-  // ========== ZIP ==========
+  // ZIP
   if (data.size() >= 4 && static_cast<unsigned char>(data[0]) == 0x50 &&
       static_cast<unsigned char>(data[1]) == 0x4B &&
       static_cast<unsigned char>(data[2]) == 0x03 &&
@@ -112,12 +113,9 @@ static bool DecompressIfNeeded(std::string &data) {
 
     std::string extracted;
     bool foundXml = false;
-
-    // Перебираем все записи в архиве
     std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
     while (entry) {
       if (!entry->IsDir()) {
-        // Проверяем расширение .xml или содержимое
         wxString name = entry->GetName();
         bool isXml = name.EndsWith(".xml") || name.EndsWith(".XML") ||
                      name.EndsWith(".xml.gz") || name.EndsWith(".XML.GZ");
@@ -141,9 +139,6 @@ static bool DecompressIfNeeded(std::string &data) {
     }
 
     if (!foundXml) {
-      // Если нет файла с расширением .xml, пробуем взять первый не-директорий и
-      // проверить содержимое (повторный проход – упрощённо, можно переоткрыть
-      // поток)
       wxMemoryInputStream memIn2(data.data(), data.size());
       wxZipInputStream zipIn2(memIn2);
       if (zipIn2.IsOk()) {
@@ -178,37 +173,63 @@ static bool DecompressIfNeeded(std::string &data) {
       LOG_ERROR("DecompressIfNeeded: ZIP archive contains no data");
       return false;
     }
-    // Проверка размера распакованных данных
     if (extracted.size() > 1024 * 1024 * 1024) {
       LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 1 GB");
       return false;
     }
-
     data.swap(extracted);
     return true;
   }
 
-  // Не сжато – проверяем, что это XML
   if (!IsValidXmltv(data)) {
     LOG_ERROR("DecompressIfNeeded: data is not valid XMLTV (no <?xml or <tv)");
     return false;
   }
-
   return true;
 }
 
-// ---------- Конструктор / Деструктор ----------
+// --------------------------------------------------------------------------
+// Конструктор / Деструктор
+// --------------------------------------------------------------------------
 EPGManager::EPGManager(ConfigManager *configManager,
                        PlaylistManager *playlistManager)
     : wxEvtHandler(), m_configManager(configManager),
       m_playlistManager(playlistManager) {
   LoadSourcesFromConfig();
   InitializeDefaultRegionalSuffixes();
+
+  if (!m_dbPath.empty()) {
+    OpenDatabase();
+  }
+
   m_autoUpdateTimer = new wxTimer(this);
   m_autoUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnAutoUpdateTimer, this);
+
+  // Инициализация таймера для стартового обновления
+  m_startupUpdateTimer = new wxTimer(this);
+  m_startupUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnStartupUpdateTimer,
+                             this);
 }
 
 EPGManager::~EPGManager() {
+  CancelMatching();
+  if (m_matchFuture.valid()) {
+    auto status = m_matchFuture.wait_for(std::chrono::seconds(2));
+    if (status == std::future_status::timeout) {
+      LOG_WARN(
+          "MatchChannelsAsync did not finish in 2 seconds, proceeding anyway");
+    }
+  }
+
+  if (m_startupUpdateTimer) {
+    m_startupUpdateTimer->Stop();
+    delete m_startupUpdateTimer;
+  }
+  if (m_autoUpdateTimer) {
+    m_autoUpdateTimer->Stop();
+    delete m_autoUpdateTimer;
+  }
+
   auto start = std::chrono::steady_clock::now();
   WaitForRefresh();
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -219,296 +240,63 @@ EPGManager::~EPGManager() {
         "EPGManager::~EPGManager: WaitForRefresh exceeded 5 seconds (%lld ms)",
         elapsed);
   }
-  SaveToCache();
-  if (m_autoUpdateTimer) {
-    m_autoUpdateTimer->Stop();
-    delete m_autoUpdateTimer;
-  }
 }
 
-void EPGManager::StartAutoUpdate() {
-  if (!m_autoUpdateTimer || !m_autoUpdateEnabled)
-    return;
-  if (m_autoUpdateTimer->IsRunning())
-    return;
-  int intervalHours = m_updateIntervalHours;
-  if (intervalHours < 1)
-    intervalHours = 1;
-  long intervalMs = intervalHours * 3600 * 1000;
-  m_autoUpdateTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
-  LOG_DEBUG("EPGManager: Auto-update started (interval %d hours)",
-            intervalHours);
-}
-
-void EPGManager::StopAutoUpdate() {
-  if (m_autoUpdateTimer && m_autoUpdateTimer->IsRunning()) {
-    m_autoUpdateTimer->Stop();
-    LOG_DEBUG("EPGManager: Auto-update stopped");
-  }
-}
-
-void EPGManager::RestartAutoUpdate() {
-  StopAutoUpdate();
-  StartAutoUpdate();
-}
-
-void EPGManager::OnAutoUpdateTimer(wxTimerEvent &) {
-  LOG_DEBUG("EPGManager: Auto-update timer triggered");
-  Refresh();
-}
-
-void EPGManager::SetOnRefreshStarted(RefreshStartedCallback callback) {
-  m_onRefreshStarted = callback;
-}
-
-// ---------- Региональные суффиксы ----------
-void EPGManager::InitializeDefaultRegionalSuffixes() {
-  m_regionalSuffixes = {
-      "(us)", "(uk)", "(ca)", "(au)", "(nz)", "(ie)", "us",   "uk",   "ca",
-      "au",   "nz",   "ie",   "(de)", "(fr)", "(es)", "(it)", "(pt)", "(nl)",
-      "(be)", "de",   "fr",   "es",   "it",   "pt",   "nl",   "be",   "(ru)",
-      "(ua)", "(by)", "(kz)", "ru",   "ua",   "by",   "kz",   "(jp)", "(kr)",
-      "(cn)", "(tw)", "(hk)", "jp",   "kr",   "cn",   "tw",   "hk"};
-}
-
-void EPGManager::LoadRegionalSuffixes(const std::string &path) {
-  std::ifstream file(path);
-  if (!file.is_open()) {
-    LOG_DEBUG("EPGManager: Regional suffixes file not found, using defaults");
-    InitializeDefaultRegionalSuffixes();
-    return;
-  }
-
-  std::string json((std::istreambuf_iterator<char>(file)),
-                   std::istreambuf_iterator<char>());
-  file.close();
-
-  rapidjson::Document doc;
-  if (doc.Parse(json.c_str()).HasParseError() || !doc.IsArray()) {
-    LOG_WARN(
-        "EPGManager: Failed to parse regional_suffixes.json, using defaults");
-    InitializeDefaultRegionalSuffixes();
-    return;
-  }
-
-  m_regionalSuffixes.clear();
-  for (const auto &item : doc.GetArray()) {
-    if (item.IsString()) {
-      m_regionalSuffixes.push_back(item.GetString());
+void EPGManager::OnStartupUpdateTimer(wxTimerEvent&) {
+    if (m_isRefreshing) {
+        LOG_DEBUG("Startup update skipped – refresh already in progress");
+        return;
     }
-  }
-
-  if (m_regionalSuffixes.empty()) {
-    LOG_WARN("EPGManager: regional_suffixes.json is empty, using defaults");
-    InitializeDefaultRegionalSuffixes();
-  } else {
-    LOG_DEBUG("EPGManager: Loaded %zu regional suffixes",
-              m_regionalSuffixes.size());
-  }
+    LOG_DEBUG("Startup auto-update timer triggered, running Refresh()");
+    Refresh();
 }
 
-void EPGManager::SetRegionalSuffixes(const std::vector<std::string> &suffixes) {
-  m_regionalSuffixes = suffixes;
-}
+// --------------------------------------------------------------------------
+// Управление БД
+// --------------------------------------------------------------------------
+void EPGManager::SetDbPath(const std::string &path) { m_dbPath = path; }
 
-// ---------- Кэширование ----------
-void EPGManager::SetCachePath(const std::string &path) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_cachePath = path;
-  wxFileName dir(wxString::FromUTF8(path));
-  if (!dir.DirExists()) {
-    dir.Mkdir(wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
-  }
-  m_cachePath = (wxString::FromUTF8(path) + "/epg_cache.json").ToUTF8().data();
-}
-
-bool EPGManager::LoadFromCache() {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  std::ifstream file(m_cachePath);
-  if (!file.is_open()) {
-    LOG_DEBUG("EPGManager: Cache file not found, will load from network.");
+bool EPGManager::OpenDatabase() {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (m_dbPath.empty()) {
+    setLastError("Database path not set");
     return false;
   }
-
-  std::string json((std::istreambuf_iterator<char>(file)),
-                   std::istreambuf_iterator<char>());
-  file.close();
-
-  rapidjson::Document doc;
-  if (doc.Parse(json.c_str()).HasParseError()) {
-    LOG_ERROR("EPGManager: Failed to parse cache JSON");
-    setLastError("Failed to parse cache JSON");
-    m_channels.clear();
-    m_channelMapping.clear();
-    m_manualMapping.clear();
-    m_loaded = false;
+  m_db = std::make_unique<EPGDatabase>();
+  if (!m_db->Open(m_dbPath)) {
+    setLastError("Failed to open EPG database");
     return false;
   }
-
-  if (!doc.IsObject()) {
-    setLastError("Cache JSON is not an object");
-    m_channels.clear();
-    m_channelMapping.clear();
-    m_manualMapping.clear();
-    m_loaded = false;
-    return false;
-  }
-
-  if (doc.HasMember("lastUpdate") && doc["lastUpdate"].IsInt64()) {
-    m_lastUpdate = doc["lastUpdate"].GetInt64();
-  }
-
-  if (doc.HasMember("channels") && doc["channels"].IsArray()) {
-    const auto &chArray = doc["channels"].GetArray();
-    m_channels.clear();
-    for (const auto &chVal : chArray) {
-      EpgChannel ch;
-      if (chVal.HasMember("id") && chVal["id"].IsString()) {
-        ch.id = chVal["id"].GetString();
-      }
-      if (chVal.HasMember("displayName") && chVal["displayName"].IsString()) {
-        ch.displayName = chVal["displayName"].GetString();
-      }
-      if (chVal.HasMember("programs") && chVal["programs"].IsArray()) {
-        const auto &progArray = chVal["programs"].GetArray();
-        for (const auto &progVal : progArray) {
-          EpgProgram prog;
-          if (progVal.HasMember("title") && progVal["title"].IsString()) {
-            prog.title = progVal["title"].GetString();
-          }
-          if (progVal.HasMember("description") &&
-              progVal["description"].IsString()) {
-            prog.description = progVal["description"].GetString();
-          }
-          if (progVal.HasMember("category") && progVal["category"].IsString()) {
-            prog.category = progVal["category"].GetString();
-          }
-          if (progVal.HasMember("startTime") &&
-              progVal["startTime"].IsInt64()) {
-            prog.startTime = progVal["startTime"].GetInt64();
-          }
-          if (progVal.HasMember("stopTime") && progVal["stopTime"].IsInt64()) {
-            prog.stopTime = progVal["stopTime"].GetInt64();
-          }
-          if (progVal.HasMember("channelId") &&
-              progVal["channelId"].IsString()) {
-            prog.channelId = progVal["channelId"].GetString();
-          }
-          ch.programs.push_back(prog);
-        }
-      }
-      m_channels[ch.id] = ch;
-    }
-  }
-
-  if (doc.HasMember("mapping") && doc["mapping"].IsObject()) {
-    const auto &mapObj = doc["mapping"].GetObject();
-    m_channelMapping.clear();
-    for (const auto &m : mapObj) {
-      if (m.value.IsString()) {
-        m_channelMapping[m.name.GetString()] = m.value.GetString();
-      }
-    }
-  }
-
-  if (doc.HasMember("manualMapping") && doc["manualMapping"].IsObject()) {
-    const auto &mapObj = doc["manualMapping"].GetObject();
-    m_manualMapping.clear();
-    for (const auto &m : mapObj) {
-      if (m.value.IsString()) {
-        m_manualMapping[m.name.GetString()] = m.value.GetString();
-      }
-    }
-  }
-
+  m_epgChannelsHash = m_db->GetEpgChannelsHash();
   m_loaded = true;
+
+  // Загружаем last_update
+  std::string lastUpdateStr = m_db->LoadGlobalMetadata("last_update");
+  if (!lastUpdateStr.empty()) {
+    m_lastUpdate = static_cast<time_t>(std::stoll(lastUpdateStr));
+  } else {
+    m_lastUpdate = 0;
+  }
+
+  // Очистка старых программ
   CleanExpiredPrograms();
-  LOG_DEBUG("EPGManager: Loaded from cache, %zu channels", m_channels.size());
+
+  // Проверка необходимости автообновления
+  time_t now = std::time(nullptr);
+  bool needUpdate = (m_lastUpdate == 0) ||
+                    (now < m_lastUpdate) || // время переведено назад
+                    ((now - m_lastUpdate) >= m_updateIntervalHours * 3600);
+  if (needUpdate && !m_startupUpdateTimer->IsRunning()) {
+    m_startupUpdateTimer->StartOnce(30000); // 30 секунд
+    LOG_DEBUG("Startup auto-update scheduled in 30 seconds");
+  }
+
   return true;
 }
 
-bool EPGManager::SaveToCache() const {
-  std::string jsonData = BuildCacheJson();
-
-  std::ofstream file(m_cachePath);
-  if (!file.is_open()) {
-    LOG_ERROR("EPGManager: Failed to open cache file for writing: %s",
-              m_cachePath.c_str());
-    return false;
-  }
-  file << jsonData;
-  file.close();
-  LOG_DEBUG("EPGManager: Saved to cache");
-  return true;
-}
-
-std::string EPGManager::BuildCacheJson() const {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto &allocator = doc.GetAllocator();
-
-  doc.AddMember("lastUpdate", static_cast<int64_t>(m_lastUpdate), allocator);
-
-  rapidjson::Value channelsArray(rapidjson::kArrayType);
-  for (const auto &chPair : m_channels) {
-    const auto &ch = chPair.second;
-    rapidjson::Value chVal(rapidjson::kObjectType);
-    chVal.AddMember("id", rapidjson::Value(ch.id.c_str(), allocator),
-                    allocator);
-    chVal.AddMember("displayName",
-                    rapidjson::Value(ch.displayName.c_str(), allocator),
-                    allocator);
-
-    rapidjson::Value progArray(rapidjson::kArrayType);
-    for (const auto &prog : ch.programs) {
-      rapidjson::Value progVal(rapidjson::kObjectType);
-      progVal.AddMember(
-          "title", rapidjson::Value(prog.title.c_str(), allocator), allocator);
-      progVal.AddMember("description",
-                        rapidjson::Value(prog.description.c_str(), allocator),
-                        allocator);
-      progVal.AddMember("category",
-                        rapidjson::Value(prog.category.c_str(), allocator),
-                        allocator);
-      progVal.AddMember("startTime", static_cast<int64_t>(prog.startTime),
-                        allocator);
-      progVal.AddMember("stopTime", static_cast<int64_t>(prog.stopTime),
-                        allocator);
-      progVal.AddMember("channelId",
-                        rapidjson::Value(prog.channelId.c_str(), allocator),
-                        allocator);
-      progArray.PushBack(progVal, allocator);
-    }
-    chVal.AddMember("programs", progArray, allocator);
-    channelsArray.PushBack(chVal, allocator);
-  }
-  doc.AddMember("channels", channelsArray, allocator);
-
-  rapidjson::Value mapObj(rapidjson::kObjectType);
-  for (const auto &m : m_channelMapping) {
-    mapObj.AddMember(rapidjson::Value(m.first.c_str(), allocator),
-                     rapidjson::Value(m.second.c_str(), allocator), allocator);
-  }
-  doc.AddMember("mapping", mapObj, allocator);
-
-  rapidjson::Value manualObj(rapidjson::kObjectType);
-  for (const auto &m : m_manualMapping) {
-    manualObj.AddMember(rapidjson::Value(m.first.c_str(), allocator),
-                        rapidjson::Value(m.second.c_str(), allocator),
-                        allocator);
-  }
-  doc.AddMember("manualMapping", manualObj, allocator);
-
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  doc.Accept(writer);
-  return buffer.GetString();
-}
-
-// ---------- Загрузка из URL и парсинг ----------
+// --------------------------------------------------------------------------
+// Загрузка из URL и файлов
+// --------------------------------------------------------------------------
 bool EPGManager::LoadFromUrl(const std::string &url,
                              const std::string &userAgent) {
   if (!m_playlistManager) {
@@ -517,7 +305,6 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     return false;
   }
 
-  // ---- Проверка доступности ----
   UrlAvailabilityResult check =
       CheckUrlAvailability(url, userAgent, 5, 250 * 1024 * 1024);
   if (!check.available) {
@@ -531,7 +318,6 @@ bool EPGManager::LoadFromUrl(const std::string &url,
               check.contentLength);
   }
 
-  // Сброс состояния прогресса (но totalBytes устанавливаем из check)
   m_downloadProgress.abort = false;
   m_downloadProgress.totalBytes =
       check.contentLength > 0 ? check.contentLength : 0;
@@ -547,7 +333,6 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     return false;
   }
 
-  // Проверка размера (защита)
   if (xmlData.size() > 100 * 1024 * 1024) {
     setLastError("Downloaded EPG exceeds 100 MB");
     LOG_ERROR("EPGManager: Downloaded data exceeds 100 MB from %s",
@@ -555,7 +340,6 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     return false;
   }
 
-  // Распаковка
   if (!DecompressIfNeeded(xmlData)) {
     setLastError("Failed to decompress data from " + url);
     LOG_ERROR("EPGManager: Failed to decompress data from %s", url.c_str());
@@ -571,10 +355,37 @@ bool EPGManager::LoadFromUrl(const std::string &url,
   return ParseAndMerge(xmlData, url);
 }
 
+bool EPGManager::LoadFromFile(const std::string &filePath) {
+  std::ifstream file(filePath, std::ios::binary);
+  if (!file.is_open()) {
+    setLastError("Cannot open file: " + filePath);
+    LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
+    return false;
+  }
+  std::string content((std::istreambuf_iterator<char>(file)),
+                      std::istreambuf_iterator<char>());
+  file.close();
+  if (!DecompressIfNeeded(content)) {
+    setLastError("Failed to decompress file: " + filePath);
+    LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
+    return false;
+  }
+  return ParseAndMerge(content, "file://" + filePath);
+}
+
 void EPGManager::AbortDownload() { m_downloadProgress.abort = true; }
 
+// --------------------------------------------------------------------------
+// Парсинг и сохранение в БД
+// --------------------------------------------------------------------------
 bool EPGManager::ParseAndMerge(const std::string &xmlData,
                                const std::string &sourceUrl) {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen()) {
+    setLastError("Database not open");
+    return false;
+  }
+
   EPGParserExpat parser;
   if (!parser.Parse(xmlData)) {
     setLastError("Failed to parse XML from " + sourceUrl);
@@ -583,7 +394,6 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
   }
 
   const auto &newChannels = parser.GetChannels();
-  // Дополнительная проверка: если парсер не нашёл ни одного канала
   if (newChannels.empty()) {
     setLastError("No channels found in XMLTV from " + sourceUrl);
     LOG_ERROR("EPGManager: No channels found in XMLTV from %s",
@@ -591,127 +401,147 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     return false;
   }
 
-  {
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
-    for (const auto &newCh : newChannels) {
-      auto it = m_channels.find(newCh.id);
-      if (it != m_channels.end()) {
-        it->second.programs = newCh.programs;
-      } else {
-        m_channels[newCh.id] = newCh;
-      }
+  bool success = true;
+  m_db->BeginTransaction();
+  for (const auto &ch : newChannels) {
+    if (!m_db->InsertOrUpdateChannel(ch)) {
+      LOG_ERROR("Failed to insert channel %s", ch.id.c_str());
+      success = false;
+      break;
     }
-
-    // Проверка, что после слияния есть хотя бы один канал
-    if (m_channels.empty()) {
-      setLastError("No channels found in XMLTV from " + sourceUrl);
-      LOG_ERROR("EPGManager: No channels found in XMLTV from %s",
-                sourceUrl.c_str());
-      return false;
+    if (!m_db->InsertPrograms(ch.id, ch.programs)) {
+      LOG_ERROR("Failed to insert programs for channel %s", ch.id.c_str());
+      success = false;
+      break;
     }
-
-    m_lastUpdate = wxDateTime::Now().GetTicks();
-    m_loaded = true;
-    CleanExpiredPrograms();
   }
 
-  SaveToCache();
-  LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu channels",
-            sourceUrl.c_str(), m_channels.size());
+  if (success) {
+    // Сохраняем last_update (в той же транзакции)
+    m_lastUpdate = std::time(nullptr);
+    // Retry (см. Шаг 4)
+    bool saved = false;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+      if (m_db->SaveGlobalMetadata("last_update",
+                                   std::to_string(m_lastUpdate))) {
+        saved = true;
+        break;
+      }
+      LOG_WARN("Failed to save last_update, attempt %d/2", attempt + 1);
+      if (attempt == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    }
+    if (!saved) {
+      LOG_ERROR("Failed to save last_update after 2 attempts");
+    }
+
+    m_db->CommitTransaction();
+    m_epgChannelsHash = m_db->GetEpgChannelsHash();
+    m_loaded = true;
+    CleanExpiredPrograms();
+    LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu channels",
+              sourceUrl.c_str(), newChannels.size());
+  } else {
+    m_db->RollbackTransaction();
+    setLastError("Failed to insert data into database");
+    return false;
+  }
+
   return true;
 }
 
-// ---------- Очистка устаревших программ ----------
 void EPGManager::CleanExpiredPrograms() {
-  time_t now = wxDateTime::Now().GetTicks();
-  time_t threshold = now - m_daysToKeep * 24 * 3600;
-  for (auto &chPair : m_channels) {
-    auto &programs = chPair.second.programs;
-    programs.erase(std::remove_if(programs.begin(), programs.end(),
-                                  [threshold](const EpgProgram &prog) {
-                                    return prog.stopTime < threshold;
-                                  }),
-                   programs.end());
-  }
-}
-
-// ---------- Обновление ----------
-void EPGManager::Refresh() {
-  if (m_isRefreshing.exchange(true)) {
-    LOG_WARN("EPGManager::Refresh: refresh already in progress, skipping.");
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
     return;
-  }
-  // Вызов колбэка начала обновления
-  if (m_onRefreshStarted) {
-    wxTheApp->CallAfter(m_onRefreshStarted);
-  }
-
-  if (m_refreshFuture.valid()) {
-    auto status = m_refreshFuture.wait_for(std::chrono::seconds(1));
-    if (status == std::future_status::timeout) {
-      LOG_WARN("EPGManager::Refresh: previous refresh task is still running, "
-               "starting new one anyway.");
-    }
-  }
-
-  m_refreshFuture = std::async(std::launch::async, [this]() {
-    std::vector<EpgSource> sourcesCopy;
-    {
-      std::lock_guard<std::recursive_mutex> lock(m_mutex);
-      sourcesCopy = m_sources;
-    }
-    bool anySuccess = false;
-    std::string lastError;
-    if (sourcesCopy.empty()) {
-      lastError = "No EPG sources configured";
-      setLastError(lastError);
-    } else {
-      for (const auto &src : sourcesCopy) {
-        bool success = false;
-        if (IsNetworkUrl(src.url)) {
-          success = LoadFromUrl(src.url, "");
-        } else {
-          success = LoadFromFile(src.url);
-        }
-        if (success) {
-          anySuccess = true;
-        } else {
-          lastError = getLastError();
-        }
-      }
-    }
-
-    if (anySuccess) {
-      SaveToCache();
-    }
-
-    int status = anySuccess ? EPG_STATUS_OK
-                            : (sourcesCopy.empty() ? EPG_STATUS_NO_SOURCES
-                                                   : EPG_STATUS_ERROR);
-
-    m_isRefreshing = false;
-
-    if (m_onUpdateFinished) {
-      wxTheApp->CallAfter([this, status, lastError]() {
-        m_onUpdateFinished(status, lastError);
-      });
-    }
-  });
+  time_t now = std::time(nullptr);
+  time_t threshold = now - m_daysToKeep * 24 * 3600;
+  m_db->DeleteProgramsOlderThan(threshold);
 }
 
-void EPGManager::WaitForRefresh() {
-  if (m_refreshFuture.valid()) {
-    auto status = m_refreshFuture.wait_for(std::chrono::seconds(5));
-    if (status == std::future_status::timeout) {
-      LOG_WARN("EPGManager::WaitForRefresh: timeout waiting for refresh task, "
-               "proceeding anyway.");
+// --------------------------------------------------------------------------
+// Получение программ
+// --------------------------------------------------------------------------
+std::vector<EpgProgram>
+EPGManager::GetProgramsForChannel(const std::string &tvgId,
+                                  const std::string &channelName,
+                                  time_t date) const {
+
+  std::vector<EpgProgram> result;
+  std::string channelId;
+
+  {
+    std::shared_lock lock(m_mappingMutex);
+    if (!tvgId.empty()) {
+      auto it = m_channelMapping.find(tvgId);
+      if (it != m_channelMapping.end())
+        channelId = it->second;
+    }
+    if (channelId.empty() && !channelName.empty()) {
+      auto it = m_channelMapping.find("name:" + channelName);
+      if (it != m_channelMapping.end())
+        channelId = it->second;
     }
   }
+
+  if (channelId.empty())
+    return result;
+
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return result;
+
+  time_t startOfDay = EpgTime::GetStartOfDay(date);
+  time_t endOfDay = EpgTime::GetEndOfDay(date);
+  if (startOfDay == 0 || endOfDay == 0)
+    return result;
+
+  return m_db->GetProgramsForChannel(channelId, startOfDay, endOfDay);
 }
 
-// ---------- Нормализация ----------
+EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {
+  EpgProgram result;
+  std::string channelId;
+
+  {
+    std::shared_lock lock(m_mappingMutex);
+    auto it = m_channelMapping.find(tvgId);
+    if (it != m_channelMapping.end())
+      channelId = it->second;
+  }
+
+  if (channelId.empty())
+    return result;
+
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return result;
+
+  time_t now = std::time(nullptr);
+  return m_db->GetCurrentProgram(channelId, now);
+}
+
+std::vector<std::string> EPGManager::GetChannelIdsWithEpg() const {
+  std::vector<std::string> ids;
+  {
+    std::shared_lock lock(m_mappingMutex);
+    ids.reserve(m_channelMapping.size());
+    for (const auto &[key, val] : m_channelMapping) {
+      if (key.find("name:") != 0)
+        ids.push_back(val);
+    }
+  }
+  return ids;
+}
+
+// --------------------------------------------------------------------------
+// Нормализация
+// --------------------------------------------------------------------------
 void EPGManager::NormalizeTvgId(std::string &id) const {
-  std::transform(id.begin(), id.end(), id.begin(), ::tolower);
+  std::transform(id.begin(), id.end(), id.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
   id.erase(std::remove(id.begin(), id.end(), '.'), id.end());
   id.erase(std::remove(id.begin(), id.end(), ' '), id.end());
   id.erase(std::remove(id.begin(), id.end(), '_'), id.end());
@@ -719,9 +549,10 @@ void EPGManager::NormalizeTvgId(std::string &id) const {
 
 std::string EPGManager::NormalizeName(const std::string &name) const {
   std::string result = name;
-  std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+  std::transform(
+      result.begin(), result.end(), result.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-  // Суффиксы качества
   const std::vector<std::string> qualitySuffixes = {
       "(hd)", "(fhd)", "(4k)", "(uhd)", "(sd)", "hd",    "fhd", "4k",
       "uhd",  "sd",    "[hd]", "[fhd]", "[4k]", "[uhd]", "[sd]"};
@@ -735,7 +566,6 @@ std::string EPGManager::NormalizeName(const std::string &name) const {
     }
   }
 
-  // Региональные суффиксы (из конфига или дефолтные)
   for (const auto &suffix : m_regionalSuffixes) {
     size_t pos = result.rfind(suffix);
     if (pos != std::string::npos && pos + suffix.length() == result.length()) {
@@ -746,24 +576,23 @@ std::string EPGManager::NormalizeName(const std::string &name) const {
     }
   }
 
-  // Заменяем & на and
   size_t pos = result.find('&');
   while (pos != std::string::npos) {
     result.replace(pos, 1, "and");
     pos = result.find('&', pos + 3);
   }
 
-  // Удаляем лишние пробелы
   result.erase(std::unique(result.begin(), result.end(),
                            [](char a, char b) { return a == ' ' && b == ' '; }),
                result.end());
 
-  // Удаляем пунктуацию (кроме +)
-  result.erase(
-      std::remove_if(result.begin(), result.end(),
-                     [](char c) { return std::ispunct(c) && c != '+'; }),
-      result.end());
-
+  result.erase(std::remove_if(result.begin(), result.end(),
+                              [](char c) {
+                                return std::ispunct(
+                                           static_cast<unsigned char>(c)) &&
+                                       c != '+';
+                              }),
+               result.end());
   return result;
 }
 
@@ -855,22 +684,34 @@ int EPGManager::CalculateNameScore(const std::string &name1,
   return similarity;
 }
 
-// ---------- Сопоставление ----------
+// --------------------------------------------------------------------------
+// Сопоставление (Match)
+// --------------------------------------------------------------------------
 void EPGManager::RebuildNormalizedCache() {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_normalizedCache.clear();
-  for (const auto &ch : m_channels) {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return;
+
+  auto channels = m_db->GetAllChannels();
+  std::vector<NormalizedChannel> newCache;
+  newCache.reserve(channels.size());
+
+  for (const auto &p : channels) {
     NormalizedChannel nc;
-    nc.id = ch.first;
-    nc.normalizedName = NormalizeName(ch.second.displayName);
+    nc.id = p.first;
+    nc.normalizedName = NormalizeName(p.second);
     nc.tokens = Tokenize(nc.normalizedName);
-    m_normalizedCache.push_back(nc);
+    newCache.push_back(std::move(nc));
+  }
+
+  {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    m_normalizedCache = std::move(newCache);
   }
 }
 
 EPGManager::MatchResult
 EPGManager::FindBestMatch(const Channel &playlistChannel) const {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   MatchResult result;
   result.score = 0;
   result.confidence = "low";
@@ -879,12 +720,12 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   std::string channelName = playlistChannel.getName();
 
   // TIER 1: Ручное сопоставление
-  if (!tvgId.empty()) {
-    auto manualIt = m_manualMapping.find(tvgId);
-    if (manualIt != m_manualMapping.end()) {
-      auto it = m_channels.find(manualIt->second);
-      if (it != m_channels.end()) {
-        result.channelId = it->first;
+  {
+    std::shared_lock lock(m_mappingMutex);
+    if (!tvgId.empty()) {
+      auto manualIt = m_manualMapping.find(tvgId);
+      if (manualIt != m_manualMapping.end()) {
+        result.channelId = manualIt->second;
         result.method = "manual";
         result.score = 100;
         result.confidence = "high";
@@ -893,16 +734,19 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     }
   }
 
-  // TIER 2: Точное совпадение по нормализованному имени (ОСНОВНОЙ МЕТОД)
+  // TIER 2: Точное совпадение по нормализованному имени
   std::string plName = NormalizeName(channelName);
-  if (!plName.empty()) {
-    for (const auto &nc : m_normalizedCache) {
-      if (nc.normalizedName == plName) {
-        result.channelId = nc.id;
-        result.method = "exact_name";
-        result.score = 95;
-        result.confidence = "high";
-        return result;
+  {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    if (!plName.empty()) {
+      for (const auto &nc : m_normalizedCache) {
+        if (nc.normalizedName == plName) {
+          result.channelId = nc.id;
+          result.method = "exact_name";
+          result.score = 95;
+          result.confidence = "high";
+          return result;
+        }
       }
     }
   }
@@ -910,26 +754,32 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   // TIER 3: Token-sort
   auto plTokens = Tokenize(plName);
   std::sort(plTokens.begin(), plTokens.end());
-  for (const auto &nc : m_normalizedCache) {
-    auto epgTokens = nc.tokens;
-    std::sort(epgTokens.begin(), epgTokens.end());
-    if (plTokens.size() == epgTokens.size() && plTokens == epgTokens) {
-      result.channelId = nc.id;
-      result.method = "token_sort";
-      result.score = 85;
-      result.confidence = "medium";
-      return result;
+  {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    for (const auto &nc : m_normalizedCache) {
+      auto epgTokens = nc.tokens;
+      std::sort(epgTokens.begin(), epgTokens.end());
+      if (plTokens.size() == epgTokens.size() && plTokens == epgTokens) {
+        result.channelId = nc.id;
+        result.method = "token_sort";
+        result.score = 85;
+        result.confidence = "medium";
+        return result;
+      }
     }
   }
 
   // TIER 4: Нечёткое сравнение
   int bestScore = 0;
   std::string bestId;
-  for (const auto &nc : m_normalizedCache) {
-    int similarity = CalculateNameScore(plName, nc.normalizedName);
-    if (similarity > bestScore && similarity >= 60) {
-      bestScore = similarity;
-      bestId = nc.id;
+  {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    for (const auto &nc : m_normalizedCache) {
+      int similarity = CalculateNameScore(plName, nc.normalizedName);
+      if (similarity > bestScore && similarity >= 60) {
+        bestScore = similarity;
+        bestId = nc.id;
+      }
     }
   }
   if (!bestId.empty()) {
@@ -940,8 +790,9 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     return result;
   }
 
-  // TIER 5: Substring (last resort по имени)
+  // TIER 5: Substring
   if (plName.length() > 3) {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
     for (const auto &nc : m_normalizedCache) {
       if (nc.normalizedName.find(plName) != std::string::npos ||
           plName.find(nc.normalizedName) != std::string::npos) {
@@ -958,166 +809,306 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   if (!tvgId.empty()) {
     std::string normalizedTvgId = tvgId;
     NormalizeTvgId(normalizedTvgId);
-    for (const auto &ch : m_channels) {
-      std::string epgId = ch.first;
-      NormalizeTvgId(epgId);
-      if (epgId == normalizedTvgId) {
-        result.channelId = ch.first;
-        result.method = "exact_tvgid_fallback";
-        result.score = 70;
-        result.confidence = "medium";
-        return result;
-      }
+    std::shared_lock lock(m_tvgIndexMutex);
+    auto it = m_tvgIdIndex.find(normalizedTvgId);
+    if (it != m_tvgIdIndex.end()) {
+      result.channelId = it->second;
+      result.method = "exact_tvgid_fallback";
+      result.score = 70;
+      result.confidence = "medium";
+      return result;
     }
   }
 
   return result;
 }
 
-void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+// --------------------------------------------------------------------------
+// Матчинг
+// --------------------------------------------------------------------------
+void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
+                               const std::string &playlistId,
+                               MatchCallback callback) {
+  if (m_cancelMatching.exchange(false)) {
+    LOG_DEBUG("MatchChannels cancelled");
+    return;
+  }
 
   RebuildNormalizedCache();
 
-  m_channelMapping.clear();
-  int matched = 0;
+  std::unordered_map<std::string, std::string> newMapping;
+  std::unordered_map<std::string, std::string> newManualMapping;
+
   int total = static_cast<int>(playlistChannels.size());
+  int processed = 0;
+  int matched = 0;
+  // Report progress every ~5% of channels, but at least every 50 channels.
+  int reportInterval = std::max(1, std::min(50, total / 20));
+  if (reportInterval < 1)
+    reportInterval = 1;
 
   for (const auto &ch : playlistChannels) {
+    // Check cancellation inside the loop
+    if (m_cancelMatching) {
+      LOG_DEBUG("MatchChannels cancelled during processing");
+      return;
+    }
+
     MatchResult match = FindBestMatch(ch);
     if (!match.channelId.empty()) {
       std::string key = ch.getTvgId();
-      if (key.empty()) {
+      if (key.empty())
         key = "name:" + ch.getName();
-      }
-      m_channelMapping[key] = match.channelId;
+      newMapping[key] = match.channelId;
       matched++;
+    }
+    processed++;
 
-      LOG_DEBUG(
-          "EPGManager: Matched '%s' → EPG '%s' (method=%s, score=%d, conf=%s)",
-          ch.getName().c_str(), match.channelId.c_str(), match.method.c_str(),
-          match.score, match.confidence.c_str());
-    } else {
-      LOG_DEBUG("EPGManager: No match for '%s' (tvgId='%s')",
-                ch.getName().c_str(), ch.getTvgId().c_str());
+    // Call progress callback periodically
+    if (callback && (processed % reportInterval == 0 || processed == total)) {
+      wxTheApp->CallAfter([callback, matched, total, processed]() {
+        callback(matched, total, processed,
+                 true); // success flag is true for progress
+      });
     }
   }
 
-  LOG_INFO("EPGManager: Matched %d/%d channels (%.1f%%)", matched, total,
-           (total > 0) ? (matched * 100.0 / total) : 0);
-  if (total > 0) {
-    int percent = (matched * 100) / total;
-    if (percent < 5 && matched > 0) {
-      LOG_WARN("EPGManager: Low match rate: %d/%d channels (%.1f%%). Check "
-               "tvgId or channel names.",
-               matched, total, (matched * 100.0 / total));
+  // Save mapping to DB and update local caches (as before)
+  std::string channelHash = ComputePlaylistHash(playlistChannels);
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (!m_db->SavePlaylistMapping(playlistId, newMapping, newManualMapping,
+                                   playlistChannels.size(), channelHash,
+                                   m_epgChannelsHash)) {
+      LOG_ERROR("Failed to save playlist mapping to DB");
+      return;
     }
   }
+  {
+    std::unique_lock lock(m_mappingMutex);
+    m_channelMapping = newMapping;
+    m_manualMapping = newManualMapping;
+  }
 
-  SaveToCache();
+  RebuildTvgIdIndex();
+
+  LOG_INFO("EPGManager: Matched %d/%d channels", matched, total);
 }
 
-// ---------- Получение программ ----------
-EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  auto mapIt = m_channelMapping.find(tvgId);
-  if (mapIt == m_channelMapping.end()) {
-    return EpgProgram();
-  }
-
-  const std::string &channelId = mapIt->second;
-  auto chIt = m_channels.find(channelId);
-  if (chIt == m_channels.end()) {
-    return EpgProgram();
-  }
-
-  time_t now = wxDateTime::Now().GetTicks();
-  const auto &programs = chIt->second.programs;
-  for (const auto &prog : programs) {
-    if (prog.startTime <= now && prog.stopTime > now) {
-      return prog;
-    }
-  }
-  return EpgProgram();
+void EPGManager::MatchChannelsAsync(
+    const std::vector<Channel> &playlistChannels, const std::string &playlistId,
+    MatchCallback callback) {
+  m_cancelMatching = false;
+  m_matchFuture = std::async(
+      std::launch::async, [this, playlistChannels, playlistId, callback]() {
+        if (m_cancelMatching) {
+          LOG_DEBUG("MatchChannelsAsync: cancelled before start");
+          return;
+        }
+        bool success = true;
+        try {
+          // Pass callback to MatchChannels (it will report progress)
+          this->MatchChannels(playlistChannels, playlistId, callback);
+        } catch (...) {
+          success = false;
+          LOG_ERROR("MatchChannelsAsync: exception in MatchChannels");
+        }
+        // Final callback with success flag
+        if (callback && !m_cancelMatching) {
+          int matched, total;
+          {
+            std::shared_lock lock(m_mappingMutex);
+            matched = static_cast<int>(m_channelMapping.size());
+          }
+          total = static_cast<int>(playlistChannels.size());
+          wxTheApp->CallAfter([callback, matched, total, success]() {
+            callback(matched, total, total,
+                     success); // progress = total means finished
+          });
+        }
+      });
 }
 
-std::vector<EpgProgram>
-EPGManager::GetProgramsForChannel(const std::string &tvgId,
-                                  const std::string &channelName,
-                                  time_t date) const {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  std::vector<EpgProgram> result;
-  std::string channelId;
+// --------------------------------------------------------------------------
+// Управление mapping по плейлистам
+// --------------------------------------------------------------------------
+bool EPGManager::LoadMappingForPlaylist(const std::string &playlistId,
+                                        const std::vector<Channel> &channels) {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return false;
 
-  // Сначала по маппингу (ключ = tvgId или "name:...")
-  if (!tvgId.empty()) {
-    auto mapIt = m_channelMapping.find(tvgId);
-    if (mapIt != m_channelMapping.end()) {
-      channelId = mapIt->second;
-    }
+  std::unordered_map<std::string, std::string> mapping;
+  std::unordered_map<std::string, std::string> manualMapping;
+  size_t channelCount = 0;
+  std::string channelHash, epgHashAtMatch;
+
+  if (!m_db->LoadPlaylistMapping(playlistId, mapping, manualMapping,
+                                 channelCount, channelHash, epgHashAtMatch)) {
+    return false;
   }
 
-  if (channelId.empty() && !channelName.empty()) {
-    auto mapIt = m_channelMapping.find("name:" + channelName);
-    if (mapIt != m_channelMapping.end()) {
-      channelId = mapIt->second;
-    }
-  }
-  // Если всё ещё не найдено, пробуем найти по имени напрямую (на всякий случай)
-  if (channelId.empty() && !channelName.empty()) {
-    std::string plName = NormalizeName(channelName);
-    for (const auto &nc : m_normalizedCache) {
-      if (nc.normalizedName == plName) {
-        channelId = nc.id;
-        break;
-      }
-    }
-  }
+  if (channelCount != channels.size())
+    return false;
+  std::string currentHash = ComputePlaylistHash(channels);
+  if (currentHash != channelHash)
+    return false;
+  if (m_epgChannelsHash != epgHashAtMatch)
+    return false;
 
-  if (channelId.empty()) {
-    return result;
+  {
+    std::unique_lock lock(m_mappingMutex);
+    m_channelMapping = mapping;
+    m_manualMapping = manualMapping;
   }
+  m_currentPlaylistId = playlistId;
 
-  auto chIt = m_channels.find(channelId);
-  if (chIt == m_channels.end()) {
-    return result;
-  }
+  RebuildTvgIdIndex();
 
-  time_t startOfDay = EpgTime::GetStartOfDay(date);
-  time_t endOfDay = EpgTime::GetEndOfDay(date);
-
-  if (startOfDay == 0 || endOfDay == 0) {
-    LOG_DEBUG("EPGManager: Invalid date %ld, returning empty", date);
-    return result;
-  }
-
-  const auto &programs = chIt->second.programs;
-  for (const auto &prog : programs) {
-    if (prog.startTime <= endOfDay && prog.stopTime >= startOfDay) {
-      result.push_back(prog);
-    }
-  }
-  return result;
+  return true;
 }
 
-std::vector<std::string> EPGManager::GetChannelIdsWithEpg() const {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  std::vector<std::string> ids;
-  ids.reserve(m_channels.size());
-  for (const auto &ch : m_channels) {
-    ids.push_back(ch.first);
-  }
-  return ids;
+void EPGManager::SaveMappingForPlaylist(const std::string &playlistId,
+                                        const std::vector<Channel> &channels) {
+  MatchChannels(channels, playlistId);
 }
 
-// ---------- Управление источниками ----------
+void EPGManager::InvalidatePlaylistMapping(const std::string &playlistId) {
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (m_db && m_db->IsOpen()) {
+      m_db->DeletePlaylistMapping(playlistId);
+    }
+  }
+  if (m_currentPlaylistId == playlistId) {
+    std::unique_lock lock(m_mappingMutex);
+    m_channelMapping.clear();
+    m_manualMapping.clear();
+  }
+  RebuildTvgIdIndex();
+}
+
+// --------------------------------------------------------------------------
+// Ручные маппинги
+// --------------------------------------------------------------------------
+void EPGManager::SetManualMapping(const std::string &tvgId,
+                                  const std::string &epgId) {
+  if (m_currentPlaylistId.empty()) {
+    LOG_ERROR("No current playlist set, cannot set manual mapping");
+    return;
+  }
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen()) {
+    LOG_ERROR("Database not open, cannot set manual mapping");
+    return;
+  }
+  if (m_db->UpdateManualMapping(m_currentPlaylistId, tvgId, epgId)) {
+    std::unique_lock lock(m_mappingMutex);
+    m_manualMapping[tvgId] = epgId;
+    LOG_DEBUG("Manual mapping set: playlist '%s', tvgId '%s' -> epgId '%s'",
+              m_currentPlaylistId.c_str(), tvgId.c_str(), epgId.c_str());
+  } else {
+    LOG_ERROR("Failed to set manual mapping");
+  }
+}
+
+void EPGManager::RemoveChannelMapping(const std::string &tvgId) {
+  if (m_currentPlaylistId.empty()) {
+    LOG_ERROR("No current playlist set, cannot remove manual mapping");
+    return;
+  }
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen()) {
+    LOG_ERROR("Database not open, cannot remove manual mapping");
+    return;
+  }
+  if (m_db->DeleteManualMapping(m_currentPlaylistId, tvgId)) {
+    std::unique_lock lock(m_mappingMutex);
+    m_manualMapping.erase(tvgId);
+    LOG_DEBUG("Manual mapping removed: playlist '%s', tvgId '%s'",
+              m_currentPlaylistId.c_str(), tvgId.c_str());
+  } else {
+    LOG_ERROR("Failed to remove manual mapping (key not found)");
+  }
+}
+
+std::string
+EPGManager::GetEpgChannelIdForTvgId(const std::string &tvgId) const {
+  std::shared_lock lock(m_mappingMutex);
+  auto it = m_channelMapping.find(tvgId);
+  if (it != m_channelMapping.end())
+    return it->second;
+  return "";
+}
+
+// --------------------------------------------------------------------------
+// Вспомогательные
+// --------------------------------------------------------------------------
+std::string
+EPGManager::ComputePlaylistHash(const std::vector<Channel> &channels) const {
+  std::string concatenated;
+  for (const auto &ch : channels) {
+    concatenated += ch.getUrl() + "|" + ch.getName() + "|";
+  }
+  return stable_hash(concatenated);
+}
+
+// --------------------------------------------------------------------------
+// Региональные суффиксы
+// --------------------------------------------------------------------------
+void EPGManager::InitializeDefaultRegionalSuffixes() {
+  m_regionalSuffixes = {
+      "(us)", "(uk)", "(ca)", "(au)", "(nz)", "(ie)", "us",   "uk",   "ca",
+      "au",   "nz",   "ie",   "(de)", "(fr)", "(es)", "(it)", "(pt)", "(nl)",
+      "(be)", "de",   "fr",   "es",   "it",   "pt",   "nl",   "be",   "(ru)",
+      "(ua)", "(by)", "(kz)", "ru",   "ua",   "by",   "kz",   "(jp)", "(kr)",
+      "(cn)", "(tw)", "(hk)", "jp",   "kr",   "cn",   "tw",   "hk"};
+}
+
+void EPGManager::LoadRegionalSuffixes(const std::string &path) {
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    LOG_DEBUG("EPGManager: Regional suffixes file not found, using defaults");
+    InitializeDefaultRegionalSuffixes();
+    return;
+  }
+  std::string json((std::istreambuf_iterator<char>(file)),
+                   std::istreambuf_iterator<char>());
+  file.close();
+  rapidjson::Document doc;
+  if (doc.Parse(json.c_str()).HasParseError() || !doc.IsArray()) {
+    LOG_WARN(
+        "EPGManager: Failed to parse regional_suffixes.json, using defaults");
+    InitializeDefaultRegionalSuffixes();
+    return;
+  }
+  m_regionalSuffixes.clear();
+  for (const auto &item : doc.GetArray()) {
+    if (item.IsString()) {
+      m_regionalSuffixes.push_back(item.GetString());
+    }
+  }
+  if (m_regionalSuffixes.empty()) {
+    LOG_WARN("EPGManager: regional_suffixes.json is empty, using defaults");
+    InitializeDefaultRegionalSuffixes();
+  } else {
+    LOG_DEBUG("EPGManager: Loaded %zu regional suffixes",
+              m_regionalSuffixes.size());
+  }
+}
+
+void EPGManager::SetRegionalSuffixes(const std::vector<std::string> &suffixes) {
+  m_regionalSuffixes = suffixes;
+}
+
+// --------------------------------------------------------------------------
+// Источники EPG (config)
+// --------------------------------------------------------------------------
 void EPGManager::LoadSourcesFromConfig() {
   if (!m_configManager) {
     LOG_ERROR("EPGManager: ConfigManager is null");
     return;
   }
-
   std::string sourcesJson = m_configManager->getSetting("epg_sources", "[]");
   rapidjson::Document doc;
   if (doc.Parse(sourcesJson.c_str()).HasParseError()) {
@@ -1128,7 +1119,6 @@ void EPGManager::LoadSourcesFromConfig() {
     LOG_ERROR("EPGManager: epg_sources is not an array");
     return;
   }
-
   m_sources.clear();
   for (const auto &item : doc.GetArray()) {
     EpgSource src;
@@ -1150,7 +1140,6 @@ void EPGManager::SaveSourcesToConfig() const {
     LOG_ERROR("EPGManager: ConfigManager is null");
     return;
   }
-
   rapidjson::Document doc;
   doc.SetArray();
   auto &allocator = doc.GetAllocator();
@@ -1164,7 +1153,6 @@ void EPGManager::SaveSourcesToConfig() const {
                   allocator);
     doc.PushBack(obj, allocator);
   }
-
   rapidjson::StringBuffer buffer;
   rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
   doc.Accept(writer);
@@ -1183,55 +1171,141 @@ std::vector<EpgSource> EPGManager::GetSources() const {
   return m_sources;
 }
 
-// ---------- Ручное сопоставление ----------
-void EPGManager::SetManualMapping(const std::string &tvgId,
-                                  const std::string &epgId) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_manualMapping[tvgId] = epgId;
-  SaveToCache();
-}
-
-void EPGManager::SetMapping(const std::string &tvgId,
-                            const std::string &channelId) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_channelMapping[tvgId] = channelId;
-  SaveToCache();
-}
-
-void EPGManager::RemoveChannelMapping(const std::string &tvgId) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_channelMapping.erase(tvgId);
-  SaveToCache();
-}
-
-std::string
-EPGManager::GetEpgChannelIdForTvgId(const std::string &tvgId) const {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  auto it = m_channelMapping.find(tvgId);
-  if (it != m_channelMapping.end()) {
-    return it->second;
-  }
-  return "";
-}
-
-// ---------- Удаление кэша ----------
+// --------------------------------------------------------------------------
+// DeleteCache
+// --------------------------------------------------------------------------
 bool EPGManager::DeleteCache() {
   {
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
-    m_channels.clear();
-    m_channelMapping.clear();
-    m_manualMapping.clear();
-    m_loaded = false;
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (m_db && m_db->IsOpen()) {
+      m_db->Close();
+      m_db.reset();
+    }
   }
-  SaveToCache();
-  if (!m_cachePath.empty()) {
-    std::remove(m_cachePath.c_str());
+  if (!m_dbPath.empty()) {
+    std::remove(m_dbPath.c_str());
   }
   LOG_DEBUG("EPGManager: Cache deleted");
   return true;
 }
 
-// ---------- Ошибки ----------
+// --------------------------------------------------------------------------
+// Refresh и автообновление
+// --------------------------------------------------------------------------
+void EPGManager::Refresh() {
+  if (m_isRefreshing.exchange(true)) {
+    LOG_WARN("EPGManager::Refresh: refresh already in progress, skipping.");
+    return;
+  }
+  if (m_onRefreshStarted) {
+    wxTheApp->CallAfter(m_onRefreshStarted);
+  }
+
+  if (m_refreshFuture.valid()) {
+    auto status = m_refreshFuture.wait_for(std::chrono::seconds(1));
+    if (status == std::future_status::timeout) {
+      LOG_WARN("EPGManager::Refresh: previous refresh task is still running, "
+               "starting new one anyway.");
+    }
+  }
+
+  m_refreshFuture = std::async(std::launch::async, [this]() {
+    std::vector<EpgSource> sourcesCopy;
+    {
+      std::lock_guard<std::recursive_mutex> lock(m_mutex);
+      sourcesCopy = m_sources;
+    }
+    bool anySuccess = false;
+    std::string lastError;
+    if (sourcesCopy.empty()) {
+      lastError = "No EPG sources configured";
+      setLastError(lastError);
+    } else {
+      for (const auto &src : sourcesCopy) {
+        bool success = false;
+        if (IsNetworkUrl(src.url)) {
+          success = LoadFromUrl(src.url, "");
+        } else {
+          success = LoadFromFile(src.url);
+        }
+        if (success) {
+          anySuccess = true;
+        } else {
+          lastError = getLastError();
+        }
+      }
+    }
+
+    int status = anySuccess ? EPG_STATUS_OK
+                            : (sourcesCopy.empty() ? EPG_STATUS_NO_SOURCES
+                                                   : EPG_STATUS_ERROR);
+
+    m_isRefreshing = false;
+
+    if (m_onUpdateFinished) {
+      wxTheApp->CallAfter([this, status, lastError]() {
+        m_onUpdateFinished(status, lastError);
+      });
+    }
+  });
+}
+
+void EPGManager::WaitForRefresh() {
+  if (m_refreshFuture.valid()) {
+    auto status = m_refreshFuture.wait_for(std::chrono::seconds(5));
+    if (status == std::future_status::timeout) {
+      LOG_WARN("EPGManager::WaitForRefresh: timeout waiting for refresh task, "
+               "proceeding anyway.");
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// Автообновление (таймер)
+// --------------------------------------------------------------------------
+void EPGManager::StartAutoUpdate() {
+  if (!m_autoUpdateTimer || !m_autoUpdateEnabled)
+    return;
+  if (m_autoUpdateTimer->IsRunning())
+    return;
+  int intervalHours = m_updateIntervalHours;
+  if (intervalHours < 1)
+    intervalHours = 1;
+  long intervalMs = intervalHours * 3600 * 1000;
+  m_autoUpdateTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
+  LOG_DEBUG("EPGManager: Auto-update started (interval %d hours)",
+            intervalHours);
+}
+
+void EPGManager::StopAutoUpdate() {
+  if (m_autoUpdateTimer && m_autoUpdateTimer->IsRunning()) {
+    m_autoUpdateTimer->Stop();
+    LOG_DEBUG("EPGManager: Auto-update stopped");
+  }
+}
+
+void EPGManager::RestartAutoUpdate() {
+  StopAutoUpdate();
+  StartAutoUpdate();
+}
+
+void EPGManager::OnAutoUpdateTimer(wxTimerEvent &) {
+  LOG_DEBUG("EPGManager: Auto-update timer triggered");
+  Refresh();
+}
+
+// --------------------------------------------------------------------------
+// Обработчики колбэков и статус
+// --------------------------------------------------------------------------
+void EPGManager::SetOnUpdateFinished(
+    std::function<void(int, const std::string &)> callback) {
+  m_onUpdateFinished = callback;
+}
+
+void EPGManager::SetOnRefreshStarted(RefreshStartedCallback callback) {
+  m_onRefreshStarted = callback;
+}
+
 std::string EPGManager::getLastError() const {
   std::lock_guard<std::mutex> lock(m_lastErrorMutex);
   return m_lastError;
@@ -1242,25 +1316,52 @@ void EPGManager::setLastError(const std::string &msg) const {
   m_lastError = msg;
 }
 
-void EPGManager::SetOnUpdateFinished(
-    std::function<void(int, const std::string &)> callback) {
-  m_onUpdateFinished = callback;
+bool EPGManager::HasMapping() const {
+  std::shared_lock lock(m_mappingMutex);
+  return !m_channelMapping.empty();
 }
 
-bool EPGManager::LoadFromFile(const std::string &filePath) {
-  std::ifstream file(filePath, std::ios::binary);
-  if (!file.is_open()) {
-    setLastError("Cannot open file: " + filePath);
-    LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
-    return false;
+const DownloadProgress &EPGManager::GetDownloadProgress() const {
+  return m_downloadProgress;
+}
+
+// --------------------------------------------------------------------------
+// Настройки
+// --------------------------------------------------------------------------
+void EPGManager::SetAutoUpdateEnabled(bool enabled) {
+  m_autoUpdateEnabled = enabled;
+}
+bool EPGManager::IsAutoUpdateEnabled() const { return m_autoUpdateEnabled; }
+void EPGManager::SetUpdateIntervalHours(int hours) {
+  m_updateIntervalHours = hours;
+}
+int EPGManager::GetUpdateIntervalHours() const { return m_updateIntervalHours; }
+void EPGManager::SetDaysToKeep(int days) { m_daysToKeep = days; }
+int EPGManager::GetDaysToKeep() const { return m_daysToKeep; }
+
+void EPGManager::RebuildTvgIdIndex() {
+  std::unordered_map<std::string, std::string> tmp;
+  {
+    std::shared_lock lock(m_mappingMutex);
+    tmp.reserve(m_channelMapping.size());
+    for (const auto &[key, epgId] : m_channelMapping) {
+      // Пропускаем ключи вида "name:..."
+      if (key.rfind("name:", 0) == 0)
+        continue;
+      std::string normalized = key;
+      NormalizeTvgId(normalized);
+      if (normalized.empty())
+        continue;
+      // При коллизии оставляем первый встретившийся
+      if (tmp.find(normalized) == tmp.end()) {
+        tmp.emplace(std::move(normalized), epgId);
+      } else {
+        LOG_DEBUG("RebuildTvgIdIndex: collision for %s", normalized.c_str());
+      }
+    }
   }
-  std::string content((std::istreambuf_iterator<char>(file)),
-                      std::istreambuf_iterator<char>());
-  file.close();
-  if (!DecompressIfNeeded(content)) {
-    setLastError("Failed to decompress file: " + filePath);
-    LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
-    return false;
+  {
+    std::unique_lock lock(m_tvgIndexMutex);
+    m_tvgIdIndex.swap(tmp);
   }
-  return ParseAndMerge(content, "file://" + filePath);
 }

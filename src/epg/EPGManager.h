@@ -1,19 +1,29 @@
+/**
+ * EPGManager – manages EPG data: loading, parsing, caching, and channel
+ * mapping.
+ *
+ * Time representation: all time_t values are stored as UTC seconds since epoch
+ * (std::time(nullptr)). Transactions: insertion of channels/programs and saving
+ * of last_update are performed within a single transaction. Thread safety:
+ * methods that modify the database are protected by mutexes. Asynchronous tasks
+ * are managed via std::future and a cancellation flag.
+ */
+
 #ifndef EPGMANAGER_H
 #define EPGMANAGER_H
 
 #include "EPGData.h"
+#include "EPGDatabase.h"
 #include "PlaylistManager.h"
-
-#include <wx/event.h>
-
+#include <functional>
 #include <future>
 #include <mutex>
-#include <functional>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <wx/event.h>
 #include <wx/timer.h>
-
 
 class ConfigManager;
 class PlaylistManager;
@@ -25,59 +35,64 @@ public:
   ~EPGManager();
 
   bool LoadFromFile(const std::string &filePath);
-  
-  void SetCachePath(const std::string &path);
-  bool LoadFromCache();
-  bool SaveToCache() const;
+  void SetDbPath(const std::string &path);
+  bool OpenDatabase();
+
   bool LoadFromUrl(const std::string &url, const std::string &userAgent = "");
   void Refresh();
   void WaitForRefresh();
 
-  // ---------- Сопоставление каналов ----------
   struct MatchResult {
-    std::string channelId; // id из EPG
-    std::string method;    // "manual", "exact_name", "token_sort", "fuzzy",
-                           // "substring", "exact_tvgid_fallback"
+    std::string channelId;
+    std::string method;
     int score = 0;
-    std::string confidence; // "high", "medium", "low"
+    std::string confidence;
   };
 
-  void MatchChannels(const std::vector<Channel> &playlistChannels);
+  using MatchCallback =
+      std::function<void(int matched, int total, int progress, bool success)>;
+  void MatchChannels(const std::vector<Channel> &playlistChannels,
+                     const std::string &playlistId,
+                     MatchCallback callback = nullptr);
+  void MatchChannelsAsync(const std::vector<Channel> &playlistChannels,
+                          const std::string &playlistId,
+                          MatchCallback callback = nullptr);
+
   MatchResult FindBestMatch(const Channel &playlistChannel) const;
 
-  // ---------- Получение программ ----------
   EpgProgram GetCurrentProgram(const std::string &tvgId) const;
   std::vector<EpgProgram> GetProgramsForChannel(const std::string &tvgId,
                                                 const std::string &channelName,
                                                 time_t date) const;
   std::vector<std::string> GetChannelIdsWithEpg() const;
 
-  // ---------- Управление источниками ----------
   void SetSources(const std::vector<EpgSource> &sources);
   std::vector<EpgSource> GetSources() const;
   void SaveSourcesToConfig() const;
 
-  // ---------- Ручное сопоставление ----------
+  // Ручные маппинги
   void SetManualMapping(const std::string &tvgId, const std::string &epgId);
-  void SetMapping(const std::string &tvgId,
-                  const std::string &channelId); // обратная совместимость
   void RemoveChannelMapping(const std::string &tvgId);
   std::string GetEpgChannelIdForTvgId(const std::string &tvgId) const;
 
-  // ---------- Региональные суффиксы ----------
+  bool LoadMappingForPlaylist(const std::string &playlistId,
+                              const std::vector<Channel> &channels);
+  void SaveMappingForPlaylist(const std::string &playlistId,
+                              const std::vector<Channel> &channels);
+  void InvalidatePlaylistMapping(const std::string &playlistId);
+
   void LoadRegionalSuffixes(const std::string &path);
   void SetRegionalSuffixes(const std::vector<std::string> &suffixes);
 
-  // ---------- Статус и настройки ----------
   bool IsLoaded() const { return m_loaded; }
   time_t GetLastUpdate() const { return m_lastUpdate; }
 
-  void SetAutoUpdateEnabled(bool enabled) { m_autoUpdateEnabled = enabled; }
-  bool IsAutoUpdateEnabled() const { return m_autoUpdateEnabled; }
-  void SetUpdateIntervalHours(int hours) { m_updateIntervalHours = hours; }
-  int GetUpdateIntervalHours() const { return m_updateIntervalHours; }
-  void SetDaysToKeep(int days) { m_daysToKeep = days; }
-  int GetDaysToKeep() const { return m_daysToKeep; }
+  void SetAutoUpdateEnabled(bool enabled);
+  bool IsAutoUpdateEnabled() const;
+  void SetUpdateIntervalHours(int hours);
+  int GetUpdateIntervalHours() const;
+  void SetDaysToKeep(int days);
+  int GetDaysToKeep() const;
 
   bool DeleteCache();
   std::string getLastError() const;
@@ -85,42 +100,52 @@ public:
 
   void
   SetOnUpdateFinished(std::function<void(int, const std::string &)> callback);
-
   using RefreshStartedCallback = std::function<void()>;
   void SetOnRefreshStarted(RefreshStartedCallback callback);
 
   void AbortDownload();
-
-  bool HasMapping() const { return !m_channelMapping.empty(); }
-
-  const DownloadProgress &GetDownloadProgress() const {
-    return m_downloadProgress;
-  }
-
+  bool HasMapping() const;
+  const DownloadProgress &GetDownloadProgress() const;
   void StartAutoUpdate();
   void StopAutoUpdate();
   void RestartAutoUpdate();
 
+  void SetCurrentPlaylistId(const std::string &playlistId) {
+    m_currentPlaylistId = playlistId;
+  }
+
+  void CancelMatching() { m_cancelMatching = true; }
+
 private:
+  std::unordered_map<std::string, std::string>
+      m_tvgIdIndex;                          // normalized tvgId → epgChannelId
+  mutable std::shared_mutex m_tvgIndexMutex; // защита индекса
+
+  void RebuildTvgIdIndex();
+  
+  wxTimer *m_startupUpdateTimer = nullptr;
+  void OnStartupUpdateTimer(wxTimerEvent &event);
+
+  std::atomic<bool> m_cancelMatching{false};
+
+  std::future<void> m_matchFuture; // для MatchChannelsAsync
+
   wxTimer *m_autoUpdateTimer = nullptr;
   void OnAutoUpdateTimer(wxTimerEvent &event);
-  
+
   std::atomic<bool> m_isRefreshing{false};
   bool IsRefreshing() const { return m_isRefreshing.load(); }
 
   DownloadProgress m_downloadProgress;
-
   std::function<void(int, const std::string &)> m_onUpdateFinished;
   RefreshStartedCallback m_onRefreshStarted;
 
-  // ---------- Внутренние структуры ----------
   struct NormalizedChannel {
     std::string id;
     std::string normalizedName;
     std::vector<std::string> tokens;
   };
 
-  // ---------- Методы нормализации ----------
   void RebuildNormalizedCache();
   void NormalizeTvgId(std::string &id) const;
   std::string NormalizeName(const std::string &name) const;
@@ -129,42 +154,42 @@ private:
   int CalculateNameScore(const std::string &name1,
                          const std::string &name2) const;
 
-  // ---------- Суффиксы ----------
   void InitializeDefaultRegionalSuffixes();
   std::vector<std::string> m_regionalSuffixes;
 
-  // ---------- Кэши и маппинги ----------
-  std::unordered_map<std::string, EpgChannel> m_channels;
-  std::unordered_map<std::string, std::string>
-      m_channelMapping; // "tvgId" или "name:..." → EPG channel id
-  std::unordered_map<std::string, std::string>
-      m_manualMapping; // tvgId → EPG channel id (ручное)
+  std::unique_ptr<EPGDatabase> m_db;
+  std::string m_dbPath;
+  std::string m_epgChannelsHash;
+  std::string m_currentPlaylistId;
+
+  mutable std::shared_mutex m_mappingMutex;
+  std::unordered_map<std::string, std::string> m_channelMapping;
+  std::unordered_map<std::string, std::string> m_manualMapping;
+
+  mutable std::mutex m_normalizedCacheMutex;
   std::vector<NormalizedChannel> m_normalizedCache;
 
   std::vector<EpgSource> m_sources;
   bool m_loaded = false;
   time_t m_lastUpdate = 0;
 
-  // ---------- Настройки ----------
   bool m_autoUpdateEnabled = false;
   int m_updateIntervalHours = 24;
   int m_daysToKeep = 3;
 
-  // ---------- Вспомогательное ----------
   ConfigManager *m_configManager;
   PlaylistManager *m_playlistManager;
-  std::string m_cachePath;
 
+  mutable std::recursive_mutex m_dbMutex;
   mutable std::recursive_mutex m_mutex;
   std::future<void> m_refreshFuture;
   mutable std::mutex m_lastErrorMutex;
   mutable std::string m_lastError;
 
-  // ---------- Приватные методы ----------
   bool ParseAndMerge(const std::string &xmlData, const std::string &sourceUrl);
   void CleanExpiredPrograms();
   void LoadSourcesFromConfig();
-  std::string BuildCacheJson() const;
+  std::string ComputePlaylistHash(const std::vector<Channel> &channels) const;
 };
 
 #endif

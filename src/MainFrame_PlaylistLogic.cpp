@@ -153,32 +153,80 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
     m_epgPanel->SetFavoriteChannels(favChannels);
   }
 
-  // --- EPG INTEGRATION ---
-  // --- Создание объединённого списка для маппинга ---
-  std::vector<Channel> unionChannels = channels; // копия каналов плейлиста
-
-  // Добавляем избранные каналы (уникальные по tvgId, чтобы избежать дублей)
-  auto favChannels = m_application->getFavoritesManager().list();
-  for (const auto &fav : favChannels) {
-    if (fav.getTvgId().empty())
-      continue;
-    // Проверяем, нет ли уже такого tvgId в unionChannels
-    bool exists = std::any_of(
-        unionChannels.begin(), unionChannels.end(),
-        [&fav](const Channel &ch) { return ch.getTvgId() == fav.getTvgId(); });
-    if (!exists) {
-      unionChannels.push_back(fav);
-    }
-  }
-
-  // --- Использование unionChannels для маппинга ---
+  // --- EPG INTEGRATION (SQLite, только плейлист) ---
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
     EPGManager *epg = app->GetEPGManager();
-    if (epg && epg->IsLoaded()) {
-      epg->MatchChannels(unionChannels); // передаём объединённый список
-      if (m_channelList) {
-        m_channelList->RefreshProgramColumn();
+    if (epg) {
+      auto *mgr = getPlaylistManager();
+      std::string playlistId;
+      if (mgr && m_loadedPlaylistIndex >= 0) {
+        Playlist *pl =
+            mgr->getPlaylist(static_cast<size_t>(m_loadedPlaylistIndex));
+        if (pl)
+          playlistId = pl->getUniqueId();
+      }
+
+      if (!playlistId.empty()) {
+        epg->SetCurrentPlaylistId(playlistId);
+        bool loaded = epg->LoadMappingForPlaylist(playlistId, channels);
+        if (!loaded) {
+          epg->CancelMatching(); // отменяем предыдущий матчинг
+          if (!m_isMatching.exchange(true)) {
+            // Показываем прогресс
+            if (m_epgPanel) {
+              m_epgPanel->ShowMatchProgress(true);
+            }
+
+            epg->MatchChannelsAsync(
+                channels, playlistId,
+                [this](int matched, int total, int progress, bool success) {
+                  wxTheApp->CallAfter(
+                      [this, matched, total, progress, success]() {
+                        if (progress < total) {
+                          // Промежуточный прогресс
+                          if (m_epgPanel) {
+                            m_epgPanel->UpdateMatchProgress(matched, total,
+                                                            progress);
+                          }
+                          return;
+                        }
+
+                        // Финальный вызов (progress == total или success ==
+                        // false)
+                        m_isMatching = false;
+                        if (m_epgPanel) {
+                          m_epgPanel->ShowMatchProgress(false);
+                        }
+
+                        // В колбэке прогресса (внутри if (success) и else)
+                        if (success) {
+                          RefreshEpgDisplay();
+                          if (m_epgPanel &&
+                              m_epgPanel->IsActive()) { 
+                            SetStatusText(
+                                wxString::Format("EPG matched %d/%d channels",
+                                                 matched, total),
+                                1);
+                            SetStatusText("EPG matching completed", 0);
+                          }
+                        } else {
+                          if (m_epgPanel &&
+                              m_epgPanel->IsActive()) { 
+                            SetStatusText("EPG matching failed", 1);
+                            SetStatusText("Error: EPG matching failed", 0);
+                          }
+                        }
+                      });
+                });
+          } else {
+            LOG_DEBUG("MatchChannelsAsync already running, skipping");
+          }
+        } else {
+          RefreshEpgDisplay();
+        }
+      } else {
+        LOG_WARN("loadPlaylistChannels: playlistId is empty");
       }
     }
   }
@@ -216,8 +264,74 @@ void MainFrame::refreshFavorites() {
     auto favChannels = m_application->getFavoritesManager().list();
     m_epgPanel->SetFavoriteChannels(favChannels);
   }
-  
+
   auto favChannels = m_application->getFavoritesManager().list();
+
+  // --- EPG для избранных ---
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (app) {
+    EPGManager *epg = app->GetEPGManager();
+    if (epg && !favChannels.empty()) {
+      const std::string favPlaylistId = "favorites";
+      bool loaded = epg->LoadMappingForPlaylist(favPlaylistId, favChannels);
+      if (!loaded) {
+        epg->CancelMatching();
+        if (!m_isMatchingFavorites.exchange(true)) {
+          if (m_epgPanel) {
+            m_epgPanel->ShowMatchProgress(true);
+          }
+          epg->MatchChannelsAsync(
+              favChannels, favPlaylistId,
+              [this](int matched, int total, int progress, bool success) {
+                wxTheApp->CallAfter([this, matched, total, progress,
+                                     success]() {
+                  if (progress < total) {
+                    if (m_epgPanel) {
+                      m_epgPanel->UpdateMatchProgress(matched, total, progress);
+                    }
+                    return;
+                  }
+
+                  m_isMatchingFavorites = false;
+                  if (m_epgPanel) {
+                    m_epgPanel->ShowMatchProgress(false);
+                  }
+
+                  if (success) {
+                    if (m_favList)
+                      m_favList->RefreshProgramColumn();
+                    if (m_favCards) {
+                      m_favCards->InvalidateAll();
+                      m_favCards->RefreshCards();
+                    }
+                    if (m_epgPanel && m_epgPanel->IsActive()) {
+                      SetStatusText(
+                          wxString::Format("Favorites EPG matched %d/%d",
+                                           matched, total),
+                          1);
+                      SetStatusText("Favorites EPG updated", 0);
+                    }
+                  } else {
+                    if (m_epgPanel && m_epgPanel->IsActive()) {
+                      SetStatusText("Favorites EPG matching failed", 1);
+                      SetStatusText("Error: favorites EPG matching failed", 0);
+                    }
+                  }
+                });
+              });
+        }
+      } else {
+        // mapping уже загружен, обновляем UI
+        if (m_favList)
+          m_favList->RefreshProgramColumn();
+        if (m_favCards) {
+          m_favCards->InvalidateAll();
+          m_favCards->RefreshCards();
+        }
+      }
+    }
+  }
+  // --- Конец EPG для избранных ---
 
   if (m_favHeader) {
     m_favHeader->SetLabel(wxString::Format("Favorites: %lu channels",
@@ -408,6 +522,7 @@ void MainFrame::updatePlaylistFromDialog(int index,
   auto *mgr = getPlaylistManager();
   if (!mgr)
     return;
+
   ErrorCode ec = mgr->editPlaylist(
       static_cast<size_t>(index), dlg.GetTitle().ToStdString(),
       dlg.GetSource().ToStdString(), dlg.GetUserAgent().ToStdString(),
@@ -417,6 +532,14 @@ void MainFrame::updatePlaylistFromDialog(int index,
                         wxString::FromUTF8(mgr->getLastError()));
     return;
   }
+
+  // Объявляем app и pl
+  Application *app = static_cast<Application *>(wxTheApp);
+  Playlist *pl = mgr->getPlaylist(static_cast<size_t>(index));
+  if (app && app->GetEPGManager() && pl) {
+    app->GetEPGManager()->InvalidatePlaylistMapping(pl->getUniqueId());
+  }
+
   savePlaylistsToConfig();
   RefreshPlaylistView();
   showInfo(this, "Playlist saved.");

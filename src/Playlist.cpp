@@ -1,51 +1,84 @@
 #include "Playlist.h"
-
 #include <algorithm>
+#include <array>
+#include <cstdint>
+#include <iomanip>
+#include <random>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <sstream>
 
-Playlist::Playlist()
+// ----------------------------------------------------------------------
+// Реализация GenerateUUID (v4, RFC4122)
+// ----------------------------------------------------------------------
+std::string GenerateUUID() {
+  thread_local std::mt19937_64 gen(std::random_device{}());
+  std::uniform_int_distribution<uint64_t> dist;
+
+  std::array<std::uint8_t, 16> bytes;
+  uint64_t r1 = dist(gen);
+  uint64_t r2 = dist(gen);
+  for (int i = 0; i < 8; ++i)
+    bytes[i] = static_cast<std::uint8_t>((r1 >> (i * 8)) & 0xFFu);
+  for (int i = 0; i < 8; ++i)
+    bytes[8 + i] = static_cast<std::uint8_t>((r2 >> (i * 8)) & 0xFFu);
+
+  // версия 4 и вариант RFC4122
+  bytes[6] = static_cast<std::uint8_t>((bytes[6] & 0x0Fu) | 0x40u);
+  bytes[8] = static_cast<std::uint8_t>((bytes[8] & 0x3Fu) | 0x80u);
+
+  std::ostringstream ss;
+  ss << std::hex << std::setfill('0');
+
+  auto put_hex = [&](int idx, int count) {
+    for (int i = 0; i < count; ++i) {
+      ss << std::setw(2) << (static_cast<unsigned int>(bytes[idx + i]) & 0xFFu);
+    }
+  };
+
+  put_hex(0, 4);
+  ss << "-";
+  put_hex(4, 2);
+  ss << "-";
+  put_hex(6, 2);
+  ss << "-";
+  put_hex(8, 2);
+  ss << "-";
+  put_hex(10, 6);
+
+  return ss.str();
+}
+
+// ----------------------------------------------------------------------
+// Конструкторы / деструктор
+// ----------------------------------------------------------------------
+Playlist::Playlist() noexcept
     : m_title("Untitled Playlist"), m_source(""), m_userAgent(""),
-      m_isUrl(false), m_autoUpdate(false), m_lastUpdate(0) {}
+      m_isUrl(false), m_autoUpdate(false), m_lastUpdate(0) {
+  m_uniqueId = GenerateUUID();
+}
 
 Playlist::Playlist(const std::string &title, const std::string &source,
                    bool isUrl)
     : m_title(title), m_source(source), m_userAgent(""), m_isUrl(isUrl),
-      m_autoUpdate(false), m_lastUpdate(std::time(nullptr)) {}
+      m_autoUpdate(false), m_lastUpdate(std::time(nullptr)) {
+  m_uniqueId = GenerateUUID();
+}
 
 Playlist::~Playlist() = default;
 
-// --- Getters ---
-const std::string &Playlist::getTitle() const noexcept { return m_title; }
-const std::string &Playlist::getSource() const noexcept { return m_source; }
-const std::string &Playlist::getUserAgent() const noexcept {
-  return m_userAgent;
-}
-bool Playlist::isUrl() const noexcept { return m_isUrl; }
-bool Playlist::getAutoUpdate() const noexcept { return m_autoUpdate; }
-std::time_t Playlist::getLastUpdate() const noexcept { return m_lastUpdate; }
-const std::vector<Channel> &Playlist::getChannels() const noexcept {
-  return m_channels;
-}
-size_t Playlist::getChannelCount() const noexcept { return m_channels.size(); }
-
-// --- Setters ---
-void Playlist::setTitle(const std::string &title) noexcept { m_title = title; }
-void Playlist::setSource(const std::string &source) noexcept {
-  m_source = source;
-}
-void Playlist::setUserAgent(const std::string &ua) noexcept {
-  m_userAgent = ua;
-}
-void Playlist::setAutoUpdate(bool v) noexcept { m_autoUpdate = v; }
-void Playlist::setLastUpdate(std::time_t t) noexcept { m_lastUpdate = t; }
+// ----------------------------------------------------------------------
+// setChannels
+// ----------------------------------------------------------------------
 void Playlist::setChannels(std::vector<Channel> channels) noexcept {
   m_channels = std::move(channels);
   m_lastUpdate = std::time(nullptr);
 }
 
-// --- Channel management ---
+// ----------------------------------------------------------------------
+// Управление каналами
+// ----------------------------------------------------------------------
 void Playlist::addChannel(const Channel &channel) {
   m_channels.push_back(channel);
   m_lastUpdate = std::time(nullptr);
@@ -56,9 +89,34 @@ void Playlist::clearChannels() {
   m_lastUpdate = std::time(nullptr);
 }
 
-// --- Convenience helpers ---
+bool Playlist::removeChannel(const Channel &ch) {
+  auto it =
+      std::find_if(m_channels.begin(), m_channels.end(), [&](const Channel &c) {
+        return c.getName() == ch.getName() && c.getUrl() == ch.getUrl();
+      });
+  if (it == m_channels.end())
+    return false;
+  m_channels.erase(it);
+  return true;
+}
+
+bool Playlist::removeChannel(const std::string &name, const std::string &url) {
+  auto it =
+      std::find_if(m_channels.begin(), m_channels.end(), [&](const Channel &c) {
+        return c.getName() == name && c.getUrl() == url;
+      });
+  if (it == m_channels.end())
+    return false;
+  m_channels.erase(it);
+  return true;
+}
+
+// ----------------------------------------------------------------------
+// Вспомогательные методы
+// ----------------------------------------------------------------------
 std::vector<std::string> Playlist::getChannelTitles() const {
   std::vector<std::string> out;
+  out.reserve(m_channels.size());
   for (const auto &ch : m_channels)
     out.push_back(ch.getName());
   return out;
@@ -66,12 +124,15 @@ std::vector<std::string> Playlist::getChannelTitles() const {
 
 std::vector<std::string> Playlist::getChannelUrls() const {
   std::vector<std::string> out;
+  out.reserve(m_channels.size());
   for (const auto &ch : m_channels)
     out.push_back(ch.getUrl());
   return out;
 }
 
-// --- JSON serialization ---
+// ----------------------------------------------------------------------
+// JSON сериализация
+// ----------------------------------------------------------------------
 std::string Playlist::toJson() const {
   rapidjson::Document doc;
   doc.SetObject();
@@ -84,6 +145,8 @@ std::string Playlist::toJson() const {
   doc.AddMember("isUrl", m_isUrl, alloc);
   doc.AddMember("autoUpdate", m_autoUpdate, alloc);
   doc.AddMember("lastUpdate", static_cast<int64_t>(m_lastUpdate), alloc);
+  doc.AddMember("uniqueId", rapidjson::Value(m_uniqueId.c_str(), alloc),
+                alloc); // <-- добавлено
 
   rapidjson::Value channelsArr(rapidjson::kArrayType);
   for (const auto &ch : m_channels) {
@@ -106,7 +169,6 @@ std::string Playlist::toJson() const {
       chObj.AddMember(rapidjson::Value(key.c_str(), alloc),
                       rapidjson::Value(value.c_str(), alloc), alloc);
     }
-
     channelsArr.PushBack(chObj, alloc);
   }
   doc.AddMember("channels", channelsArr, alloc);
@@ -117,7 +179,6 @@ std::string Playlist::toJson() const {
   return buffer.GetString();
 }
 
-// --- JSON deserialization ---
 bool Playlist::fromJson(const std::string &json) {
   rapidjson::Document doc;
   if (doc.Parse(json.c_str()).HasParseError())
@@ -126,6 +187,7 @@ bool Playlist::fromJson(const std::string &json) {
   if (!doc.HasMember("channels") || !doc["channels"].IsArray())
     return false;
 
+  // Основные поля
   if (doc.HasMember("title") && doc["title"].IsString())
     m_title = doc["title"].GetString();
   if (doc.HasMember("source") && doc["source"].IsString())
@@ -139,6 +201,15 @@ bool Playlist::fromJson(const std::string &json) {
   if (doc.HasMember("lastUpdate") && doc["lastUpdate"].IsInt64())
     m_lastUpdate = static_cast<std::time_t>(doc["lastUpdate"].GetInt64());
 
+  // Уникальный ID
+  if (doc.HasMember("uniqueId") && doc["uniqueId"].IsString()) {
+    m_uniqueId = doc["uniqueId"].GetString();
+  } else {
+    // Если поле отсутствует – генерируем новый ID
+    m_uniqueId = GenerateUUID();
+  }
+
+  // Каналы
   m_channels.clear();
   for (auto &chVal : doc["channels"].GetArray()) {
     Channel ch;
@@ -157,6 +228,7 @@ bool Playlist::fromJson(const std::string &json) {
     if (chVal.HasMember("tvgLogo") && chVal["tvgLogo"].IsString())
       ch.setLogo(chVal["tvgLogo"].GetString());
 
+    // Дополнительные атрибуты
     for (auto it = chVal.MemberBegin(); it != chVal.MemberEnd(); ++it) {
       std::string key = it->name.GetString();
       if (key != "name" && key != "url" && key != "groupTitle" &&
@@ -170,27 +242,6 @@ bool Playlist::fromJson(const std::string &json) {
 
     m_channels.push_back(ch);
   }
-  return true;
-}
 
-bool Playlist::removeChannel(const Channel &ch) {
-  auto it =
-      std::find_if(m_channels.begin(), m_channels.end(), [&](const Channel &c) {
-        return c.getName() == ch.getName() && c.getUrl() == ch.getUrl();
-      });
-  if (it == m_channels.end())
-    return false;
-  m_channels.erase(it);
-  return true;
-}
-
-bool Playlist::removeChannel(const std::string &name, const std::string &url) {
-  auto it =
-      std::find_if(m_channels.begin(), m_channels.end(), [&](const Channel &c) {
-        return c.getName() == name && c.getUrl() == url;
-      });
-  if (it == m_channels.end())
-    return false;
-  m_channels.erase(it);
   return true;
 }

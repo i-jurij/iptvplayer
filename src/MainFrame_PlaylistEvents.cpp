@@ -312,13 +312,16 @@ void MainFrame::onPlaylistSelected(wxListEvent &event) {
 void MainFrame::onEditPlaylist(wxCommandEvent &event) {
   if (!validatePlaylistManager())
     return;
+
   const wxString exportPath = event.GetString();
   if (!exportPath.IsEmpty()) {
     handlePlaylistExport(exportPath, event.GetInt());
     return;
   }
+  
   if (!validatePlaylistSelection())
     return;
+
   editPlaylistAtIndex(m_selectedPlaylistIndex);
 }
 
@@ -344,12 +347,10 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
     return;
 
   Application *app = static_cast<Application *>(wxTheApp);
-  if (app && app->GetEPGManager()) {
-    for (const auto &ch : playlist->getChannels()) {
-      app->GetEPGManager()->RemoveChannelMapping(ch.getTvgId());
-    }
+  if (app && app->GetEPGManager() && playlist) {
+    app->GetEPGManager()->InvalidatePlaylistMapping(playlist->getUniqueId());
   }
-  
+
   ErrorCode ec =
       mgr->removePlaylist(static_cast<size_t>(removeIndex), removeSource);
   if (ec != ErrorCode::OK) {

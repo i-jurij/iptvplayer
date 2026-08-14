@@ -7,366 +7,412 @@ lokalize app
 при аварийном завершении остаются как минимум лого в кеше приложения
 от несуществующих плейлистов - добавить проверку на ненужные больше лого?
 ===========================================
-## Детализированный пошаговый план улучшения EPG-модуля
-
-### Предварительные замечания
-- **Версия wxWidgets:** предполагается 3.2+ (с поддержкой SQLite через `wxSQLite3` или встроенный SQLite)
-- **Совместимость:** изменения должны быть обратно совместимы с существующими файлами конфигурации
-- **Тестирование:** после каждого этапа необходимо проводить регрессионное тестирование на реальных XMLTV-файлах и M3U-плейлистах
-- **Логирование:** добавить детальное логирование в ключевых точках
+## Подробный пошаговый план рефакторинга EPG-модуля (с SQLite и кэшированием mapping по плейлистам)
 
 ---
 
-## Этап 1: Миграция на SQLite
+### Шаг 1. Добавление уникального идентификатора плейлиста
+**Цель:** каждый плейлист должен иметь стабильный ID для привязки mapping.
 
-### Шаг 1.1: Добавить зависимость от SQLite
+**Файлы:** `Playlist.h`, `Playlist.cpp`, `PlaylistManager.cpp`, `MainFrame_PlaylistLogic.cpp`
 
-**Файлы:** `CMakeLists.txt` или файл проекта (`.vcxproj`)
-
-- Добавить библиотеку SQLite3 в зависимости проекта
-- Для wxWidgets можно использовать `wxSQLite3` (обёртка) или прямой вызов SQLite C API
-- **Рекомендация:** использовать прямой SQLite C API (минимальный размер, максимальная производительность)
-
-**Проверка:** Сборка проекта должна проходить без ошибок.
+1. В `Playlist.h` добавить поле `std::string m_uniqueId;`.
+2. В конструкторах генерировать ID (например, через `wxUuid::Create().ToString().ToStdString()` или случайную строку).
+3. В `toJson()` и `fromJson()` сохранять/загружать поле `uniqueId`.
+4. При загрузке плейлистов (в `PlaylistManager::loadPlaylists()`), если у плейлиста нет ID – сгенерировать и вызвать `savePlaylist()` для этого плейлиста (чтобы обновить файл).
+5. В `MainFrame::loadPlaylistChannels` получать ID через `playlist->getUniqueId()` и передавать его в EPGManager (добавить параметр в метод).
+6. Добавить геттер `const std::string& getUniqueId() const` в `Playlist`.
 
 ---
 
-### Шаг 1.2: Создать класс `EPGDatabase`
+### Шаг 2. Создание класса `EPGDatabase` (SQLite)
+**Цель:** хранить каналы, программы и mapping в SQLite.
 
 **Новые файлы:** `EPGDatabase.h`, `EPGDatabase.cpp`
 
-**Методы класса:**
-
-1. **Конструктор/деструктор:**
-   - `EPGDatabase()`
-   - `~EPGDatabase()`
-
-2. **Управление подключением:**
-   - `bool Open(const std::string& dbPath)` — открыть или создать БД
-   - `void Close()` — закрыть соединение
-   - `bool IsOpen() const`
-
-3. **Инициализация схемы:**
-   - `bool CreateTables()` — создать таблицы, если их нет
-   - `bool MigrateFromJson(const std::string& jsonPath)` — импорт старого JSON-кэша
-
-4. **Работа с каналами:**
-   - `bool InsertOrUpdateChannel(const EpgChannel& channel)` — добавить/обновить канал
-   - `std::vector<EpgChannel> GetAllChannels()` — получить все каналы
-
-5. **Работа с программами:**
-   - `bool InsertProgram(const std::string& channelId, const EpgProgram& program)` — добавить одну программу
-   - `bool InsertPrograms(const std::string& channelId, const std::vector<EpgProgram>& programs)` — добавить список (инкрементально, только новые)
-   - `std::vector<EpgProgram> GetProgramsForChannel(const std::string& channelId, time_t startTime, time_t endTime)` — получить программы за период
-   - `EpgProgram GetCurrentProgram(const std::string& channelId, time_t now)` — получить текущую программу
-   - `bool DeleteProgramsOlderThan(time_t threshold)` — удалить устаревшие программы
-   - `bool ClearChannelPrograms(const std::string& channelId)` — очистить все программы канала (при перезагрузке источника)
-
-6. **Сопоставления (маппинги):**
-   - `bool SaveMapping(const std::string& key, const std::string& channelId, bool isManual = false, const std::string& confidence = "")` — сохранить сопоставление
-   - `std::string GetMapping(const std::string& key) const` — получить channelId по ключу
-   - `std::unordered_map<std::string, std::string> GetAllMappings() const` — получить все сопоставления
-   - `bool DeleteMapping(const std::string& key)` — удалить сопоставление
-
-7. **Транзакции:**
-   - `void BeginTransaction()`
-   - `void CommitTransaction()`
-   - `void RollbackTransaction()`
-
-**Реализация:**
-- Использовать подготовленные запросы (`sqlite3_prepare_v2`)
-- Весь доступ к БД оборачивать в `std::lock_guard<std::mutex>` внутри класса (один мьютекс на БД)
-- При вставке программ проверять существование (по `channel_id` и `start_time`) и вставлять только новые
-- Использовать `INSERT OR REPLACE` для каналов и `INSERT OR IGNORE` для программ (с уникальным составным ключом `(channel_id, start_time)`)
-
-**Проверка:** Написать юнит-тесты для каждого метода с использованием временной БД в памяти (`file::memory:`).
+1. Подключить SQLite3 (заголовочный файл и библиотеку).
+2. В `EPGDatabase` реализовать:
+   - `bool Open(const std::string& dbPath)` – открывает или создаёт БД.
+   - `void Close()`.
+   - `bool CreateTables()` – создаёт таблицы:
+     - `channels` (id TEXT PRIMARY KEY, display_name TEXT)
+     - `programs` (id INTEGER PRIMARY KEY, channel_id TEXT, start_time INTEGER, stop_time INTEGER, title TEXT, description TEXT, category TEXT) – уникальный индекс `(channel_id, start_time)`.
+     - `playlist_metadata` (playlist_id TEXT PRIMARY KEY, channel_count INTEGER, channel_hash TEXT, epg_hash_at_match TEXT, last_match_time INTEGER)
+     - `playlist_mappings` (playlist_id TEXT, key TEXT, channel_id TEXT, is_manual INTEGER DEFAULT 0, confidence TEXT, PRIMARY KEY (playlist_id, key))
+   - `BeginTransaction()`, `Commit()`, `Rollback()`.
+   - `InsertOrUpdateChannel(const EpgChannel&)`.
+   - `InsertProgram(channelId, program)` – с проверкой дубликата по `(channel_id, start_time)`.
+   - `InsertPrograms(channelId, programs)` – массовая вставка с транзакцией.
+   - `GetProgramsForChannel(channelId, start, end)`.
+   - `GetCurrentProgram(channelId, now)`.
+   - `DeleteProgramsOlderThan(threshold)`.
+   - `ClearChannelPrograms(channelId)`.
+   - `SavePlaylistMapping(playlistId, mapping, manualMapping, channelCount, channelHash, epgHash)` – удаляет старые записи для playlistId и вставляет новые.
+   - `LoadPlaylistMapping(playlistId, mapping, manualMapping, channelCount, channelHash, epgHashAtMatch)` – загружает данные.
+   - `GetMappingEntry(playlistId, key, channelId, isManual)` – для проверки ручных маппингов.
+   - `DeletePlaylistMapping(playlistId)`.
+   - `GetEpgChannelsHash()` – вычисляет хеш списка каналов EPG (из `SELECT DISTINCT channel_id FROM programs ORDER BY channel_id` и SHA-256/CRC).
+3. В `Open` проверить, есть ли таблицы; если нет – вызвать `CreateTables()`.
+4. Добавить обработку ошибок и логирование.
 
 ---
 
-### Шаг 1.3: Адаптировать `EPGManager` для работы с `EPGDatabase`
+### Шаг 3. Адаптация `EPGManager` для работы с SQLite
+**Цель:** заменить JSON-кэш на БД, хранить mapping по плейлистам.
 
 **Файлы:** `EPGManager.h`, `EPGManager.cpp`
 
-1. **Добавить поле:**
-   ```cpp
-   std::unique_ptr<EPGDatabase> m_db;
-   ```
-
-2. **Изменить конструктор:**
-   - Принимать путь к папке кэша
-   - Создавать экземпляр `EPGDatabase` и открывать БД по пути `cache_dir/epg.db`
-   - Вызывать `CreateTables()`
-   - Попытаться импортировать старый JSON-кэш, если он существует и БД пуста
-
-3. **Удалить поля:** `m_channels` (unordered_map), `m_normalizedCache` (они больше не нужны)
-
-4. **Переработать методы:**
-
-   - **`LoadFromCache()`** → заменить на открытие БД и проверку наличия данных
-   - **`SaveToCache()`** → удалить (заменить на фиксацию транзакций в БД)
-   - **`BuildCacheJson()`** → удалить
-   - **`ParseAndMerge()`** → вместо сохранения в `m_channels` вызывать:
-     - `m_db->BeginTransaction()`
-     - Для каждого канала: `m_db->InsertOrUpdateChannel()`
-     - Для каждой программы: `m_db->InsertProgram()`
-     - `m_db->CommitTransaction()`
-   - **`CleanExpiredPrograms()`** → вызывать `m_db->DeleteProgramsOlderThan()` с аргументом `now - m_daysToKeep * 86400`
-   - **`GetProgramsForChannel()`** → вместо поиска в `m_channels` выполнять запрос к БД
-   - **`GetCurrentProgram()`** → аналогично
-   - **`GetChannelIdsWithEpg()`** → выполнять запрос `SELECT DISTINCT channel_id FROM programs`
-   - **`MatchChannels()`** → сохранять результаты через `m_db->SaveMapping()`
-   - **`FindBestMatch()`** → сначала проверять ручные маппинги через `m_db->GetMapping()`, затем авто-маппинг по имени (с использованием данных из БД)
-   - **`RebuildNormalizedCache()`** → удалить (больше не нужен, так как все данные в БД; для сопоставления можно делать запросы прямо к БД)
-
-5. **Удалить старые поля:**
+1. Удалить поля:
+   - `m_channels` (unordered_map)
    - `m_channelMapping`
    - `m_manualMapping`
    - `m_normalizedCache`
-
-6. **Адаптировать методы работы с маппингами:**
-   - `SetManualMapping()` → `m_db->SaveMapping(tvgId, epgId, true)`
-   - `GetEpgChannelIdForTvgId()` → `m_db->GetMapping(tvgId)`
-
-7. **Обновить метод `DeleteCache()`** → удалять файл `epg.db` и пересоздавать таблицы
-
-8. **Изменить путь к кэшу:** теперь это будет путь к папке, внутри которой создаётся `epg.db`.
-
-**Проверка:** 
-- Запустить приложение с существующим JSON-кэшем — должна произойти автоматическая миграция
-- Убедиться, что все EPG-данные отображаются корректно
-- Проверить работу поиска и фильтрации
+   - `m_cachePath`
+   - `m_loaded` (можно оставить, но теперь оно означает "БД открыта и есть данные")
+2. Добавить:
+   - `std::unique_ptr<EPGDatabase> m_db;`
+   - `std::string m_dbPath;`
+   - `std::string m_epgChannelsHash;` – кэшируется после загрузки/обновления.
+   - `std::string m_currentPlaylistId;` – для хранения ID текущего открытого плейлиста (используется в методах работы с mapping).
+3. В конструкторе:
+   - Определить путь к БД (например, `cache_dir/epg.db`).
+   - Создать `m_db` и вызвать `Open()`.
+   - Если БД пуста (нет таблиц или нет записей), то ничего не делать – данные подгрузятся при первом обновлении.
+   - Вызвать `LoadFromCache()` (переименовать в `LoadFromDatabase()`) – загрузить `m_epgChannelsHash` из таблицы `metadata` (создать отдельную таблицу `metadata` с ключом `epg_hash` и значением).
+4. Удалить методы `SaveToCache`, `LoadFromCache`, `BuildCacheJson`.
+5. Переработать метод `ParseAndMerge`:
+   - Начать транзакцию.
+   - Для каждого канала: `m_db->InsertOrUpdateChannel(channel)`.
+   - Для каждой программы: `m_db->InsertProgram(channelId, program)`.
+   - Зафиксировать транзакцию.
+   - Обновить `m_epgChannelsHash = m_db->GetEpgChannelsHash()`.
+   - Сохранить хеш в таблицу `metadata`.
+   - Вызвать `CleanExpiredPrograms()` (удалить старые программы).
+6. Переработать `CleanExpiredPrograms` – вызывать `m_db->DeleteProgramsOlderThan(now - m_daysToKeep * 86400)`.
+7. Переработать `GetProgramsForChannel` и `GetCurrentProgram` – использовать `m_db`.
+8. Переработать `GetChannelIdsWithEpg` – через `m_db`.
+9. Переработать `MatchChannels`:
+   - Добавить параметр `const std::string& playlistId`.
+   - Выполнить сопоставление (как сейчас, но для поиска использовать данные из БД, а не из `m_channels` – можно запросить все каналы EPG из БД через `GetAllChannels()`).
+   - После расчёта `m_channelMapping` и `m_manualMapping` (временные структуры) вызвать `m_db->SavePlaylistMapping(playlistId, mapping, manualMapping, channelCount, channelHash, epgHash)`.
+   - Сохранить `m_epgChannelsHash` (если изменился).
+   - Вернуть результат.
+10. Добавить методы для работы с mapping по плейлистам:
+    - `bool LoadMappingForPlaylist(const std::string& playlistId, const std::vector<Channel>& channels)`:
+      - Загружает `mapping`, `manualMapping`, `channelCount`, `channelHash`, `epgHashAtMatch` из БД.
+      - Проверяет актуальность: сравнивает `channelCount` и `channelHash` с текущими; сравнивает `epgHashAtMatch` с `m_epgChannelsHash`.
+      - Если всё совпадает – заполняет внутренние временные структуры (можно хранить их в локальных переменных или сделать `m_currentMapping` и `m_currentManualMapping` для текущего плейлиста).
+      - Возвращает `true`, если mapping актуален и применён.
+    - `void SaveMappingForPlaylist(const std::string& playlistId, const std::vector<Channel>& channels)` – обёртка над `MatchChannels`? Можно просто вызвать `MatchChannels`.
+    - `void InvalidatePlaylistMapping(const std::string& playlistId)` – удаляет mapping через `m_db->DeletePlaylistMapping`.
+    - `std::string GetEpgChannelIdForTvgId(const std::string& tvgId)` – теперь нужно искать в БД для текущего плейлиста: `m_db->GetMappingEntry(m_currentPlaylistId, tvgId, channelId, isManual)`.
+    - Аналогично для `SetManualMapping` – сохранять через `m_db` с `m_currentPlaylistId`.
+11. Удалить старые `m_channelMapping` и `m_manualMapping` – использовать БД для всех операций (можно кэшировать mapping текущего плейлиста в памяти для скорости, но пока можно обойтись прямыми запросами к БД).
 
 ---
 
-### Шаг 1.4: Инкрементальное обновление
+### Шаг 4. Изменение логики открытия плейлиста (MainFrame)
+**Цель:** использовать кэшированный mapping из БД, а не пересчитывать при каждом открытии.
 
-**Файл:** `EPGManager.cpp` (метод `ParseAndMerge`)
+**Файлы:** `MainFrame_PlaylistLogic.cpp` (метод `loadPlaylistChannels`)
 
-- Перед вставкой новых программ проверить, существуют ли уже программы с таким же `(channel_id, start_time)`. Если существуют — пропускать.
-- Для этого в `EPGDatabase::InsertPrograms` использовать `INSERT OR IGNORE` с уникальным индексом `(channel_id, start_time)`.
-- После вставки новых программ удалять старые по расписанию (не при каждом обновлении, а, например, раз в сутки). Для этого добавить поле `last_cleanup` в БД или проверять время последней очистки.
-
-**Проверка:** Добавить в лог количество вставленных и пропущенных программ при каждом обновлении.
+1. В `loadPlaylistChannels` получить `playlistId` от текущего плейлиста (использовать `getUniqueId()`).
+2. Сохранить `playlistId` в EPGManager (вызвать `m_epgManager->SetCurrentPlaylistId(playlistId)` или передавать как параметр при каждом обращении).
+3. Вызвать `bool loaded = m_epgManager->LoadMappingForPlaylist(playlistId, channels)`.
+   - Если `loaded == true` – значит mapping загружен из БД и актуален. **Не вызывать** `MatchChannels`.
+   - Если `loaded == false` – mapping отсутствует или устарел. Запустить асинхронный `MatchChannelsAsync` (см. Шаг 5).
+4. После загрузки mapping (в обоих случаях) обновить UI – вызвать `RefreshEpgDisplay()` (см. Шаг 6).
+5. Вместо старого вызова `epg->MatchChannels(unionChannels)` теперь использовать асинхронную версию.
 
 ---
 
-## Этап 2: Потокобезопасность
+### Шаг 5. Реализация асинхронного сопоставления
+**Цель:** не блокировать UI при пересчёте mapping.
 
-### Шаг 2.1: Замена мьютексов
+**Файлы:** `EPGManager.h`, `EPGManager.cpp`
 
-**Файл:** `EPGManager.h`
+1. Добавить метод:
+   ```cpp
+   void MatchChannelsAsync(const std::vector<Channel>& channels,
+                           const std::string& playlistId,
+                           std::function<void(bool)> callback);
+   ```
+2. Внутри:
+   - Запустить `std::async` или `std::thread`.
+   - В фоновом потоке вызвать синхронный `MatchChannels(channels, playlistId)`.
+   - После завершения вызвать `callback(true)` в основном потоке через `wxTheApp->CallAfter`.
+   - В случае ошибки вызвать `callback(false)`.
+3. В `loadPlaylistChannels` при необходимости вызвать этот метод, передав колбэк, который обновит UI и статус.
 
-- Удалить `std::recursive_mutex m_mutex`
-- Добавить три `std::shared_mutex`:
-  - `mutable std::shared_mutex m_dbMutex` — для доступа к БД
-  - `mutable std::shared_mutex m_sourcesMutex` — для `m_sources`
-  - `mutable std::shared_mutex m_configMutex` — для конфигурации (если нужен)
+---
 
+### Шаг 6. Обновление UI после применения mapping
+**Цель:** отобразить программы в списке каналов после загрузки mapping.
+
+**Файлы:** `MainFrame.h`, `MainFrame.cpp`, `ChannelList`, `ChannelCards`
+
+1. В `MainFrame` создать метод:
+   ```cpp
+   void RefreshEpgDisplay();
+   ```
+2. Реализовать:
+   - Если `m_channelList` существует, вызвать `m_channelList->RefreshProgramColumn()` (это обновит колонку "Program" в видимых строках).
+   - Если `m_channelCards` существует, вызвать `m_channelCards->InvalidateAll(); m_channelCards->RefreshCards();` – это перерисует карточки (хотя пока нет колонки программы, но можно добавить в будущем).
+   - Если `m_epgPanel` открыт, обновить его (перезагрузить программы для текущего канала).
+3. Вызывать этот метод после того, как mapping был применён (из кэша или после асинхронного расчёта).
+
+---
+
+### Шаг 7. Обработка Refresh EPG (кнопка и автообновление)
+**Цель:** обновлять программы и при необходимости пересчитывать mapping.
+
+**Файлы:** `EPGManager.cpp`, `EPGPanel.cpp` (обработчик кнопки)
+
+1. В `EPGManager::Refresh()` (или аналогичном методе, вызываемом при нажатии кнопки) после загрузки всех источников:
+   - Вычислить новый хеш EPG через `m_db->GetEpgChannelsHash()`.
+   - Сравнить с сохранённым `m_epgChannelsHash`.
+   - Если хеш изменился:
+     - Получить `m_currentPlaylistId` (хранится в EPGManager).
+     - Запустить асинхронный ре-матч: `MatchChannelsAsync( текущие каналы плейлиста, m_currentPlaylistId, callback )`.
+   - Если хеш не изменился – только обновить программы в БД, mapping не трогать.
+2. В `EPGPanel::OnRefreshEPG` вызывать `m_epgManager->Refresh()` (как сейчас).
+
+---
+
+### Шаг 8. Инвалидация кэша при изменении плейлиста
+**Цель:** удалять устаревший mapping при редактировании/удалении плейлиста.
+
+**Файлы:** `MainFrame_PlaylistEvents.cpp` (методы редактирования/удаления)
+
+1. В `onEditPlaylist` (после сохранения изменений) и в `onRemovePlaylist` (перед удалением) вызывать `m_epgManager->InvalidatePlaylistMapping(playlistId)`.
+2. Также при обновлении плейлиста (update) – если изменился состав каналов, инвалидировать mapping (можно вызывать после успешного обновления).
+
+---
+
+### Шаг 9. Очистка устаревших программ
+**Цель:** удалять программы старше `m_daysToKeep` дней (по умолчанию 3).
+
+- Уже реализовано в `EPGManager::CleanExpiredPrograms()`.
+- Эта функция вызывается после каждого обновления (в `ParseAndMerge`).
+- Настройка `m_daysToKeep` доступна через `EpgSourceManagerPanel` (уже есть).
+- Дополнительный таймер не требуется, т.к. очистка происходит при каждом обновлении.
+
+---
+
+### Шаг 10. Удаление старого JSON-кэша и неиспользуемого кода
+**Цель:** убрать устаревшие методы и файлы.
+
+1. Удалить `SaveToCache`, `LoadFromCache`, `BuildCacheJson` из `EPGManager`.
+2. Удалить `m_cachePath` и связанные с ним переменные.
+3. Удалить поля `m_channels`, `m_channelMapping`, `m_manualMapping`, `m_normalizedCache`.
+4. Удалить старый JSON-файл `epg_cache.json` (можно автоматически при первом запуске новой версии).
+5. Обновить `EPGManager::DeleteCache()` – теперь он должен удалять файл `epg.db` и пересоздавать таблицы.
+
+---
+
+### Шаг 11. Тестирование и отладка
+**Цель:** проверить все сценарии работы.
+
+1. Первый запуск – БД создаётся, mapping отсутствует, при открытии плейлиста запускается асинхронный MatchChannels.
+2. После завершения сопоставления mapping сохраняется в БД, UI обновляется.
+3. Перезапуск программы – открыть тот же плейлист, mapping загружается из БД, UI отображается мгновенно.
+4. Изменение плейлиста (добавление/удаление каналов) – mapping инвалидируется, при следующем открытии пересчитывается.
+5. Обновление EPG (кнопка Refresh) – если изменился состав каналов, автоматический ре-матч текущего плейлиста.
+6. Переключение между плейлистами – каждый плейлист использует свой mapping, пересчёта нет.
+7. Проверка очистки старых программ (убедиться, что программы старше m_daysToKeep удаляются).
+8. Проверка работы списка каналов (колонка "Program" обновляется после применения mapping).
+
+======================================
+
+## Пошаговый точный план реализации этапа 5 (все оставшиеся и отложенные шаги)
+
+### Шаг 1. Добавить методы `SaveGlobalMetadata` и `LoadGlobalMetadata` в `EPGDatabase`
+**Файлы:** `EPGDatabase.h`, `EPGDatabase.cpp`
+
+- В `EPGDatabase.h` в public секцию добавить:
+  ```cpp
+  bool SaveGlobalMetadata(const std::string& key, const std::string& value);
+  std::string LoadGlobalMetadata(const std::string& key);
+  ```
+- В `EPGDatabase.cpp` реализовать методы:
+  - `SaveGlobalMetadata` – выполняет `INSERT OR REPLACE INTO global_metadata (key, value) VALUES (?, ?)` **без использования транзакций** (простой `PrepareStatement` + `ExecuteUpdate`).
+  - `LoadGlobalMetadata` – выполняет `SELECT value FROM global_metadata WHERE key = ?` и возвращает строку (или пустую, если ключа нет).
+- Оба метода должны быть защищены `std::lock_guard<std::recursive_mutex>` (уже есть в других методах).
+
+---
+
+### Шаг 2. Модифицировать `ParseAndMerge` для сохранения `last_update` в транзакции
 **Файл:** `EPGManager.cpp`
 
-- Везде, где был `std::lock_guard<std::recursive_mutex> lock(m_mutex)`, заменить на:
-  - Для чтения: `std::shared_lock<std::shared_mutex> lock(m_dbMutex)`
-  - Для записи: `std::unique_lock<std::shared_mutex> lock(m_dbMutex)`
-
-- Для `m_sources` аналогично.
-
-**Проверка:** Запустить приложение в режиме отладки, убедиться, что нет deadlock'ов. Можно добавить тесты с несколькими потоками (один читает, другой пишет).
+- В `ParseAndMerge`, после успешной вставки каналов и программ, **до** `CommitTransaction()`:
+  - Установить `m_lastUpdate = std::time(nullptr);`
+  - Вызвать `m_db->SaveGlobalMetadata("last_update", std::to_string(m_lastUpdate))` с обработкой ошибок (см. Шаг 4).
+- После сохранения `last_update` выполнить `CommitTransaction()`.
+- Убедиться, что `SaveGlobalMetadata` выполняется в той же транзакции (это гарантируется, т.к. транзакция уже открыта).
 
 ---
 
-### Шаг 2.2: Проверка UI-обновлений
+### Шаг 3. Загружать `last_update` в `OpenDatabase` и проверять необходимость обновления
+**Файл:** `EPGManager.cpp`
 
-**Файл:** `EPGPanel.cpp`
-
-- Убедиться, что все колбэки, которые изменяют UI, обёрнуты в `wxTheApp->CallAfter()`. Уже есть `OnEpgUpdateFinished`, который вызывается через `CallAfter`.
-- Проверить, что `LoadProgramsForChannel` не вызывается из фонового потока (только из основного).
-
-**Проверка:** Симулировать долгую загрузку EPG и убедиться, что интерфейс остаётся отзывчивым.
-
----
-
-## Этап 3: Агрегация источников
-
-### Шаг 3.1: Изменить логику `Refresh`
-
-**Файл:** `EPGManager.cpp` (метод `Refresh`)
-
-- Вместо остановки при первой ошибке, загружать все источники из `m_sources`.
-- Для каждого источника вызывать `LoadFromUrl` или `LoadFromFile`.
-- Сохранять успешные результаты в БД (через транзакции).
-- После загрузки всех источников проверить, был ли хотя бы один успешный. Если да — считать обновление успешным.
-- Сохранять список ошибок (строка) для отображения пользователю.
-
-**Примерная структура:**
-
-```cpp
-std::vector<std::string> errors;
-bool anySuccess = false;
-
-for (const auto& src : sources) {
-    bool ok = LoadSource(src);
-    if (ok) anySuccess = true;
-    else errors.push_back(...);
-}
-
-if (anySuccess) {
-    m_lastUpdate = time(nullptr);
-    SaveToCache(); // теперь это фиксация транзакций
-    // Колбэк с PARTIAL или OK
-} else {
-    // Колбэк с ERROR и текстом ошибок
-}
-```
-
-### Шаг 3.2: Добавить новый статус в `EPGPanel`
-
-**Файл:** `EPGPanel.h`, `EPGPanel.cpp`
-
-- В `EPGPanel` добавить обработку статуса `EPG_STATUS_PARTIAL` (например, жёлтый цвет индикации и вывод списка ошибок).
-
-**Проверка:** Добавить в настройки несколько источников, один из которых заведомо недоступен. Убедиться, что обновление не прерывается и данные из других источников загружаются.
+- В `OpenDatabase`, после открытия БД и загрузки `m_epgChannelsHash`:
+  - Загрузить `last_update` через `m_db->LoadGlobalMetadata("last_update")`.
+  - Если строка не пуста → преобразовать в `time_t` и присвоить `m_lastUpdate`, иначе `m_lastUpdate = 0`.
+- Вызвать `CleanExpiredPrograms()` (очистка уже есть).
+- Проверить необходимость обновления:
+  - `time_t now = std::time(nullptr);`
+  - `bool needUpdate = (m_lastUpdate == 0) || (now < m_lastUpdate) || ((now - m_lastUpdate) >= m_updateIntervalHours * 3600);`
+- Если `needUpdate` и `m_startupUpdateTimer` не запущен, запустить таймер на 30 секунд.
 
 ---
 
-## Этап 4: Доработка парсера XML
+### Шаг 4. Реализовать retry для `SaveGlobalMetadata`
+**Файл:** `EPGManager.cpp` (в `ParseAndMerge`)
 
-### Шаг 4.1: Расширить структуру `EpgProgram`
-
-**Файл:** `EPGData.h`
-
-- Добавить новые поля (опциональные):
+- Вместо прямого вызова `m_db->SaveGlobalMetadata` обернуть в цикл:
   ```cpp
-  std::string subTitle;
-  std::string episodeNum;       // "season/episode" например "1/5"
-  std::string starRating;
-  std::vector<std::string> credits;
-  std::string language;
-  std::string originalTitle;
+  bool saved = false;
+  for (int attempt = 0; attempt < 2; ++attempt) {
+      if (m_db->SaveGlobalMetadata("last_update", std::to_string(m_lastUpdate))) {
+          saved = true;
+          break;
+      }
+      LOG_WARN("Failed to save last_update, attempt %d/2", attempt + 1);
+      if (attempt == 0) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+  }
+  if (!saved) {
+      LOG_ERROR("Failed to save last_update after 2 attempts");
+  }
+  ```
+- Добавить `#include <thread>` в начало файла.
+
+---
+
+### Шаг 5. Добавить таймер и обработчик в `EPGManager`
+**Файлы:** `EPGManager.h`, `EPGManager.cpp`
+
+- В `EPGManager.h` добавить поля:
+  ```cpp
+  wxTimer* m_startupUpdateTimer = nullptr;
+  void OnStartupUpdateTimer(wxTimerEvent& event);
+  ```
+- В конструкторе `EPGManager` (после создания `m_autoUpdateTimer`) инициализировать:
+  ```cpp
+  m_startupUpdateTimer = new wxTimer(this);
+  m_startupUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnStartupUpdateTimer, this);
+  ```
+- В деструкторе `EPGManager` остановить и удалить таймер (перед `m_autoUpdateTimer`):
+  ```cpp
+  if (m_startupUpdateTimer) {
+      m_startupUpdateTimer->Stop();
+      delete m_startupUpdateTimer;
+  }
+  ```
+- Реализовать `OnStartupUpdateTimer`:
+  - Проверить `m_isRefreshing` (если не выполняется) и вызвать `Refresh()`.
+  - Если `m_isRefreshing` уже true, ничего не делать (или перезапустить таймер на 5 сек).
+
+---
+
+### Шаг 6. Документировать единицы времени, транзакции и потокобезопасность
+**Файлы:** `EPGManager.h`, `EPGDatabase.h`
+
+- В `EPGManager.h` перед классом добавить комментарий:
+  ```cpp
+  /**
+   * EPGManager – управление EPG данными.
+   * 
+   * Время: все time_t значения хранятся в UTC секундах с эпохи (std::time(nullptr)).
+   * Транзакции: вставка каналов/программ и сохранение last_update выполняются в одной транзакции.
+   * Потокобезопасность: методы, модифицирующие БД, защищены мьютексами. Асинхронные задачи управляются через std::future и флаг отмены.
+   */
+  ```
+- В `EPGDatabase.h` добавить аналогичный комментарий:
+  ```cpp
+  /**
+   * EPGDatabase – обёртка над SQLite для EPG данных.
+   * 
+   * Все операции с БД потокобезопасны (рекурсивный мьютекс).
+   * Время: все значения start_time/stop_time хранятся как INTEGER (секунды, UTC).
+   * Транзакции: методы InsertPrograms, SavePlaylistMapping используют внутренние транзакции; внешние транзакции поддерживаются.
+   */
   ```
 
-- Для хранения в SQLite добавить столбцы (можно отдельную таблицу `program_metadata` с `program_id` и ключ-значение, но для простоты можно добавить новые столбцы в `programs` с типом TEXT, разрешив NULL).
+---
 
-### Шаг 4.2: Модифицировать парсер
+### Шаг 7. Реализовать прогресс при матчинге (промежуточные обновления UI)
+**Файлы:** `EPGManager.h`, `EPGManager.cpp`, `MainFrame_PlaylistLogic.cpp`, `MainFrame_FavoritesUI.cpp`
 
-**Файл:** `EPGParserExpat.cpp`
+#### 7.1. Изменить сигнатуру `MatchCallback` в `EPGManager.h` (добавить параметр `progress`)
+```cpp
+using MatchCallback = std::function<void(int matched, int total, int progress, bool success)>;
+```
 
-- В `OnStartElement` для `programme` добавить состояние для новых тегов (например, `STATE_SUB_TITLE`, `STATE_EPISODE`, `STATE_STAR_RATING`).
-- В `OnEndElement` заполнять соответствующие поля `m_currentProgram`.
+#### 7.2. В `MatchChannels` добавить вызовы колбэка с прогрессом
+- Сигнатура `MatchChannels` должна принимать `MatchCallback callback = nullptr` (добавить параметр).
+- В цикле по каналам:
+  ```cpp
+  int processed = 0;
+  int total = playlistChannels.size();
+  int reportInterval = std::max(1, total / 20); // примерно 5% шаг
+  for (const auto& ch : playlistChannels) {
+      // ... обработка канала ...
+      processed++;
+      if (processed % reportInterval == 0 || processed == total) {
+          if (callback) {
+              wxTheApp->CallAfter([callback, matched, total, processed]() {
+                  callback(matched, total, processed, true);
+              });
+          }
+      }
+  }
+  // После завершения цикла вызвать callback с success = true и прогресс = total
+  if (callback) {
+      wxTheApp->CallAfter([callback, matched, total, total]() {
+          callback(matched, total, total, true);
+      });
+  }
+  ```
 
-**Новые теги XMLTV, которые нужно обрабатывать (опционально):**
-- `<sub-title>` → `subTitle`
-- `<episode-num>` → `episodeNum` (атрибут `system` может быть "xmltv_ns", "onscreen" и др.)
-- `<star-rating>` → `starRating` (текст внутри)
-- `<credits>` → внутри могут быть `<actor>`, `<director>` → сохранять в вектор
-- `<language>` → `language`
-- `<original-title>` → `originalTitle`
+#### 7.3. В `MatchChannelsAsync` передать callback в `MatchChannels`
+```cpp
+this->MatchChannels(playlistChannels, playlistId, callback);
+```
 
-### Шаг 4.3: Потоковая обработка (частичная)
+#### 7.4. В `MainFrame_PlaylistLogic.cpp` (в `loadPlaylistChannels`) обновить callback
+```cpp
+epg->MatchChannelsAsync(channels, playlistId,
+    [this](int matched, int total, int progress, bool success) {
+        wxTheApp->CallAfter([this, matched, total, progress, success]() {
+            m_isMatching = false;
+            if (success) {
+                RefreshEpgDisplay();
+                SetStatusText(wxString::Format("EPG matched %d/%d channels", matched, total), 1);
+            } else {
+                SetStatusText("EPG matching failed", 1);
+            }
+            // Дополнительно: можно обновлять прогресс, например:
+            // SetStatusText(wxString::Format("Matching... %d/%d", progress, total), 1);
+        });
+    }
+);
+```
 
-**Файл:** `EPGManager.cpp` (метод `LoadFromUrl`) и `EPGParserExpat`
-
-- Изменить `LoadFromUrl`, чтобы он не скачивал весь файл целиком, а передавал данные в парсер по мере получения.
-- Для этого:
-  1. В `PlaylistManager::downloadUrl` добавить возможность вызова колбэка для каждого чанка данных.
-  2. В `EPGParserExpat` добавить методы:
-     - `BeginParse()`
-     - `ParseChunk(const std::string& chunk)`
-     - `EndParse()`
-  3. В `LoadFromUrl` при получении чанка вызывать `m_parser->ParseChunk(chunk)`.
-
-**Важно:** XML-документ может быть разбит произвольно, поэтому парсер должен корректно обрабатывать частичные данные. Expat это поддерживает, если использовать `XML_Parse` с флагом `isFinal = false` для каждого чанка, а в конце `XML_Parse` с `isFinal = true`.
-
-**Проверка:** Загрузить большой XMLTV-файл (например, 200 МБ) и убедиться, что память не растёт и процессор не перегружается.
+#### 7.5. Аналогично в `refreshFavorites` (в `MainFrame_FavoritesUI.cpp`)
 
 ---
 
-## Этап 5: Улучшение пользовательского интерфейса
-
-### Шаг 5.1: Индикация наличия EPG в списке каналов
-
-**Файлы:** `EPGPanel.cpp`, `EPGPanel.h`
-
-- В `ChannelListModel::GetValueByRow` добавить проверку: есть ли у канала сопоставление с EPG (можно проверить через `m_epgManager->GetEpgChannelIdForTvgId()` или через БД).
-- Если есть — добавить к названию префикс "✓ " или использовать отдельную колонку с иконкой.
-- Для этого может потребоваться добавить в модель метод `HasEpg(const Channel& ch)`.
-
-**Проверка:** После обновления EPG список каналов должен показывать индикацию.
+### Шаг 8. Отладка и тестирование
+- Собрать проект.
+- Убедиться, что при старте (если прошло > интервала) через 30 секунд запускается `Refresh()`.
+- Убедиться, что `last_update` сохраняется в БД и корректно загружается.
+- Убедиться, что прогресс матчинга отображается в статус-баре (если добавили обновление статуса).
+- Проверить поведение при смене системного времени (перевод назад) – должно запускаться обновление.
+- Проверить очистку старых программ.
 
 ---
 
-### Шаг 5.2: Поиск по программам
-
-**Файл:** `EPGPanel.cpp`, `EPGPanel.h`
-
-- Добавить новый текстовый контрол (или использовать существующий поиск с переключением режима).
-- Сделать дополнительное поле поиска над списком программ (или под датой).
-- При вводе текста фильтровать `m_currentPrograms` по полю `title` (регистронезависимо).
-- Использовать `wxTimer` для задержки поиска (чтобы не перерисовывать при каждом нажатии клавиши).
-
-**Проверка:** Ввести текст и убедиться, что список программ обновляется.
-
----
-
-### Шаг 5.3: Отображение источника (опционально, по желанию)
-
-- В информации о программе добавить строку "Source: <имя_источника>".
-- Имя источника можно взять из `m_sources` (по URL или имени). Сложность: программа не хранит информацию об источнике. Можно добавить поле `sourceName` в `EpgProgram` и заполнять его при парсинге/вставке. Тогда это потребует изменения схемы БД.
-- Если не требуется — пропустить.
-
----
-
-## Заключительный этап: Тестирование и оптимизация
-
-### Шаг 6.1: Регрессионное тестирование
-
-- Проверить все сценарии:
-  1. Первый запуск с пустой БД.
-  2. Загрузка EPG из URL.
-  3. Загрузка из локального файла.
-  4. Обновление из нескольких источников.
-  5. Ручное сопоставление каналов.
-  6. Поиск и фильтрация.
-  7. Переключение дней.
-  8. Отображение деталей программы.
-  9. Завершение приложения — корректное закрытие БД.
-
-### Шаг 6.2: Оптимизация запросов к БД
-
-- Убедиться, что на таблицах `programs` есть правильные индексы (особенно на `(channel_id, start_time)`).
-- При большом количестве программ (десятки тысяч) проверить время выполнения запросов.
-
-### Шаг 6.3: Удаление старого кода
-
-- Удалить `BuildCacheJson`, `SaveToCache`, `LoadFromCache` (если не используются).
-- Удалить `m_channels`, `m_channelMapping`, `m_manualMapping`, `m_normalizedCache`.
-- Удалить неиспользуемые методы.
-
----
-
-**Итоговые файлы, которые будут изменены/созданы:**
-
-1. `EPGDatabase.h` (новый)
-2. `EPGDatabase.cpp` (новый)
-3. `EPGManager.h` (изменён)
-4. `EPGManager.cpp` (изменён)
-5. `EPGData.h` (изменён)
-6. `EPGParserExpat.h` (изменён)
-7. `EPGParserExpat.cpp` (изменён)
-8. `EPGPanel.h` (изменён)
-9. `EPGPanel.cpp` (изменён)
-10. Файлы проекта (добавление SQLite)
-
----
-
-**Ориентировочные сроки:**
-
-| Этап | Время |
-|------|-------|
-| 1. SQLite | 2-3 недели |
-| 2. Потокобезопасность | 3-5 дней |
-| 3. Агрегация источников | 2-3 дня |
-| 4. Парсер | 1-2 недели |
-| 5. UI | 3-5 дней |
-| 6. Тестирование и доработка | 1 неделя |
-
-**Итого:** примерно 6-8 недель на полное внедрение.
+### Готово
+После выполнения всех шагов Шаг 5 будет полностью завершён, а EPG-модуль будет иметь все запланированные функции.
