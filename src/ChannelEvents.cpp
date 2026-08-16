@@ -12,6 +12,10 @@ void MainFrame::onChannelSelected(const Channel &ch, size_t, const wxRect &) {
   m_videoPanel->SetIsChannelPlaying(true);
   m_videoPanel->SetIsFavoritePlaying(false);
   PlayChannel(ch);
+
+  if (m_epgChannels) {
+    m_epgChannels->SetChannel(ch);
+  }
 }
 
 void MainFrame::PlayChannel(const Channel &ch) {

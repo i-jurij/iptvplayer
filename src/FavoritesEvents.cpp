@@ -1,6 +1,5 @@
 #include "Channel.h"
 #include "MainFrame.h"
-#include "EventIDs.h"
 
 #include <wx/msgdlg.h>
 
@@ -12,4 +11,8 @@ void MainFrame::onFavoriteSelected(const Channel &ch, size_t, const wxRect &) {
   m_videoPanel->SetIsChannelPlaying(false);
   m_videoPanel->SetIsFavoritePlaying(true);
   PlayChannel(ch);
+
+  if (m_epgFavorites) {
+    m_epgFavorites->SetChannel(ch);
+  }
 }

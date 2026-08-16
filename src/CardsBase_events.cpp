@@ -635,12 +635,7 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
     return;
 
   int selection = GetPopupMenuSelectionFromUser(menu);
-  if (selection == idProgramGuide) {
-    MainFrame *mf = GetMainFrame();
-    if (mf) {
-      mf->SwitchToEpgTab(m_channels[idx]);
-    }
-  } else if (selection == idCopyUrl) {
+if (selection == idCopyUrl) {
     if (wxTheClipboard->Open()) {
       wxTheClipboard->SetData(
           new wxTextDataObject(wxString::FromUTF8(m_channels[idx].getUrl())));
@@ -652,8 +647,7 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
           new wxTextDataObject(wxString::FromUTF8(m_channels[idx].getName())));
       wxTheClipboard->Close();
     }
-  } // --- Добавляем обработку удаления ---
-  else if (selection == idRemove) {
+  } else if (selection == idRemove) {
     MainFrame *mf = GetMainFrame();
     if (mf) {
       mf->RemoveChannelFromPlaylist(m_channels[idx]);

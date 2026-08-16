@@ -6,8 +6,6 @@
 #include "LogoCache.h"
 #include "MainFrame.h"
 #include "Utils.h"
-#include "epg/AddEpgSourceDialog.h"
-#include "epg/EpgSourceManagerPanel.h"
 
 #include <wx/dir.h>
 #include <wx/filename.h>
@@ -150,31 +148,6 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
     contentSizer->Add(plBoxSizer, 0, wxEXPAND | wxALL, PAD);
   }
 
-  // -------------------------
-  // Block 4: EPG (Electronic Program Guide)
-  // -------------------------
-  {
-    wxStaticBox *epgBox =
-        new wxStaticBox(scrolled, wxID_ANY, "EPG (Electronic Program Guide)");
-    wxStaticBoxSizer *epgBoxSizer = new wxStaticBoxSizer(epgBox, wxVERTICAL);
-
-    // Используем панель управления источниками EPG (с настройками
-    // автообновления)
-    Application *app = static_cast<Application *>(wxTheApp);
-    if (app && app->GetEPGManager()) {
-      m_epgPanel =
-          new EpgSourceManagerPanel(epgBox, app->GetEPGManager(), true);
-      epgBoxSizer->Add(m_epgPanel, 1, wxEXPAND | wxALL, 0);
-    } else {
-      wxStaticText *err =
-          new wxStaticText(epgBox, wxID_ANY, "EPG Manager not available.");
-      err->SetForegroundColour(*wxRED);
-      epgBoxSizer->Add(err, 0, wxALL, INNER_PAD);
-    }
-
-    contentSizer->Add(epgBoxSizer, 0, wxEXPAND | wxALL, PAD);
-  }
-
   contentSizer->AddStretchSpacer(1);
 
   scrolled->SetSizer(contentSizer);
@@ -267,11 +240,6 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
 
   CentreOnParent();
 
-  // Загружаем настройки в панель EPG
-  if (m_epgPanel) {
-    m_epgPanel->LoadSettings();
-  }
-
   // Bind handlers
   Bind(wxEVT_BUTTON, &SettingsDialog::OnApply, this, wxID_APPLY);
   Bind(wxEVT_BUTTON, &SettingsDialog::OnOk, this, wxID_OK);
@@ -356,11 +324,6 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
         m_autoUpdateCheck && m_autoUpdateCheck->GetValue() ? "true" : "false");
     m_config->saveSettings();
     m_mainFrame->SetStatusText("Settings saved.", 0);
-  }
-
-  // Сохраняем настройки EPG через панель
-  if (m_epgPanel) {
-    m_epgPanel->SaveSettings();
   }
 }
 
@@ -478,64 +441,3 @@ ErrorCode SettingsDialog::ClearAllCachesSync() {
   return ec;
 }
 
-// Статические методы для добавления EPG источника (оставлены для обратной
-// совместимости)
-int SettingsDialog::AddEpgSourceToManager(const wxString &urlOrPath,
-                                          const wxString &name, bool isFile) {
-  Application *app = static_cast<Application *>(wxTheApp);
-  if (!app)
-    return 2;
-  auto *epgMgr = app->GetEPGManager();
-  if (!epgMgr)
-    return 2;
-
-  wxString finalName = name;
-  if (finalName.IsEmpty()) {
-    if (isFile) {
-      wxFileName fn(urlOrPath);
-      finalName = fn.GetName();
-    } else {
-      wxString path = urlOrPath.AfterLast('/').BeforeFirst('?');
-      if (path.EndsWith(".xml") || path.EndsWith(".gz") ||
-          path.EndsWith(".xml.gz")) {
-        path = path.BeforeLast('.');
-      }
-      finalName =
-          path.IsEmpty() ? urlOrPath.BeforeFirst('/').AfterFirst('/') : path;
-    }
-  }
-
-  auto sources = epgMgr->GetSources();
-  std::string urlUtf8 = urlOrPath.ToUTF8().data();
-  for (const auto &src : sources) {
-    if (src.url == urlUtf8) {
-      return 1; // дубликат
-    }
-  }
-
-  EpgSource src;
-  src.url = urlUtf8;
-  src.name = finalName.ToUTF8().data();
-  src.lastUpdate = 0;
-  sources.push_back(src);
-  epgMgr->SetSources(sources);
-  epgMgr->SaveSourcesToConfig();
-  epgMgr->Refresh();
-
-  return 0;
-}
-
-int SettingsDialog::ShowAddEpgSourceDialog(wxWindow *parent,
-                                           wxString &urlOrPath, wxString &name,
-                                           bool &isFile) {
-  AddEpgSourceDialog dlg(parent);
-  if (dlg.ShowModal() != wxID_OK) {
-    return -1;
-  }
-
-  urlOrPath = dlg.GetUrlOrPath();
-  name = dlg.GetName();
-  isFile = !IsNetworkUrl(urlOrPath);
-
-  return AddEpgSourceToManager(urlOrPath, name, isFile);
-}

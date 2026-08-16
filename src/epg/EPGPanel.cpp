@@ -6,7 +6,6 @@
 #include "EventIDs.h"
 #include "MainFrame.h"
 #include "SettingsDialog.h"
-#include "epg/EpgSourceManagerPanel.h"
 
 #include <wx/artprov.h>
 #include <wx/datetime.h>
@@ -18,711 +17,151 @@
 
 #include <ctime>
 
+// Статические переменные для сохранения состояния
 std::string EPGPanel::s_lastChannelId;
 std::string EPGPanel::s_lastChannelName;
 std::string EPGPanel::s_lastPlaylistName;
 time_t EPGPanel::s_lastDate = 0;
 
-// =========================================================================
-// Модель списка каналов
-// =========================================================================
-EPGPanel::ChannelListModel::ChannelListModel() {}
-
-void EPGPanel::ChannelListModel::SetChannels(
-    const std::vector<Channel> &channels) {
-  m_channels = &channels;
-  m_filterText.Clear();
-  m_filteredChannels = *m_channels;
-  Reset(m_filteredChannels.size());
-}
-
-void EPGPanel::ChannelListModel::Filter(const wxString &filter) {
-  m_filterText = filter;
-  m_filteredChannels.clear();
-
-  if (!m_currentSource) {
-    Reset(0);
-    return;
-  }
-
-  if (filter.IsEmpty()) {
-    m_filteredChannels = *m_currentSource;
-    Reset(m_filteredChannels.size());
-    return;
-  }
-
-  wxString lowerFilter = filter.Lower();
-  wxArrayString parts = wxSplit(lowerFilter, ' ');
-  parts.erase(std::remove_if(parts.begin(), parts.end(),
-                             [](const wxString &s) { return s.IsEmpty(); }),
-              parts.end());
-
-  // Мультисловный поиск
-  if (parts.size() > 1) {
-    for (const auto &ch : *m_currentSource) {
-      wxString name = wxString::FromUTF8(ch.getName()).Lower();
-      bool allMatch = true;
-      for (const auto &p : parts) {
-        if (!name.Contains(p)) {
-          allMatch = false;
-          break;
-        }
-      }
-      if (allMatch)
-        m_filteredChannels.push_back(ch);
-    }
-    Reset(m_filteredChannels.size());
-    return;
-  }
-
-  // Одно слово — улучшенный поиск
-  const wxString &needle = lowerFilter;
-  std::vector<Channel> startsWith;
-  std::vector<Channel> contains;
-
-  for (const auto &ch : *m_currentSource) {
-    wxString name = wxString::FromUTF8(ch.getName()).Lower();
-    if (name.StartsWith(needle)) {
-      startsWith.push_back(ch);
-    } else if (name.Contains(needle)) {
-      contains.push_back(ch);
-    }
-  }
-
-  m_filteredChannels.reserve(startsWith.size() + contains.size());
-  m_filteredChannels.insert(m_filteredChannels.end(), startsWith.begin(),
-                            startsWith.end());
-  m_filteredChannels.insert(m_filteredChannels.end(), contains.begin(),
-                            contains.end());
-
-  // Fuzzy fallback
-  if (m_filteredChannels.empty()) {
-    for (const auto &ch : *m_currentSource) {
-      wxString name = wxString::FromUTF8(ch.getName()).Lower();
-      size_t j = 0;
-      for (size_t i = 0; i < name.Length() && j < needle.Length(); ++i) {
-        if (name[i] == needle[j])
-          ++j;
-      }
-      if (j == needle.Length()) {
-        m_filteredChannels.push_back(ch);
-      }
-    }
-  }
-
-  Reset(m_filteredChannels.size());
-}
-
-unsigned int EPGPanel::ChannelListModel::GetCount() const {
-  return static_cast<unsigned int>(m_filteredChannels.size());
-}
-
-void EPGPanel::ChannelListModel::GetValueByRow(wxVariant &variant,
-                                               unsigned int row,
-                                               unsigned int col) const {
-  if (row >= m_filteredChannels.size()) {
-    variant = "";
-    return;
-  }
-  const Channel &ch = m_filteredChannels[row];
-  if (col == 0) {
-    variant = wxString::FromUTF8(ch.getName());
-  } else {
-    variant = "";
-  }
-}
-
-bool EPGPanel::ChannelListModel::SetValueByRow(const wxVariant &, unsigned int,
-                                               unsigned int) {
-  return false;
-}
-
-wxString EPGPanel::ChannelListModel::GetColumnType(unsigned int) const {
-  return "string";
-}
-
-unsigned int
-EPGPanel::ChannelListModel::GetRow(const wxDataViewItem &item) const {
-  return reinterpret_cast<uintptr_t>(item.GetID()) - 1;
-}
-
-wxDataViewItem
-EPGPanel::ChannelListModel::GetItemByRow(unsigned int row) const {
-  return wxDataViewItem(reinterpret_cast<void *>(row + 1));
-}
-
-void EPGPanel::ChannelListModel::Clear() {
-  m_channels = nullptr;
-  m_filteredChannels.clear();
-  Reset(0);
-}
-
-const Channel &EPGPanel::ChannelListModel::GetChannel(unsigned int row) const {
-  static Channel empty;
-  if (row >= m_filteredChannels.size())
-    return empty;
-  return m_filteredChannels[row];
-}
-
-int EPGPanel::ChannelListModel::FindChannel(const Channel &ch) const {
-  // 1) Поиск по (playlistName + name)
-  if (!ch.getPlaylistName().empty()) {
-    for (size_t i = 0; i < m_filteredChannels.size(); ++i) {
-      if (m_filteredChannels[i].getName() == ch.getName() &&
-          m_filteredChannels[i].getPlaylistName() == ch.getPlaylistName()) {
-        return static_cast<int>(i);
-      }
-    }
-  }
-  // 2) Поиск по tvgId (если есть)
-  if (!ch.getTvgId().empty()) {
-    for (size_t i = 0; i < m_filteredChannels.size(); ++i) {
-      if (m_filteredChannels[i].getTvgId() == ch.getTvgId())
-        return static_cast<int>(i);
-    }
-  }
-  // 3) Fallback по имени
-  for (size_t i = 0; i < m_filteredChannels.size(); ++i) {
-    if (m_filteredChannels[i].getName() == ch.getName())
-      return static_cast<int>(i);
-  }
-  return -1;
-}
-
-void EPGPanel::ChannelListModel::SetSource(const std::vector<Channel> *source) {
-  m_currentSource = source;
-  if (m_currentSource) {
-    m_filteredChannels = *m_currentSource;
-  } else {
-    m_filteredChannels.clear();
-  }
-  m_filterText.Clear();
-  Reset(m_filteredChannels.size());
-}
-
-// =========================================================================
-// EPGPanel
-// =========================================================================
+// ----------------------------------------------------------------------------
+// Таблица событий (только то, что осталось)
+// ----------------------------------------------------------------------------
 wxBEGIN_EVENT_TABLE(EPGPanel, wxPanel)
-    EVT_DATAVIEW_SELECTION_CHANGED(ID_CHANNEL_LIST, EPGPanel::OnChannelSelected)
-        EVT_DATAVIEW_ITEM_ACTIVATED(ID_CHANNEL_LIST,
-                                    EPGPanel::OnChannelActivated)
-            EVT_TEXT(ID_SEARCH_CTRL, EPGPanel::OnSearchText)
-                EVT_BUTTON(ID_REFRESH_EPG, EPGPanel::OnRefreshEPG)
-                    EVT_BUTTON(ID_MANAGE_SOURCES, EPGPanel::OnManageSources)
-                        wxEND_EVENT_TABLE()
+    EVT_BUTTON(wxID_ANY, EPGPanel::OnPrevDay) // ID назначаются вручную, но
+                                              // можно использовать wxID_ANY
+    EVT_BUTTON(wxID_ANY, EPGPanel::OnToday)
+        EVT_BUTTON(wxID_ANY, EPGPanel::OnNextDay)
+            EVT_GRID_SELECT_CELL(EPGPanel::OnProgramSelected)
+                EVT_SIZE(EPGPanel::OnProgramListResize) wxEND_EVENT_TABLE()
 
-                            EPGPanel::EPGPanel(wxWindow *parent)
+    // ----------------------------------------------------------------------------
+    // Конструктор / Деструктор
+    // ----------------------------------------------------------------------------
+    EPGPanel::EPGPanel(wxWindow *parent)
     : wxPanel(parent, wxID_ANY),
       m_currentDate(EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks())),
-      m_channelModel(new ChannelListModel()) {
+      m_epgManager(nullptr), m_isActive(false), m_hasError(false) {
+  // Получаем EPGManager из приложения
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
     m_epgManager = app->GetEPGManager();
-  } else {
-    m_epgManager = nullptr;
   }
 
   SetupUI();
 
-  if (m_epgManager) {
-    m_epgManager->SetOnRefreshStarted([this]() {
-      // Колбэк выполняется в основном потоке через CallAfter
-      if (!m_refreshing) {
-        m_refreshing = true;
-        m_refreshBtn->Enable(false);
-        m_activityIndicator->Show();
-        m_activityIndicator->Start();
-        ShowProgressControls(true);
-        SetStatus("Updating...", "EPG refresh started.");
-        if (auto *parent = m_activityIndicator->GetParent()) {
-          parent->Layout();
-        }
-      }
-    });
-  }
+  // Восстанавливаем последнее состояние
+  RestoreState();
+
+  // Подписываемся на обновления EPG (если нужно, но MainFrame будет вызывать
+  // OnEpgUpdateFinished)
 }
 
 EPGPanel::~EPGPanel() {
-  if (m_channelListView) {
-    m_channelListView->AssociateModel(nullptr);
-  }
-  delete m_channelModel;
-  m_channelModel = nullptr;
-}
-
-void EPGPanel::SetChannels(const std::vector<Channel> &channels) {
-  m_playlistChannels = channels;
-  // Если текущий режим Playlist – обновляем модель, иначе просто храним
-  if (m_currentMode == MODE_PLAYLIST) {
-    m_channelModel->SetSource(&m_playlistChannels);
-    // Восстанавливаем выделение
-    SelectCurrentChannelInList();
-  }
-  // Если режим Favorites, но playlist пуст – можно переключиться на Favorites
-  if (m_currentMode == MODE_PLAYLIST && m_playlistChannels.empty() &&
-      !m_favoriteChannels.empty()) {
-    SwitchMode(MODE_FAVORITES);
-  }
-  UpdateModeButtons(m_currentMode);
-}
-
-void EPGPanel::SetFavoriteChannels(const std::vector<Channel> &channels) {
-  m_favoriteChannels = channels;
-  if (m_currentMode == MODE_FAVORITES) {
-    m_channelModel->SetSource(&m_favoriteChannels);
-    SelectCurrentChannelInList();
-  }
-  if (m_currentMode == MODE_PLAYLIST && m_playlistChannels.empty() &&
-      !m_favoriteChannels.empty()) {
-    SwitchMode(MODE_FAVORITES);
-  }
-  UpdateModeButtons(m_currentMode);
-}
-
-void EPGPanel::SetCurrentChannel(Channel channel) {
-  // Сохраняем канал
-  m_currentChannel = channel;
-  m_currentChannelId = channel.getTvgId();
-  m_currentChannelName = channel.getName();
-  m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
-
-  // Определяем, в каком списке находится канал
-  if (IsChannelInSource(channel, m_playlistChannels)) {
-    if (m_currentMode != MODE_PLAYLIST) {
-      SwitchMode(MODE_PLAYLIST);
-    }
-  } else if (IsChannelInSource(channel, m_favoriteChannels)) {
-    if (m_currentMode != MODE_FAVORITES) {
-      SwitchMode(MODE_FAVORITES);
-    }
-  } else {
-    // Канал не найден ни в одном списке – оставляем текущий режим, но пробуем
-    // выделить по имени (может быть, он появится после обновления)
-    LOG_WARN("EPGPanel: Channel '%s' not found in any source",
-             channel.getName().c_str());
-  }
-
-  // Теперь выделяем в текущем источнике
-  SelectCurrentChannelInList();
-
-  // Обновляем лейбл и загружаем программы
-  m_channelNameLabel->SetLabel(wxString::FromUTF8(channel.getName()));
-  LoadProgramsForChannel(channel.getTvgId(), m_currentDate);
+  // Сохраняем состояние перед закрытием
   SaveState();
 }
 
-bool EPGPanel::IsChannelInSource(const Channel &ch,
-                                 const std::vector<Channel> &source) const {
-  for (const auto &c : source) {
-    if (c.getName() == ch.getName() &&
-        c.getPlaylistName() == ch.getPlaylistName())
-      return true;
-    if (!ch.getTvgId().empty() && c.getTvgId() == ch.getTvgId())
-      return true;
-  }
-  return false;
-}
-
-void EPGPanel::ShowProgressControls(bool show) {
-  m_progressGauge->Show(show);
-  m_progressText->Show(show);
-  m_cancelBtn->Show(show);
-  if (show) {
-    m_progressGauge->SetValue(0);
-    m_progressText->SetLabel("Downloading...");
-    m_prevDownloaded = 0.0;
-    m_prevTime = std::chrono::steady_clock::now();
-    m_progressTimer.Start(500);
-  } else {
-    m_progressTimer.Stop();
-  }
-  if (auto *parent = m_progressGauge->GetParent()) {
-    parent->Layout();
-  }
-}
-
+// ----------------------------------------------------------------------------
+// SetupUI – создание правой панели (программа)
+// ----------------------------------------------------------------------------
 void EPGPanel::SetupUI() {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
-
-  wxSplitterWindow *splitter =
-      new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-                           wxSP_3D | wxSP_LIVE_UPDATE);
-  splitter->SetMinimumPaneSize(200);
-
-  // ---- Левая панель ----
-  wxPanel *leftPanel = new wxPanel(splitter, wxID_ANY);
-  wxBoxSizer *leftSizer = new wxBoxSizer(wxVERTICAL);
-
-  // Создаём панель для кнопок переключения
-  wxPanel *modePanel = new wxPanel(leftPanel, wxID_ANY);
-  wxBoxSizer *modeSizer = new wxBoxSizer(wxHORIZONTAL);
-
-  m_btnPlaylist = new wxToggleButton(modePanel, wxID_ANY, "Playlist");
-  m_btnFavorites = new wxToggleButton(modePanel, wxID_ANY, "Favorites");
-
-  modeSizer->Add(m_btnPlaylist, 0, wxRIGHT, 5);
-  modeSizer->Add(m_btnFavorites, 0);
-
-  modePanel->SetSizer(modeSizer);
-  leftSizer->Add(modePanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 5);
-
-  // Привязываем события
-  m_btnPlaylist->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
-    if (m_btnPlaylist->GetValue()) {
-      SwitchMode(MODE_PLAYLIST);
-    } else {
-      // Если кнопка сброшена, но другая не активна – принудительно включаем её
-      if (!m_btnFavorites->GetValue()) {
-        m_btnPlaylist->SetValue(true);
-      }
-    }
-  });
-
-  m_btnFavorites->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
-    if (m_btnFavorites->GetValue()) {
-      SwitchMode(MODE_FAVORITES);
-    } else {
-      if (!m_btnPlaylist->GetValue()) {
-        m_btnFavorites->SetValue(true);
-      }
-    }
-  });
-
-  m_searchCtrl =
-      new wxTextCtrl(leftPanel, ID_SEARCH_CTRL, wxEmptyString,
-                     wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
-  m_searchCtrl->SetHint("Search channel...");
-  leftSizer->Add(m_searchCtrl, 0, wxEXPAND | wxALL, 5);
-
-  m_channelListView = new wxDataViewCtrl(leftPanel, ID_CHANNEL_LIST);
-  m_channelListView->AssociateModel(m_channelModel);
-  m_channelListView->AppendTextColumn("Channel", 0, wxDATAVIEW_CELL_INERT, 200,
-                                      wxALIGN_LEFT);
-  leftSizer->Add(m_channelListView, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
-                 5);
-
-  leftPanel->SetSizer(leftSizer);
-
-  // ---- Правая панель ----
-  wxPanel *rightPanel = new wxPanel(splitter, wxID_ANY);
-  wxBoxSizer *rightSizer = new wxBoxSizer(wxVERTICAL);
 
   // ---- Верхняя строка: название + дата + навигация ----
   wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  // 1. Название канала
-  m_channelNameLabel =
-      new wxStaticText(rightPanel, wxID_ANY, "No channel selected");
+  m_channelNameLabel = new wxStaticText(this, wxID_ANY, "No channel selected");
   wxFont titleFont = m_channelNameLabel->GetFont();
   titleFont.SetWeight(wxFONTWEIGHT_BOLD);
   m_channelNameLabel->SetFont(titleFont);
   topSizer->Add(m_channelNameLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                 FromDIP(20));
 
-  // 2. Дата
-  m_dateLabel = new wxStaticText(rightPanel, wxID_ANY, "");
+  m_dateLabel = new wxStaticText(this, wxID_ANY, "");
   topSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(15));
 
-  // 3. Кнопка "Назад"
-  wxBitmap backBmp = wxArtProvider::GetBitmap(wxART_GO_BACK, wxART_BUTTON,
-                                              wxSize(FromDIP(20), FromDIP(20)));
-  if (backBmp.IsOk()) {
-    m_prevDayBtn = new wxBitmapButton(rightPanel, ID_PREV_DAY, backBmp);
-  } else {
-    m_prevDayBtn = new wxButton(rightPanel, ID_PREV_DAY, "\u2190");
-  }
+  m_prevDayBtn = new wxButton(this, wxID_ANY, "\u2190");
   m_prevDayBtn->SetToolTip("Previous day");
   topSizer->Add(m_prevDayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
-  // 4. Кнопка "Сегодня"
-  m_todayBtn = new wxButton(rightPanel, ID_TODAY, "Today");
+  m_todayBtn = new wxButton(this, wxID_ANY, "Today");
   topSizer->Add(m_todayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
-  // 5. Кнопка "Вперед"
-  wxBitmap forwardBmp = wxArtProvider::GetBitmap(
-      wxART_GO_FORWARD, wxART_BUTTON, wxSize(FromDIP(20), FromDIP(20)));
-  if (forwardBmp.IsOk()) {
-    m_nextDayBtn = new wxBitmapButton(rightPanel, ID_NEXT_DAY, forwardBmp);
-  } else {
-    m_nextDayBtn = new wxButton(rightPanel, ID_NEXT_DAY, "\u2192");
-  }
+  m_nextDayBtn = new wxButton(this, wxID_ANY, "\u2192");
   m_nextDayBtn->SetToolTip("Next day");
   topSizer->Add(m_nextDayBtn, 0, wxALIGN_CENTER_VERTICAL);
 
-  // Устанавливаем одинаковую высоту для всех кнопок и минимальную ширину для
-  // навигационных
   int btnHeight = FromDIP(30);
-  int navWidth = FromDIP(40); // шире, чем было
-  m_prevDayBtn->SetMinSize(wxSize(navWidth, btnHeight));
-  m_todayBtn->SetMinSize(wxSize(-1, btnHeight)); // ширина автоматическая
-  m_nextDayBtn->SetMinSize(wxSize(navWidth, btnHeight));
+  m_prevDayBtn->SetMinSize(wxSize(FromDIP(40), btnHeight));
+  m_todayBtn->SetMinSize(wxSize(-1, btnHeight));
+  m_nextDayBtn->SetMinSize(wxSize(FromDIP(40), btnHeight));
 
-  rightSizer->Add(topSizer, 0, wxEXPAND);
+  mainSizer->Add(topSizer, 0, wxEXPAND);
 
-  // Привязка событий
+  // Привязка событий навигации (в таблице событий уже есть, но можно и здесь)
   m_prevDayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnPrevDay, this);
   m_todayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnToday, this);
   m_nextDayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnNextDay, this);
 
-  // ---- Создаём wxGrid для программ ----
-  m_programGrid =
-      new wxGrid(rightPanel, ID_PROGRAM_LIST, wxDefaultPosition, wxDefaultSize);
+  // ---- Сетка программ ----
+  m_programGrid = new wxGrid(this, wxID_ANY, wxDefaultPosition, wxDefaultSize);
   m_programGrid->CreateGrid(0, 3);
-  /*
-    m_programGrid->SetColLabelValue(0, "Time");
-    m_programGrid->SetColLabelValue(1, "Title");
-    m_programGrid->SetColLabelValue(2, "Category");
-  */
   m_programGrid->SetColLabelSize(0);
-  // Скрыть колонку с номерами строк
   m_programGrid->SetRowLabelSize(0);
-
-  // Отключаем перенос для колонки Time
-  wxGridCellAttr *attrTime = new wxGridCellAttr();
-  attrTime->SetRenderer(new wxGridCellStringRenderer());
-  m_programGrid->SetColAttr(0, attrTime);
-  // Включаем перенос текста для остальных
   m_programGrid->SetDefaultRenderer(new wxGridCellAutoWrapStringRenderer);
   m_programGrid->SetDefaultCellOverflow(false);
-
-  // ---- Настройка выделения ----
   m_programGrid->SetSelectionMode(wxGrid::wxGridSelectRows);
-  m_programGrid->SetSelectionBackground(
-      wxSystemSettings::GetColour(wxSYS_COLOUR_3DFACE));
-  m_programGrid->SetSelectionForeground(
-      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
-  m_programGrid->SetCellHighlightPenWidth(FromDIP(1));
-  m_programGrid->SetCellHighlightColour(
-      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
-  /*
-    // Заголовки – системные цвета
-    m_programGrid->SetLabelBackgroundColour(
-        wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
-    m_programGrid->SetLabelTextColour(
-        wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
-  */
-
-  // Запрещаем редактирование
   m_programGrid->EnableEditing(false);
   m_programGrid->DisableDragRowSize();
-  // Начальные ширины (будут пересчитаны позже)
-  m_programGrid->SetColSize(0, 100);
-  m_programGrid->SetColSize(1, 300);
-  m_programGrid->SetColSize(2, 150);
-  // Привязываем события (вместо таблицы событий)
+  m_programGrid->SetColSize(0, FromDIP(100));
+  m_programGrid->SetColSize(1, FromDIP(300));
+  m_programGrid->SetColSize(2, FromDIP(150));
   m_programGrid->Bind(wxEVT_GRID_SELECT_CELL, &EPGPanel::OnProgramSelected,
                       this);
   m_programGrid->Bind(wxEVT_SIZE, &EPGPanel::OnProgramListResize, this);
-  // Добавляем в правую панель (вместо старого m_programList)
-  rightSizer->Add(m_programGrid, 1, wxEXPAND | wxALL, FromDIP(5));
+  mainSizer->Add(m_programGrid, 1, wxEXPAND | wxALL, FromDIP(5));
 
   // ---- Блок деталей ----
-  wxStaticBox *detailBox = new wxStaticBox(rightPanel, wxID_ANY, "Details");
+  wxStaticBox *detailBox = new wxStaticBox(this, wxID_ANY, "Details");
   wxStaticBoxSizer *detailSizer = new wxStaticBoxSizer(detailBox, wxVERTICAL);
 
   m_detailTitle = new wxStaticText(detailBox, wxID_ANY, "");
   m_detailTitle->SetFont(m_detailTitle->GetFont().MakeBold());
   detailSizer->Add(m_detailTitle, 0, wxALL, FromDIP(5));
 
-  // Создаём многострочный текст с прокруткой
   m_detailDesc =
       new wxTextCtrl(detailBox, wxID_ANY, "", wxDefaultPosition, wxDefaultSize,
                      wxTE_MULTILINE | wxTE_READONLY | wxTE_WORDWRAP);
   m_detailDesc->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
-  m_detailDesc->SetForegroundColour(
-      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
-  m_detailDesc->SetMinSize(wxSize(-1, FromDIP(80))); // минимальная высота
+  m_detailDesc->SetMinSize(wxSize(-1, FromDIP(80)));
   m_detailDesc->SetMaxSize(wxSize(-1, FromDIP(200)));
   detailSizer->Add(m_detailDesc, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                    FromDIP(5));
 
-  rightSizer->Add(detailSizer, 0, wxEXPAND | wxALL, FromDIP(5));
-
-  // ---- Нижняя панель с кнопками и прогрессом в одной строке ----
-  wxBoxSizer *bottomRowSizer = new wxBoxSizer(wxHORIZONTAL);
-
-  m_refreshBtn = new wxButton(rightPanel, ID_REFRESH_EPG, "↻ Refresh");
-  bottomRowSizer->Add(m_refreshBtn, 0, wxRIGHT, FromDIP(5));
-
-  m_activityIndicator = new wxActivityIndicator(rightPanel, wxID_ANY);
-  bottomRowSizer->Add(m_activityIndicator, 0,
-                      wxLEFT | wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(5));
-  m_activityIndicator->Hide();
-
-  m_manageSourcesBtn =
-      new wxButton(rightPanel, ID_MANAGE_SOURCES, "⚙ Manage Sources");
-  bottomRowSizer->Add(m_manageSourcesBtn, 0);
-
-  // Прогресс-бар, текст и кнопка Cancel (изначально скрыты)
-  m_progressGauge = new wxGauge(rightPanel, wxID_ANY, 100, wxDefaultPosition,
-                                wxSize(FromDIP(150), -1));
-  m_progressText = new wxStaticText(rightPanel, wxID_ANY, "");
-  m_cancelBtn = new wxButton(rightPanel, ID_CANCEL_DOWNLOAD, "Cancel");
-  m_cancelBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnCancel, this);
-
-  bottomRowSizer->Add(m_progressGauge, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(5));
-  bottomRowSizer->Add(m_progressText, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
-                      FromDIP(5));
-  bottomRowSizer->AddStretchSpacer(1);
-  bottomRowSizer->Add(m_cancelBtn, 0, wxALIGN_CENTER_VERTICAL, FromDIP(5));
-
-  // Изначально скрыты
-  m_progressGauge->Hide();
-  m_progressText->Hide();
-  m_cancelBtn->Hide();
-
-  rightSizer->Add(bottomRowSizer, 0, wxEXPAND | wxALL, FromDIP(5));
-
-  // Привязываем таймер
-  m_progressTimer.SetOwner(this, wxID_HIGHEST + 301);
-  Bind(wxEVT_TIMER, &EPGPanel::OnProgressTimer, this, wxID_HIGHEST + 301);
-
-  // set right panel
-  rightPanel->SetSizer(rightSizer);
-
-  splitter->SplitVertically(leftPanel, rightPanel, 250);
-  mainSizer->Add(splitter, 1, wxEXPAND | wxALL, FromDIP(5));
+  mainSizer->Add(detailSizer, 0, wxEXPAND | wxALL, FromDIP(5));
 
   SetSizer(mainSizer);
+
+  UpdateDateLabel();
 }
 
-void EPGPanel::OnChannelSelected(wxDataViewEvent &) {}
+// ----------------------------------------------------------------------------
+// Методы управления каналом и загрузкой программ
+// ----------------------------------------------------------------------------
+void EPGPanel::SetChannel(const Channel &channel) {
+  m_currentChannel = channel;
+  m_currentChannelId = channel.getTvgId();
+  m_currentChannelName = channel.getName();
 
-void EPGPanel::OnChannelActivated(wxDataViewEvent &event) {
-  wxDataViewItem item = event.GetItem();
-  if (!item.IsOk())
-    return;
-
-  unsigned int row = m_channelModel->GetRow(item);
-  const Channel &ch = m_channelModel->GetChannel(row);
-
-  m_currentChannel = ch;
-  m_currentChannelId = ch.getTvgId();
-  m_currentChannelName = ch.getName();
-
+  // Обновляем заголовок
   m_channelNameLabel->SetLabel(wxString::FromUTF8(m_currentChannelName));
 
+  // Загружаем программы на текущую дату
   LoadProgramsForChannel(m_currentChannelId, m_currentDate);
+
+  // Сохраняем состояние
   SaveState();
-}
-
-void EPGPanel::OnSearchText(wxCommandEvent &) {
-  wxString text = m_searchCtrl->GetValue();
-  m_channelModel->Filter(text);
-  m_channelListView->Refresh();
-}
-
-void EPGPanel::UpdateDateLabel() {
-  wxDateTime dt(m_currentDate);
-  m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
-}
-
-void EPGPanel::OnPrevDay(wxCommandEvent &) {
-  m_currentDate -= 24 * 3600;
-  UpdateDateLabel();
-  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-  }
-}
-
-void EPGPanel::OnNextDay(wxCommandEvent &) {
-  m_currentDate += 24 * 3600;
-  UpdateDateLabel();
-  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-  }
-}
-
-void EPGPanel::OnToday(wxCommandEvent &) {
-  m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
-  UpdateDateLabel();
-  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-  }
-}
-
-void EPGPanel::OnRefreshEPG(wxCommandEvent &) {
-  if (m_refreshing) {
-    SetStatus("Info", "EPG update already in progress.");
-    return;
-  }
-  if (m_epgManager) {
-    // Колбэк начала обновления сработает автоматически
-    m_epgManager->Refresh();
-  }
-}
-
-void EPGPanel::OnManageSources(wxCommandEvent &) {
-  if (!m_epgManager) {
-    wxMessageBox("EPG Manager not available.", "Error", wxOK | wxICON_ERROR);
-    return;
-  }
-
-  wxDialog dlg(this, wxID_ANY, "Manage EPG Sources", wxDefaultPosition,
-               wxSize(700, 450), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
-  wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
-
-  EpgSourceManagerPanel *panel =
-      new EpgSourceManagerPanel(&dlg, m_epgManager, false);
-  mainSizer->Add(panel, 1, wxEXPAND | wxALL, 10);
-
-  wxSizer *btnSizer = dlg.CreateButtonSizer(wxOK | wxCANCEL);
-  if (btnSizer)
-    mainSizer->Add(btnSizer, 0, wxALL | wxALIGN_RIGHT, 10);
-
-  dlg.SetSizerAndFit(mainSizer);
-  dlg.CentreOnParent();
-
-  if (dlg.ShowModal() == wxID_OK) {
-    // После закрытия обновляем программы
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-  }
-}
-
-void EPGPanel::AdjustProgramColumns() {
-  if (!m_programGrid || m_programGrid->GetNumberRows() == 0)
-    return;
-
-  int totalWidth;
-  m_programGrid->GetClientSize(&totalWidth, nullptr);
-
-  // ---- Ручной расчёт ширины колонки Time ----
-  int maxTimeWidth = 0;
-  wxClientDC dc(m_programGrid);
-  dc.SetFont(m_programGrid->GetDefaultCellFont());
-  for (int row = 0; row < m_programGrid->GetNumberRows(); ++row) {
-    wxString text = m_programGrid->GetCellValue(row, 0);
-    wxSize extent = dc.GetTextExtent(text);
-    if (extent.GetWidth() > maxTimeWidth)
-      maxTimeWidth = extent.GetWidth();
-  }
-  // Добавляем запас, пропорциональный DPI
-  maxTimeWidth += FromDIP(20);
-  // Минимальная ширина на всякий случай
-  if (maxTimeWidth < FromDIP(80))
-    maxTimeWidth = FromDIP(80);
-
-  // Category – фиксированная 150 (тоже с учётом DPI, если нужно)
-  int catWidth = FromDIP(150);
-
-  // Title – всё оставшееся место
-  int titleWidth = totalWidth - maxTimeWidth - catWidth;
-  if (titleWidth < FromDIP(50))
-    titleWidth = FromDIP(50);
-
-  m_programGrid->SetColSize(0, maxTimeWidth);
-  m_programGrid->SetColSize(1, titleWidth);
-  m_programGrid->SetColSize(2, catWidth);
-
-  // Автовысота строк (для Title и Category с переносом)
-  m_programGrid->AutoSizeRows();
-}
-
-void EPGPanel::OnProgramListResize(wxSizeEvent &event) {
-  AdjustProgramColumns();
-  event.Skip();
 }
 
 void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
@@ -734,7 +173,8 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   m_detailTitle->SetLabel("");
   m_detailDesc->SetValue("");
-  // ---- Если есть ошибка ----
+
+  // Если есть ошибка — показать сообщение
   if (m_hasError && !m_lastError.IsEmpty()) {
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
@@ -747,6 +187,11 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   if (!m_epgManager) {
     LOG_ERROR("EPGPanel: EPGManager is null");
     SetStatus("Error", "EPG manager not available");
+    m_programGrid->AppendRows(1);
+    m_programGrid->SetCellValue(0, 0, "");
+    m_programGrid->SetCellValue(0, 1, "⚠ EPG manager not available");
+    m_programGrid->SetCellValue(0, 2, "");
+    AdjustProgramColumns();
     return;
   }
 
@@ -776,6 +221,7 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
     return;
   }
 
+  // Получаем программы
   auto programs = m_epgManager->GetProgramsForChannel(
       channelId, m_currentChannelName, date);
   m_currentPrograms = programs;
@@ -791,7 +237,6 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   }
 
   ClearStatus();
-  SaveState();
   UpdateDateLabel();
 
   int row = 0;
@@ -810,6 +255,44 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   AdjustProgramColumns();
 }
 
+// ----------------------------------------------------------------------------
+// Навигация по дням
+// ----------------------------------------------------------------------------
+void EPGPanel::OnPrevDay(wxCommandEvent &) {
+  m_currentDate -= 24 * 3600;
+  UpdateDateLabel();
+  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
+    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
+  }
+}
+
+void EPGPanel::OnNextDay(wxCommandEvent &) {
+  m_currentDate += 24 * 3600;
+  UpdateDateLabel();
+  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
+    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
+  }
+}
+
+void EPGPanel::OnToday(wxCommandEvent &) {
+  m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
+  UpdateDateLabel();
+  if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
+    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Обновление даты
+// ----------------------------------------------------------------------------
+void EPGPanel::UpdateDateLabel() {
+  wxDateTime dt(m_currentDate);
+  m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
+}
+
+// ----------------------------------------------------------------------------
+// Обработка выбора программы в сетке
+// ----------------------------------------------------------------------------
 void EPGPanel::OnProgramSelected(wxGridEvent &event) {
   int row = event.GetRow();
   if (row < 0 || row >= (int)m_currentPrograms.size())
@@ -820,49 +303,48 @@ void EPGPanel::OnProgramSelected(wxGridEvent &event) {
   m_detailDesc->SetValue(wxString::FromUTF8(prog.description));
 }
 
-void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
-  LOG_DEBUG("EPGPanel::OnEpgUpdateFinished: status=%d, error=%s", status,
-            error.ToUTF8().data());
+// ----------------------------------------------------------------------------
+// Автоподбор ширины колонок
+// ----------------------------------------------------------------------------
+void EPGPanel::AdjustProgramColumns() {
+  if (!m_programGrid || m_programGrid->GetNumberRows() == 0)
+    return;
 
-  m_refreshing = false;
-  m_refreshBtn->Enable(true);
-  m_activityIndicator->Stop();
-  m_activityIndicator->Hide();
-  if (auto *parent = m_activityIndicator->GetParent()) {
-    parent->Layout();
+  int totalWidth;
+  m_programGrid->GetClientSize(&totalWidth, nullptr);
+
+  int maxTimeWidth = 0;
+  wxClientDC dc(m_programGrid);
+  dc.SetFont(m_programGrid->GetDefaultCellFont());
+  for (int row = 0; row < m_programGrid->GetNumberRows(); ++row) {
+    wxString text = m_programGrid->GetCellValue(row, 0);
+    wxSize extent = dc.GetTextExtent(text);
+    if (extent.GetWidth() > maxTimeWidth)
+      maxTimeWidth = extent.GetWidth();
   }
+  maxTimeWidth += FromDIP(20);
+  if (maxTimeWidth < FromDIP(80))
+    maxTimeWidth = FromDIP(80);
 
-  if (status == EPG_STATUS_OK) {
-    SetStatus("Updated", "EPG updated successfully.");
-    m_hasError = false;
-    m_lastError.Clear();
-  } else if (status == EPG_STATUS_ERROR) {
-    SetStatus("Update failed", error.IsEmpty() ? "EPG update error" : error);
-    LOG_ERROR("EPG update error: %s", error.ToUTF8().data());
-    m_lastError = error;
-    m_hasError = true;
-  } else if (status == EPG_STATUS_NO_SOURCES) {
-    SetStatus("Warning", "No EPG sources configured.");
-    m_hasError = false;
-    m_lastError.Clear();
-  } else {
-    SetStatus("", ""); // очистка
-    m_hasError = false;
-    m_lastError.Clear();
-  }
+  int catWidth = FromDIP(150);
+  int titleWidth = totalWidth - maxTimeWidth - catWidth;
+  if (titleWidth < FromDIP(50))
+    titleWidth = FromDIP(50);
 
-  // Перезагрузить программы для текущего канала
-  if (!m_currentChannelId.empty()) {
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-  }
-
-  ShowProgressControls(false);
+  m_programGrid->SetColSize(0, maxTimeWidth);
+  m_programGrid->SetColSize(1, titleWidth);
+  m_programGrid->SetColSize(2, catWidth);
+  m_programGrid->AutoSizeRows();
 }
 
-void EPGPanel::ShowMessage(const wxString &msg) {
-  wxMessageBox(msg, "Info", wxOK | wxICON_INFORMATION, this);
+void EPGPanel::OnProgramListResize(wxSizeEvent &event) {
+  AdjustProgramColumns();
+  event.Skip();
 }
 
+// ----------------------------------------------------------------------------
+// Вспомогательные методы для статуса
+// ----------------------------------------------------------------------------
 void EPGPanel::SetStatus(const wxString &brief, const wxString &detail) {
   MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
   if (mf) {
@@ -881,56 +363,13 @@ void EPGPanel::ClearStatus() {
   }
 }
 
-void EPGPanel::SwitchMode(Mode mode) {
-  if (m_currentMode == mode)
-    return;
-  m_currentMode = mode;
-  UpdateModeButtons(mode);
-
-  const std::vector<Channel> *source = nullptr;
-  if (mode == MODE_PLAYLIST) {
-    source = &m_playlistChannels;
-  } else {
-    source = &m_favoriteChannels;
-  }
-
-  m_channelModel->SetSource(source);
-  // Сброс поиска
-  if (m_searchCtrl) {
-    m_searchCtrl->SetValue(wxEmptyString);
-    m_channelModel->Filter(wxEmptyString);
-  }
-
-  // Восстановить выделение, если текущий канал есть в новом источнике
-  SelectCurrentChannelInList();
-
-  wxString modeName = (mode == MODE_PLAYLIST) ? "Playlist" : "Favorites";
-  SetStatus("", wxString::Format("EPG mode: %s", modeName));
+void EPGPanel::ShowMessage(const wxString &msg) {
+  wxMessageBox(msg, "Info", wxOK | wxICON_INFORMATION, this);
 }
 
-void EPGPanel::UpdateModeButtons(Mode mode) {
-  if (m_btnPlaylist && m_btnFavorites) {
-    m_btnPlaylist->SetValue(mode == MODE_PLAYLIST);
-    m_btnFavorites->SetValue(mode == MODE_FAVORITES);
-  }
-}
-
-void EPGPanel::SelectCurrentChannelInList() {
-  if (!m_channelModel || m_currentChannel.getName().empty())
-    return;
-
-  int idx = m_channelModel->FindChannel(m_currentChannel);
-  if (idx >= 0) {
-    wxDataViewItem item = m_channelModel->GetItemByRow(idx);
-    m_channelListView->SetCurrentItem(item);
-    m_channelListView->Select(item);
-    m_channelListView->EnsureVisible(item);
-    m_channelListView->Refresh();
-  } else {
-    m_channelListView->UnselectAll();
-  }
-}
-
+// ----------------------------------------------------------------------------
+// Сохранение/восстановление состояния
+// ----------------------------------------------------------------------------
 void EPGPanel::SaveState() {
   s_lastChannelId = m_currentChannelId;
   s_lastChannelName = m_currentChannelName;
@@ -946,146 +385,69 @@ void EPGPanel::RestoreState() {
     if (!s_lastPlaylistName.empty()) {
       ch.setPlaylistName(s_lastPlaylistName);
     }
-    m_currentDate = s_lastDate; // восстанавливаем дату
-    SetCurrentChannel(ch);
+    m_currentDate = s_lastDate;
+    SetChannel(ch);
   } else {
-    // Нет сохранённого канала – сбрасываем UI
+    // Сброс
     m_channelNameLabel->SetLabel("No channel selected");
-
-    // Устанавливаем дату на начало сегодняшнего дня (локально) в UTC
     m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
     UpdateDateLabel();
-
     m_programGrid->ClearGrid();
-    if (m_programGrid->GetNumberRows() > 0) {
+    if (m_programGrid->GetNumberRows() > 0)
       m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());
-    }
     m_detailTitle->SetLabel("");
     m_detailDesc->SetValue("");
-    if (m_channelListView) {
-      m_channelListView->UnselectAll();
-    }
   }
 }
 
-static wxString FormatSize(double bytes) {
-  const char *units[] = {"B", "KB", "MB", "GB"};
-  int i = 0;
-  while (bytes >= 1024 && i < 3) {
-    bytes /= 1024;
-    i++;
-  }
-  return wxString::Format("%.1f %s", bytes, units[i]);
-}
+// ----------------------------------------------------------------------------
+// Обработка завершения обновления EPG (вызывается из MainFrame)
+// ----------------------------------------------------------------------------
+void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
+  LOG_DEBUG("EPGPanel::OnEpgUpdateFinished: status=%d, error=%s", status,
+            error.ToUTF8().data());
 
-void EPGPanel::OnProgressTimer(wxTimerEvent &) {
-  if (!m_epgManager) {
-    ShowProgressControls(false);
-    return;
-  }
-  const auto &prog = m_epgManager->GetDownloadProgress();
-  if (prog.abort.load()) {
-    ShowProgressControls(false);
-    return;
-  }
-
-  double total = prog.totalBytes.load();
-  double downloaded = prog.downloadedBytes.load();
-
-  if (total > 0) {
-    int percent = static_cast<int>((downloaded / total) * 100);
-    m_progressGauge->SetValue(percent);
+  if (status == EPG_STATUS_OK) {
+    SetStatus("Updated", "EPG updated successfully.");
+    m_hasError = false;
+    m_lastError.Clear();
+  } else if (status == EPG_STATUS_ERROR) {
+    SetStatus("Update failed", error.IsEmpty() ? "EPG update error" : error);
+    LOG_ERROR("EPG update error: %s", error.ToUTF8().data());
+    m_lastError = error;
+    m_hasError = true;
+  } else if (status == EPG_STATUS_NO_SOURCES) {
+    SetStatus("Warning", "No EPG sources configured.");
+    m_hasError = false;
+    m_lastError.Clear();
   } else {
-    // Если неизвестен общий размер, показываем неопределённый прогресс
-    // (мигающий)
-    m_progressGauge->Pulse();
+    SetStatus("", "");
+    m_hasError = false;
+    m_lastError.Clear();
   }
 
-  // Формируем текст с размером и скоростью
-  wxString text = FormatSize(downloaded);
-  if (total > 0) {
-    text += " / " + FormatSize(total);
+  // Перезагрузить программы для текущего канала
+  if (!m_currentChannelId.empty()) {
+    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
   }
-
-  // Скорость
-  auto now = std::chrono::steady_clock::now();
-  double elapsed = std::chrono::duration<double>(now - m_prevTime).count();
-  if (elapsed > 0.5) {
-    double speed =
-        (downloaded - m_prevDownloaded) / elapsed; // bytes per second
-    if (speed > 0) {
-      text += "  " + FormatSize(speed) + "/s";
-    }
-    m_prevDownloaded = downloaded;
-    m_prevTime = now;
-  }
-
-  m_progressText->SetLabel(text);
 }
 
-void EPGPanel::SetActive(bool active) { m_isActive = active; }
-
-// --------------------------------------------------------------------------
-// Показать/скрыть прогресс матчинга
-// --------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// Индикация прогресса матчинга (вызывается из MainFrame)
+// ----------------------------------------------------------------------------
 void EPGPanel::ShowMatchProgress(bool show) {
-  // Показываем/скрываем элементы управления
-  m_progressGauge->Show(show);
-  m_progressText->Show(show);
-  m_cancelBtn->Show(show);
-
+  // Здесь можно показать что-то, но в новой панели мы не показываем прогресс,
+  // так как он управляется глобально. Оставляем заглушку.
   if (show) {
-    // Сброс индикатора
-    m_progressGauge->SetValue(0);
-    m_progressText->SetLabel("Matching channels...");
-    // Отключаем кнопки, чтобы не мешать операции
-    m_refreshBtn->Enable(false);
-    m_manageSourcesBtn->Enable(false);
+    SetStatus("Matching", "Matching channels...");
   } else {
-    // Включаем кнопки обратно
-    m_refreshBtn->Enable(true);
-    m_manageSourcesBtn->Enable(true);
-  }
-
-  // Обновляем layout
-  if (auto *parent = m_progressGauge->GetParent()) {
-    parent->Layout();
+    ClearStatus();
   }
 }
 
 void EPGPanel::UpdateMatchProgress(int matched, int total, int progress) {
-  if (!m_progressGauge->IsShown())
-    return;
-
-  int percent = (total > 0) ? (progress * 100 / total) : 0;
-  m_progressGauge->SetValue(percent);
-  m_progressText->SetLabel(wxString::Format(
-      "Matching channels: %d/%d matched, %d%%", matched, progress, percent));
-
-  // Обновляем статус-бар только если вкладка EPG активна
   if (m_isActive) {
-    MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
-    if (mf) {
-      m_progressText->SetLabel(wxString::Format("Matching: %d/%d (%d%%)",
-                                                matched, progress, percent));
-    }
-  }
-}
-
-void EPGPanel::OnCancel(wxCommandEvent &) {
-  if (m_epgManager) {
-    m_epgManager->AbortDownload();
-    m_epgManager->CancelMatching();
-  }
-
-  ShowProgressControls(false);
-  ShowMatchProgress(false);
-
-  if (m_isActive) { // <-- изменено
-    MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
-    if (mf) {
-      mf->SetStatusText("Cancelled", 1);
-      mf->SetStatusText("Operation cancelled by user.", 0);
-    }
+    SetStatus("Matching", wxString::Format("Matched %d/%d (%d%%)", matched,
+                                           progress, progress * 100 / total));
   }
 }

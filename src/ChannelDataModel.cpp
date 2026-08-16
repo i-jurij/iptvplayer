@@ -60,7 +60,7 @@ ChannelDataModel::ChannelDataModel()
     : wxDataViewVirtualListModel(0), m_sortColumn(-1), m_sortAscending(true),
       m_disableSorting(false), m_lastDpi(0) {}
 
-unsigned int ChannelDataModel::GetColumnCount() const { return 8; }
+unsigned int ChannelDataModel::GetColumnCount() const { return 7; }
 
 wxString ChannelDataModel::GetColumnType(unsigned int /*col*/) const {
   return "string";
@@ -138,28 +138,9 @@ void ChannelDataModel::GetValueByRow(wxVariant &variant, unsigned int row,
       variant = wxString::FromUTF8(ch.getCountry());
       break;
 
-    case 7: {
-      // Получаем текущую программу для канала
-      wxString prog;
-      Application *app = static_cast<Application *>(wxTheApp);
-      if (app) {
-        EPGManager *epg = app->GetEPGManager();
-        if (epg && epg->IsLoaded()) {
-          std::string tvgId = ch.getTvgId();
-          if (!tvgId.empty()) {
-            EpgProgram current = epg->GetCurrentProgram(tvgId);
-            if (!current.title.empty()) {
-              prog = wxString::FromUTF8(current.title);
-            }
-          }
-        }
-      }
-      if (prog.IsEmpty()) {
-        prog = "--";
-      }
-      variant = prog;
+    default:
+      variant = "";
       break;
-    }
   }
 }
 

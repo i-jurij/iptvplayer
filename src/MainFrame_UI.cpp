@@ -156,76 +156,17 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   // CHANNELS PAGE
   // -------------------------------
-  wxPanel *channelsPage = new wxPanel(m_notebook, wxID_ANY);
-  channelsPage->SetBackgroundStyle(wxBG_STYLE_PAINT);
-  channelsPage->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
-
-  m_channelsPage = channelsPage;
-
-  auto *channelsSizer = new wxBoxSizer(wxVERTICAL);
-
-  auto *channelHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_channelsHeader =
-      new wxStaticText(channelsPage, wxID_ANY, "Playlist: - / Channels: 0");
-  auto hFont = m_channelsHeader->GetFont();
-  hFont.SetPointSize(TITLE_FONT_SIZE);
-  hFont.SetWeight(wxFONTWEIGHT_BOLD);
-  m_channelsHeader->SetFont(hFont);
-  channelHeaderSizer->Add(m_channelsHeader, 1, wxALL, 0);
-
-  m_viewToolBar = new wxToolBar(channelsPage, wxID_ANY, wxDefaultPosition,
-                                wxDefaultSize, wxTB_HORIZONTAL | wxNO_BORDER);
-  wxBitmapBundle iconList = LoadSvgIcon("list", this);
-  wxBitmapBundle iconGrid = LoadSvgIcon("grid", this);
-  wxBitmapBundle iconLogo = LoadSvgIcon("showlogo", this);
-
-  m_viewToolBar->AddTool(ID_VIEW_LIST, "List",
-                         iconList.IsOk() ? iconList : wxNullBitmap, "List view",
-                         wxITEM_RADIO);
-
-  m_viewToolBar->AddTool(ID_VIEW_GRID, "Cards",
-                         iconGrid.IsOk() ? iconGrid : wxNullBitmap,
-                         "Cards view", wxITEM_RADIO);
-
-  m_viewToolBar->AddSeparator();
-
-  m_viewToolBar->AddTool(ID_SHOW_LOGO, "Logo",
-                         iconLogo.IsOk() ? iconLogo : wxNullBitmap,
-                         "Show channel logo", wxITEM_CHECK);
-
-  m_viewToolBar->Realize();
-  m_viewToolBar->ToggleTool(ID_SHOW_LOGO, !m_channelsNoLogo);
-  m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, "Show channel logo");
-
-  channelHeaderSizer->Add(m_viewToolBar, 0, wxALL, 0);
-
-  auto *channelHeaderOuterSizer = new wxBoxSizer(wxVERTICAL);
-  channelHeaderOuterSizer->Add(channelHeaderSizer, 0, wxEXPAND, 0);
-
-  createChannelsFilterPanel();
-  if (m_filterPanel) {
-    m_filterPanel->Reparent(m_channelsPage);
-    channelHeaderOuterSizer->Add(m_filterPanel, 0,
-                                 wxEXPAND | wxTOP | wxLEFT | wxRIGHT, 8);
-    UpdateFilterPanelVisibility();
-  }
-
-  channelsSizer->Add(channelHeaderOuterSizer, 0, wxEXPAND | wxALL, 12);
-
+  m_channelsPage = new wxPanel(m_notebook, wxID_ANY);
+  m_notebook->AddPage(m_channelsPage, "Channels");
+  m_channelsPageIdx = m_notebook->FindPage(m_channelsPage);
   createChannelsView();
-  if (m_channelViewBook) {
-    channelsSizer->Add(m_channelViewBook, 1, wxEXPAND | wxALL, 4);
-  }
-
-  channelsPage->SetSizer(channelsSizer);
-  channelsPage->Layout();
-
-  m_notebook->AddPage(channelsPage, "Channels");
-  m_channelsPageIdx = m_notebook->FindPage(channelsPage);
 
   // -------------------------------
   // FAVORITES PAGE
   // -------------------------------
+  m_favoritesPanel = new wxPanel(m_notebook, wxID_ANY);
+  m_notebook->AddPage(m_favoritesPanel, "Favorites");
+  m_favoritesPageIdx = m_notebook->FindPage(m_favoritesPanel);
   createFavoritesUI();
 
   // -------------------------------
@@ -323,10 +264,10 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   // EPG PANEL
   // -------------------------------
-  m_epgPanel = new EPGPanel(m_notebook);
-  m_notebook->AddPage(m_epgPanel, "Program");
-  m_epgPageIdx = m_notebook->FindPage(m_epgPanel);
-  LOG_DEBUG("MainFrame: added EPG page; m_epgPageIdx=%d", m_epgPageIdx);
+  m_epgAdminPanel = new EpgSourceManagerPanel(
+      m_notebook, m_application->GetEPGManager(), true);
+  m_notebook->AddPage(m_epgAdminPanel, "Program");
+  m_epgPageIdx = m_notebook->FindPage(m_epgAdminPanel);
 
   // -------------------------------
   // HEADER BUTTONS bindings

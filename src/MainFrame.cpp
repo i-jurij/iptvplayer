@@ -178,25 +178,17 @@ MainFrame::MainFrame(Application *app)
           }
         }
 
-        // ===== EPG =====
-        int oldSel = evt.GetOldSelection();
-        int newSel = evt.GetSelection();
-
-        if (oldSel == m_epgPageIdx && m_epgPanel) {
-          m_epgPanel->ClearStatus();
-          m_epgPanel->SaveState();
-          m_epgPanel->SetActive(false);
-        }
-        if (newSel == m_epgPageIdx && m_epgPanel) {
-          m_epgPanel->RestoreState();
-          m_epgPanel->SetActive(true);
+        if (sel == m_videoPageIdx) {
+          if (m_epgChannels)
+            m_epgChannels->SetActive(false);
+          if (m_epgFavorites)
+            m_epgFavorites->SetActive(false);
         }
 
         // --- Вызов обработчиков страниц ---
         HandleChannelPageChanged(sel);
         HandleFavPageChanged(sel);
         HandlePlaylistPageChanged(sel);
-        HandleEpgPageChanged(sel);
 
         // --- Управление видимостью UI в полноэкранном режиме (из внутреннего
         // обработчика) ---
@@ -222,19 +214,29 @@ MainFrame::MainFrame(Application *app)
 
   Bind(wxEVT_BUTTON, &MainFrame::onAddIPTVPlaylist, this, ID_ADD_IPTV_PLAYLIST);
 
-  m_epgCoalesceTimer.SetOwner(this);
-  Bind(wxEVT_TIMER, &MainFrame::OnEpgCoalesceTimer, this,
-       m_epgCoalesceTimer.GetId());
-
+  m_epgProgressTimer.SetOwner(this);
+  Bind(wxEVT_TIMER, &MainFrame::OnEpgProgressTimer, this,
+       m_epgProgressTimer.GetId());
+  
   // Установка колбэка для EPGManager
   if (m_application && m_application->GetEPGManager()) {
-    m_application->GetEPGManager()->SetOnUpdateFinished(
-        [this](int status, const std::string &error) {
-          wxCommandEvent evt;
-          evt.SetInt(status);
-          evt.SetString(wxString::FromUTF8(error));
-          this->OnEPGUpdated(evt);
-        });
+    auto *epg = m_application->GetEPGManager();
+
+    epg->SetOnRefreshStarted([this]() {
+      if (m_gaugeTop) {
+        m_gaugeTop->SetRange(100);
+        m_gaugeTop->SetValue(0);
+        m_gaugeTop->Show();
+        m_epgProgressTimer.Start(200);
+      }
+    });
+
+    epg->SetOnUpdateFinished([this](int status, const std::string &error) {
+      wxCommandEvent evt;
+      evt.SetInt(status);
+      evt.SetString(wxString::FromUTF8(error));
+      this->OnEPGUpdated(evt);
+    });
   }
 }
 
@@ -275,6 +277,34 @@ MainFrame::~MainFrame() {
         wxString::Format("MainFrame dtor std::exception: %s", e.what()));
   } catch (...) {
     wxMessageBox("MainFrame dtor unknown exception");
+  }
+}
+
+void MainFrame::OnEpgProgressTimer(wxTimerEvent &) {
+  auto *epg = m_application->GetEPGManager();
+  if (!epg) {
+    m_epgProgressTimer.Stop();
+    return;
+  }
+
+  const auto &prog = epg->GetDownloadProgress();
+  if (prog.abort.load()) {
+    m_epgProgressTimer.Stop();
+    if (m_gaugeTop)
+      m_gaugeTop->Hide();
+    return;
+  }
+
+  double total = prog.totalBytes.load();
+  double downloaded = prog.downloadedBytes.load();
+
+  if (total > 0 && m_gaugeTop) {
+    int percent = static_cast<int>((downloaded / total) * 100);
+    m_gaugeTop->SetValue(percent);
+    SetStatusText(wxString::Format("Downloading EPG: %d%%", percent), 1);
+  } else if (m_gaugeTop) {
+    m_gaugeTop->Pulse();
+    SetStatusText("Downloading EPG...", 1);
   }
 }
 
@@ -351,12 +381,6 @@ void MainFrame::ApplyFullscreen(bool fs) {
   }
 }
 
-void MainFrame::HandleEpgPageChanged(int sel) {
-  if (sel != m_epgPageIdx)
-    return;
-  LOG_DEBUG("HandleEpgPageChanged: sel=%d", sel);
-}
-
 void MainFrame::OnEpgToggle(wxCommandEvent &) {
   if (m_videoPanel)
     m_videoPanel->SetTabActive(false);
@@ -364,49 +388,48 @@ void MainFrame::OnEpgToggle(wxCommandEvent &) {
   m_notebook->SetSelection(m_epgPageIdx);
 }
 
-void MainFrame::SwitchToEpgTab(Channel channel) {
-  if (!m_epgPanel)
-    return;
-  m_notebook->SetSelection(m_epgPageIdx);
-  m_epgPanel->SetCurrentChannel(channel);
-  ToggleHeaderGroup(m_btnEpg);
-}
-
 void MainFrame::OnEPGUpdated(wxCommandEvent &event) {
   int status = event.GetInt();
   wxString error = event.GetString();
 
-  // Обновляем панель EPG сразу
-  if (m_epgPanel) {
-    m_epgPanel->OnEpgUpdateFinished(status, error);
+  m_epgProgressTimer.Stop();
+
+  if (m_epgAdminPanel) {
+    m_epgAdminPanel->UpdateSourceList();
+    m_epgAdminPanel->SetRefreshing(false);
   }
 
-  // Запускаем коалесцирующий таймер для обновления остальных представлений
-  if (!m_epgUpdatePending) {
-    m_epgUpdatePending = true;
-    m_epgCoalesceTimer.StartOnce(1000);
+  if (m_epgChannels && m_epgChannels->HasChannel()) {
+    m_epgChannels->LoadProgramsForChannel(m_epgChannels->GetCurrentChannelId(),
+                                          m_epgChannels->GetCurrentDate());
+  }
+
+  if (m_epgFavorites && m_epgFavorites->HasChannel()) {
+    m_epgFavorites->LoadProgramsForChannel(
+        m_epgFavorites->GetCurrentChannelId(),
+        m_epgFavorites->GetCurrentDate());
+  }
+
+  if (m_gaugeTop) {
+    m_gaugeTop->Hide();
+    m_gaugeTop->SetValue(0);
+  }
+
+  if (status == EPG_STATUS_OK) {
+    SetStatusText("EPG updated successfully", 0);
+    SetStatusText("", 1);
+  } else if (status == EPG_STATUS_ERROR) {
+    SetStatusText("EPG update failed", 0);
+    SetStatusText(error, 1);
+  } else if (status == EPG_STATUS_NO_SOURCES) {
+    SetStatusText("No EPG sources configured", 0);
+    SetStatusText("", 1);
+  } else {
+    SetStatusText("", 0);
+    SetStatusText("", 1);
   }
 
   event.Skip();
-}
-
-void MainFrame::OnEpgCoalesceTimer(wxTimerEvent &) {
-  m_epgUpdatePending = false;
-
-  if (m_channelList) {
-    m_channelList->RefreshProgramColumn();
-  }
-  if (m_channelCards) {
-    m_channelCards->InvalidateAll();
-    m_channelCards->Refresh();
-  }
-  if (m_favList) {
-    m_favList->RefreshProgramColumn();
-  }
-  if (m_favCards) {
-    m_favCards->InvalidateAll();
-    m_favCards->Refresh();
-  }
 }
 
 void MainFrame::CleanupFinishedTasks() {
@@ -588,13 +611,4 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
       }));
 
   LOG_DEBUG("RemoveChannelFromPlaylist: END");
-}
-
-void MainFrame::RefreshEpgDisplay() {
-  if (m_channelList)
-    m_channelList->RefreshProgramColumn();
-  if (m_channelCards) {
-    m_channelCards->InvalidateAll();
-    m_channelCards->RefreshCards();
-  }
 }

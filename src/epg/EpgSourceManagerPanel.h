@@ -2,6 +2,7 @@
 
 #include <wx/button.h>
 #include <wx/checkbox.h>
+#include <wx/activityindicator.h>
 #include <wx/listctrl.h>
 #include <wx/panel.h>
 #include <wx/spinctrl.h>
@@ -30,8 +31,13 @@ public:
   // Проверка на наличие изменений
   bool IsDirty() const;
 
+  void SetRefreshing(bool refreshing);
+
 private:
   EPGManager *m_epgMgr;
+
+  wxActivityIndicator *m_activityIndicator = nullptr;
+  wxButton *m_cancelBtn = nullptr;
 
   // Основные элементы управления
   wxListCtrl *m_sourceList;

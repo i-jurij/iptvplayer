@@ -8,6 +8,7 @@
 #include "MainFrame.h"
 #include "Profiler.h"
 #include "Utils.h"
+#include "VP_SvgIcon.h"
 
 #include <wx/simplebook.h>
 #include <wx/sizer.h>
@@ -18,10 +19,63 @@ void MainFrame::createChannelsView() {
   if (!m_channelsPage)
     return;
 
-  if (m_channelViewBook)
-    return;
+  // Очищаем страницу от старых элементов (если они есть)
+  m_channelsPage->DestroyChildren();
 
-  m_channelViewBook = new wxSimplebook(m_channelsPage, wxID_ANY);
+  // Создаём основной sizer страницы
+  wxBoxSizer *channelsSizer = new wxBoxSizer(wxVERTICAL);
+
+  // ---- Заголовок ----
+  wxBoxSizer *channelHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
+  m_channelsHeader =
+      new wxStaticText(m_channelsPage, wxID_ANY, "Playlist: - / Channels: 0");
+  wxFont hFont = m_channelsHeader->GetFont();
+  hFont.SetPointSize(12);
+  hFont.SetWeight(wxFONTWEIGHT_BOLD);
+  m_channelsHeader->SetFont(hFont);
+  channelHeaderSizer->Add(m_channelsHeader, 1, wxALL, 0);
+
+  // Toolbar
+  m_viewToolBar = new wxToolBar(m_channelsPage, wxID_ANY, wxDefaultPosition,
+                                wxDefaultSize, wxTB_HORIZONTAL | wxNO_BORDER);
+  wxBitmapBundle iconList = LoadSvgIcon("list", this);
+  wxBitmapBundle iconGrid = LoadSvgIcon("grid", this);
+  wxBitmapBundle iconLogo = LoadSvgIcon("showlogo", this);
+
+  m_viewToolBar->AddTool(ID_VIEW_LIST, "List",
+                         iconList.IsOk() ? iconList : wxNullBitmap, "List view",
+                         wxITEM_RADIO);
+  m_viewToolBar->AddTool(ID_VIEW_GRID, "Cards",
+                         iconGrid.IsOk() ? iconGrid : wxNullBitmap,
+                         "Cards view", wxITEM_RADIO);
+  m_viewToolBar->AddSeparator();
+  m_viewToolBar->AddTool(ID_SHOW_LOGO, "Logo",
+                         iconLogo.IsOk() ? iconLogo : wxNullBitmap,
+                         "Show channel logo", wxITEM_CHECK);
+  m_viewToolBar->Realize();
+  m_viewToolBar->ToggleTool(ID_SHOW_LOGO, !m_channelsNoLogo);
+  m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, "Show channel logo");
+
+  channelHeaderSizer->Add(m_viewToolBar, 0, wxALL, 0);
+
+  channelsSizer->Add(channelHeaderSizer, 0, wxEXPAND | wxALL, 12);
+
+  // ---- Фильтры ----
+  createChannelsFilterPanel();
+  if (m_filterPanel) {
+    m_filterPanel->Reparent(m_channelsPage);
+    channelsSizer->Add(m_filterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT, 8);
+    UpdateFilterPanelVisibility();
+  }
+
+  // ---- Splitter с каналами и EPG ----
+  wxSplitterWindow *channelsSplitter =
+      new wxSplitterWindow(m_channelsPage, wxID_ANY, wxDefaultPosition,
+                           wxDefaultSize, wxSP_LIVE_UPDATE | wxSP_3D);
+  channelsSplitter->SetMinimumPaneSize(200);
+
+  // Левая часть: wxSimplebook с ChannelList и ChannelCards
+  m_channelViewBook = new wxSimplebook(channelsSplitter, wxID_ANY);
   m_channelViewBook->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_channelViewBook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
 
@@ -44,13 +98,13 @@ void MainFrame::createChannelsView() {
 
   m_channelViewBook->AddPage(m_channelList, "List");
   m_channelViewBook->AddPage(m_channelCards, "Cards");
-
   m_channelViewBook->ChangeSelection(startInGrid ? 1 : 0);
 
+  // ---- Применяем начальный режим и обновляем видимость фильтров ----
   ApplyInitialViewMode();
-
   UpdateFilterPanelVisibility();
 
+  // ---- Событие переключения страниц в book ----
   m_channelViewBook->Bind(wxEVT_COMMAND_BOOKCTRL_PAGE_CHANGED,
                           [this](wxBookCtrlEvent &evt) {
                             UpdateFilterPanelVisibility();
@@ -69,11 +123,25 @@ void MainFrame::createChannelsView() {
                             }
                             evt.Skip();
                           });
+
+  // Правая часть: EPGPanel для программы
+  m_epgChannels = new EPGPanel(channelsSplitter);
+
+  channelsSplitter->SplitVertically(m_channelViewBook, m_epgChannels, 600);
+
+  channelsSizer->Add(channelsSplitter, 1, wxEXPAND | wxALL, 4);
+
+  m_channelsPage->SetSizer(channelsSizer);
+  m_channelsPage->Layout();
 }
 
 void MainFrame::HandleChannelPageChanged(int sel) {
   if (sel == m_channelsPageIdx) {
-    // Возобновляем загрузку для активного представления каналов
+    if (m_epgChannels)
+      m_epgChannels->SetActive(true);
+    if (m_epgFavorites)
+      m_epgFavorites->SetActive(false);
+
     if (m_channelViewBook) {
       int activeView = m_channelViewBook->GetSelection();
       if (activeView == 0 && m_channelList) {
@@ -82,19 +150,14 @@ void MainFrame::HandleChannelPageChanged(int sel) {
         m_channelCards->ResumeLogoLoading();
       }
     }
-
-    LOG_DEBUG("HandleChannelPageChanged: sel=%d", sel);
-
-    // Существующая логика фокуса
     if (m_channelViewBook->GetSelection() == 0 && m_channelList) {
       m_channelList->SetFocusFromKbd();
-      return;
-    }
-    if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
+    } else if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
       m_channelCards->SetFocusIgnoringChildren();
     }
   } else {
-    // Приостанавливаем загрузку для обоих представлений каналов
+    if (m_epgChannels)
+      m_epgChannels->SetActive(false);
     if (m_channelList)
       m_channelList->PauseLogoLoading();
     if (m_channelCards)

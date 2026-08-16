@@ -56,9 +56,6 @@ public:
 
   std::atomic<bool> m_closing;
 
-  void RefreshProgramColumn();
-  void RefreshProgramColumnVisible();
-
   void ClearPendingLoads();
 
 protected:

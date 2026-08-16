@@ -57,6 +57,25 @@ void EpgSourceManagerPanel::SetupUI() {
   btnSizer->Add(m_editBtn, 0, wxRIGHT, FromDIP(5));
   btnSizer->Add(m_removeBtn, 0, wxRIGHT, FromDIP(5));
   btnSizer->Add(m_refreshBtn, 0, wxRIGHT, FromDIP(5));
+  // Activity Indicator
+  m_activityIndicator = new wxActivityIndicator(this, wxID_ANY);
+  m_activityIndicator->Hide();
+  btnSizer->Add(m_activityIndicator, 0, wxLEFT | wxALIGN_CENTER_VERTICAL,
+                FromDIP(5));
+
+  // Кнопка Cancel
+  m_cancelBtn = new wxButton(this, wxID_ANY, "Cancel");
+  m_cancelBtn->Hide();
+  m_cancelBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
+    if (m_epgMgr) {
+      m_epgMgr->AbortDownload();
+      m_epgMgr->CancelMatching();
+    }
+    SetRefreshing(false);
+  });
+  btnSizer->Add(m_cancelBtn, 0, wxLEFT | wxRIGHT | wxALIGN_CENTER_VERTICAL,
+                FromDIP(5));
+
   btnSizer->Add(m_deleteCacheBtn, 0);
   mainSizer->Add(btnSizer, 0, wxBOTTOM, FromDIP(5));
 
@@ -101,6 +120,29 @@ void EpgSourceManagerPanel::SetupUI() {
 
   SetSizer(mainSizer);
   UpdateSourceList();
+}
+
+void EpgSourceManagerPanel::SetRefreshing(bool refreshing) {
+  if (refreshing) {
+    m_activityIndicator->Show();
+    m_activityIndicator->Start();
+    m_cancelBtn->Show();
+    m_refreshBtn->Disable();
+    m_addBtn->Disable();
+    m_editBtn->Disable();
+    m_removeBtn->Disable();
+    m_deleteCacheBtn->Disable();
+  } else {
+    m_activityIndicator->Stop();
+    m_activityIndicator->Hide();
+    m_cancelBtn->Hide();
+    m_refreshBtn->Enable();
+    m_addBtn->Enable();
+    m_editBtn->Enable();
+    m_removeBtn->Enable();
+    m_deleteCacheBtn->Enable();
+  }
+  Layout();
 }
 
 void EpgSourceManagerPanel::UpdateSourceList() {
@@ -153,17 +195,15 @@ void EpgSourceManagerPanel::EnableButtons(bool enable) {
   m_deleteCacheBtn->Enable(enable);
 }
 
-// ---------- Исправленный OnAdd ----------
 void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
   if (!m_epgMgr) {
     wxMessageBox("EPG Manager not available.", "Error", wxOK | wxICON_ERROR);
     return;
   }
 
-  // Показываем диалог добавления источника
   AddEpgSourceDialog dlg(this);
   if (dlg.ShowModal() != wxID_OK) {
-    return; // пользователь отменил
+    return;
   }
 
   wxString urlOrPath = dlg.GetUrlOrPath();
@@ -181,7 +221,6 @@ void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
     }
   }
 
-  // Формируем имя, если не задано
   if (name.IsEmpty()) {
     if (isFile) {
       wxFileName fn(urlOrPath);
@@ -203,13 +242,14 @@ void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
 
   m_epgMgr->SetSources(sources);
   m_epgMgr->SaveSourcesToConfig();
-  m_epgMgr->Refresh(); // асинхронная загрузка
 
+  // Показываем индикатор
+  SetRefreshing(true);
+  m_epgMgr->Refresh(); // асинхронно
+
+  // Обновляем список источников сразу (без ожидания Refresh)
   UpdateSourceList();
   m_dirty = true;
-
-  wxMessageBox("EPG source added successfully.", "Success",
-               wxOK | wxICON_INFORMATION);
 }
 
 void EpgSourceManagerPanel::OnEdit(wxCommandEvent &) {
@@ -273,9 +313,8 @@ void EpgSourceManagerPanel::OnRemove(wxCommandEvent &) {
 
 void EpgSourceManagerPanel::OnRefresh(wxCommandEvent &) {
   if (m_epgMgr) {
-    m_epgMgr->Refresh();
-    wxMessageBox("EPG refresh started in background.", "Info",
-                 wxOK | wxICON_INFORMATION);
+    SetRefreshing(true);
+    m_epgMgr->Refresh(); // асинхронно
   }
 }
 

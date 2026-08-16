@@ -4,6 +4,7 @@
 #include "FavoritesList.h"
 #include "LogControl.h"
 #include "MainFrame.h"
+#include "Profiler.h"
 #include "VP_SvgIcon.h"
 
 #include <wx/button.h>
@@ -15,56 +16,56 @@
 #include <set>
 
 void MainFrame::createFavoritesUI() {
-  wxPanel *favoritesPage = new wxPanel(m_notebook, wxID_ANY);
-  favoritesPage->SetBackgroundStyle(wxBG_STYLE_PAINT);
-  favoritesPage->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
+  PROFILE_SCOPE("MainFrame::createFavoritesUI");
 
-  auto *favSizer = new wxBoxSizer(wxVERTICAL);
+  if (!m_favoritesPanel)
+    return;
 
-  // --- HEADER ---
-  auto *favHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
+  m_favoritesPanel->DestroyChildren();
+
+  wxBoxSizer *favSizer = new wxBoxSizer(wxVERTICAL);
+
+  // ---- Заголовок ----
+  wxBoxSizer *favHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
   m_favHeader =
-      new wxStaticText(favoritesPage, wxID_ANY, "Favorites: 0 channels");
-
-  auto favFont = m_favHeader->GetFont();
+      new wxStaticText(m_favoritesPanel, wxID_ANY, "Favorites: 0 channels");
+  wxFont favFont = m_favHeader->GetFont();
   favFont.SetPointSize(12);
   favFont.SetWeight(wxFONTWEIGHT_BOLD);
   m_favHeader->SetFont(favFont);
-
   favHeaderSizer->Add(m_favHeader, 1, wxALL, 0);
   favHeaderSizer->AddStretchSpacer(1);
 
-  // --- TOOLBAR ---
-  m_favToolBar = new wxToolBar(favoritesPage, wxID_ANY);
-  wxBitmapBundle iconList = LoadSvgIcon("list", this);
-  wxBitmapBundle iconGrid = LoadSvgIcon("grid", this);
+  // Toolbar
+  m_favToolBar = new wxToolBar(m_favoritesPanel, wxID_ANY);
+  wxBitmapBundle iconFavList = LoadSvgIcon("list", this);
+  wxBitmapBundle iconFavGrid = LoadSvgIcon("grid", this);
 
   m_favToolBar->AddTool(ID_FAV_VIEW_LIST, "List",
-                        iconList.IsOk() ? iconList : wxNullBitmap, "List view",
-                        wxITEM_RADIO);
-
+                        iconFavList.IsOk() ? iconFavList : wxNullBitmap,
+                        "List view", wxITEM_RADIO);
   m_favToolBar->AddTool(ID_FAV_VIEW_GRID, "Grid",
-                        iconGrid.IsOk() ? iconGrid : wxNullBitmap, "Grid view",
-                        wxITEM_RADIO);
-
+                        iconFavGrid.IsOk() ? iconFavGrid : wxNullBitmap,
+                        "Grid view", wxITEM_RADIO);
   m_favToolBar->Realize();
   favHeaderSizer->Add(m_favToolBar, 0, wxALL, 0);
 
   favSizer->Add(favHeaderSizer, 0, wxEXPAND | wxALL, 12);
 
-  // --- FILTER PANEL ---
-  m_favFilterPanel = new wxPanel(favoritesPage, wxID_ANY);
-  auto *favFilterSizer = new wxBoxSizer(wxHORIZONTAL);
+  // ---- Фильтры избранного ----
+  wxPanel *favFilterPanel = new wxPanel(m_favoritesPanel, wxID_ANY);
+  favFilterPanel->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+  wxBoxSizer *favFilterSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  m_favGroupChoice = new wxChoice(m_favFilterPanel, wxID_ANY);
-  m_favCountryChoice = new wxChoice(m_favFilterPanel, wxID_ANY);
-  m_favLangChoice = new wxChoice(m_favFilterPanel, wxID_ANY);
-  m_favSortChoice = new wxChoice(m_favFilterPanel, wxID_ANY);
+  m_favGroupChoice = new wxChoice(favFilterPanel, wxID_ANY);
+  m_favCountryChoice = new wxChoice(favFilterPanel, wxID_ANY);
+  m_favLangChoice = new wxChoice(favFilterPanel, wxID_ANY);
+  m_favSortChoice = new wxChoice(favFilterPanel, wxID_ANY);
 
   m_favGroupChoice->Append("All groups");
   m_favCountryChoice->Append("All countries");
   m_favLangChoice->Append("All languages");
-
   m_favSortChoice->Append("Name ▲");
   m_favSortChoice->Append("Name ▼");
   m_favSortChoice->Append("Group ▲");
@@ -80,19 +81,27 @@ void MainFrame::createFavoritesUI() {
   favFilterSizer->Add(m_favGroupChoice, 0, wxRIGHT, FromDIP(8));
   favFilterSizer->Add(m_favCountryChoice, 0, wxRIGHT, FromDIP(8));
   favFilterSizer->Add(m_favLangChoice, 0, wxRIGHT, FromDIP(8));
-  favFilterSizer->Add(new wxStaticText(m_favFilterPanel, wxID_ANY, "Sort:"), 0,
+  favFilterSizer->Add(new wxStaticText(favFilterPanel, wxID_ANY, "Sort:"), 0,
                       wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(6));
   favFilterSizer->Add(m_favSortChoice, 0, wxRIGHT, FromDIP(8));
   favFilterSizer->AddStretchSpacer(1);
-  m_favFilterResetBtn = new wxButton(m_favFilterPanel, wxID_ANY, "Reset");
+  m_favFilterResetBtn = new wxButton(favFilterPanel, wxID_ANY, "Reset");
   favFilterSizer->Add(m_favFilterResetBtn, 0, wxLEFT, FromDIP(8));
 
-  m_favFilterPanel->SetSizer(favFilterSizer);
-  favSizer->Add(m_favFilterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
+  favFilterPanel->SetSizer(favFilterSizer);
+  favFilterPanel->Layout();
 
-  // --- VIEW BOOK ---
-  m_favViewBook = new wxSimplebook(favoritesPage, wxID_ANY);
+  favSizer->Add(favFilterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                FromDIP(8));
 
+  // ---- Splitter с избранным и EPG ----
+  wxSplitterWindow *favSplitter =
+      new wxSplitterWindow(m_favoritesPanel, wxID_ANY, wxDefaultPosition,
+                           wxDefaultSize, wxSP_LIVE_UPDATE | wxSP_3D);
+  favSplitter->SetMinimumPaneSize(200);
+
+  // Левая часть: wxSimplebook с FavoritesList и FavoritesCards
+  m_favViewBook = new wxSimplebook(favSplitter, wxID_ANY);
   m_favList = new FavoritesList(m_favViewBook, wxID_ANY);
   m_favList->SetSelectCallback(
       [this](const Channel &ch, size_t index, const wxRect &rect) {
@@ -105,71 +114,32 @@ void MainFrame::createFavoritesUI() {
         this->onFavoriteSelected(ch, index, rect);
       });
 
+  auto *cfg = getConfigManager();
+  std::string favMode =
+      cfg ? cfg->getSetting("favorites_view_mode", "grid") : "grid";
+  bool favStartGrid = (favMode != "list");
+
   m_favViewBook->AddPage(m_favList, "List");
   m_favViewBook->AddPage(m_favCards, "Cards");
+  m_favViewBook->ChangeSelection(favStartGrid ? 1 : 0);
 
-  favSizer->Add(m_favViewBook, 1, wxEXPAND | wxALL, 4);
+  // Правая часть: EPGPanel для программы
+  m_epgFavorites = new EPGPanel(favSplitter);
 
-  favoritesPage->SetSizer(favSizer);
-  m_notebook->AddPage(favoritesPage, "Favorites");
-  m_favoritesPageIdx = m_notebook->FindPage(favoritesPage);
+  favSplitter->SplitVertically(m_favViewBook, m_epgFavorites, 300);
 
-  // --- RESTORE VIEW MODE ---
-  auto *cfgFav = getConfigManager();
-  std::string favModeStr = cfgFav->getSetting("favorites_view_mode", "grid");
-  wxString favMode = wxString::FromUTF8(favModeStr);
+  favSizer->Add(favSplitter, 1, wxEXPAND | wxALL, 4);
 
-  if (favMode == "grid") {
-    m_favViewBook->ChangeSelection(1);
-    m_favToolBar->ToggleTool(ID_FAV_VIEW_GRID, true);
-  } else {
-    m_favViewBook->ChangeSelection(0);
-    m_favToolBar->ToggleTool(ID_FAV_VIEW_LIST, true);
-  }
+  m_favoritesPanel->SetSizer(favSizer);
+  m_favoritesPanel->Layout();
 
-  // --- FILL FILTERS FROM FAVORITES ---
-  auto &fm = getApplication()->getFavoritesManager();
-  auto favList = fm.list();
-
-  std::set<wxString> groups;
-  std::set<wxString> countries;
-  std::set<wxString> languages;
-
-  for (const auto &c : favList) {
-    groups.insert(wxString::FromUTF8(c.getGroupTitle()));
-    countries.insert(wxString::FromUTF8(c.getCountry()));
-    languages.insert(wxString::FromUTF8(c.getLanguage()));
-  }
-
-  // заполняем списки
-  m_favGroupChoice->Clear();
-  m_favGroupChoice->Append("All groups");
-  for (auto &g : groups)
-    m_favGroupChoice->Append(g);
-
-  m_favCountryChoice->Clear();
-  m_favCountryChoice->Append("All countries");
-  for (auto &ct : countries)
-    m_favCountryChoice->Append(ct);
-
-  m_favLangChoice->Clear();
-  m_favLangChoice->Append("All languages");
-  for (auto &lg : languages)
-    m_favLangChoice->Append(lg);
-
-  // выставляем дефолт
-  m_favGroupChoice->SetSelection(0);
-  m_favCountryChoice->SetSelection(0);
-  m_favLangChoice->SetSelection(0);
-
-  // --- FILTER EVENTS ---
+  // ---- Привязка событий фильтров ----
   auto bindFavChoice = [&](wxChoice *c) {
     if (!c)
       return;
     c->Bind(wxEVT_CHOICE,
             [this](wxCommandEvent &) { ApplyFavoritesFiltersAndSort(); });
   };
-
   bindFavChoice(m_favGroupChoice);
   bindFavChoice(m_favCountryChoice);
   bindFavChoice(m_favLangChoice);
@@ -184,10 +154,10 @@ void MainFrame::createFavoritesUI() {
       m_favLangChoice->SetSelection(0);
     if (m_favSortChoice)
       m_favSortChoice->SetSelection(0);
-
     ApplyFavoritesFiltersAndSort();
   });
 
+  // Обновляем избранное после создания
   CallAfter([this]() { refreshFavorites(); });
 }
 
@@ -333,6 +303,11 @@ void MainFrame::ApplyFavoritesFiltersAndSort() {
 
 void MainFrame::HandleFavPageChanged(int sel) {
   if (sel == m_favoritesPageIdx) {
+    if (m_epgFavorites)
+      m_epgFavorites->SetActive(true);
+    if (m_epgChannels)
+      m_epgChannels->SetActive(false);
+
     auto *cfg = getConfigManager();
     std::string mode = cfg->getSetting("favorites_view_mode", "grid");
     bool grid = (mode == "grid");
@@ -343,9 +318,7 @@ void MainFrame::HandleFavPageChanged(int sel) {
       m_favList->ResumeLogoLoading();
     }
 
-    // Применяем view mode синхронно (без CallAfter)
     m_favViewBook->ChangeSelection(grid ? 1 : 0);
-
     if (grid) {
       if (m_favCards)
         m_favCards->SetFocusIgnoringChildren();
@@ -354,6 +327,8 @@ void MainFrame::HandleFavPageChanged(int sel) {
         m_favList->SetFocusFromKbd();
     }
   } else {
+    if (m_epgFavorites)
+      m_epgFavorites->SetActive(false);
     if (m_favList)
       m_favList->PauseLogoLoading();
     if (m_favCards)

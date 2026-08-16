@@ -429,29 +429,15 @@ void ChannelList::OnContextMenu(wxDataViewEvent &evt) {
 void ChannelList::ShowContextMenu(const Channel &ch) {
   wxMenu menu;
 
-  int idProgramGuide = wxNewId();
   int idCopyUrl = wxNewId();
   int idCopyName = wxNewId();
   int idRemove = wxNewId();
 
-  menu.Append(idProgramGuide, "Program Guide");
   menu.Append(idCopyUrl, "Copy URL");
   menu.Append(idCopyName, "Copy Name");
   menu.Append(idRemove, "Remove from playlist");
 
   // Привязываем обработчики
-  menu.Bind(
-      wxEVT_MENU,
-      [this, ch](wxCommandEvent &) {
-        MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
-        if (mf) {
-          mf->SwitchToEpgTab(ch);
-        } else {
-          LOG_DEBUG("ShowContextMenu: MainFrame not found for Program Guide");
-        }
-      },
-      idProgramGuide);
-
   menu.Bind(
       wxEVT_MENU,
       [ ch](wxCommandEvent &) {

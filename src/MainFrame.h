@@ -7,6 +7,7 @@
 #include "FavoritesList.h"
 #include "VideoPanel.h"
 #include "epg/EPGPanel.h"
+#include "epg/EpgSourceManagerPanel.h"
 
 #include <wx/aui/aui.h>
 #include <wx/frame.h>
@@ -106,8 +107,6 @@ public:
 
   void ShowMainMenu(const wxPoint &pos = wxDefaultPosition);
 
-  void SwitchToEpgTab(Channel channel);
-
   void RemoveChannelFromPlaylist(const Channel &ch);
 
 private:
@@ -117,16 +116,11 @@ private:
   
   std::vector<std::future<void>> m_backgroundTasks;
   void CleanupFinishedTasks();
-
-  EPGPanel *m_epgPanel = nullptr;
+  
   wxToggleButton *m_btnEpg = nullptr;
   int m_epgPageIdx = wxNOT_FOUND;
-  void HandleEpgPageChanged(int sel);
   void OnEpgToggle(wxCommandEvent &event);
   void OnEPGUpdated(wxCommandEvent &event);
-  wxTimer m_epgCoalesceTimer;
-  bool m_epgUpdatePending = false;
-  void OnEpgCoalesceTimer(wxTimerEvent &event);
 
   void CheckAndSuggestPlaylist();
   bool m_playlistSuggestionShown = false;
@@ -317,7 +311,14 @@ private:
 
   std::atomic<bool> m_isMatching{false};
   std::atomic<bool> m_isMatchingFavorites{false};
-  void RefreshEpgDisplay();
+
+  EPGPanel *m_epgChannels = nullptr;
+  EPGPanel *m_epgFavorites = nullptr;
+  EpgSourceManagerPanel *m_epgAdminPanel = nullptr;
+
+  wxTimer m_epgProgressTimer;
+  void OnEpgProgressTimer(wxTimerEvent &);
+
 };
 
 #endif // MAINFRAME_H

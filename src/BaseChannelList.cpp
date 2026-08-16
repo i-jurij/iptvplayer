@@ -250,9 +250,6 @@ void BaseChannelList::InitColumns() {
 
   AppendTextColumn("Country", 6, wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT)
       ->SetSortable(true);
-
-  AppendTextColumn("Program", 7, wxDATAVIEW_CELL_INERT, 200, wxALIGN_LEFT)
-      ->SetSortable(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1135,35 +1132,6 @@ int BaseChannelList::GetAccurateTopRow() {
   }
 
   return std::max(0, fromScroll);
-}
-
-void BaseChannelList::RefreshProgramColumn() {
-  static int count = 0;
-  LOG_DEBUG("RefreshProgramColumn called %d", ++count);
-  
-  if (m_closing.load() || !m_model)
-    return;
-  // Если список не отображается, обновляем все (или ничего)
-  if (!IsShownOnScreen())
-    return;
-  RefreshProgramColumnVisible();
-}
-
-void BaseChannelList::RefreshProgramColumnVisible() {
-  if (m_closing.load() || !m_model)
-    return;
-  Freeze();
-  int top = GetTopVisibleRow();
-  int visible = GetCountPerPage();
-  if (top < 0 || visible <= 0) {
-    Thaw();
-    return;
-  }
-  int end = std::min(top + visible, (int)m_model->GetCount());
-  for (int row = top; row < end; ++row) {
-    m_model->RowChanged(row);
-  }
-  Thaw();
 }
 
 void BaseChannelList::OnProcessQueueTimer(wxTimerEvent &) {
