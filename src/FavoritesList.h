@@ -22,4 +22,5 @@ protected:
   void OnChannelActivated(const Channel &ch, int col) override;
   void OnFavoriteToggled(const Channel &ch, bool isFav) override;
   void OnKeyDown(wxKeyEvent &evt);
+  void OnSelectionChanged(wxDataViewEvent &evt);
 };

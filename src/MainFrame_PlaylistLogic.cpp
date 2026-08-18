@@ -717,3 +717,173 @@ bool MainFrame::ReloadPlaylistIfCurrent(Playlist *pl) {
   LOG_INFO("Playlist '%s' reloaded after update", plName);
   return true;
 }
+
+void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
+  LOG_DEBUG("RemoveChannelFromPlaylist: START for channel '%s'",
+            ch.getName().c_str());
+
+  auto *mgr = getPlaylistManager();
+  if (!mgr) {
+    LOG_DEBUG("RemoveChannelFromPlaylist: PlaylistManager is null");
+    return;
+  }
+
+  const std::string &playlistName = ch.getPlaylistName();
+  if (playlistName.empty()) {
+    LOG_DEBUG("RemoveChannelFromPlaylist: playlistName is empty");
+    return;
+  }
+
+  Playlist *playlist = mgr->findByTitle(playlistName);
+  if (!playlist) {
+    LOG_DEBUG("RemoveChannelFromPlaylist: playlist not found");
+    return;
+  }
+
+  // Диалог подтверждения
+  wxMessageDialog dlg(
+      this,
+      wxString::Format("Remove channel '%s' from playlist '%s' permanently?",
+                       wxString::FromUTF8(ch.getName()),
+                       wxString::FromUTF8(playlistName)),
+      "Remove Channel", wxYES_NO | wxICON_QUESTION);
+  if (dlg.ShowModal() != wxID_YES) {
+    LOG_DEBUG("RemoveChannelFromPlaylist: user cancelled");
+    return;
+  }
+
+  // 1) Удаляем из объекта Playlist (память)
+  LOG_DEBUG("RemoveChannelFromPlaylist: removing from Playlist object...");
+  if (!playlist->removeChannel(ch)) {
+    LOG_DEBUG("RemoveChannelFromPlaylist: playlist->removeChannel failed");
+    return;
+  }
+  LOG_DEBUG("RemoveChannelFromPlaylist: playlist->removeChannel succeeded, new "
+            "count=%zu",
+            playlist->getChannelCount());
+
+  // 2) Удаляем из m_allChannels (кэш всех каналов текущего плейлиста)
+  LOG_DEBUG("RemoveChannelFromPlaylist: removing from m_allChannels...");
+  auto it = std::find_if(
+      m_allChannels.begin(), m_allChannels.end(), [&](const Channel &c) {
+        return c.getName() == ch.getName() && c.getUrl() == ch.getUrl();
+      });
+  if (it != m_allChannels.end()) {
+    m_allChannels.erase(it);
+    LOG_DEBUG("RemoveChannelFromPlaylist: m_allChannels erase succeeded, new "
+              "size=%zu",
+              m_allChannels.size());
+  } else {
+    LOG_DEBUG("RemoveChannelFromPlaylist: channel not found in m_allChannels");
+  }
+
+  // 3) Если удаляемый канал принадлежит текущему загруженному плейлисту –
+  //    обновляем представление инкрементально (без полного перестроения)
+  if (m_loadedPlaylistName == playlistName) {
+    LOG_DEBUG("RemoveChannelFromPlaylist: updating current playlist view");
+
+    // 3a) Удаляем из модели данных списка (это само обновит представление)
+    if (m_channelList) {
+      ChannelDataModel *model = m_channelList->GetModel();
+      if (model) {
+        LOG_DEBUG("RemoveChannelFromPlaylist: calling model->RemoveChannel");
+        model->RemoveChannel(ch.getName(), ch.getUrl());
+        LOG_DEBUG("RemoveChannelFromPlaylist: model->RemoveChannel done");
+      }
+    }
+
+    // 3b) Обновляем заголовок (количество каналов)
+    wxString header = wxString::Format("Playlist: %s / Channels: %zu",
+                                       wxString::FromUTF8(m_loadedPlaylistName),
+                                       m_allChannels.size());
+    m_channelsHeader->SetLabel(header);
+    LOG_DEBUG("RemoveChannelFromPlaylist: header updated");
+
+    // 3c) Удаляем карточку (если она есть)
+    if (m_channelCards) {
+      bool removed =
+          m_channelCards->RemoveChannel(ch.getName(), ch.getPlaylistName());
+      if (removed) {
+        LOG_DEBUG("RemoveChannelFromPlaylist: card removed");
+      } else {
+        LOG_DEBUG("RemoveChannelFromPlaylist: card not found, fallback to full "
+                  "refresh");
+        m_channelCards->SetChannels(m_allChannels, m_loadedPlaylistName);
+      }
+    }
+  } else {
+    // Если удаляем канал из другого плейлиста, обновляем только список
+    // плейлистов
+    LOG_DEBUG("RemoveChannelFromPlaylist: playlist is not current, refreshing "
+              "playlist view");
+    RefreshPlaylistView();
+  }
+
+  // 4) Статусбар
+  SetStatusText(wxString::Format("Channel '%s' removed from playlist '%s'",
+                                 wxString::FromUTF8(ch.getName()),
+                                 wxString::FromUTF8(playlistName)),
+                1);
+
+  // 5) Фоновое сохранение и очистка файлов (с вызовом RemoveChannelMapping в
+  // фоне)
+  std::string chNameBg = ch.getName();
+  std::string tvgId = ch.getTvgId();
+  std::string iconPath = IconManager::GetIconPath(playlistName, chNameBg);
+  std::string svgPath = IconManager::GetSvgPath(playlistName, chNameBg);
+  std::string pngPath = iconPath.substr(0, iconPath.size() - 5) + ".png";
+  std::string markerPath = iconPath.substr(0, iconPath.size() - 5) + ".marker";
+
+  CleanupFinishedTasks();
+  m_backgroundTasks.push_back(std::async(
+      std::launch::async, [mgr, playlistName, chNameBg, tvgId, iconPath,
+                           svgPath, pngPath, markerPath]() {
+        LOG_DEBUG("RemoveChannelFromPlaylist[bg]: start saving and cleanup");
+
+        // Сохраняем плейлист
+        if (mgr) {
+          Playlist *pl = mgr->findByTitle(playlistName);
+          if (pl) {
+            mgr->savePlaylist(pl);
+            LOG_DEBUG("RemoveChannelFromPlaylist[bg]: playlist saved");
+          }
+        }
+
+        // Удаляем файлы логотипов
+        auto removeFile = [](const std::string &path) {
+          if (path.empty())
+            return;
+          wxString wxPath = wxString::FromUTF8(path);
+          if (wxFileExists(wxPath)) {
+            wxRemoveFile(wxPath);
+            LOG_DEBUG("RemoveChannelFromPlaylist[bg]: removed file %s",
+                      path.c_str());
+          }
+        };
+        removeFile(iconPath);
+        removeFile(pngPath);
+        removeFile(svgPath);
+        removeFile(markerPath);
+
+        // Удаляем мастер-логотип из кэша
+        LOG_DEBUG(
+            "RemoveChannelFromPlaylist[bg]: calling LogoCache::DropMaster");
+        LogoCache::DropMaster(playlistName, chNameBg);
+        LOG_DEBUG("RemoveChannelFromPlaylist[bg]: LogoCache::DropMaster done");
+
+        // --- Удаление из EPG и избранного (синхронно в фоновом потоке) ---
+        Application *app = static_cast<Application *>(wxTheApp);
+        if (app) {
+          if (app->GetEPGManager()) {
+            app->GetEPGManager()->RemoveChannelMapping(tvgId);
+            LOG_DEBUG("RemoveChannelFromPlaylist[bg]: EPG mapping removed");
+          }
+          app->getFavoritesManager().remove(chNameBg, playlistName);
+          LOG_DEBUG("RemoveChannelFromPlaylist[bg]: removed from favorites");
+        }
+
+        LOG_DEBUG("RemoveChannelFromPlaylist[bg]: finished");
+      }));
+
+  LOG_DEBUG("RemoveChannelFromPlaylist: END");
+}

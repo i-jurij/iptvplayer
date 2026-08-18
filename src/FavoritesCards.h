@@ -15,6 +15,7 @@ private : wxBitmap m_favFilled;
 
     wxBitmap GetStarBitmap(const Channel& ch) const override;
     void OnCardClick(size_t index, bool fav, const wxRect &rect) override;
+    void OnDoubleClick(wxMouseEvent &evt);
 
     std::unique_ptr<TypeAheadSearch> m_search;
 };

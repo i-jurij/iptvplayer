@@ -25,6 +25,26 @@ FavoritesCards::FavoritesCards(wxWindow *parent) : CardsBase(parent) {
       });
 
   Bind(wxEVT_CHAR, [this](wxKeyEvent &e) { m_search->OnChar(e); });
+
+  Bind(wxEVT_LEFT_DCLICK, &FavoritesCards::OnDoubleClick, this);
+}
+
+void FavoritesCards::OnDoubleClick(wxMouseEvent &evt) {
+  wxPoint pos = evt.GetPosition();
+  bool fav = false;
+  wxRect rect;
+  int idx = HitTestIndex(pos, fav, &rect);
+  if (idx < 0 || fav) {
+    evt.Skip();
+    return;
+  }
+  const Channel &ch = m_channels[idx];
+  if (m_onSelect)
+    m_onSelect(ch, idx, rect);
+  MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+  if (mf) {
+    mf->PlayChannel(ch);
+  }
 }
 
 void FavoritesCards::SetChannels(const std::vector<Channel> &channels) {

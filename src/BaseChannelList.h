@@ -59,6 +59,8 @@ public:
   void ClearPendingLoads();
 
 protected:
+  bool m_ignoreSelectionEvents = false;
+  
   int m_lastDpi = 96;
   
   PerformanceMode m_perfMode{PerformanceMode::Balanced};

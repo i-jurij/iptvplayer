@@ -116,12 +116,14 @@ set(SOURCES
     src/MainFrame_PlaylistUI.cpp
     src/MainFrame_FavoritesUI.cpp
     src/MainFrame_Menu.cpp
+    src/MainFrame_Events.cpp
+    src/MainFrame_PlaylistEvents.cpp
+    src/MainFrame_ChannelEvents.cpp
+    src/MainFrame_FavoritesEvents.cpp
     src/VideoPanel.cpp
     src/VP_actions.cpp
     src/VP_events.cpp
     src/VP_tempplaylist.cpp
-    src/MainFrame_Events.cpp
-    src/MainFrame_PlaylistEvents.cpp
     src/BaseChannelList.cpp
     src/ChannelList.cpp
     src/ChannelDataModel.cpp
@@ -134,12 +136,10 @@ set(SOURCES
     src/CardsBase_events.cpp
     src/CardsBase_utils.cpp
     src/ChannelCards.cpp
-    src/ChannelEvents.cpp
     src/Channel.cpp
     src/FavoritesCards.cpp
     src/FavoritesList.cpp
     src/FavoritesManager.cpp
-    src/FavoritesEvents.cpp
     src/Playlist.cpp
     src/PlaylistManager.cpp
     src/M3UParser.cpp

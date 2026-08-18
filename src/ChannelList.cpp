@@ -15,6 +15,8 @@ ChannelList::ChannelList(wxWindow *parent, wxWindowID id)
     : BaseChannelList(parent, id) {
   Bind(wxEVT_KEY_DOWN, &ChannelList::OnKeyDown, this);
   Bind(wxEVT_DATAVIEW_ITEM_CONTEXT_MENU, &ChannelList::OnContextMenu, this);
+  Bind(wxEVT_DATAVIEW_SELECTION_CHANGED, &ChannelList::OnSelectionChanged,
+       this);
 }
 
 ChannelList::~ChannelList() {
@@ -24,27 +26,26 @@ ChannelList::~ChannelList() {
     m_bgWorker.join();
 }
 
-void ChannelList::OnChannelActivated(const Channel &ch, int col) {
-  if (col == 3) // click on fav col
+void ChannelList::OnSelectionChanged(wxDataViewEvent &evt) {
+  if (m_closing.load() || !IsShownOnScreen() || m_ignoreSelectionEvents)
     return;
 
-  if (!m_onSelect)
+  wxWindow *tlw = wxGetTopLevelParent(this);
+  wxTopLevelWindow *top = wxDynamicCast(tlw, wxTopLevelWindow);
+  if (!top || !top->IsActive())
     return;
 
-  m_onSelect(ch, 0, wxRect());
-}
+  wxDataViewItem item = evt.GetItem();
+  if (!item.IsOk())
+    return;
 
-void ChannelList::OnFavoriteToggled(const Channel &ch, bool isFav) {
-  if (MainFrame *parentFrame =
-          dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
+  int row = m_model->GetRow(item);
+  if (row < 0 || row >= (int)m_model->GetCount())
+    return;
 
-    if (isFav)
-      parentFrame->getApplication()->getFavoritesManager().add(ch);
-    else
-      parentFrame->getApplication()->getFavoritesManager().remove(ch.getName(),
-                                                                  ch.getPlaylistName());
-
-    parentFrame->refreshFavorites();
+  const Channel &ch = m_model->GetChannel(row);
+  if (m_onSelect) {
+    m_onSelect(ch, row, wxRect());
   }
 }
 
@@ -220,7 +221,7 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
           dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
     auto favChannels =
         parentFrame->getApplication()->getFavoritesManager().list();
-    
+
     std::vector<std::pair<std::string, std::string>> favKeys;
     favKeys.reserve(favChannels.size());
     for (const auto &c : favChannels)
@@ -262,12 +263,18 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
             int prevTopRow = chList->GetTopVisibleRow();
             try {
               chList->BeginFavoritesSync();
+
+              chList->m_ignoreSelectionEvents = true;
+
               chList->GetModel()->AppendChannels(copyBatch, playlistName, 0,
                                                  GetNormDPI(chList));
+
+              chList->m_ignoreSelectionEvents = false;
+
               chList->EndFavoritesSync();
 
-              //LOG_DEBUG("AppendChannels called winId=%d appended=%zu", winId,
-                //        copyBatch.size());
+              // LOG_DEBUG("AppendChannels called winId=%d appended=%zu", winId,
+              //         copyBatch.size());
 
               chList->m_lastTopRow = 0;
               chList->m_lastVisibleCount = 0;
@@ -314,6 +321,7 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
               chList->CoalescedDoLazyLoadSchedule();
 
             } catch (...) {
+              chList->m_ignoreSelectionEvents = false;
             }
           });
 
@@ -351,7 +359,7 @@ void ChannelList::OnKeyDown(wxKeyEvent &evt) {
     evt.Skip();
     return;
   }
-  
+
   int key = evt.GetKeyCode();
   wxDataViewItem item = GetSelection();
   if (!item.IsOk()) {
@@ -396,6 +404,16 @@ void ChannelList::OnKeyDown(wxKeyEvent &evt) {
     CallAfterSafeById(GetId(), [this]() {
       if (!m_closing.load())
         HandleVisibleRangeChange();
+      
+      wxDataViewItem item = GetSelection();
+      if (item.IsOk()) {
+        int row = m_model->GetRow(item);
+        if (row >= 0 && row < (int)m_model->GetCount()) {
+          const Channel &ch = m_model->GetChannel(row);
+          if (m_onSelect)
+            m_onSelect(ch, row, wxRect());
+        }
+      }
     });
     return;
   default:
@@ -440,7 +458,7 @@ void ChannelList::ShowContextMenu(const Channel &ch) {
   // Привязываем обработчики
   menu.Bind(
       wxEVT_MENU,
-      [ ch](wxCommandEvent &) {
+      [ch](wxCommandEvent &) {
         if (wxTheClipboard->Open()) {
           wxTheClipboard->SetData(
               new wxTextDataObject(wxString::FromUTF8(ch.getUrl())));
@@ -453,7 +471,7 @@ void ChannelList::ShowContextMenu(const Channel &ch) {
 
   menu.Bind(
       wxEVT_MENU,
-      [ ch](wxCommandEvent &) {
+      [ch](wxCommandEvent &) {
         if (wxTheClipboard->Open()) {
           wxTheClipboard->SetData(
               new wxTextDataObject(wxString::FromUTF8(ch.getName())));
@@ -479,3 +497,29 @@ void ChannelList::ShowContextMenu(const Channel &ch) {
   this->PopupMenu(&menu);
 }
 
+void ChannelList::OnChannelActivated(const Channel &ch, int col) {
+  if (col == 3)
+    return;
+
+  if (m_onSelect)
+    m_onSelect(ch, 0, wxRect());
+
+  MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+  if (mf) {
+    mf->PlayChannel(ch);
+  }
+}
+
+void ChannelList::OnFavoriteToggled(const Channel &ch, bool isFav) {
+  if (MainFrame *parentFrame =
+          dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
+
+    if (isFav)
+      parentFrame->getApplication()->getFavoritesManager().add(ch);
+    else
+      parentFrame->getApplication()->getFavoritesManager().remove(
+          ch.getName(), ch.getPlaylistName());
+
+    parentFrame->refreshFavorites();
+  }
+}

@@ -296,6 +296,8 @@ void BaseChannelList::LoadChannels(const std::vector<Channel> &channels,
   if (m_closing.load())
     return;
 
+  m_ignoreSelectionEvents = true;
+
   m_playlistName = playlistName;
   int logoSize = GetDpiLogoSizeList(this);
   if (logoSize <= 0)
@@ -350,17 +352,22 @@ void BaseChannelList::LoadChannels(const std::vector<Channel> &channels,
       self->DoLazyLoad();
     });
   }
+  m_ignoreSelectionEvents = false;
 }
 
 void BaseChannelList::LoadFavoritesChannels(
     const std::vector<Channel> &channels, const std::string &playlistName) {
+  m_ignoreSelectionEvents = true;
+
   int logoSize = GetDpiLogoSizeList(this);
   if (logoSize <= 0)
     logoSize = 40;
 
   int dpi = GetNormDPI(this);
-  
+
   m_model->SetChannels(channels, playlistName, logoSize, dpi);
+
+  m_ignoreSelectionEvents = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1028,11 +1035,13 @@ void BaseChannelList::OnDPIChanged(wxDPIChangedEvent &evt) {
   PauseLogoLoading();
   LogoCache::OnDPIChanged(newDpi);
 
+  m_ignoreSelectionEvents = true;
   if (m_model) {
     m_model->CheckDpiReset();
     m_model->Reset(m_model->GetCount());
   }
-
+  m_ignoreSelectionEvents = false;
+  
   int localWinId = GetId();
   CallAfterSafeById(localWinId, [](wxWindow *w) {
     auto *self = dynamic_cast<BaseChannelList *>(w);

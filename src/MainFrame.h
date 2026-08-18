@@ -110,6 +110,11 @@ public:
   void RemoveChannelFromPlaylist(const Channel &ch);
 
 private:
+  wxTimer m_epgDebounceTimer;
+  EPGPanel *m_epgPendingPanel = nullptr;
+  Channel m_epgPendingChannel;
+  void OnEpgDebounceTimer(wxTimerEvent &);
+  
   wxSizerItem *m_mainSizerGaugeItem = nullptr;
   wxSizerItem *m_mainSizerHeaderItem = nullptr;
   wxSizerItem *m_mainSizerNotebookItem = nullptr;

@@ -391,6 +391,9 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
       int ni = m_focusIndex - 1;
       moveFocus(ni);
       ensureVisible(ni);
+      if (m_onSelect && ni >= 0 && ni < (int)m_channels.size()) {
+        m_onSelect(m_channels[ni], ni, wxRect());
+      }
     }
     break;
 
@@ -399,6 +402,9 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
       int ni = m_focusIndex + 1;
       moveFocus(ni);
       ensureVisible(ni);
+      if (m_onSelect && ni >= 0 && ni < (int)m_channels.size()) {
+        m_onSelect(m_channels[ni], ni, wxRect());
+      }
     }
     break;
 
@@ -407,6 +413,9 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
       int ni = m_focusIndex - m_cols;
       moveFocus(ni);
       ensureVisible(ni);
+      if (m_onSelect && ni >= 0 && ni < (int)m_channels.size()) {
+        m_onSelect(m_channels[ni], ni, wxRect());
+      }
     }
     break;
 
@@ -415,6 +424,9 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
       int ni = m_focusIndex + m_cols;
       moveFocus(ni);
       ensureVisible(ni);
+      if (m_onSelect && ni >= 0 && ni < (int)m_channels.size()) {
+        m_onSelect(m_channels[ni], ni, wxRect());
+      }
     }
     break;
 
@@ -446,6 +458,10 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
       index = (int)m_channels.size() - 1;
 
     moveFocus(index);
+
+    if (m_onSelect && index >= 0 && index < (int)m_channels.size()) {
+      m_onSelect(m_channels[index], index, wxRect());
+    }
     break;
   }
 
@@ -477,6 +493,10 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
       index = (int)m_channels.size() - 1;
 
     moveFocus(index);
+
+    if (m_onSelect && index >= 0 && index < (int)m_channels.size()) {
+      m_onSelect(m_channels[index], index, wxRect());
+    }
     break;
   }
 
@@ -484,6 +504,9 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
   case 375:
     Scroll(-1, 0);
     moveFocus(0);
+    if (m_onSelect) {
+      m_onSelect(m_channels[0], 0, wxRect());
+    }
     break;
 
   case WXK_END:
@@ -500,6 +523,9 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
 
     Scroll(-1, targetTop / py);
     moveFocus(lastIndex);
+    if (m_onSelect && lastIndex >= 0) {
+      m_onSelect(m_channels[lastIndex], lastIndex, wxRect());
+    }
     break;
   }
 
@@ -587,21 +613,15 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
 
   case WXK_RETURN:
   case WXK_NUMPAD_ENTER: {
-    if (m_focusIndex < 0 || m_focusIndex >= (int)m_channels.size()) {
+    if (m_focusIndex < 0 || m_focusIndex >= (int)m_channels.size())
       break;
+    const Channel &ch = m_channels[m_focusIndex];
+    if (m_onSelect)
+      m_onSelect(ch, m_focusIndex, wxRect()); // загружаем EPG
+    MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+    if (mf) {
+      mf->PlayChannel(ch); // запускаем видео
     }
-
-    int idx = m_focusIndex;
-    int col = idx % m_cols;
-    int row = idx / m_cols;
-
-    int cardX = m_gridOffsetX + col * m_colW;
-    int cardY = row * m_rowH;
-
-    wxRect rect(cardX, cardY, m_cardW, m_cardH);
-
-    OnCardClick(static_cast<size_t>(idx), false, rect);
-
     return;
   }
 
