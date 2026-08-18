@@ -25,7 +25,7 @@ void MainFrame::createFavoritesUI() {
 
   wxBoxSizer *favSizer = new wxBoxSizer(wxVERTICAL);
 
-  // ---- Заголовок ----
+  // Заголовок
   wxBoxSizer *favHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
   m_favHeader =
       new wxStaticText(m_favoritesPanel, wxID_ANY, "Favorites: 0 channels");
@@ -36,7 +36,6 @@ void MainFrame::createFavoritesUI() {
   favHeaderSizer->Add(m_favHeader, 1, wxALL, 0);
   favHeaderSizer->AddStretchSpacer(1);
 
-  // Toolbar
   m_favToolBar = new wxToolBar(m_favoritesPanel, wxID_ANY);
   wxBitmapBundle iconFavList = LoadSvgIcon("list", this);
   wxBitmapBundle iconFavGrid = LoadSvgIcon("grid", this);
@@ -52,7 +51,7 @@ void MainFrame::createFavoritesUI() {
 
   favSizer->Add(favHeaderSizer, 0, wxEXPAND | wxALL, 12);
 
-  // ---- Фильтры избранного ----
+  // Фильтры избранного
   wxPanel *favFilterPanel = new wxPanel(m_favoritesPanel, wxID_ANY);
   favFilterPanel->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
@@ -90,17 +89,15 @@ void MainFrame::createFavoritesUI() {
 
   favFilterPanel->SetSizer(favFilterSizer);
   favFilterPanel->Layout();
-
   favSizer->Add(favFilterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                 FromDIP(8));
 
-  // ---- Splitter с избранным и EPG ----
+  // Splitter
   wxSplitterWindow *favSplitter =
       new wxSplitterWindow(m_favoritesPanel, wxID_ANY, wxDefaultPosition,
                            wxDefaultSize, wxSP_LIVE_UPDATE | wxSP_3D);
   favSplitter->SetMinimumPaneSize(200);
 
-  // Левая часть: wxSimplebook с FavoritesList и FavoritesCards
   m_favViewBook = new wxSimplebook(favSplitter, wxID_ANY);
   m_favList = new FavoritesList(m_favViewBook, wxID_ANY);
   m_favList->SetSelectCallback(
@@ -123,17 +120,56 @@ void MainFrame::createFavoritesUI() {
   m_favViewBook->AddPage(m_favCards, "Cards");
   m_favViewBook->ChangeSelection(favStartGrid ? 1 : 0);
 
-  // Правая часть: EPGPanel для программы
   m_epgFavorites = new EPGPanel(favSplitter);
+  favSplitter->SplitVertically(m_favViewBook, m_epgFavorites);
 
-  favSplitter->SplitVertically(m_favViewBook, m_epgFavorites, 300);
+  // --- Восстановление позиции сплиттера (корректные методы ConfigManager) ---
+  bool userAdjustedFav = false;
+  if (cfg) {
+    std::string val = cfg->getSetting("favorites_split_user_adjusted", "false");
+    userAdjustedFav = (val == "true");
+  }
+
+  if (cfg && userAdjustedFav) {
+    int savedPos = cfg->getInt("favorites_split_pos", -1);
+    if (savedPos > 0) {
+      favSplitter->SetSashPosition(savedPos);
+    }
+  } else {
+    CallAfter([favSplitter]() {
+      int totalWidth = favSplitter->GetClientSize().GetWidth();
+      if (totalWidth > 0)
+        favSplitter->SetSashPosition(totalWidth / 2);
+    });
+  }
+
+  favSplitter->Bind(wxEVT_SIZE, [favSplitter, cfg](wxSizeEvent &evt) {
+    if (cfg) {
+      bool userAdjusted =
+          (cfg->getSetting("favorites_split_user_adjusted", "false") == "true");
+      if (!userAdjusted) {
+        int totalWidth = favSplitter->GetClientSize().GetWidth();
+        if (totalWidth > 0)
+          favSplitter->SetSashPosition(totalWidth / 2);
+      }
+    }
+    evt.Skip();
+  });
+
+  favSplitter->Bind(
+      wxEVT_SPLITTER_SASH_POS_CHANGED, [cfg](wxSplitterEvent &evt) {
+        if (cfg) {
+          cfg->setInt("favorites_split_pos", evt.GetSashPosition());
+          cfg->setSetting("favorites_split_user_adjusted", "true");
+        }
+        evt.Skip();
+      });
 
   favSizer->Add(favSplitter, 1, wxEXPAND | wxALL, 4);
-
   m_favoritesPanel->SetSizer(favSizer);
   m_favoritesPanel->Layout();
 
-  // ---- Привязка событий фильтров ----
+  // Привязка событий фильтров
   auto bindFavChoice = [&](wxChoice *c) {
     if (!c)
       return;
@@ -157,7 +193,6 @@ void MainFrame::createFavoritesUI() {
     ApplyFavoritesFiltersAndSort();
   });
 
-  // Обновляем избранное после создания
   CallAfter([this]() { refreshFavorites(); });
 }
 

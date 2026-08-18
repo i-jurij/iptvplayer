@@ -8,6 +8,7 @@
 #include "SettingsDialog.h"
 
 #include <wx/artprov.h>
+#include <wx/button.h>
 #include <wx/datetime.h>
 #include <wx/event.h>
 #include <wx/filename.h>
@@ -74,11 +75,13 @@ void EPGPanel::SetupUI() {
   wxFont titleFont = m_channelNameLabel->GetFont();
   titleFont.SetWeight(wxFONTWEIGHT_BOLD);
   m_channelNameLabel->SetFont(titleFont);
-  topSizer->Add(m_channelNameLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
-                FromDIP(20));
+  topSizer->Add(m_channelNameLabel, 0, wxALIGN_CENTER_VERTICAL | wxALL,
+                FromDIP(10));
 
+  topSizer->AddStretchSpacer();
+  
   m_dateLabel = new wxStaticText(this, wxID_ANY, "");
-  topSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(15));
+  topSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxALL, FromDIP(10));
 
   m_prevDayBtn = new wxButton(this, wxID_ANY, "\u2190");
   m_prevDayBtn->SetToolTip("Previous day");

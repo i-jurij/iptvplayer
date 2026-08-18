@@ -19,13 +19,11 @@ void MainFrame::createChannelsView() {
   if (!m_channelsPage)
     return;
 
-  // Очищаем страницу от старых элементов (если они есть)
   m_channelsPage->DestroyChildren();
 
-  // Создаём основной sizer страницы
   wxBoxSizer *channelsSizer = new wxBoxSizer(wxVERTICAL);
 
-  // ---- Заголовок ----
+  // Заголовок
   wxBoxSizer *channelHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
   m_channelsHeader =
       new wxStaticText(m_channelsPage, wxID_ANY, "Playlist: - / Channels: 0");
@@ -57,10 +55,9 @@ void MainFrame::createChannelsView() {
   m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, "Show channel logo");
 
   channelHeaderSizer->Add(m_viewToolBar, 0, wxALL, 0);
-
   channelsSizer->Add(channelHeaderSizer, 0, wxEXPAND | wxALL, 12);
 
-  // ---- Фильтры ----
+  // Фильтры
   createChannelsFilterPanel();
   if (m_filterPanel) {
     m_filterPanel->Reparent(m_channelsPage);
@@ -68,13 +65,12 @@ void MainFrame::createChannelsView() {
     UpdateFilterPanelVisibility();
   }
 
-  // ---- Splitter с каналами и EPG ----
+  // Splitter
   wxSplitterWindow *channelsSplitter =
       new wxSplitterWindow(m_channelsPage, wxID_ANY, wxDefaultPosition,
                            wxDefaultSize, wxSP_LIVE_UPDATE | wxSP_3D);
   channelsSplitter->SetMinimumPaneSize(200);
 
-  // Левая часть: wxSimplebook с ChannelList и ChannelCards
   m_channelViewBook = new wxSimplebook(channelsSplitter, wxID_ANY);
   m_channelViewBook->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_channelViewBook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
@@ -100,11 +96,9 @@ void MainFrame::createChannelsView() {
   m_channelViewBook->AddPage(m_channelCards, "Cards");
   m_channelViewBook->ChangeSelection(startInGrid ? 1 : 0);
 
-  // ---- Применяем начальный режим и обновляем видимость фильтров ----
   ApplyInitialViewMode();
   UpdateFilterPanelVisibility();
 
-  // ---- Событие переключения страниц в book ----
   m_channelViewBook->Bind(wxEVT_COMMAND_BOOKCTRL_PAGE_CHANGED,
                           [this](wxBookCtrlEvent &evt) {
                             UpdateFilterPanelVisibility();
@@ -124,13 +118,54 @@ void MainFrame::createChannelsView() {
                             evt.Skip();
                           });
 
-  // Правая часть: EPGPanel для программы
   m_epgChannels = new EPGPanel(channelsSplitter);
+  channelsSplitter->SplitVertically(m_channelViewBook, m_epgChannels);
 
-  channelsSplitter->SplitVertically(m_channelViewBook, m_epgChannels, 600);
+  // --- Восстановление позиции сплиттера (корректные методы ConfigManager) ---
+  bool userAdjusted = false;
+  if (cfg) {
+    std::string val = cfg->getSetting("channels_split_user_adjusted", "false");
+    userAdjusted = (val == "true");
+  }
+
+  if (cfg && userAdjusted) {
+    int savedPos = cfg->getInt("channels_split_pos", -1);
+    if (savedPos > 0) {
+      channelsSplitter->SetSashPosition(savedPos);
+    }
+  } else {
+    CallAfter([channelsSplitter]() {
+      int totalWidth = channelsSplitter->GetClientSize().GetWidth();
+      if (totalWidth > 0)
+        channelsSplitter->SetSashPosition(totalWidth / 2);
+    });
+  }
+
+  // Автокоррекция при ресайзе (если пользователь не трогал)
+  channelsSplitter->Bind(wxEVT_SIZE, [channelsSplitter, cfg](wxSizeEvent &evt) {
+    if (cfg) {
+      bool userAdjusted =
+          (cfg->getSetting("channels_split_user_adjusted", "false") == "true");
+      if (!userAdjusted) {
+        int totalWidth = channelsSplitter->GetClientSize().GetWidth();
+        if (totalWidth > 0)
+          channelsSplitter->SetSashPosition(totalWidth / 2);
+      }
+    }
+    evt.Skip();
+  });
+
+  // Сохранение позиции при ручном изменении
+  channelsSplitter->Bind(
+      wxEVT_SPLITTER_SASH_POS_CHANGED, [cfg](wxSplitterEvent &evt) {
+        if (cfg) {
+          cfg->setInt("channels_split_pos", evt.GetSashPosition());
+          cfg->setSetting("channels_split_user_adjusted", "true");
+        }
+        evt.Skip();
+      });
 
   channelsSizer->Add(channelsSplitter, 1, wxEXPAND | wxALL, 4);
-
   m_channelsPage->SetSizer(channelsSizer);
   m_channelsPage->Layout();
 }
