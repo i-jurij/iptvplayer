@@ -4,25 +4,28 @@
 #include "epg/EPGData.h"
 #include "epg/EPGManager.h"
 
+#include <wx/dcclient.h>
 #include <wx/filename.h>
-#include <wx/statbox.h>
 #include <wx/log.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
+#include <wx/statbox.h>
 #include <wx/stattext.h>
-#include <wx/textdlg.h> // для wxTextEntryDialog
+#include <wx/textdlg.h>
 
 wxBEGIN_EVENT_TABLE(EpgSourceManagerPanel, wxPanel)
     EVT_BUTTON(ID_ADD_SOURCE, EpgSourceManagerPanel::OnAdd)
-    EVT_BUTTON(ID_EDIT_SOURCE, EpgSourceManagerPanel::OnEdit)
-    EVT_BUTTON(ID_REMOVE_SOURCE, EpgSourceManagerPanel::OnRemove)
-    EVT_BUTTON(ID_REFRESH_SOURCE, EpgSourceManagerPanel::OnRefresh)
-    EVT_BUTTON(ID_DELETE_CACHE, EpgSourceManagerPanel::OnDeleteCache)
-    EVT_LIST_ITEM_SELECTED(wxID_ANY, EpgSourceManagerPanel::OnSourceSelected)
-wxEND_EVENT_TABLE()
+        EVT_BUTTON(ID_EDIT_SOURCE, EpgSourceManagerPanel::OnEdit)
+            EVT_BUTTON(ID_REMOVE_SOURCE, EpgSourceManagerPanel::OnRemove)
+                EVT_BUTTON(ID_REFRESH_SOURCE, EpgSourceManagerPanel::OnRefresh)
+                    EVT_BUTTON(ID_DELETE_CACHE,
+                               EpgSourceManagerPanel::OnDeleteCache)
+                        EVT_LIST_ITEM_SELECTED(
+                            wxID_ANY, EpgSourceManagerPanel::OnSourceSelected)
+                            wxEND_EVENT_TABLE()
 
-EpgSourceManagerPanel::EpgSourceManagerPanel(
-    wxWindow *parent, EPGManager *epgMgr,
+                                EpgSourceManagerPanel::EpgSourceManagerPanel(
+                                    wxWindow *parent, EPGManager *epgMgr,
                                     bool showAutoUpdateSettings)
     : wxPanel(parent, wxID_ANY), m_epgMgr(epgMgr),
       m_showAutoUpdateSettings(showAutoUpdateSettings), m_dirty(false) {
@@ -34,37 +37,44 @@ EpgSourceManagerPanel::~EpgSourceManagerPanel() {}
 void EpgSourceManagerPanel::SetupUI() {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
+  // ---- Блок "EPG Sources" ----
+  wxStaticBox *sourceBox = new wxStaticBox(this, wxID_ANY, "EPG Sources");
+  wxStaticBoxSizer *sourceBoxSizer =
+      new wxStaticBoxSizer(sourceBox, wxVERTICAL);
+
   // Список источников
-  m_sourceList = new wxListCtrl(this, wxID_ANY, wxDefaultPosition,
+  m_sourceList = new wxListCtrl(sourceBox, wxID_ANY, wxDefaultPosition,
                                 wxSize(FromDIP(300), FromDIP(150)),
                                 wxLC_REPORT | wxLC_SINGLE_SEL);
+  // Колонки: URL, Name, Last Update, Status
   m_sourceList->InsertColumn(0, "URL", wxLIST_FORMAT_LEFT, FromDIP(300));
   m_sourceList->InsertColumn(1, "Name", wxLIST_FORMAT_LEFT, FromDIP(150));
   m_sourceList->InsertColumn(2, "Last Update", wxLIST_FORMAT_LEFT,
                              FromDIP(150));
   m_sourceList->InsertColumn(3, "Status", wxLIST_FORMAT_LEFT, FromDIP(80));
-  mainSizer->Add(m_sourceList, 1, wxEXPAND | wxALL, FromDIP(5));
 
-  // Кнопки управления
+  sourceBoxSizer->Add(m_sourceList, 1, wxEXPAND | wxALL, FromDIP(5));
+
+  // Кнопки управления источниками
   wxBoxSizer *btnSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_addBtn = new wxButton(this, ID_ADD_SOURCE, "Add");
-  m_editBtn = new wxButton(this, ID_EDIT_SOURCE, "Edit");
-  m_removeBtn = new wxButton(this, ID_REMOVE_SOURCE, "Remove");
-  m_refreshBtn = new wxButton(this, ID_REFRESH_SOURCE, "Refresh Now");
-  m_deleteCacheBtn = new wxButton(this, ID_DELETE_CACHE, "Delete Cache");
+  m_addBtn = new wxButton(sourceBox, ID_ADD_SOURCE, "Add");
+  m_editBtn = new wxButton(sourceBox, ID_EDIT_SOURCE, "Edit");
+  m_removeBtn = new wxButton(sourceBox, ID_REMOVE_SOURCE, "Remove");
+  m_refreshBtn = new wxButton(sourceBox, ID_REFRESH_SOURCE, "Refresh Now");
 
   btnSizer->Add(m_addBtn, 0, wxRIGHT, FromDIP(5));
   btnSizer->Add(m_editBtn, 0, wxRIGHT, FromDIP(5));
   btnSizer->Add(m_removeBtn, 0, wxRIGHT, FromDIP(5));
   btnSizer->Add(m_refreshBtn, 0, wxRIGHT, FromDIP(5));
+
   // Activity Indicator
-  m_activityIndicator = new wxActivityIndicator(this, wxID_ANY);
+  m_activityIndicator = new wxActivityIndicator(sourceBox, wxID_ANY);
   m_activityIndicator->Hide();
   btnSizer->Add(m_activityIndicator, 0, wxLEFT | wxALIGN_CENTER_VERTICAL,
                 FromDIP(5));
 
   // Кнопка Cancel
-  m_cancelBtn = new wxButton(this, wxID_ANY, "Cancel");
+  m_cancelBtn = new wxButton(sourceBox, wxID_ANY, "Cancel");
   m_cancelBtn->Hide();
   m_cancelBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
     if (m_epgMgr) {
@@ -73,13 +83,33 @@ void EpgSourceManagerPanel::SetupUI() {
     }
     SetRefreshing(false);
   });
-  btnSizer->Add(m_cancelBtn, 0, wxLEFT | wxRIGHT | wxALIGN_CENTER_VERTICAL,
-                FromDIP(5));
+  btnSizer->Add(m_cancelBtn, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(5));
 
-  btnSizer->Add(m_deleteCacheBtn, 0);
-  mainSizer->Add(btnSizer, 0, wxBOTTOM, FromDIP(5));
+  sourceBoxSizer->Add(btnSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                      FromDIP(5));
 
-  // Опционально: настройки автообновления
+  mainSizer->Add(sourceBoxSizer, 1, wxEXPAND | wxALL, FromDIP(15));
+  mainSizer->AddSpacer(FromDIP(10));
+
+  // ---- Блок "Cache Management" ----
+  wxStaticBox *cacheBox = new wxStaticBox(this, wxID_ANY, "Cache Management");
+  wxStaticBoxSizer *cacheBoxSizer = new wxStaticBoxSizer(cacheBox, wxVERTICAL);
+
+  m_deleteCacheBtn = new wxButton(cacheBox, ID_DELETE_CACHE, "Delete Cache");
+  cacheBoxSizer->Add(m_deleteCacheBtn, 0, wxLEFT | wxRIGHT | wxBOTTOM,
+                     FromDIP(5));
+
+  wxStaticText *cacheNote = new wxStaticText(
+      cacheBox, wxID_ANY,
+      "Deletes all locally cached EPG data. Next update will re-download.");
+  cacheNote->SetForegroundColour(*wxLIGHT_GREY);
+  cacheBoxSizer->Add(cacheNote, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(5));
+
+  mainSizer->Add(cacheBoxSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                 FromDIP(15));
+  mainSizer->AddSpacer(FromDIP(10));
+
+  // ---- Блок "Auto-update settings" (опционально) ----
   if (m_showAutoUpdateSettings) {
     wxStaticBox *settingsBox =
         new wxStaticBox(this, wxID_ANY, "Auto-update settings");
@@ -87,39 +117,50 @@ void EpgSourceManagerPanel::SetupUI() {
         new wxStaticBoxSizer(settingsBox, wxVERTICAL);
 
     wxFlexGridSizer *grid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
-    grid->AddGrowableCol(1);
 
-    // Все элементы должны иметь родителем settingsBox, а не this
+    // Auto-update
     grid->Add(new wxStaticText(settingsBox, wxID_ANY, "Auto-update:"), 0,
-              wxALIGN_CENTER_VERTICAL);
+              wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_autoUpdateCheck = new wxCheckBox(settingsBox, wxID_ANY, "");
-    grid->Add(m_autoUpdateCheck, 0, wxEXPAND);
+    grid->Add(m_autoUpdateCheck, 0, wxALIGN_LEFT);
 
+    // Update interval
     grid->Add(
         new wxStaticText(settingsBox, wxID_ANY, "Update interval (hours):"), 0,
-        wxALIGN_CENTER_VERTICAL);
+        wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_updateIntervalSpin =
         new wxSpinCtrl(settingsBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
                        wxSize(FromDIP(80), -1));
     m_updateIntervalSpin->SetRange(1, 168);
     m_updateIntervalSpin->SetValue(24);
-    grid->Add(m_updateIntervalSpin, 0, wxEXPAND);
+    grid->Add(m_updateIntervalSpin, 0, wxALIGN_LEFT);
 
+    // Days to keep
     grid->Add(new wxStaticText(settingsBox, wxID_ANY, "Days to keep in cache:"),
-              0, wxALIGN_CENTER_VERTICAL);
+              0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_daysToKeepSpin =
         new wxSpinCtrl(settingsBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
                        wxSize(FromDIP(80), -1));
     m_daysToKeepSpin->SetRange(1, 30);
     m_daysToKeepSpin->SetValue(3);
-    grid->Add(m_daysToKeepSpin, 0, wxEXPAND);
+    grid->Add(m_daysToKeepSpin, 0, wxALIGN_LEFT);
 
     settingsSizer->Add(grid, 0, wxEXPAND | wxALL, FromDIP(5));
-    mainSizer->Add(settingsSizer, 0, wxEXPAND | wxALL, FromDIP(5));
+    mainSizer->Add(settingsSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                   FromDIP(15));
   }
 
   SetSizer(mainSizer);
   UpdateSourceList();
+
+  // При изменении размера окна пересчитывать ширину колонок
+  Bind(wxEVT_SIZE, [this](wxSizeEvent &evt) {
+    AdjustColumnWidths();
+    evt.Skip();
+  });
+
+  // Начальная настройка ширины колонок
+  AdjustColumnWidths();
 }
 
 void EpgSourceManagerPanel::SetRefreshing(bool refreshing) {
@@ -165,6 +206,7 @@ void EpgSourceManagerPanel::UpdateSourceList() {
     m_sourceList->SetItem(idx, 3, status);
   }
   m_dirty = false;
+  AdjustColumnWidths();
 }
 
 void EpgSourceManagerPanel::LoadSettings() {
@@ -243,11 +285,9 @@ void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
   m_epgMgr->SetSources(sources);
   m_epgMgr->SaveSourcesToConfig();
 
-  // Показываем индикатор
   SetRefreshing(true);
   m_epgMgr->Refresh(); // асинхронно
 
-  // Обновляем список источников сразу (без ожидания Refresh)
   UpdateSourceList();
   m_dirty = true;
 }
@@ -335,6 +375,102 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
 }
 
 void EpgSourceManagerPanel::OnSourceSelected(wxListEvent &) {
-  // Можно добавить логику при выборе строки (например, включить/выключить
-  // кнопки)
+  // Можно добавить логику при выборе строки
+}
+
+// --------------------------------------------------------------------------
+// AdjustColumnWidths – адаптивная ширина колонок по содержимому
+// --------------------------------------------------------------------------
+void EpgSourceManagerPanel::AdjustColumnWidths() {
+  if (!m_sourceList)
+    return;
+
+  wxClientDC dc(m_sourceList);
+  dc.SetFont(m_sourceList->GetFont());
+
+  // Заголовки колонок
+  wxString headers[] = {"URL", "Name", "Last Update", "Status"};
+  const int colCount = 4;
+  // Минимальные и максимальные ширины (в пикселях, с учётом DPI)
+  int minWidths[colCount] = {FromDIP(150), FromDIP(100), FromDIP(100),
+                             FromDIP(60)};
+  int maxWidths[colCount] = {FromDIP(600), FromDIP(300), FromDIP(200),
+                             FromDIP(100)};
+
+  int bestWidths[colCount];
+
+  // Вычисляем ширину для каждой колонки
+  for (int col = 0; col < colCount; ++col) {
+    int maxTextWidth = 0;
+
+    // Ширина заголовка
+    wxSize headerSize = dc.GetTextExtent(headers[col]);
+    maxTextWidth = headerSize.GetWidth();
+
+    // Ширина всех строк в колонке
+    int itemCount = m_sourceList->GetItemCount();
+    for (int i = 0; i < itemCount; ++i) {
+      wxString text = m_sourceList->GetItemText(i, col);
+      wxSize textSize = dc.GetTextExtent(text);
+      if (textSize.GetWidth() > maxTextWidth)
+        maxTextWidth = textSize.GetWidth();
+    }
+
+    // Добавляем небольшой запас (отступы)
+    int desired = maxTextWidth + FromDIP(10);
+    // Ограничиваем минимумом и максимумом
+    if (desired < minWidths[col])
+      desired = minWidths[col];
+    if (desired > maxWidths[col])
+      desired = maxWidths[col];
+    bestWidths[col] = desired;
+  }
+
+  // Получаем доступную ширину списка
+  int totalWidth = m_sourceList->GetClientSize().GetWidth();
+  if (totalWidth <= 0) {
+    // Если окно ещё не отображено, устанавливаем минимальные/желаемые ширины
+    for (int col = 0; col < colCount; ++col) {
+      m_sourceList->SetColumnWidth(col, bestWidths[col]);
+    }
+    return;
+  }
+
+  // Сумма желаемых ширин
+  int sumDesired = 0;
+  for (int col = 0; col < colCount; ++col)
+    sumDesired += bestWidths[col];
+
+  if (sumDesired <= totalWidth) {
+    // Есть лишнее место – распределяем между URL (0) и Name (1) в пропорции
+    // 60/40
+    int extra = totalWidth - sumDesired;
+    int addToUrl = static_cast<int>(extra * 0.6);
+    int addToName = extra - addToUrl;
+
+    // Применяем добавки, но не превышаем максимумы
+    int newUrl = bestWidths[0] + addToUrl;
+    int newName = bestWidths[1] + addToName;
+
+    if (newUrl > maxWidths[0]) {
+      addToName += (newUrl - maxWidths[0]);
+      newUrl = maxWidths[0];
+    }
+    if (newName > maxWidths[1]) {
+      // Если имя достигло максимума, остаток некуда добавлять – оставляем
+      // пустым
+      newName = maxWidths[1];
+    }
+    bestWidths[0] = std::min(newUrl, maxWidths[0]);
+    bestWidths[1] = std::min(newName, maxWidths[1]);
+  } else {
+    // Если желаемая ширина больше доступной, включаем горизонтальную прокрутку
+    // Оставляем желаемые ширины (они могут быть больше клиентской области)
+    // Ничего не меняем.
+  }
+
+  // Устанавливаем ширины колонок
+  for (int col = 0; col < colCount; ++col) {
+    m_sourceList->SetColumnWidth(col, bestWidths[col]);
+  }
 }

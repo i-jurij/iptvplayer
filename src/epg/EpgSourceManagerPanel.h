@@ -36,6 +36,8 @@ public:
 private:
   EPGManager *m_epgMgr;
 
+  void AdjustColumnWidths();
+  
   wxActivityIndicator *m_activityIndicator = nullptr;
   wxButton *m_cancelBtn = nullptr;
 

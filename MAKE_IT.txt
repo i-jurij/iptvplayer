@@ -1,116 +1,114 @@
-**Пошаговый план реализации (без кода)**
+## Точный пошаговый план реализации (без кода)
+
+### Часть 1. Улучшение алгоритма матчинга
+
+**Файлы:** `EPGManager.h`, `EPGManager.cpp`  
+**Метод:** `EPGManager::FindBestMatch`
+
+1. **Перестроить логику выбора**  
+   - Создать структуру `Candidate { std::string epgId; int score; std::string method; }`.  
+   - Для каждого EPG-канала из `m_normalizedCache` вычислить **максимальный балл** по всем методам (кроме ручного).  
+   - Ручное сопоставление (из `m_manualMapping`) проверять **в первую очередь** – если найдено, сразу возвращать его с баллом 100.  
+   - Для остальных методов:
+     - **Точное совпадение** (нормализованные имена равны) → балл 100.
+     - **Token sort** (наборы токенов совпадают после сортировки) → балл 85.
+     - **Fuzzy** (расстояние Левенштейна) → балл = `similarity` (0–100), если `similarity >= m_fuzzyThreshold` (по умолчанию 75).
+     - **Substring** → балл = 50 (или `similarity`, если подстрока составляет >= `m_substringMinRatio`% от длины обоих имён и длина имени >= `m_substringMinLength`).
+     - **Exact tvg-id** (если `tvgId` не пуст и совпадает после нормализации) → балл 70.
+   - Для каждого EPG-канала сохранить **максимальный** балл из всех методов (и метод, которым он достигнут).  
+   - После обхода всех EPG-каналов выбрать кандидата с **наибольшим баллом**. Если балл >= `m_minMatchScore` (по умолчанию 50), вернуть его; иначе вернуть пустой результат.
+
+2. **Добавить приватные переменные-члены** в `EPGManager`:
+   - `int m_fuzzyThreshold = 75;`
+   - `int m_substringMinLength = 6;`
+   - `int m_substringMinRatio = 30;`
+   - `int m_minMatchScore = 50;`
+   - Метод `void LoadMatchSettings()` для чтения из `ConfigManager`.
+
+3. **Загружать настройки** в конструкторе или при открытии БД.
+
+4. **Добавить логирование** – в `FindBestMatch` перед возвратом выводить через `LOG_DEBUG` имя канала плейлиста, выбранный EPG-канал, метод и балл.
 
 ---
 
-### Шаг 1. Сократить `EPGPanel` до панели просмотра программы
-- **Файлы:** `EPGPanel.h`, `EPGPanel.cpp`
-- Удалить все компоненты, относящиеся к списку каналов: `m_channelListView`, `m_searchCtrl`, модель `ChannelListModel`, кнопки переключения режимов, поля `m_playlistChannels`, `m_favoriteChannels`, `m_currentMode`.
-- Удалить все методы, связанные со списком: `SetChannels`, `SetFavoriteChannels`, `SwitchMode`, `OnChannelSelected`, `OnChannelActivated`, `OnSearchText`, фильтры.
-- Оставить только правую часть: заголовок канала, дату, навигацию (Prev/Today/Next), сетку программ, детали.
-- Оставить методы: `SetChannel`, `LoadProgramsForChannel`, навигацию по дням, `OnProgramSelected`, `AdjustProgramColumns`.
-- Удалить кнопки управления EPG (`Refresh`, `Manage Sources`) и индикаторы прогресса (они перейдут в административную панель).
-- Оставить методы `OnEpgUpdateFinished`, `ShowMatchProgress`, `UpdateMatchProgress` – они будут вызываться из `MainFrame` для обновления панелей.
+### Часть 2. Настройка порогов через ConfigManager
+
+**Файлы:** `ConfigManager.h` (уже есть `getInt`/`setInt`), **не требует изменений**.  
+Использовать ключи:
+- `"epg_fuzzy_threshold"` (int, default 75)
+- `"epg_substring_min_length"` (int, default 6)
+- `"epg_substring_min_ratio"` (int, default 30)
+- `"epg_min_match_score"` (int, default 50)
+
+В `EPGManager::LoadMatchSettings` читать эти значения через `m_configManager->getInt(...)`.
 
 ---
 
-### Шаг 2. Встроить два экземпляра `EPGPanel` в вкладки Channels и Favorites
-- **Файл:** `MainFrame_UI.cpp` (метод `createMainPanel`)
-- Для вкладки `Channels` создать `wxSplitterWindow`. Левая часть – `m_channelViewBook`, правая – новый `EPGPanel` (`m_epgChannels`).
-- Для вкладки `Favorites` аналогично – левая `m_favViewBook`, правая – `m_epgFavorites`.
-- В обработчиках выбора канала (`onChannelSelected`, `onFavoriteSelected`) вызывать `SetChannel` для соответствующей панели (но без воспроизведения видео – см. шаги 8–9).
-- Вкладка `Program` заменяется на административную панель с `EpgSourceManagerPanel` (`m_epgAdminPanel`).
+### Часть 3. Интерфейс для изменения порогов в `EpgSourceManagerPanel`
+
+**Файлы:** `EpgSourceManagerPanel.h`, `.cpp`
+
+1. **Добавить элементы управления** в существующую секцию "Auto-update settings" (или создать новую "Match settings"):
+   - `wxSpinCtrl *m_fuzzyThresholdSpin` (диапазон 50–100)
+   - `wxSpinCtrl *m_substringMinLengthSpin` (1–20)
+   - `wxSpinCtrl *m_substringMinRatioSpin` (1–100)
+   - `wxSpinCtrl *m_minScoreSpin` (1–100)
+
+2. **В `LoadSettings()`** – прочитать текущие значения через `m_epgMgr->Get...()` (или напрямую из ConfigManager) и установить в спин-контролы.
+
+3. **В `SaveSettings()`** – сохранить значения через `m_epgMgr->Set...` (с обновлением внутренних переменных) и вызвать `m_configManager->setInt` для каждого ключа.
+
+4. **После сохранения** – если плейлист активен, предложить пересчитать маппинг (кнопка "Re-match" или автоматически). Для этого в `EPGManager` можно добавить метод `ReMatchCurrentPlaylist()`, который вызовет `MatchChannels` для текущего плейлиста.
 
 ---
 
-### Шаг 3. Удалить колонку "Program" из списков каналов и избранного
-- **Файлы:** `ChannelDataModel.cpp`, `BaseChannelList.cpp`
-- В `ChannelDataModel::GetColumnCount()` уменьшить количество колонок с 8 до 7.
-- В `GetValueByRow()` удалить `case 7` (отображение текущей программы).
-- В `BaseChannelList::InitColumns()` удалить создание колонки "Program".
-- Удалить методы `RefreshProgramColumn` и `RefreshProgramColumnVisible` (и их вызовы).
+### Часть 4. Ручной маппинг через UI (новая возможность)
+
+**Файлы:** Создать новый диалог `ManualMappingDialog` (`.h`, `.cpp`).
+
+1. **Диалог** содержит:
+   - Список каналов из текущего плейлиста (имя, tvg-id) – передаётся извне.
+   - Список всех EPG-каналов (из БД) – получается через `EPGManager::GetAllChannels()`.
+   - Кнопка "Add mapping" – связывает выбранный канал плейлиста с выбранным EPG-каналом.
+   - Список уже существующих ручных маппингов для текущего плейлиста (с возможностью удаления).
+
+2. **Логика:**
+   - При добавлении вызывается `EPGManager::SetManualMapping(tvgId, epgId)`.
+   - При удалении – `EPGManager::RemoveChannelMapping(tvgId)`.
+   - После изменения обновить список маппингов в диалоге.
+
+3. **Место вызова:**  
+   - Добавить кнопку "Manual Mapping..." на панели `EpgSourceManagerPanel` (рядом с "Add", "Edit" и т.д.).  
+   - При нажатии открывать диалог, передавая в него текущий список каналов (из `MainFrame` или `PlaylistManager`).
+
+4. **В `EPGManager` добавить** (если отсутствует):
+   - `std::vector<std::pair<std::string, std::string>> GetAllEpgChannels()` – обёртка над `EPGDatabase::GetAllChannels()`.
+   - `std::vector<Channel> GetCurrentPlaylistChannels()` – если не передаётся извне, можно запросить у `PlaylistManager`.
 
 ---
 
-### Шаг 4. Удалить пункт "Program Guide" из контекстного меню
-- **Файлы:** `CardsBase_events.cpp`, `ChannelList.cpp`, `FavoritesList.cpp`
-- Удалить пункт меню "Program Guide" и его обработчик (который вызывал `SwitchToEpgTab`).
-- Удалить метод `SwitchToEpgTab` из `MainFrame` (объявление и реализацию).
+### Часть 5. Загрузка ручных маппингов при старте
+
+**Файл:** `MainFrame` или `PlaylistManager` (где происходит загрузка плейлиста).
+
+- Убедиться, что после загрузки плейлиста вызывается `EPGManager::LoadMappingForPlaylist(playlistId, channels)`.  
+- Если вызов отсутствует – добавить его. Это загрузит сохранённые ручные маппинги из БД и применит их.
 
 ---
 
-### Шаг 5. Удалить EPG-блок из `SettingsDialog`
-- **Файлы:** `SettingsDialog.cpp`, `SettingsDialog.h`
-- Удалить блок "Block 4: EPG" (создание `EpgSourceManagerPanel`).
-- Удалить поле `m_epgPanel` и связанные вызовы `LoadSettings`/`SaveSettings`.
-- Удалить статические методы `ShowAddEpgSourceDialog` и `AddEpgSourceToManager`.
+### Часть 6. Тестирование и отладка
+
+- Включить `LOG_DEBUG` для матчинга (уровень логирования должен позволять).  
+- Проверить, что для канала «НАУКА» теперь выбирается «Наука 2.0», а не `1hd`.  
+- При необходимости скорректировать пороги через UI (повысить `fuzzy_threshold`, ужесточить `substring`).  
+- Убедиться, что ручной маппинг работает и сохраняется между сессиями.
 
 ---
 
-### Шаг 6. Обновить `OnEPGUpdated` и удалить старые методы
-- **Файл:** `MainFrame.cpp`
-- В `OnEPGUpdated` добавить обновление административной панели (`m_epgAdminPanel->UpdateSourceList()`) и обеих панелей просмотра (`m_epgChannels`, `m_epgFavorites`) при наличии выбранного канала.
-- Удалить метод `HandleEpgPageChanged` и его вызов.
-- Удалить блок сохранения/восстановления состояния старого `m_epgPanel` из обработчика смены страниц.
-- Удалить поле `m_epgPanel` из `MainFrame.h`.
+### Дополнительные рекомендации
 
----
+- В `FindBestMatch` при сравнении имён используйте **нормализованные** строки, полученные через `NormalizeName`.  
+- Убедитесь, что `m_normalizedCache` заполняется **всеми** каналами из БД (метод `RebuildNormalizedCache` вызывается перед матчингом).  
+- Для повышения производительности можно кэшировать вычисленные баллы для часто используемых каналов, но на объёмах до 10–20 тысяч каналов это не критично.
 
-### Шаг 7. Настроить прогресс и индикаторы в административной панели
-- **Файлы:** `EpgSourceManagerPanel.h`, `EpgSourceManagerPanel.cpp`
-- Добавить `ActivityIndicator` справа от кнопки Refresh.
-- Добавить кнопку `Cancel` для прерывания загрузки.
-- Реализовать метод `SetRefreshing(bool)`, который показывает/скрывает индикатор и блокирует кнопки.
-- В методах `OnAdd`, `OnRefresh` вызывать `SetRefreshing(true)` перед асинхронной операцией.
-- В `MainFrame::OnEPGUpdated` вызывать `SetRefreshing(false)` после завершения.
-- Использовать глобальный `m_gaugeTop` для отображения прогресса загрузки EPG (через таймер `m_epgProgressTimer`).
-
----
-
-### Шаг 8. Добавить debounce для загрузки EPG при выборе канала
-- **Файлы:** `MainFrame.h`, `MainFrame.cpp`
-- Добавить таймер `m_epgDebounceTimer`, переменные `m_epgPendingPanel` и `m_epgPendingChannel`, обработчик `OnEpgDebounceTimer`.
-- В `onChannelSelected` и `onFavoriteSelected` **убрать** вызов `PlayChannel`. Вместо этого сохранить канал и нужную панель в отложенные переменные и запустить таймер на 300 мс.
-- При срабатывании таймера вызвать `SetChannel` для отложенной панели.
-- Во всех обработчиках смены страниц (Channels, Favorites, Video, Playlists) останавливать таймер и сбрасывать отложенный запрос.
-
----
-
-### Шаг 9. Настроить поведение выбора и активации для списков и сеток
-- **Цель:** одинарный клик / навигация → загрузка EPG, двойной клик / Enter → воспроизведение видео.
-
-#### 9.1. Списки (`ChannelList`, `FavoritesList`)
-- В `OnChannelActivated` (двойной клик / Enter) вызывать `MainFrame::PlayChannel`.
-- Убрать вызов `m_onSelect` из этого метода, так как он использовался для воспроизведения.
-- В `OnKeyDown` для `WXK_RETURN` вызывать `PlayChannel` (или оставить `OnChannelActivated`, который уже это делает).
-
-#### 9.2. Сетки (`ChannelCards`, `FavoritesCards`)
-- В обработчике одинарного клика `OnCardClick` (не по звёздочке) вызывать `m_onSelect` (который ведёт к `onChannelSelected` → загрузка EPG).
-- Добавить обработку двойного клика мыши (`wxEVT_LEFT_DCLICK`), в котором вызывать `MainFrame::PlayChannel` для выбранного канала.
-- В `OnKeyDown` для `WXK_RETURN` (в `CardsBase`) вызывать `PlayChannel` вместо `OnCardClick` (или модифицировать `OnCardClick`, чтобы она различала, откуда вызвана – но проще заменить на прямой вызов `PlayChannel`).
-
-#### 9.3. Перемещение фокуса в сетках клавиатурой
-- В `CardsBase::OnKeyDown` после обработки стрелок (WXK_UP, WXK_DOWN и т.д.) и изменения `m_focusIndex` вызывать `m_onSelect` (или напрямую `MainFrame::onChannelSelected`) для нового канала, чтобы запустить debounce загрузки EPG.
-
----
-
-### Шаг 10. Синхронизация активности EPG-панелей при переключении вкладок
-- **Файлы:** `MainFrame_ChannelsViewUI.cpp`, `MainFrame_FavoritesUI.cpp`, `MainFrame_PlaylistLogic.cpp`
-- В `HandleChannelPageChanged` при переходе на вкладку Channels активировать `m_epgChannels` и деактивировать `m_epgFavorites`.
-- В `HandleFavPageChanged` – наоборот.
-- В `HandlePlaylistPageChanged` и при переходе на Video – деактивировать обе панели.
-- Также останавливать debounce-таймер при уходе со страниц.
-
----
-
-### Шаг 11. Тестирование
-- Проверить, что одинарный клик / стрелки загружают программу с debounce (300 мс) и не запускают видео.
-- Проверить, что двойной клик / Enter запускают видео.
-- Проверить, что при быстрой навигации не происходит множественных запросов EPG.
-- Проверить, что при переключении вкладок отложенные запросы отменяются.
-- Проверить, что административная панель работает (источники, обновление, прогресс, отмена).
-- Проверить, что контекстное меню не содержит "Program Guide".
-- Проверить, что SettingsDialog не содержит EPG-блока.
-
----
-
-**Итог:** Все шаги описаны. Выполняйте их последовательно. После завершения рефакторинга интерфейс будет единообразным: просмотр программы встроен в основные вкладки, управление EPG вынесено в отдельную административную панель, а воспроизведение видео остаётся за двойным кликом / Enter.
+Этот план покрывает все требуемые изменения: улучшение алгоритма, настройку порогов через UI и конфиг, ручной маппинг через интерфейс. Все изменения локализованы, не затрагивают архитектуру приложения и могут быть реализованы последовательно.
