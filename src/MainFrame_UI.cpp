@@ -266,6 +266,7 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   m_epgAdminPanel = new EpgSourceManagerPanel(
       m_notebook, m_application->GetEPGManager(), true);
+  m_epgAdminPanel->SetMainFrame(this);
   m_notebook->AddPage(m_epgAdminPanel, "Program");
   m_epgPageIdx = m_notebook->FindPage(m_epgAdminPanel);
 

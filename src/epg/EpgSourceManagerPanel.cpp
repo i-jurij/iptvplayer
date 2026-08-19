@@ -1,8 +1,10 @@
-#include "EpgSourceManagerPanel.h"
+#include "epg/EpgSourceManagerPanel.h"
+#include "MainFrame.h"
 #include "Utils.h"
 #include "epg/AddEpgSourceDialog.h"
 #include "epg/EPGData.h"
 #include "epg/EPGManager.h"
+#include "epg/ManualMappingDialog.h"
 
 #include <wx/dcclient.h>
 #include <wx/filename.h>
@@ -85,6 +87,11 @@ void EpgSourceManagerPanel::SetupUI() {
   });
   btnSizer->Add(m_cancelBtn, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(5));
 
+  m_manualMapBtn = new wxButton(sourceBox, wxID_ANY, "Manual Mapping...");
+  btnSizer->Add(m_manualMapBtn, 0, wxRIGHT, FromDIP(5));
+  m_manualMapBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnManualMapping,
+                       this);
+
   sourceBoxSizer->Add(btnSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                       FromDIP(5));
 
@@ -150,6 +157,69 @@ void EpgSourceManagerPanel::SetupUI() {
                    FromDIP(15));
   }
 
+  // ---- Блок "Match settings" ----
+  wxStaticBox *matchBox = new wxStaticBox(this, wxID_ANY, "Match settings");
+  wxStaticBoxSizer *matchSizer = new wxStaticBoxSizer(matchBox, wxVERTICAL);
+
+  wxFlexGridSizer *matchGrid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
+
+  // Fuzzy threshold
+  matchGrid->Add(
+      new wxStaticText(matchBox, wxID_ANY, "Fuzzy threshold (50-100):"), 0,
+      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  m_fuzzyThresholdSpin =
+      new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                     wxSize(FromDIP(80), -1));
+  m_fuzzyThresholdSpin->SetRange(50, 100);
+  m_fuzzyThresholdSpin->SetValue(75);
+  matchGrid->Add(m_fuzzyThresholdSpin, 0, wxALIGN_LEFT);
+
+  // Substring min length
+  matchGrid->Add(
+      new wxStaticText(matchBox, wxID_ANY, "Substring min length (1-20):"), 0,
+      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  m_substringMinLengthSpin =
+      new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                     wxSize(FromDIP(80), -1));
+  m_substringMinLengthSpin->SetRange(1, 20);
+  m_substringMinLengthSpin->SetValue(6);
+  matchGrid->Add(m_substringMinLengthSpin, 0, wxALIGN_LEFT);
+
+  // Substring ratio
+  matchGrid->Add(
+      new wxStaticText(matchBox, wxID_ANY, "Substring ratio (1-100%):"), 0,
+      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  m_substringMinRatioSpin =
+      new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                     wxSize(FromDIP(80), -1));
+  m_substringMinRatioSpin->SetRange(1, 100);
+  m_substringMinRatioSpin->SetValue(30);
+  matchGrid->Add(m_substringMinRatioSpin, 0, wxALIGN_LEFT);
+
+  // Min match score
+  matchGrid->Add(
+      new wxStaticText(matchBox, wxID_ANY, "Min match score (1-100):"), 0,
+      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  m_minScoreSpin = new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString,
+                                  wxDefaultPosition, wxSize(FromDIP(80), -1));
+  m_minScoreSpin->SetRange(1, 100);
+  m_minScoreSpin->SetValue(50);
+  matchGrid->Add(m_minScoreSpin, 0, wxALIGN_LEFT);
+
+  matchSizer->Add(matchGrid, 0, wxEXPAND | wxALL, FromDIP(5));
+
+  // Кнопка Apply
+  m_applyMatchBtn = new wxButton(matchBox, wxID_ANY, "Apply");
+  m_applyMatchBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnApplyMatch,
+                        this);
+  wxBoxSizer *applySizer = new wxBoxSizer(wxHORIZONTAL);
+  applySizer->AddStretchSpacer();
+  applySizer->Add(m_applyMatchBtn, 0);
+  matchSizer->Add(applySizer, 0, wxEXPAND | wxALL, FromDIP(5));
+
+  mainSizer->Add(matchSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                 FromDIP(15));
+  
   SetSizer(mainSizer);
   UpdateSourceList();
 
@@ -161,6 +231,24 @@ void EpgSourceManagerPanel::SetupUI() {
 
   // Начальная настройка ширины колонок
   AdjustColumnWidths();
+
+  // Загружаем текущие значения в контролы
+  LoadSettings();
+}
+
+void EpgSourceManagerPanel::OnManualMapping(wxCommandEvent &) {
+  if (!m_epgMgr) {
+    wxMessageBox("EPG Manager not available.", "Error", wxOK | wxICON_ERROR,
+                 this);
+    return;
+  }
+  if (!m_mainFrame) {
+    wxMessageBox("Main frame not available.", "Error", wxOK | wxICON_ERROR,
+                 this);
+    return;
+  }
+  ManualMappingDialog dlg(this, m_epgMgr, m_mainFrame);
+  dlg.ShowModal();
 }
 
 void EpgSourceManagerPanel::SetRefreshing(bool refreshing) {
@@ -212,9 +300,43 @@ void EpgSourceManagerPanel::UpdateSourceList() {
 void EpgSourceManagerPanel::LoadSettings() {
   if (!m_epgMgr || !m_showAutoUpdateSettings)
     return;
+
   m_autoUpdateCheck->SetValue(m_epgMgr->IsAutoUpdateEnabled());
   m_updateIntervalSpin->SetValue(m_epgMgr->GetUpdateIntervalHours());
   m_daysToKeepSpin->SetValue(m_epgMgr->GetDaysToKeep());
+
+  // Загрузка настроек матчинга
+  if (m_fuzzyThresholdSpin)
+    m_fuzzyThresholdSpin->SetValue(m_epgMgr->GetFuzzyThreshold());
+  if (m_substringMinLengthSpin)
+    m_substringMinLengthSpin->SetValue(m_epgMgr->GetSubstringMinLength());
+  if (m_substringMinRatioSpin)
+    m_substringMinRatioSpin->SetValue(m_epgMgr->GetSubstringMinRatio());
+  if (m_minScoreSpin)
+    m_minScoreSpin->SetValue(m_epgMgr->GetMinMatchScore());
+}
+
+void EpgSourceManagerPanel::SaveMatchSettings() {
+  if (!m_epgMgr)
+    return;
+  m_epgMgr->SetFuzzyThreshold(m_fuzzyThresholdSpin->GetValue());
+  m_epgMgr->SetSubstringMinLength(m_substringMinLengthSpin->GetValue());
+  m_epgMgr->SetSubstringMinRatio(m_substringMinRatioSpin->GetValue());
+  m_epgMgr->SetMinMatchScore(m_minScoreSpin->GetValue());
+  m_dirty = true;
+}
+
+void EpgSourceManagerPanel::OnApplyMatch(wxCommandEvent &) {
+  SaveMatchSettings();
+
+  if (m_epgMgr) {
+    m_epgMgr->ReMatchCurrentPlaylist();
+    wxMessageBox("Match settings applied. Re-matching channels in background.",
+                 "Info", wxOK | wxICON_INFORMATION, this);
+  } else {
+    wxMessageBox("Match settings saved.", "Info", wxOK | wxICON_INFORMATION,
+                 this);
+  }
 }
 
 void EpgSourceManagerPanel::SaveSettings() {

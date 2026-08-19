@@ -924,3 +924,12 @@ void PlaylistManager::WaitForAddFromUrl() {
     m_addFromUrlFuture.wait();
   }
 }
+
+Playlist *PlaylistManager::findByUniqueId(const std::string &uniqueId) {
+  std::lock_guard<std::mutex> lock(m_playlistsMutex);
+  for (auto &pl : m_playlists) {
+    if (pl->getUniqueId() == uniqueId)
+      return pl.get();
+  }
+  return nullptr;
+}

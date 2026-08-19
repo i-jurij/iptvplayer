@@ -96,6 +96,8 @@ public:
   std::string getLastError() const;
   void setLastError(const std::string &msg) const;
 
+  Playlist *findByUniqueId(const std::string &uniqueId);
+
 private:
   mutable std::mutex m_lastErrorMutex;
   mutable std::string m_lastError;

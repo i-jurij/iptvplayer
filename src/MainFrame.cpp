@@ -131,8 +131,8 @@ MainFrame::MainFrame(Application *app)
   Bind(wxEVT_COMMAND_BUTTON_CLICKED, &MainFrame::onAddFromUrlError, this,
        ID_ADD_FROM_URL_ERROR);
 
-  createMainPanel();
   createStatusBar();
+  createMainPanel();
 
   RefreshPlaylistView();
 
@@ -286,6 +286,20 @@ MainFrame::~MainFrame() {
   } catch (...) {
     wxMessageBox("MainFrame dtor unknown exception");
   }
+}
+
+std::vector<Channel> MainFrame::GetCurrentChannels() const {
+  return m_allChannels;
+}
+
+std::string MainFrame::GetCurrentPlaylistId() const {
+  if (m_loadedPlaylistIndex < 0)
+    return "";
+  auto *mgr = getPlaylistManager();
+  if (!mgr)
+    return "";
+  auto *pl = mgr->getPlaylist(static_cast<size_t>(m_loadedPlaylistIndex));
+  return pl ? pl->getUniqueId() : "";
 }
 
 void MainFrame::OnEpgDebounceTimer(wxTimerEvent &) {

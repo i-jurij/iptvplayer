@@ -198,6 +198,10 @@ EPGManager::EPGManager(ConfigManager *configManager,
   LoadSourcesFromConfig();
   InitializeDefaultRegionalSuffixes();
 
+  if (m_configManager) {
+    LoadMatchSettings();
+  }
+
   if (!m_dbPath.empty()) {
     OpenDatabase();
   }
@@ -242,6 +246,51 @@ EPGManager::~EPGManager() {
   }
 }
 
+void EPGManager::SetFuzzyThreshold(int value) {
+  m_fuzzyThreshold = value;
+  if (m_configManager) {
+    m_configManager->setInt("epg_fuzzy_threshold", value);
+    m_configManager->saveSettings();
+  }
+}
+
+void EPGManager::SetSubstringMinLength(int value) {
+  m_substringMinLength = value;
+  if (m_configManager) {
+    m_configManager->setInt("epg_substring_min_length", value);
+    m_configManager->saveSettings();
+  }
+}
+
+void EPGManager::SetSubstringMinRatio(int value) {
+  m_substringMinRatio = value;
+  if (m_configManager) {
+    m_configManager->setInt("epg_substring_min_ratio", value);
+    m_configManager->saveSettings();
+  }
+}
+
+void EPGManager::SetMinMatchScore(int value) {
+  m_minMatchScore = value;
+  if (m_configManager) {
+    m_configManager->setInt("epg_min_match_score", value);
+    m_configManager->saveSettings();
+  }
+}
+
+void EPGManager::LoadMatchSettings() {
+  if (!m_configManager)
+    return;
+  m_fuzzyThreshold = m_configManager->getInt("epg_fuzzy_threshold", 75);
+  m_substringMinLength = m_configManager->getInt("epg_substring_min_length", 6);
+  m_substringMinRatio = m_configManager->getInt("epg_substring_min_ratio", 30);
+  m_minMatchScore = m_configManager->getInt("epg_min_match_score", 50);
+  LOG_DEBUG("EPGManager: Loaded match thresholds: fuzzy=%d, subLen=%d, "
+            "subRatio=%d, minScore=%d",
+            m_fuzzyThreshold, m_substringMinLength, m_substringMinRatio,
+            m_minMatchScore);
+}
+
 void EPGManager::OnStartupUpdateTimer(wxTimerEvent&) {
     if (m_isRefreshing) {
         LOG_DEBUG("Startup update skipped – refresh already in progress");
@@ -249,6 +298,15 @@ void EPGManager::OnStartupUpdateTimer(wxTimerEvent&) {
     }
     LOG_DEBUG("Startup auto-update timer triggered, running Refresh()");
     Refresh();
+}
+
+bool EPGManager::GetMappingEntry(const std::string &playlistId,
+                                 const std::string &key, std::string &channelId,
+                                 bool &isManual) {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return false;
+  return m_db->GetMappingEntry(playlistId, key, channelId, isManual);
 }
 
 // --------------------------------------------------------------------------
@@ -262,11 +320,13 @@ bool EPGManager::OpenDatabase() {
     setLastError("Database path not set");
     return false;
   }
+
   m_db = std::make_unique<EPGDatabase>();
   if (!m_db->Open(m_dbPath)) {
     setLastError("Failed to open EPG database");
     return false;
   }
+
   m_epgChannelsHash = m_db->GetEpgChannelsHash();
   m_loaded = true;
 
@@ -280,6 +340,8 @@ bool EPGManager::OpenDatabase() {
 
   // Очистка старых программ
   CleanExpiredPrograms();
+
+  UpdateEpgNameCache();
 
   // Проверка необходимости автообновления
   time_t now = std::time(nullptr);
@@ -440,6 +502,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     m_epgChannelsHash = m_db->GetEpgChannelsHash();
     m_loaded = true;
     CleanExpiredPrograms();
+    UpdateEpgNameCache();
     LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu channels",
               sourceUrl.c_str(), newChannels.size());
   } else {
@@ -719,7 +782,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   std::string tvgId = playlistChannel.getTvgId();
   std::string channelName = playlistChannel.getName();
 
-  // TIER 1: Ручное сопоставление
+  // Ручное сопоставление (приоритет)
   {
     std::shared_lock lock(m_mappingMutex);
     if (!tvgId.empty()) {
@@ -734,93 +797,145 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     }
   }
 
-  // TIER 2: Точное совпадение по нормализованному имени
+  // Нормализуем имя канала плейлиста
   std::string plName = NormalizeName(channelName);
-  {
-    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
-    if (!plName.empty()) {
-      for (const auto &nc : m_normalizedCache) {
-        if (nc.normalizedName == plName) {
-          result.channelId = nc.id;
-          result.method = "exact_name";
-          result.score = 95;
-          result.confidence = "high";
-          return result;
-        }
-      }
-    }
-  }
-
-  // TIER 3: Token-sort
-  auto plTokens = Tokenize(plName);
-  std::sort(plTokens.begin(), plTokens.end());
-  {
-    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
-    for (const auto &nc : m_normalizedCache) {
-      auto epgTokens = nc.tokens;
-      std::sort(epgTokens.begin(), epgTokens.end());
-      if (plTokens.size() == epgTokens.size() && plTokens == epgTokens) {
-        result.channelId = nc.id;
-        result.method = "token_sort";
-        result.score = 85;
+  if (plName.empty()) {
+    // Если имя пустое, пробуем сопоставить по tvg-id
+    if (!tvgId.empty()) {
+      std::string normTvg = tvgId;
+      NormalizeTvgId(normTvg);
+      std::shared_lock lock(m_tvgIndexMutex);
+      auto it = m_tvgIdIndex.find(normTvg);
+      if (it != m_tvgIdIndex.end()) {
+        result.channelId = it->second;
+        result.method = "exact_tvgid_fallback";
+        result.score = 70;
         result.confidence = "medium";
         return result;
       }
     }
-  }
-
-  // TIER 4: Нечёткое сравнение
-  int bestScore = 0;
-  std::string bestId;
-  {
-    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
-    for (const auto &nc : m_normalizedCache) {
-      int similarity = CalculateNameScore(plName, nc.normalizedName);
-      if (similarity > bestScore && similarity >= 60) {
-        bestScore = similarity;
-        bestId = nc.id;
-      }
-    }
-  }
-  if (!bestId.empty()) {
-    result.channelId = bestId;
-    result.method = "fuzzy";
-    result.score = bestScore;
-    result.confidence = (bestScore >= 80) ? "medium" : "low";
     return result;
   }
 
-  // TIER 5: Substring
-  if (plName.length() > 3) {
+  std::vector<Candidate> candidates;
+  candidates.reserve(m_normalizedCache.size());
+
+  // Обход всех EPG-каналов из нормализованного кэша
+  {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
     for (const auto &nc : m_normalizedCache) {
-      if (nc.normalizedName.find(plName) != std::string::npos ||
-          plName.find(nc.normalizedName) != std::string::npos) {
-        result.channelId = nc.id;
-        result.method = "substring";
-        result.score = 50;
-        result.confidence = "low";
-        return result;
+      int bestScore = 0;
+      std::string bestMethod;
+
+      // Точное совпадение нормализованных имён
+      if (nc.normalizedName == plName) {
+        bestScore = 100;
+        bestMethod = "exact_name";
+      }
+
+      // Сравнение наборов токенов (после сортировки)
+      if (bestScore < 85) {
+        auto plTokens = Tokenize(plName);
+        auto epgTokens = nc.tokens;
+        std::sort(plTokens.begin(), plTokens.end());
+        std::sort(epgTokens.begin(), epgTokens.end());
+        if (plTokens.size() == epgTokens.size() && plTokens == epgTokens) {
+          bestScore = 85;
+          bestMethod = "token_sort";
+        }
+      }
+
+      // Нечёткое сравнение (расстояние Левенштейна)
+      if (bestScore < m_fuzzyThreshold) {
+        int similarity = CalculateNameScore(plName, nc.normalizedName);
+        if (similarity >= m_fuzzyThreshold) {
+          bestScore = similarity;
+          bestMethod = "fuzzy";
+        }
+      }
+
+      // Метод «подстрока» с ужесточениями
+      if (bestScore < 50) {
+        // Проверяем минимальную длину имени
+        if (plName.length() >= static_cast<size_t>(m_substringMinLength) &&
+            nc.normalizedName.length() >=
+                static_cast<size_t>(m_substringMinLength)) {
+          bool contains =
+              (nc.normalizedName.find(plName) != std::string::npos) ||
+              (plName.find(nc.normalizedName) != std::string::npos);
+          if (contains) {
+            // Вычисляем, какая часть подстроки составляет от длины
+            int minLen = std::min(plName.length(), nc.normalizedName.length());
+            int maxLen = std::max(plName.length(), nc.normalizedName.length());
+            int ratio = (minLen * 100) / maxLen;
+            if (ratio >= m_substringMinRatio) {
+              bestScore = 50;
+              bestMethod = "substring";
+            }
+          }
+        }
+      }
+
+      if (bestScore > 0) {
+        candidates.push_back({nc.id, bestScore, bestMethod});
       }
     }
   }
 
-  // TIER 6: Точное совпадение по TVG-ID (FALLBACK)
+  // Дополнительная проверка по tvg-id (вне цикла, как fallback)
   if (!tvgId.empty()) {
-    std::string normalizedTvgId = tvgId;
-    NormalizeTvgId(normalizedTvgId);
+    std::string normTvg = tvgId;
+    NormalizeTvgId(normTvg);
     std::shared_lock lock(m_tvgIndexMutex);
-    auto it = m_tvgIdIndex.find(normalizedTvgId);
+    auto it = m_tvgIdIndex.find(normTvg);
     if (it != m_tvgIdIndex.end()) {
-      result.channelId = it->second;
-      result.method = "exact_tvgid_fallback";
-      result.score = 70;
-      result.confidence = "medium";
+      bool alreadyAdded = false;
+      for (const auto &c : candidates) {
+        if (c.epgId == it->second && c.score >= 70) {
+          alreadyAdded = true;
+          break;
+        }
+      }
+      if (!alreadyAdded) {
+        candidates.push_back({it->second, 70, "exact_tvgid_fallback"});
+      }
+    }
+  }
+
+  // Выбираем кандидата с максимальным баллом
+  if (!candidates.empty()) {
+    auto best = std::max_element(candidates.begin(), candidates.end(),
+                                 [](const Candidate &a, const Candidate &b) {
+                                   return a.score < b.score;
+                                 });
+    if (best->score >= m_minMatchScore) {
+      result.channelId = best->epgId;
+      result.method = best->method;
+      result.score = best->score;
+      // Определяем уверенность по баллу
+      if (best->score >= 85)
+        result.confidence = "high";
+      else if (best->score >= 70)
+        result.confidence = "medium";
+      else
+        result.confidence = "low";
+      LOG_DEBUG("FindBestMatch: channel '%s' -> EPG '%s' (method=%s, score=%d)",
+                channelName.c_str(), result.channelId.c_str(),
+                result.method.c_str(), result.score);
       return result;
     }
   }
 
+  LOG_DEBUG("FindBestMatch: no match for channel '%s'", channelName.c_str());
   return result;
+}
+
+std::vector<std::pair<std::string, std::string>>
+EPGManager::GetAllEpgChannels() const {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return {};
+  return m_db->GetAllChannels();
 }
 
 // --------------------------------------------------------------------------
@@ -927,6 +1042,93 @@ void EPGManager::MatchChannelsAsync(
           });
         }
       });
+}
+
+void EPGManager::ReMatchCurrentPlaylist() {
+  if (m_currentPlaylistId.empty()) {
+    LOG_DEBUG("EPGManager::ReMatchCurrentPlaylist: no current playlist");
+    return;
+  }
+  if (!m_playlistManager) {
+    LOG_ERROR("EPGManager::ReMatchCurrentPlaylist: PlaylistManager is null");
+    return;
+  }
+  auto *pl = m_playlistManager->findByUniqueId(m_currentPlaylistId);
+  if (!pl) {
+    LOG_ERROR("EPGManager::ReMatchCurrentPlaylist: playlist not found: %s",
+              m_currentPlaylistId.c_str());
+    return;
+  }
+  const auto &channels = pl->getChannels();
+  if (channels.empty()) {
+    LOG_DEBUG("EPGManager::ReMatchCurrentPlaylist: no channels in playlist");
+    return;
+  }
+  // Отменяем предыдущий матчинг и запускаем новый асинхронно
+  CancelMatching();
+  MatchChannelsAsync(channels, m_currentPlaylistId, nullptr);
+}
+
+// Обновляет кэш имён EPG-каналов из БД
+void EPGManager::UpdateEpgNameCache() {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return;
+
+  // Получаем все пары (id, display_name) из таблицы channels
+  auto channels = m_db->GetAllChannels();
+  m_epgNameCache.clear();
+  for (const auto &pair : channels) {
+    m_epgNameCache[pair.first] = pair.second;
+  }
+  LOG_DEBUG("EPGManager: Updated EPG name cache with %zu channels",
+            m_epgNameCache.size());
+}
+
+std::string EPGManager::GetEpgName(const std::string &epgId) const {
+  auto it = m_epgNameCache.find(epgId);
+  if (it != m_epgNameCache.end())
+    return it->second;
+  
+  return "";
+}
+
+void EPGManager::RemoveManualMapping(const std::string &playlistId,
+                                     const std::string &tvgId) {
+  if (playlistId.empty() || tvgId.empty()) {
+    LOG_WARN("EPGManager::RemoveManualMapping: empty playlistId or tvgId");
+    return;
+  }
+
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen()) {
+    LOG_ERROR("EPGManager::RemoveManualMapping: database not open");
+    return;
+  }
+
+  // Проверяем, существует ли ручной маппинг для этого плейлиста и tvg-id
+  std::string existingEpgId;
+  bool isManual = false;
+  if (!m_db->GetMappingEntry(playlistId, tvgId, existingEpgId, isManual) ||
+      !isManual) {
+    LOG_DEBUG("EPGManager::RemoveManualMapping: no manual mapping found for "
+              "playlist '%s', tvgId '%s'",
+              playlistId.c_str(), tvgId.c_str());
+    return;
+  }
+
+  // Удаляем из БД
+  if (m_db->DeleteManualMapping(playlistId, tvgId)) {
+    // Удаляем из локального кэша ручных маппингов (ключ — только tvgId, т.к. он
+    // уникален в рамках плейлиста)
+    std::unique_lock lock(m_mappingMutex);
+    m_manualMapping.erase(tvgId);
+    LOG_DEBUG(
+        "EPGManager: Removed manual mapping for playlist '%s', tvgId '%s'",
+        playlistId.c_str(), tvgId.c_str());
+  } else {
+    LOG_ERROR("EPGManager::RemoveManualMapping: failed to delete from DB");
+  }
 }
 
 // --------------------------------------------------------------------------

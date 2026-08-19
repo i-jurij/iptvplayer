@@ -116,7 +116,48 @@ public:
 
   void CancelMatching() { m_cancelMatching = true; }
 
+  // ---- Getters for match thresholds (для UI) ----
+  int GetFuzzyThreshold() const { return m_fuzzyThreshold; }
+  int GetSubstringMinLength() const { return m_substringMinLength; }
+  int GetSubstringMinRatio() const { return m_substringMinRatio; }
+  int GetMinMatchScore() const { return m_minMatchScore; }
+
+  // ---- Setters for match thresholds (сохраняют в ConfigManager) ----
+  void SetFuzzyThreshold(int value);
+  void SetSubstringMinLength(int value);
+  void SetSubstringMinRatio(int value);
+  void SetMinMatchScore(int value);
+
+  void ReMatchCurrentPlaylist();
+                                 
+  // ---- Для ручного маппинга (будет использовано позже) ----
+  std::vector<std::pair<std::string, std::string>> GetAllEpgChannels() const;
+
+  void RemoveManualMapping(const std::string &playlistId,
+                           const std::string &tvgId);
+  std::string GetEpgName(const std::string &epgId) const;
+  bool GetMappingEntry(const std::string &playlistId, const std::string &key,
+                       std::string &channelId, bool &isManual);
+
 private:
+  mutable std::unordered_map<std::string, std::string> m_epgNameCache;
+  void UpdateEpgNameCache();
+
+  // Пороги матчинга
+  int m_fuzzyThreshold = 75;
+  int m_substringMinLength = 6;
+  int m_substringMinRatio = 30;
+  int m_minMatchScore = 50;
+
+  void LoadMatchSettings(); // загружает пороги из ConfigManager
+
+  // Вспомогательная структура для хранения кандидата
+  struct Candidate {
+    std::string epgId;
+    int score = 0;
+    std::string method;
+  };
+
   std::unordered_map<std::string, std::string>
       m_tvgIdIndex;                          // normalized tvgId → epgChannelId
   mutable std::shared_mutex m_tvgIndexMutex; // защита индекса

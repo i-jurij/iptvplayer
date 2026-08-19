@@ -7,6 +7,7 @@
 #include <wx/panel.h>
 #include <wx/spinctrl.h>
 
+class MainFrame;
 class EPGManager;
 class wxWindow;
 
@@ -21,7 +22,6 @@ public:
 
   // Сохранить настройки (если есть)
   void SaveSettings();
-
   // Загрузить настройки
   void LoadSettings();
 
@@ -33,11 +33,28 @@ public:
 
   void SetRefreshing(bool refreshing);
 
+  void SetMainFrame(MainFrame *mainFrame) { m_mainFrame = mainFrame; }
+  void OnManualMapping(wxCommandEvent &event);
+
 private:
   EPGManager *m_epgMgr;
 
+  // контролы для настроек матчинга
+  wxSpinCtrl *m_fuzzyThresholdSpin;
+  wxSpinCtrl *m_substringMinLengthSpin;
+  wxSpinCtrl *m_substringMinRatioSpin;
+  wxSpinCtrl *m_minScoreSpin;
+  wxButton *m_applyMatchBtn;
+
+  wxButton *m_manualMapBtn;
+  MainFrame *m_mainFrame = nullptr;
+
+  // Методы для работы с настройками матчинга
+  void SaveMatchSettings();
+  void OnApplyMatch(wxCommandEvent &event);
+
   void AdjustColumnWidths();
-  
+
   wxActivityIndicator *m_activityIndicator = nullptr;
   wxButton *m_cancelBtn = nullptr;
 

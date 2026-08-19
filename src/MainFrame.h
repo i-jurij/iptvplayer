@@ -109,6 +109,9 @@ public:
 
   void RemoveChannelFromPlaylist(const Channel &ch);
 
+  std::vector<Channel> GetCurrentChannels() const;
+  std::string GetCurrentPlaylistId() const;
+
 private:
   wxTimer m_epgDebounceTimer;
   EPGPanel *m_epgPendingPanel = nullptr;

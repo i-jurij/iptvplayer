@@ -163,6 +163,7 @@ set(SOURCES
     src/epg/AddEpgSourceDialog.cpp
     src/epg/EPGDatabase.cpp
     src/epg/HashUtils.cpp
+    src/epg/ManualMappingDialog.cpp
 )
 
 # ------------------------
