@@ -128,7 +128,7 @@ private:
   wxToggleButton *m_btnEpg = nullptr;
   int m_epgPageIdx = wxNOT_FOUND;
   void OnEpgToggle(wxCommandEvent &event);
-  void OnEPGUpdated(wxCommandEvent &event);
+  void OnEpgProgress(const EpgProgressInfo &info);
 
   void CheckAndSuggestPlaylist();
   bool m_playlistSuggestionShown = false;
@@ -323,10 +323,6 @@ private:
   EPGPanel *m_epgChannels = nullptr;
   EPGPanel *m_epgFavorites = nullptr;
   EpgSourceManagerPanel *m_epgAdminPanel = nullptr;
-
-  wxTimer m_epgProgressTimer;
-  void OnEpgProgressTimer(wxTimerEvent &);
-
 };
 
 #endif // MAINFRAME_H

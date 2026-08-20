@@ -1,15 +1,24 @@
 #pragma once
 
+#include <wx/activityindicator.h>
 #include <wx/button.h>
 #include <wx/checkbox.h>
-#include <wx/activityindicator.h>
+#include <wx/gauge.h>
 #include <wx/listctrl.h>
 #include <wx/panel.h>
+#include <wx/scrolwin.h>
 #include <wx/spinctrl.h>
+#include <wx/stattext.h>
+
+#include <chrono>
+#include <future>
+#include <unordered_map>
+#include <unordered_set>
 
 class MainFrame;
 class EPGManager;
 class wxWindow;
+class EpgProgressInfo;
 
 class EpgSourceManagerPanel : public wxPanel {
 public:
@@ -17,46 +26,19 @@ public:
                         bool showAutoUpdateSettings = false);
   virtual ~EpgSourceManagerPanel();
 
-  // Обновить список источников
   void UpdateSourceList();
-
-  // Сохранить настройки (если есть)
   void SaveSettings();
-  // Загрузить настройки
   void LoadSettings();
-
-  // Управление кнопками
   void EnableButtons(bool enable);
-
-  // Проверка на наличие изменений
   bool IsDirty() const;
-
-  void SetRefreshing(bool refreshing);
-
   void SetMainFrame(MainFrame *mainFrame) { m_mainFrame = mainFrame; }
-  void OnManualMapping(wxCommandEvent &event);
+  void SetBusy(bool busy);
 
 private:
   EPGManager *m_epgMgr;
-
-  // контролы для настроек матчинга
-  wxSpinCtrl *m_fuzzyThresholdSpin;
-  wxSpinCtrl *m_substringMinLengthSpin;
-  wxSpinCtrl *m_substringMinRatioSpin;
-  wxSpinCtrl *m_minScoreSpin;
-  wxButton *m_applyMatchBtn;
-
-  wxButton *m_manualMapBtn;
   MainFrame *m_mainFrame = nullptr;
 
-  // Методы для работы с настройками матчинга
-  void SaveMatchSettings();
-  void OnApplyMatch(wxCommandEvent &event);
-
-  void AdjustColumnWidths();
-
-  wxActivityIndicator *m_activityIndicator = nullptr;
-  wxButton *m_cancelBtn = nullptr;
+  wxScrolledWindow *m_scrolledWindow;
 
   // Основные элементы управления
   wxListCtrl *m_sourceList;
@@ -65,23 +47,47 @@ private:
   wxButton *m_removeBtn;
   wxButton *m_refreshBtn;
   wxButton *m_deleteCacheBtn;
+  wxButton *m_manualMapBtn;
+  wxButton *m_cancelBtn;
+  wxActivityIndicator *m_activityIndicator;
+
+  // Прогресс
+  bool m_busy = false;
 
   // Настройки автообновления (опционально)
   wxCheckBox *m_autoUpdateCheck;
   wxSpinCtrl *m_updateIntervalSpin;
   wxSpinCtrl *m_daysToKeepSpin;
 
+  // Настройки матчинга
+  wxSpinCtrl *m_fuzzyThresholdSpin;
+  wxSpinCtrl *m_substringMinLengthSpin;
+  wxSpinCtrl *m_substringMinRatioSpin;
+  wxSpinCtrl *m_minScoreSpin;
+  wxButton *m_applyMatchBtn;
+
   bool m_showAutoUpdateSettings;
   bool m_dirty;
 
-  enum {
-    ID_ADD_SOURCE = wxID_HIGHEST + 1000,
-    ID_EDIT_SOURCE,
-    ID_REMOVE_SOURCE,
-    ID_REFRESH_SOURCE,
-    ID_DELETE_CACHE
+  // Кэш доступности
+  struct AvailabilityCacheEntry {
+    bool available;
+    std::chrono::steady_clock::time_point timestamp;
+    int failCount = 0;
   };
-  
+  std::unordered_map<std::string, AvailabilityCacheEntry> m_availabilityCache;
+
+  // Методы
+  void SetupUI();
+  void AdjustColumnWidths();
+  void CheckAvailabilityAsync(const std::string &url);
+  void OnAvailabilityChecked(const std::string &url, bool available);
+  void SaveMatchSettings();
+  void RefreshSourceInternal(const std::string &url, const std::string &name,
+                               std::function<void(bool)> onComplete = nullptr);
+  void OnApplyMatch(wxCommandEvent &event);
+  void OnProgressUpdate(const EpgProgressInfo &info);
+
   // Обработчики событий
   void OnAdd(wxCommandEvent &event);
   void OnEdit(wxCommandEvent &event);
@@ -89,8 +95,5 @@ private:
   void OnRefresh(wxCommandEvent &event);
   void OnDeleteCache(wxCommandEvent &event);
   void OnSourceSelected(wxListEvent &event);
-
-  void SetupUI();
-
-  wxDECLARE_EVENT_TABLE();
+  void OnManualMapping(wxCommandEvent &event);
 };

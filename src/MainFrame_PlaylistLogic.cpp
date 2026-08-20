@@ -173,7 +173,8 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
                   wxTheApp->CallAfter(
                       [this, matched, total, progress, success]() {
                         if (progress < total) {
-                          // Промежуточный прогресс – статус будет обновлён в OnEPGUpdated
+                          // Промежуточный прогресс – статус будет обновлён в
+                          // OnEpgProgress
                           return;
                         }
 
@@ -250,7 +251,8 @@ void MainFrame::refreshFavorites() {
                 wxTheApp->CallAfter([this, matched, total, progress,
                                      success]() {
                   if (progress < total) {
-                    // Промежуточный прогресс – статус будет обновлён в OnEPGUpdated
+                    // Промежуточный прогресс – статус будет обновлён в
+                    // OnEpgProgress
                     return;
                   }
 

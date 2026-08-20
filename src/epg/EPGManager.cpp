@@ -209,10 +209,24 @@ EPGManager::EPGManager(ConfigManager *configManager,
   m_autoUpdateTimer = new wxTimer(this);
   m_autoUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnAutoUpdateTimer, this);
 
+  m_progressTimer = new wxTimer(this);
+  m_progressTimer->Bind(wxEVT_TIMER, &EPGManager::OnProgressTimer, this);
+
   // Инициализация таймера для стартового обновления
   m_startupUpdateTimer = new wxTimer(this);
   m_startupUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnStartupUpdateTimer,
                              this);
+
+  // Определяем количество потоков для матчинга на основе системных ресурсов
+  unsigned cores = std::max(1u, std::thread::hardware_concurrency());
+  size_t availMB = GetAvailableRAM_MB();
+  // Пока нет размера плейлиста, передаём 0
+  auto tuning = GetPerformanceTuning(availMB, cores, 0);
+  int recommended = tuning.maxConcurrentLoads;
+  m_matchThreads = std::min(recommended, 16); // ограничиваем 16
+  m_matchThreads = std::max(1, m_matchThreads);
+
+  LOG_DEBUG("EPGManager: Match threads = %d", m_matchThreads);
 }
 
 EPGManager::~EPGManager() {
@@ -225,9 +239,22 @@ EPGManager::~EPGManager() {
     }
   }
 
+  // Ожидаем завершения фоновой задачи обновления одного источника
+  if (m_singleRefreshFuture.valid()) {
+    auto status = m_singleRefreshFuture.wait_for(std::chrono::seconds(5));
+    if (status == std::future_status::timeout) {
+      LOG_WARN(
+          "Single refresh task did not finish in 5 seconds, proceeding anyway");
+    }
+  }
+
   if (m_startupUpdateTimer) {
     m_startupUpdateTimer->Stop();
     delete m_startupUpdateTimer;
+  }
+  if (m_progressTimer) {
+    m_progressTimer->Stop();
+    delete m_progressTimer;
   }
   if (m_autoUpdateTimer) {
     m_autoUpdateTimer->Stop();
@@ -244,6 +271,89 @@ EPGManager::~EPGManager() {
         "EPGManager::~EPGManager: WaitForRefresh exceeded 5 seconds (%lld ms)",
         elapsed);
   }
+}
+
+void EPGManager::SetOnProgress(ProgressCallback callback) {
+  m_progressCallbacks.clear();
+  m_progressCallbacks.push_back(callback);
+}
+
+void EPGManager::AddOnProgress(ProgressCallback callback) {
+  m_progressCallbacks.push_back(callback);
+}
+
+void EPGManager::UpdateProgress(EpgProgressStage stage, int percent,
+                                const std::string &stageText, double downloaded,
+                                double total, double speed, int matched,
+                                int totalChannels) {
+  if (m_progressCallbacks.empty())
+    return;
+
+  EpgProgressInfo info;
+  info.stage = stage;
+  info.percent = percent;
+  info.stageText = stageText;
+  info.downloadedBytes = downloaded;
+  info.totalBytes = total;
+  info.speedBytesPerSec = speed;
+  info.matched = matched;
+  info.totalChannels = totalChannels;
+
+  for (auto &cb : m_progressCallbacks) {
+    if (cb)
+      cb(info);
+  }
+}
+
+void EPGManager::StartProgressTimer() {
+  m_downloadProgress.abort = false;
+  m_downloadProgress.downloadedBytes = 0;
+  m_downloadProgress.totalBytes = 0;
+  m_lastDownloadedBytes = 0;
+  m_lastProgressTime = std::chrono::steady_clock::now();
+
+  wxTheApp->CallAfter([this]() {
+    if (m_progressTimer && !m_progressTimer->IsRunning()) {
+      m_progressTimer->Start(200); // 200 мс
+    }
+  });
+}
+
+void EPGManager::StopProgressTimer() {
+  wxTheApp->CallAfter([this]() {
+    if (m_progressTimer && m_progressTimer->IsRunning()) {
+      m_progressTimer->Stop();
+    }
+  });
+}
+
+void EPGManager::OnProgressTimer(wxTimerEvent &) {
+  auto now = std::chrono::steady_clock::now();
+  double elapsed =
+      std::chrono::duration<double>(now - m_lastProgressTime).count();
+  double downloaded = m_downloadProgress.downloadedBytes.load();
+  double total = m_downloadProgress.totalBytes.load();
+
+  double speed = 0.0;
+  if (elapsed > 0.1) {
+    speed = (downloaded - m_lastDownloadedBytes) / elapsed;
+    m_lastDownloadedBytes = downloaded;
+    m_lastProgressTime = now;
+  }
+
+  int percent = (total > 0) ? static_cast<int>((downloaded / total) * 100) : 0;
+
+  std::string stageText = "Downloading";
+  if (m_downloadProgress.abort.load()) {
+    stageText = "Cancelled";
+    UpdateProgress(EpgProgressStage::Cancelled, percent, stageText, downloaded,
+                   total, speed);
+    StopProgressTimer();
+    return;
+  }
+
+  UpdateProgress(EpgProgressStage::Downloading, percent, stageText, downloaded,
+                 total, speed);
 }
 
 void EPGManager::SetFuzzyThreshold(int value) {
@@ -375,10 +485,13 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     LOG_ERROR("EPGManager: %s", err.c_str());
     return false;
   }
+
   if (check.contentLength > 0) {
     LOG_DEBUG("EPGManager: URL %s, Content-Length: %lld bytes", url.c_str(),
               check.contentLength);
   }
+
+  StartProgressTimer();
 
   m_downloadProgress.abort = false;
   m_downloadProgress.totalBytes =
@@ -395,6 +508,17 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     return false;
   }
 
+  StopProgressTimer();
+
+  if (m_downloadProgress.abort.load()) {
+    UpdateProgress(EpgProgressStage::Cancelled, -1, "Cancelled");
+    setLastError("Download cancelled");
+    return false;
+  }
+
+  UpdateProgress(EpgProgressStage::Extracting, -1, "Extracting");
+
+  // ... дальше распаковка и парсинг
   if (xmlData.size() > 100 * 1024 * 1024) {
     setLastError("Downloaded EPG exceeds 100 MB");
     LOG_ERROR("EPGManager: Downloaded data exceeds 100 MB from %s",
@@ -418,21 +542,60 @@ bool EPGManager::LoadFromUrl(const std::string &url,
 }
 
 bool EPGManager::LoadFromFile(const std::string &filePath) {
+  // Уведомление о начале
+  UpdateProgress(EpgProgressStage::Extracting, -1, "Extracting");
+
   std::ifstream file(filePath, std::ios::binary);
   if (!file.is_open()) {
     setLastError("Cannot open file: " + filePath);
     LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
+    UpdateProgress(EpgProgressStage::Error, 0, "Error: Cannot open file");
     return false;
   }
   std::string content((std::istreambuf_iterator<char>(file)),
                       std::istreambuf_iterator<char>());
   file.close();
+
   if (!DecompressIfNeeded(content)) {
     setLastError("Failed to decompress file: " + filePath);
     LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
+    UpdateProgress(EpgProgressStage::Error, 0, "Error: Decompression failed");
     return false;
   }
+
   return ParseAndMerge(content, "file://" + filePath);
+}
+
+void EPGManager::RefreshSourceAsync(
+    const std::string &url, const std::string &name,
+    std::function<void(bool, const std::string &)> callback) {
+  // Если предыдущая задача ещё выполняется, пропускаем новую
+  if (m_singleRefreshFuture.valid()) {
+    auto status = m_singleRefreshFuture.wait_for(std::chrono::seconds(0));
+    if (status != std::future_status::ready) {
+      if (callback)
+        callback(false, "Previous refresh still in progress");
+      return;
+    }
+  }
+
+  m_singleRefreshFuture =
+      std::async(std::launch::async, [this, url, name, callback]() {
+        bool success = false;
+        std::string error;
+        if (IsNetworkUrl(url)) {
+          success = LoadFromUrl(url, "");
+        } else {
+          success = LoadFromFile(url);
+        }
+        if (!success) {
+          error = getLastError();
+        }
+        if (callback) {
+          wxTheApp->CallAfter(
+              [callback, success, error]() { callback(success, error); });
+        }
+      });
 }
 
 void EPGManager::AbortDownload() { m_downloadProgress.abort = true; }
@@ -447,6 +610,9 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     setLastError("Database not open");
     return false;
   }
+
+  // Начало парсинга
+  UpdateProgress(EpgProgressStage::Parsing, 0, "Parsing");
 
   EPGParserExpat parser;
   if (!parser.Parse(xmlData)) {
@@ -465,6 +631,9 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
 
   bool success = true;
   m_db->BeginTransaction();
+
+  size_t total = newChannels.size();
+  size_t processed = 0;
   for (const auto &ch : newChannels) {
     if (!m_db->InsertOrUpdateChannel(ch)) {
       LOG_ERROR("Failed to insert channel %s", ch.id.c_str());
@@ -476,12 +645,18 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
       success = false;
       break;
     }
+    ++processed;
+
+    // Обновляем прогресс каждые 10 каналов или после последнего
+    if (processed % 10 == 0 || processed == total) {
+      int percent = static_cast<int>((processed * 100) / total);
+      UpdateProgress(EpgProgressStage::Parsing, percent, "Parsing");
+    }
   }
 
   if (success) {
     // Сохраняем last_update (в той же транзакции)
     m_lastUpdate = std::time(nullptr);
-    // Retry (см. Шаг 4)
     bool saved = false;
     for (int attempt = 0; attempt < 2; ++attempt) {
       if (m_db->SaveGlobalMetadata("last_update",
@@ -505,9 +680,13 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     UpdateEpgNameCache();
     LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu channels",
               sourceUrl.c_str(), newChannels.size());
+
+    // Завершение
+    UpdateProgress(EpgProgressStage::Done, 100, "Done");
   } else {
     m_db->RollbackTransaction();
     setLastError("Failed to insert data into database");
+    // Можно добавить Error, но оставим как есть
     return false;
   }
 
@@ -951,44 +1130,109 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
 
   RebuildNormalizedCache();
 
+  int total = static_cast<int>(playlistChannels.size());
+  if (total == 0) {
+    LOG_DEBUG("MatchChannels: no channels to match");
+    if (callback) {
+      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
+    }
+    return;
+  }
+
+  int threads = m_matchThreads;
+  if (threads <= 0)
+    threads = 4;
+  if (total < 200)
+    threads = std::min(threads, 2);
+  else if (total < 1000)
+    threads = std::min(threads, 4);
+
+  int batchSize = std::max(1, total / threads);
+  if (batchSize < 10)
+    batchSize = 10;
+
+  std::vector<std::vector<Channel>> batches;
+  batches.reserve(threads);
+  for (int i = 0; i < total; i += batchSize) {
+    int end = std::min(i + batchSize, total);
+    batches.emplace_back(playlistChannels.begin() + i,
+                         playlistChannels.begin() + end);
+  }
+
+  std::vector<std::future<std::unordered_map<std::string, std::string>>>
+      futures;
+  futures.reserve(batches.size());
+
+  std::atomic<int> processed{0};
+  std::atomic<int> totalMatched{0};
+  int reportInterval = std::max(1, std::min(50, total / 20));
+
+  // Начало матчинга
+  UpdateProgress(EpgProgressStage::Matching, 0, "Matching", -1, -1, -1, 0,
+                 total);
+
+  for (const auto &batch : batches) {
+    futures.push_back(
+        std::async(std::launch::async, [this, batch, &processed, &totalMatched,
+                                        reportInterval, total, callback]() {
+          std::unordered_map<std::string, std::string> localMapping;
+          localMapping.reserve(batch.size());
+          int matched = 0;
+
+          for (const auto &ch : batch) {
+            if (m_cancelMatching) {
+              wxTheApp->CallAfter([this]() {
+                UpdateProgress(EpgProgressStage::Cancelled, 0, "Cancelled");
+              });
+              break;
+            }
+            
+            if (m_cancelMatching)
+              break;
+            MatchResult match = FindBestMatch(ch);
+            if (!match.channelId.empty()) {
+              std::string key = ch.getTvgId();
+              if (key.empty())
+                key = "name:" + ch.getName();
+              localMapping[key] = match.channelId;
+              matched++;
+              totalMatched++;
+            }
+            int current = processed.fetch_add(1) + 1;
+            if (current % reportInterval == 0 || current == total) {
+              int percent = (total > 0) ? (current * 100) / total : 0;
+              wxTheApp->CallAfter([this, totalMatched = totalMatched.load(),
+                                   total, percent]() {
+                UpdateProgress(EpgProgressStage::Matching, percent, "Matching",
+                               -1, -1, -1, totalMatched, total);
+              });
+              if (callback) {
+                wxTheApp->CallAfter([callback, current, total]() {
+                  callback(0, total, current, true);
+                });
+              }
+            }
+          }
+          return localMapping;
+        }));
+  }
+
   std::unordered_map<std::string, std::string> newMapping;
   std::unordered_map<std::string, std::string> newManualMapping;
+  size_t matchedCount = 0;
 
-  int total = static_cast<int>(playlistChannels.size());
-  int processed = 0;
-  int matched = 0;
-  // Report progress every ~5% of channels, but at least every 50 channels.
-  int reportInterval = std::max(1, std::min(50, total / 20));
-  if (reportInterval < 1)
-    reportInterval = 1;
-
-  for (const auto &ch : playlistChannels) {
-    // Check cancellation inside the loop
-    if (m_cancelMatching) {
-      LOG_DEBUG("MatchChannels cancelled during processing");
-      return;
-    }
-
-    MatchResult match = FindBestMatch(ch);
-    if (!match.channelId.empty()) {
-      std::string key = ch.getTvgId();
-      if (key.empty())
-        key = "name:" + ch.getName();
-      newMapping[key] = match.channelId;
-      matched++;
-    }
-    processed++;
-
-    // Call progress callback periodically
-    if (callback && (processed % reportInterval == 0 || processed == total)) {
-      wxTheApp->CallAfter([callback, matched, total, processed]() {
-        callback(matched, total, processed,
-                 true); // success flag is true for progress
-      });
+  for (auto &fut : futures) {
+    try {
+      auto localMap = fut.get();
+      for (const auto &[key, epgId] : localMap) {
+        newMapping[key] = epgId;
+        matchedCount++;
+      }
+    } catch (const std::exception &e) {
+      LOG_ERROR("MatchChannels: exception in async task: %s", e.what());
     }
   }
 
-  // Save mapping to DB and update local caches (as before)
   std::string channelHash = ComputePlaylistHash(playlistChannels);
   {
     std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
@@ -1007,7 +1251,17 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
 
   RebuildTvgIdIndex();
 
-  LOG_INFO("EPGManager: Matched %d/%d channels", matched, total);
+  LOG_INFO("EPGManager: Matched %zu/%d channels (parallel)", matchedCount,
+           total);
+
+  if (callback) {
+    wxTheApp->CallAfter([callback, matchedCount, total]() {
+      callback(static_cast<int>(matchedCount), total, total, true);
+    });
+  }
+
+  // Завершение матчинга
+  UpdateProgress(EpgProgressStage::Done, 100, "Done");
 }
 
 void EPGManager::MatchChannelsAsync(
@@ -1067,6 +1321,24 @@ void EPGManager::ReMatchCurrentPlaylist() {
   // Отменяем предыдущий матчинг и запускаем новый асинхронно
   CancelMatching();
   MatchChannelsAsync(channels, m_currentPlaylistId, nullptr);
+}
+
+std::unordered_map<std::string, std::string>
+EPGManager::ProcessChannelBatch(const std::vector<Channel> &batch) const {
+  std::unordered_map<std::string, std::string> localMapping;
+  localMapping.reserve(batch.size());
+
+  for (const auto &ch : batch) {
+    MatchResult match = FindBestMatch(ch);
+    if (!match.channelId.empty()) {
+      std::string key = ch.getTvgId();
+      if (key.empty()) {
+        key = "name:" + ch.getName();
+      }
+      localMapping[key] = match.channelId;
+    }
+  }
+  return localMapping;
 }
 
 // Обновляет кэш имён EPG-каналов из БД

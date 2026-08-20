@@ -193,6 +193,10 @@ MainFrame::MainFrame(Application *app)
         HandleChannelPageChanged(sel);
         HandleFavPageChanged(sel);
         HandlePlaylistPageChanged(sel);
+        if (sel == m_epgPageIdx) {
+          SetStatusText("", 0);
+          SetStatusText("", 1);
+        }
 
         // --- Управление видимостью UI в полноэкранном режиме (из внутреннего
         // обработчика) ---
@@ -218,34 +222,16 @@ MainFrame::MainFrame(Application *app)
 
   Bind(wxEVT_BUTTON, &MainFrame::onAddIPTVPlaylist, this, ID_ADD_IPTV_PLAYLIST);
 
-  m_epgProgressTimer.SetOwner(this);
-  Bind(wxEVT_TIMER, &MainFrame::OnEpgProgressTimer, this,
-       m_epgProgressTimer.GetId());
-  
-  // Установка колбэка для EPGManager
-  if (m_application && m_application->GetEPGManager()) {
-    auto *epg = m_application->GetEPGManager();
-
-    epg->SetOnRefreshStarted([this]() {
-      if (m_gaugeTop) {
-        m_gaugeTop->SetRange(100);
-        m_gaugeTop->SetValue(0);
-        m_gaugeTop->Show();
-        m_epgProgressTimer.Start(200);
-      }
-    });
-
-    epg->SetOnUpdateFinished([this](int status, const std::string &error) {
-      wxCommandEvent evt;
-      evt.SetInt(status);
-      evt.SetString(wxString::FromUTF8(error));
-      this->OnEPGUpdated(evt);
-    });
-  }
-
   m_epgDebounceTimer.SetOwner(this);
   Bind(wxEVT_TIMER, &MainFrame::OnEpgDebounceTimer, this,
        m_epgDebounceTimer.GetId());
+
+  auto *epg = m_application->GetEPGManager();
+  if (epg) {
+    epg->AddOnProgress([this](const EpgProgressInfo &info) {
+      wxTheApp->CallAfter([this, info]() { OnEpgProgress(info); });
+    });
+  }
 }
 
 MainFrame::~MainFrame() {
@@ -302,78 +288,6 @@ std::string MainFrame::GetCurrentPlaylistId() const {
   return pl ? pl->getUniqueId() : "";
 }
 
-void MainFrame::OnEpgDebounceTimer(wxTimerEvent &) {
-  if (m_epgPendingPanel) {
-    m_epgPendingPanel->SetChannel(m_epgPendingChannel);
-    m_epgPendingPanel = nullptr;
-  }
-}
-
-void MainFrame::OnEpgProgressTimer(wxTimerEvent &) {
-  auto *epg = m_application->GetEPGManager();
-  if (!epg) {
-    m_epgProgressTimer.Stop();
-    return;
-  }
-
-  const auto &prog = epg->GetDownloadProgress();
-  if (prog.abort.load()) {
-    m_epgProgressTimer.Stop();
-    if (m_gaugeTop)
-      m_gaugeTop->Hide();
-    return;
-  }
-
-  double total = prog.totalBytes.load();
-  double downloaded = prog.downloadedBytes.load();
-
-  if (total > 0 && m_gaugeTop) {
-    int percent = static_cast<int>((downloaded / total) * 100);
-    m_gaugeTop->SetValue(percent);
-    SetStatusText(wxString::Format("Downloading EPG: %d%%", percent), 1);
-  } else if (m_gaugeTop) {
-    m_gaugeTop->Pulse();
-    SetStatusText("Downloading EPG...", 1);
-  }
-}
-
-void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {
-  int key = evt.GetKeyCode();
-
-  // ESC – выход из fullscreen (если он активен)
-  if (key == WXK_ESCAPE) {
-    // TypeAheadSearch перехватывает ESC в своих виджетах и не передаёт дальше,
-    // поэтому здесь ESC не дойдёт, если фокус в поиске.
-    if (m_videoPanel && m_videoPanel->IsFullscreen()) {
-      m_videoPanel->ToggleFullscreen();
-      evt.Skip(false);
-      return;
-    }
-  }
-  // F/F – переключение fullscreen
-  else if (key == 'f' || key == 'F') {
-    if (m_videoPanel) {
-      bool isFullscreen = m_videoPanel->IsFullscreen();
-      bool isVideoPage = IsVideoPageActive();
-
-      // Если fullscreen уже включён – выключаем всегда (с любой страницы)
-      if (isFullscreen) {
-        m_videoPanel->ToggleFullscreen();
-        evt.Skip(false);
-        return;
-      }
-      // Если fullscreen выключен – включаем только на Video
-      else if (isVideoPage) {
-        m_videoPanel->ToggleFullscreen();
-        evt.Skip(false);
-        return;
-      }
-    }
-  }
-
-  evt.Skip();
-}
-
 bool MainFrame::IsVideoPageActive() const {
   if (!m_videoPanel || m_videoPageIdx == wxNOT_FOUND)
     return false;
@@ -408,57 +322,6 @@ void MainFrame::ApplyFullscreen(bool fs) {
     m_mainPanel->Layout();
     m_mainPanel->Refresh();
   }
-}
-
-void MainFrame::OnEpgToggle(wxCommandEvent &) {
-  if (m_videoPanel)
-    m_videoPanel->SetTabActive(false);
-  ToggleHeaderGroup(m_btnEpg);
-  m_notebook->SetSelection(m_epgPageIdx);
-}
-
-void MainFrame::OnEPGUpdated(wxCommandEvent &event) {
-  int status = event.GetInt();
-  wxString error = event.GetString();
-
-  m_epgProgressTimer.Stop();
-
-  if (m_epgAdminPanel) {
-    m_epgAdminPanel->UpdateSourceList();
-    m_epgAdminPanel->SetRefreshing(false);
-  }
-
-  if (m_epgChannels && m_epgChannels->HasChannel()) {
-    m_epgChannels->LoadProgramsForChannel(m_epgChannels->GetCurrentChannelId(),
-                                          m_epgChannels->GetCurrentDate());
-  }
-
-  if (m_epgFavorites && m_epgFavorites->HasChannel()) {
-    m_epgFavorites->LoadProgramsForChannel(
-        m_epgFavorites->GetCurrentChannelId(),
-        m_epgFavorites->GetCurrentDate());
-  }
-
-  if (m_gaugeTop) {
-    m_gaugeTop->Hide();
-    m_gaugeTop->SetValue(0);
-  }
-
-  if (status == EPG_STATUS_OK) {
-    SetStatusText("EPG updated successfully", 0);
-    SetStatusText("", 1);
-  } else if (status == EPG_STATUS_ERROR) {
-    SetStatusText("EPG update failed", 0);
-    SetStatusText(error, 1);
-  } else if (status == EPG_STATUS_NO_SOURCES) {
-    SetStatusText("No EPG sources configured", 0);
-    SetStatusText("", 1);
-  } else {
-    SetStatusText("", 0);
-    SetStatusText("", 1);
-  }
-
-  event.Skip();
 }
 
 void MainFrame::CleanupFinishedTasks() {

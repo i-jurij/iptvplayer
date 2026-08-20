@@ -52,9 +52,6 @@ wxBEGIN_EVENT_TABLE(EPGPanel, wxPanel)
 
   // Восстанавливаем последнее состояние
   RestoreState();
-
-  // Подписываемся на обновления EPG (если нужно, но MainFrame будет вызывать
-  // OnEpgUpdateFinished)
 }
 
 EPGPanel::~EPGPanel() {
@@ -400,38 +397,6 @@ void EPGPanel::RestoreState() {
       m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());
     m_detailTitle->SetLabel("");
     m_detailDesc->SetValue("");
-  }
-}
-
-// ----------------------------------------------------------------------------
-// Обработка завершения обновления EPG (вызывается из MainFrame)
-// ----------------------------------------------------------------------------
-void EPGPanel::OnEpgUpdateFinished(int status, const wxString &error) {
-  LOG_DEBUG("EPGPanel::OnEpgUpdateFinished: status=%d, error=%s", status,
-            error.ToUTF8().data());
-
-  if (status == EPG_STATUS_OK) {
-    SetStatus("Updated", "EPG updated successfully.");
-    m_hasError = false;
-    m_lastError.Clear();
-  } else if (status == EPG_STATUS_ERROR) {
-    SetStatus("Update failed", error.IsEmpty() ? "EPG update error" : error);
-    LOG_ERROR("EPG update error: %s", error.ToUTF8().data());
-    m_lastError = error;
-    m_hasError = true;
-  } else if (status == EPG_STATUS_NO_SOURCES) {
-    SetStatus("Warning", "No EPG sources configured.");
-    m_hasError = false;
-    m_lastError.Clear();
-  } else {
-    SetStatus("", "");
-    m_hasError = false;
-    m_lastError.Clear();
-  }
-
-  // Перезагрузить программы для текущего канала
-  if (!m_currentChannelId.empty()) {
-    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
   }
 }
 

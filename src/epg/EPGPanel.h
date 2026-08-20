@@ -23,8 +23,7 @@ public:
   void SaveState();
   void RestoreState();
   void ClearStatus();
-
-  void OnEpgUpdateFinished(int status, const wxString &error = wxEmptyString);
+  
   void ShowMatchProgress(bool show);
   void UpdateMatchProgress(int matched, int total, int progress);
 

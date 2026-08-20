@@ -15,6 +15,11 @@
 #include "EPGData.h"
 #include "EPGDatabase.h"
 #include "PlaylistManager.h"
+
+#include <wx/event.h>
+#include <wx/timer.h>
+
+#include <chrono>
 #include <functional>
 #include <future>
 #include <mutex>
@@ -22,12 +27,35 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <wx/event.h>
-#include <wx/timer.h>
 
 class ConfigManager;
 class PlaylistManager;
 class Channel;
+
+// Состояния прогресса
+enum class EpgProgressStage {
+  None,
+  Downloading,
+  Error,
+  Extracting,
+  Parsing,
+  Matching,
+  Done,
+  Cancelled
+};
+
+// Структура с информацией о прогрессе
+struct EpgProgressInfo {
+  EpgProgressStage stage = EpgProgressStage::None;
+  int percent = 0;       // 0-100, -1 если не известно
+  std::string stageText; // "Downloading", "Extracting" и т.д.
+  double downloadedBytes = 0.0;
+  double totalBytes = 0.0;
+  double speedBytesPerSec = 0.0;
+  int matched = 0;          // для Matching
+  int totalChannels = 0;    // для Matching
+  std::string errorMessage; // для Error (если понадобится)
+};
 
 class EPGManager : public wxEvtHandler {
 public:
@@ -139,7 +167,41 @@ public:
   bool GetMappingEntry(const std::string &playlistId, const std::string &key,
                        std::string &channelId, bool &isManual);
 
+  // Колбэк прогресса
+  using ProgressCallback = std::function<void(const EpgProgressInfo &)>;
+  void SetOnProgress(ProgressCallback callback);
+  // Методы для управления прогрессом (будут использоваться внутри)
+  void UpdateProgress(EpgProgressStage stage, int percent = -1,
+                      const std::string &stageText = "", double downloaded = -1,
+                      double total = -1, double speed = -1, int matched = -1,
+                      int totalChannels = -1);
+  void RefreshSourceAsync(
+      const std::string &url, const std::string &name,
+      std::function<void(bool, const std::string &)> callback = nullptr);
+
+  void AddOnProgress(ProgressCallback callback);
+
 private:
+  // Количество потоков для параллельного матчинга
+  int m_matchThreads = 0;
+
+  // Вспомогательный метод для параллельной обработки части каналов
+  std::unordered_map<std::string, std::string>
+  ProcessChannelBatch(const std::vector<Channel> &batch) const;
+  
+  std::future<void> m_singleRefreshFuture;
+
+  // Прогресс
+  std::vector<ProgressCallback> m_progressCallbacks;
+  wxTimer *m_progressTimer;
+  DownloadProgress m_downloadProgress;
+  std::chrono::steady_clock::time_point m_lastProgressTime;
+  double m_lastDownloadedBytes = 0.0;
+
+  void OnProgressTimer(wxTimerEvent &event);
+  void StartProgressTimer();
+  void StopProgressTimer();
+
   mutable std::unordered_map<std::string, std::string> m_epgNameCache;
   void UpdateEpgNameCache();
 
@@ -176,8 +238,7 @@ private:
 
   std::atomic<bool> m_isRefreshing{false};
   bool IsRefreshing() const { return m_isRefreshing.load(); }
-
-  DownloadProgress m_downloadProgress;
+  
   std::function<void(int, const std::string &)> m_onUpdateFinished;
   RefreshStartedCallback m_onRefreshStarted;
 
