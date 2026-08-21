@@ -118,7 +118,8 @@ void EpgSourceManagerPanel::SetupUI() {
       new wxStaticBox(m_scrolledWindow, wxID_ANY, "Cache Management");
   wxStaticBoxSizer *cacheBoxSizer = new wxStaticBoxSizer(cacheBox, wxVERTICAL);
 
-  m_deleteCacheBtn = new wxButton(cacheBox, wxID_ANY, "Delete Cache");
+  m_deleteCacheBtn =
+      new wxButton(cacheBox, wxID_ANY, _("Delete cache / Update all"));
   cacheBoxSizer->Add(m_deleteCacheBtn, 0, wxLEFT | wxRIGHT | wxBOTTOM,
                      FromDIP(5));
 
@@ -373,16 +374,58 @@ void EpgSourceManagerPanel::OnRefresh(wxCommandEvent &) {
 void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
   if (!m_epgMgr)
     return;
-  if (wxMessageBox("Delete all locally cached EPG data? This will force "
-                   "re-download on next update.",
-                   "Confirm", wxYES_NO | wxICON_QUESTION) != wxYES) {
+
+  wxDialog dlg(this, wxID_ANY, _("Delete EPG Cache"), wxDefaultPosition,
+               wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+
+  wxBoxSizer *topSizer = new wxBoxSizer(wxVERTICAL);
+
+  wxString msg =
+      _("EPG cache contains all downloaded programmes and channel mappings.\n"
+        "Deleting will completely clear this data. You will need to reload EPG "
+        "from sources.\n\n"
+        "Updating all sources may take several minutes (depending on number of "
+        "sources).\n"
+        "You can also update individual sources later using the \"Refresh "
+        "Now\" button.");
+  wxStaticText *info = new wxStaticText(&dlg, wxID_ANY, msg);
+  info->Wrap(450);
+  topSizer->Add(info, 0, wxALL | wxEXPAND, 10);
+
+  wxCheckBox *updateCheck =
+      new wxCheckBox(&dlg, wxID_ANY, _("Update all sources now"));
+  updateCheck->SetValue(false);
+  topSizer->Add(updateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+
+  wxSizer *btnSizer = dlg.CreateButtonSizer(wxOK | wxCANCEL);
+  if (btnSizer) {
+    wxButton *okBtn =
+        wxDynamicCast(wxWindow::FindWindowById(wxID_OK, &dlg), wxButton);
+    if (okBtn)
+      okBtn->SetLabel(_("Delete"));
+    topSizer->Add(btnSizer, 0, wxALL | wxALIGN_RIGHT, 10);
+  }
+
+  dlg.SetSizerAndFit(topSizer);
+  dlg.CentreOnParent();
+
+  if (dlg.ShowModal() != wxID_OK)
+    return;
+
+  if (!m_epgMgr->DeleteCache()) {
+    wxMessageBox(_("Failed to delete EPG cache."), _("Error"),
+                 wxOK | wxICON_ERROR, this);
     return;
   }
-  if (m_epgMgr->DeleteCache()) {
-    wxMessageBox("EPG cache deleted.", "Info", wxOK | wxICON_INFORMATION);
-    UpdateSourceList();
+
+  UpdateSourceList();
+
+  if (updateCheck->GetValue()) {
+    SetBusy(true);
+    m_epgMgr->Refresh();
   } else {
-    wxMessageBox("Failed to delete EPG cache.", "Error", wxOK | wxICON_ERROR);
+    wxMessageBox(_("EPG cache cleared. You can now refresh sources manually."),
+                 _("Info"), wxOK | wxICON_INFORMATION, this);
   }
 }
 
@@ -724,10 +767,6 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
             std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
             if (!playlistId.empty()) {
               m_epgMgr->ReMatchCurrentPlaylist();
-              if (m_mainFrame) {
-                m_mainFrame->SetStatusText(
-                    "EPG updated, re-matching channels...", 1);
-              }
             }
           }
         } else {

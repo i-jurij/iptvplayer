@@ -491,6 +491,9 @@ bool EPGManager::LoadFromUrl(const std::string &url,
               check.contentLength);
   }
 
+  UpdateProgress(EpgProgressStage::Downloading, 0, "Downloading", 0,
+                 check.contentLength > 0 ? check.contentLength : 0, 0, 0, 0);
+
   StartProgressTimer();
 
   m_downloadProgress.abort = false;
@@ -1662,10 +1665,37 @@ bool EPGManager::DeleteCache() {
       m_db.reset();
     }
   }
-  if (!m_dbPath.empty()) {
-    std::remove(m_dbPath.c_str());
+
+  if (m_dbPath.empty()) {
+    LOG_ERROR("EPGManager: DeleteCache called but dbPath is empty");
+    return false;
   }
-  LOG_DEBUG("EPGManager: Cache deleted");
+
+  // Удаляем файл БД
+  if (std::remove(m_dbPath.c_str()) != 0) {
+    // Если файла нет — не страшно
+    if (errno != ENOENT) {
+      LOG_ERROR("EPGManager: Failed to remove database file: %s",
+                m_dbPath.c_str());
+      return false;
+    }
+  }
+
+  // Создаём новую БД
+  m_db = std::make_unique<EPGDatabase>();
+  if (!m_db->Open(m_dbPath)) {
+    LOG_ERROR("EPGManager: Failed to reopen database after deletion");
+    m_db.reset();
+    return false;
+  }
+
+  // Восстанавливаем состояние
+  m_epgChannelsHash = m_db->GetEpgChannelsHash();
+  m_loaded = true;
+  m_lastUpdate = 0;
+  UpdateEpgNameCache();
+
+  LOG_DEBUG("EPGManager: Cache deleted and new database created");
   return true;
 }
 
