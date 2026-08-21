@@ -206,7 +206,7 @@ private:
   void UpdateEpgNameCache();
 
   // Пороги матчинга
-  int m_fuzzyThreshold = 75;
+  int m_fuzzyThreshold = 85;
   int m_substringMinLength = 6;
   int m_substringMinRatio = 30;
   int m_minMatchScore = 50;
