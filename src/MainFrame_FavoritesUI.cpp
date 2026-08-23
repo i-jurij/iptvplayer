@@ -120,7 +120,7 @@ void MainFrame::createFavoritesUI() {
   m_favViewBook->AddPage(m_favCards, "Cards");
   m_favViewBook->ChangeSelection(favStartGrid ? 1 : 0);
 
-  m_epgFavorites = new EPGPanel(favSplitter);
+  m_epgFavorites = new EPGPanel(favSplitter, this);
   favSplitter->SplitVertically(m_favViewBook, m_epgFavorites);
 
   // --- Восстановление позиции сплиттера (корректные методы ConfigManager) ---

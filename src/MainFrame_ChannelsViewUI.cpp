@@ -118,7 +118,7 @@ void MainFrame::createChannelsView() {
                             evt.Skip();
                           });
 
-  m_epgChannels = new EPGPanel(channelsSplitter);
+  m_epgChannels = new EPGPanel(channelsSplitter, this);
   channelsSplitter->SplitVertically(m_channelViewBook, m_epgChannels);
 
   // --- Восстановление позиции сплиттера (корректные методы ConfigManager) ---

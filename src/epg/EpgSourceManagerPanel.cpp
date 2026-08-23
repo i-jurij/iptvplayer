@@ -40,8 +40,6 @@ EpgSourceManagerPanel::EpgSourceManagerPanel(wxWindow *parent,
   m_refreshBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnRefresh, this);
   m_deleteCacheBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnDeleteCache,
                          this);
-  m_manualMapBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnManualMapping,
-                       this);
   m_applyMatchBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnApplyMatch,
                         this);
   m_cancelBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
@@ -110,10 +108,6 @@ void EpgSourceManagerPanel::SetupUI() {
   m_cancelBtn = new wxButton(sourceBox, wxID_ANY, "Cancel");
   m_cancelBtn->Hide();
   btnSizer->Add(m_cancelBtn, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(5));
-
-  // ---- Кнопка Manual Mapping ----
-  m_manualMapBtn = new wxButton(sourceBox, wxID_ANY, "Manual Mapping...");
-  btnSizer->Add(m_manualMapBtn, 0, wxRIGHT, FromDIP(5));
 
   sourceBoxSizer->Add(btnSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                       FromDIP(5));
@@ -449,21 +443,6 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
 
 void EpgSourceManagerPanel::OnSourceSelected(wxListEvent &) {}
 
-void EpgSourceManagerPanel::OnManualMapping(wxCommandEvent &) {
-  if (!m_epgMgr) {
-    wxMessageBox("EPG Manager not available.", "Error", wxOK | wxICON_ERROR,
-                 this);
-    return;
-  }
-  if (!m_mainFrame) {
-    wxMessageBox("Main frame not available.", "Error", wxOK | wxICON_ERROR,
-                 this);
-    return;
-  }
-  ManualMappingDialog dlg(this, m_epgMgr, m_mainFrame);
-  dlg.ShowModal();
-}
-
 // === Методы управления ===
 void EpgSourceManagerPanel::UpdateSourceList() {
   if (!m_epgMgr)
@@ -736,7 +715,6 @@ void EpgSourceManagerPanel::SetBusy(bool busy) {
   m_removeBtn->Enable(!busy);
   m_refreshBtn->Enable(!busy);
   m_deleteCacheBtn->Enable(!busy);
-  m_manualMapBtn->Enable(!busy);
   m_applyMatchBtn->Enable(!busy);
   m_autoApplyBtn->Enable(!busy);
   if (m_autoUpdateCheck)

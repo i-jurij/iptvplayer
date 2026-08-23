@@ -1213,7 +1213,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
             if (!match.channelId.empty()) {
               std::string key = ch.getTvgId();
               if (key.empty())
-                key = "name:" + ch.getName();
+                key = "name:" + NormalizeName(ch.getName());
               localMapping[key] = match.channelId;
               matched++;
               totalMatched++;
@@ -1483,29 +1483,41 @@ void EPGManager::InvalidatePlaylistMapping(const std::string &playlistId) {
 // --------------------------------------------------------------------------
 // Ручные маппинги
 // --------------------------------------------------------------------------
-void EPGManager::SetManualMapping(const std::string &tvgId,
-                                  const std::string &epgId) {
-  if (m_currentPlaylistId.empty()) {
-    LOG_ERROR("No current playlist set, cannot set manual mapping");
+void EPGManager::SetManualMapping(const std::string &playlistId,
+                                  const std::string &tvgId,
+                                  const std::string &epgId,
+                                  const std::string &channelName) {
+  if (playlistId.empty() || epgId.empty()) {
+    LOG_WARN("EPGManager::SetManualMapping: empty playlistId or epgId");
     return;
   }
+  std::string key;
+  if (!tvgId.empty()) {
+    key = tvgId;
+  } else if (!channelName.empty()) {
+    key = "name:" + NormalizeName(channelName);
+  } else {
+    LOG_WARN(
+        "EPGManager::SetManualMapping: both tvgId and channelName are empty");
+    return;
+  }
+
   std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
   if (!m_db || !m_db->IsOpen()) {
-    LOG_ERROR("Database not open, cannot set manual mapping");
+    LOG_ERROR("EPGManager::SetManualMapping: database not open");
     return;
   }
 
-  // Удаляем существующую запись (любого типа) перед вставкой ручной
-  m_db->DeleteMappingEntry(m_currentPlaylistId, tvgId);
+  m_db->DeleteMappingEntry(playlistId, key);
 
-  if (m_db->UpdateManualMapping(m_currentPlaylistId, tvgId, epgId)) {
+  if (m_db->UpdateManualMapping(playlistId, key, epgId)) {
     std::unique_lock lock(m_mappingMutex);
-    m_manualMapping[tvgId] = epgId;
-    auto it = m_channelMapping.find(tvgId);
+    m_manualMapping[key] = epgId;
+    auto it = m_channelMapping.find(key);
     if (it != m_channelMapping.end())
       m_channelMapping.erase(it);
-    LOG_DEBUG("Manual mapping set: playlist '%s', tvgId '%s' -> epgId '%s'",
-              m_currentPlaylistId.c_str(), tvgId.c_str(), epgId.c_str());
+    LOG_DEBUG("Manual mapping set: playlist '%s', key '%s' -> epgId '%s'",
+              playlistId.c_str(), key.c_str(), epgId.c_str());
   } else {
     LOG_ERROR("Failed to set manual mapping");
   }

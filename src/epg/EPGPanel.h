@@ -13,9 +13,11 @@
 #include "EPGData.h"
 #include "EPGManager.h"
 
+class MainFrame;
+
 class EPGPanel : public wxPanel {
 public:
-  EPGPanel(wxWindow *parent);
+  EPGPanel(wxWindow *parent, MainFrame *mainFrame);
   ~EPGPanel();
 
   void SetChannel(const Channel &channel);
@@ -35,8 +37,15 @@ public:
   time_t GetCurrentDate() const { return m_currentDate; }
 
 private:
+  MainFrame *m_mainFrame;
+
+  wxStaticText *m_headerLabel;
+  wxButton *m_manualMapBtn;
+  void UpdateHeader();
+  
+  void OnManualMapping(wxCommandEvent &event);
+
   // UI
-  wxStaticText *m_channelNameLabel;
   wxStaticText *m_dateLabel;
   wxButton *m_prevDayBtn;
   wxButton *m_todayBtn;
@@ -73,8 +82,6 @@ private:
   void OnProgramListResize(wxSizeEvent &);
   void SetStatus(const wxString &brief, const wxString &detail);
   void ShowMessage(const wxString &msg);
-
-  wxDECLARE_EVENT_TABLE();
 };
 
 #endif

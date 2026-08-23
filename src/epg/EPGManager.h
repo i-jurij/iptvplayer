@@ -99,7 +99,9 @@ public:
   void SaveSourcesToConfig() const;
 
   // Ручные маппинги
-  void SetManualMapping(const std::string &tvgId, const std::string &epgId);
+  void SetManualMapping(const std::string &playlistId, const std::string &tvgId,
+                        const std::string &epgId,
+                        const std::string &channelName = "");
   void RemoveChannelMapping(const std::string &tvgId);
   std::string GetEpgChannelIdForTvgId(const std::string &tvgId) const;
 
@@ -188,6 +190,8 @@ public:
                            const std::string &key);
   bool IsIgnored(const std::string &playlistId, const std::string &key) const;
 
+  std::string NormalizeName(const std::string &name) const;
+
 private:
   // Количество потоков для параллельного матчинга
   int m_matchThreads = 0;
@@ -257,7 +261,6 @@ private:
 
   void RebuildNormalizedCache();
   void NormalizeTvgId(std::string &id) const;
-  std::string NormalizeName(const std::string &name) const;
   std::vector<std::string> Tokenize(const std::string &name) const;
   int LevenshteinDistance(const std::string &s1, const std::string &s2) const;
   int CalculateNameScore(const std::string &name1,

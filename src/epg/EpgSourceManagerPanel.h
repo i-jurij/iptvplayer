@@ -50,7 +50,6 @@ private:
   wxButton *m_removeBtn;
   wxButton *m_refreshBtn;
   wxButton *m_deleteCacheBtn;
-  wxButton *m_manualMapBtn;
   wxButton *m_cancelBtn;
   wxActivityIndicator *m_activityIndicator;
 
@@ -98,5 +97,4 @@ private:
   void OnRefresh(wxCommandEvent &event);
   void OnDeleteCache(wxCommandEvent &event);
   void OnSourceSelected(wxListEvent &event);
-  void OnManualMapping(wxCommandEvent &event);
 };

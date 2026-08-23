@@ -6,6 +6,7 @@
 #include "EventIDs.h"
 #include "MainFrame.h"
 #include "SettingsDialog.h"
+#include "epg/ManualMappingDialog.h"
 
 #include <wx/artprov.h>
 #include <wx/button.h>
@@ -25,32 +26,17 @@ std::string EPGPanel::s_lastPlaylistName;
 time_t EPGPanel::s_lastDate = 0;
 
 // ----------------------------------------------------------------------------
-// Таблица событий (только то, что осталось)
+// Конструктор / Деструктор
 // ----------------------------------------------------------------------------
-wxBEGIN_EVENT_TABLE(EPGPanel, wxPanel)
-    EVT_BUTTON(wxID_ANY, EPGPanel::OnPrevDay) // ID назначаются вручную, но
-                                              // можно использовать wxID_ANY
-    EVT_BUTTON(wxID_ANY, EPGPanel::OnToday)
-        EVT_BUTTON(wxID_ANY, EPGPanel::OnNextDay)
-            EVT_GRID_SELECT_CELL(EPGPanel::OnProgramSelected)
-                EVT_SIZE(EPGPanel::OnProgramListResize) wxEND_EVENT_TABLE()
-
-    // ----------------------------------------------------------------------------
-    // Конструктор / Деструктор
-    // ----------------------------------------------------------------------------
-    EPGPanel::EPGPanel(wxWindow *parent)
-    : wxPanel(parent, wxID_ANY),
+EPGPanel::EPGPanel(wxWindow *parent, MainFrame *mainFrame)
+    : wxPanel(parent, wxID_ANY), m_mainFrame(mainFrame),
       m_currentDate(EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks())),
       m_epgManager(nullptr), m_isActive(false), m_hasError(false) {
-  // Получаем EPGManager из приложения
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
     m_epgManager = app->GetEPGManager();
   }
-
   SetupUI();
-
-  // Восстанавливаем последнее состояние
   RestoreState();
 }
 
@@ -59,49 +45,104 @@ EPGPanel::~EPGPanel() {
   SaveState();
 }
 
+void EPGPanel::UpdateHeader() {
+  wxString label;
+  if (m_currentChannelId.empty() && m_currentChannelName.empty()) {
+    label = "No channel selected";
+  } else {
+    label = wxString::FromUTF8(m_currentChannelName);
+
+    if (m_epgManager && m_mainFrame) {
+      std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
+      if (!playlistId.empty()) {
+        std::string epgId;
+        bool isManual = false;
+
+        // 1. По tvgId (если есть)
+        if (!m_currentChannelId.empty()) {
+          m_epgManager->GetMappingEntry(playlistId, m_currentChannelId, epgId,
+                                        isManual);
+        }
+
+        // 2. По нормализованному имени (новый формат)
+        if (epgId.empty() && !m_currentChannelName.empty()) {
+          std::string key =
+              "name:" + m_epgManager->NormalizeName(m_currentChannelName);
+          m_epgManager->GetMappingEntry(playlistId, key, epgId, isManual);
+        }
+
+        // 3. По ненормализованному имени (старый формат) – для обратной
+        // совместимости
+        if (epgId.empty() && !m_currentChannelName.empty()) {
+          std::string key = "name:" + m_currentChannelName;
+          m_epgManager->GetMappingEntry(playlistId, key, epgId, isManual);
+        }
+
+        if (!epgId.empty()) {
+          wxString epgName =
+              wxString::FromUTF8(m_epgManager->GetEpgName(epgId));
+          if (!epgName.empty()) {
+            label += " \\ " + epgName;
+          }
+        }
+      }
+    }
+  }
+  m_headerLabel->SetLabel(label);
+}
+
 // ----------------------------------------------------------------------------
 // SetupUI – создание правой панели (программа)
 // ----------------------------------------------------------------------------
 void EPGPanel::SetupUI() {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  // ---- Верхняя строка: название + дата + навигация ----
-  wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
-
-  m_channelNameLabel = new wxStaticText(this, wxID_ANY, "No channel selected");
-  wxFont titleFont = m_channelNameLabel->GetFont();
+  // ---- Верхняя строка: заголовок + кнопка ----
+  wxBoxSizer *headerSizer = new wxBoxSizer(wxHORIZONTAL);
+  m_headerLabel = new wxStaticText(this, wxID_ANY, "No channel selected");
+  wxFont titleFont = m_headerLabel->GetFont();
   titleFont.SetWeight(wxFONTWEIGHT_BOLD);
-  m_channelNameLabel->SetFont(titleFont);
-  topSizer->Add(m_channelNameLabel, 0, wxALIGN_CENTER_VERTICAL | wxALL,
-                FromDIP(10));
+  m_headerLabel->SetFont(titleFont);
+  headerSizer->Add(m_headerLabel, 1, wxALIGN_CENTER_VERTICAL | wxALL,
+                   FromDIP(10));
 
-  topSizer->AddStretchSpacer();
-  
+  m_manualMapBtn = new wxButton(this, wxID_ANY, "Manual Mapping");
+  headerSizer->Add(m_manualMapBtn, 0, wxALIGN_CENTER_VERTICAL | wxALL,
+                   FromDIP(10));
+  mainSizer->Add(headerSizer, 0, wxEXPAND);
+
+  // ---- Строка даты и навигации ----
+  wxBoxSizer *navSizer = new wxBoxSizer(wxHORIZONTAL);
+  navSizer->AddStretchSpacer();
+
   m_dateLabel = new wxStaticText(this, wxID_ANY, "");
-  topSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxALL, FromDIP(10));
+  navSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
 
   m_prevDayBtn = new wxButton(this, wxID_ANY, "\u2190");
   m_prevDayBtn->SetToolTip("Previous day");
-  topSizer->Add(m_prevDayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  navSizer->Add(m_prevDayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
   m_todayBtn = new wxButton(this, wxID_ANY, "Today");
-  topSizer->Add(m_todayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  navSizer->Add(m_todayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
   m_nextDayBtn = new wxButton(this, wxID_ANY, "\u2192");
   m_nextDayBtn->SetToolTip("Next day");
-  topSizer->Add(m_nextDayBtn, 0, wxALIGN_CENTER_VERTICAL);
+  navSizer->Add(m_nextDayBtn, 0, wxALIGN_CENTER_VERTICAL);
+
+  navSizer->AddStretchSpacer();
 
   int btnHeight = FromDIP(30);
   m_prevDayBtn->SetMinSize(wxSize(FromDIP(40), btnHeight));
   m_todayBtn->SetMinSize(wxSize(-1, btnHeight));
   m_nextDayBtn->SetMinSize(wxSize(FromDIP(40), btnHeight));
 
-  mainSizer->Add(topSizer, 0, wxEXPAND);
+  mainSizer->Add(navSizer, 0, wxEXPAND | wxBOTTOM, FromDIP(5));
 
-  // Привязка событий навигации (в таблице событий уже есть, но можно и здесь)
+  // Привязка событий навигации
   m_prevDayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnPrevDay, this);
   m_todayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnToday, this);
   m_nextDayBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnNextDay, this);
+  m_manualMapBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnManualMapping, this);
 
   // ---- Сетка программ ----
   m_programGrid = new wxGrid(this, wxID_ANY, wxDefaultPosition, wxDefaultSize);
@@ -116,9 +157,11 @@ void EPGPanel::SetupUI() {
   m_programGrid->SetColSize(0, FromDIP(100));
   m_programGrid->SetColSize(1, FromDIP(300));
   m_programGrid->SetColSize(2, FromDIP(150));
+
   m_programGrid->Bind(wxEVT_GRID_SELECT_CELL, &EPGPanel::OnProgramSelected,
                       this);
   m_programGrid->Bind(wxEVT_SIZE, &EPGPanel::OnProgramListResize, this);
+
   mainSizer->Add(m_programGrid, 1, wxEXPAND | wxALL, FromDIP(5));
 
   // ---- Блок деталей ----
@@ -154,13 +197,8 @@ void EPGPanel::SetChannel(const Channel &channel) {
   m_currentChannelId = channel.getTvgId();
   m_currentChannelName = channel.getName();
 
-  // Обновляем заголовок
-  m_channelNameLabel->SetLabel(wxString::FromUTF8(m_currentChannelName));
-
-  // Загружаем программы на текущую дату
+  UpdateHeader();
   LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-
-  // Сохраняем состояние
   SaveState();
 }
 
@@ -253,6 +291,8 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   }
 
   AdjustProgramColumns();
+
+  UpdateHeader();
 }
 
 // ----------------------------------------------------------------------------
@@ -389,7 +429,7 @@ void EPGPanel::RestoreState() {
     SetChannel(ch);
   } else {
     // Сброс
-    m_channelNameLabel->SetLabel("No channel selected");
+    m_headerLabel->SetLabel("No channel selected");
     m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
     UpdateDateLabel();
     m_programGrid->ClearGrid();
@@ -419,3 +459,28 @@ void EPGPanel::UpdateMatchProgress(int matched, int total, int progress) {
                                            progress, progress * 100 / total));
   }
 }
+
+void EPGPanel::OnManualMapping(wxCommandEvent &) {
+  if (!m_mainFrame) {
+    wxMessageBox("MainFrame not available", "Error", wxOK | wxICON_ERROR, this);
+    return;
+  }
+  if (m_currentChannelId.empty() && m_currentChannelName.empty()) {
+    wxMessageBox("No channel selected", "Info", wxOK | wxICON_INFORMATION,
+                 this);
+    return;
+  }
+  if (!m_epgManager) {
+    wxMessageBox("EPG Manager not available", "Error", wxOK | wxICON_ERROR,
+                 this);
+    return;
+  }
+
+  ManualMappingDialog dlg(this, m_epgManager, m_mainFrame);
+  dlg.SetPreselectedChannel(m_currentChannel);
+  if (dlg.ShowModal() == wxID_OK) {
+    LoadProgramsForChannel(m_currentChannelId, m_currentDate);
+    UpdateHeader();
+  }
+}
+
