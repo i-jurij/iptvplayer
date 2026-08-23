@@ -14,6 +14,7 @@
 #include <wx/sizer.h>
 #include <wx/statbox.h>
 #include <wx/stattext.h>
+#include <wx/string.h>
 #include <wx/textdlg.h>
 
 EpgSourceManagerPanel::EpgSourceManagerPanel(wxWindow *parent,
@@ -50,9 +51,16 @@ EpgSourceManagerPanel::EpgSourceManagerPanel(wxWindow *parent,
     }
     // SetBusy(false);
   });
+  m_autoApplyBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnAutoApply, this);
 }
 
 EpgSourceManagerPanel::~EpgSourceManagerPanel() {}
+
+void EpgSourceManagerPanel::OnAutoApply(wxCommandEvent &) {
+  SaveSettings();
+  wxMessageBox("Auto-update settings applied.", "Info",
+               wxOK | wxICON_INFORMATION, this);
+}
 
 void EpgSourceManagerPanel::SetupUI() {
   // Создаём прокручиваемую область
@@ -133,7 +141,7 @@ void EpgSourceManagerPanel::SetupUI() {
                  FromDIP(15));
   mainSizer->AddSpacer(FromDIP(10));
 
-  // ---- Блок "Auto-update settings" (опционально) ----
+  // ---- Блок "Auto-update settings" ----
   if (m_showAutoUpdateSettings) {
     wxStaticBox *settingsBox =
         new wxStaticBox(m_scrolledWindow, wxID_ANY, "Auto-update settings");
@@ -167,6 +175,16 @@ void EpgSourceManagerPanel::SetupUI() {
     grid->Add(m_daysToKeepSpin, 0, wxALIGN_LEFT);
 
     settingsSizer->Add(grid, 0, wxEXPAND | wxALL, FromDIP(5));
+
+    // ---- Кнопка Apply ----
+    m_autoApplyBtn = new wxButton(settingsBox, wxID_ANY, "Apply");
+    m_autoApplyBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnAutoApply,
+                         this);
+
+    wxBoxSizer *applySizer = new wxBoxSizer(wxHORIZONTAL);
+    applySizer->Add(m_autoApplyBtn, 0, wxLEFT, FromDIP(5));
+    settingsSizer->Add(applySizer, 0, wxEXPAND | wxALL, FromDIP(5));
+
     mainSizer->Add(settingsSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                    FromDIP(15));
   }
@@ -222,7 +240,7 @@ void EpgSourceManagerPanel::SetupUI() {
   m_applyMatchBtn = new wxButton(matchBox, wxID_ANY, "Apply");
   wxBoxSizer *applySizer = new wxBoxSizer(wxHORIZONTAL);
   applySizer->Add(m_applyMatchBtn, 0, wxLEFT, FromDIP(5));
-  matchSizer->Add(applySizer, 0, wxEXPAND | wxALL, FromDIP(5));
+  matchSizer->Add(applySizer, 0, wxEXPAND | wxALL, FromDIP(5)); 
 
   mainSizer->Add(matchSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                  FromDIP(15));
@@ -389,13 +407,13 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
         "You can also update individual sources later using the \"Refresh "
         "Now\" button.");
   wxStaticText *info = new wxStaticText(&dlg, wxID_ANY, msg);
-  info->Wrap(450);
-  topSizer->Add(info, 0, wxALL | wxEXPAND, 10);
+  info->Wrap(FromDIP(460));
+  topSizer->Add(info, 0, wxALL | wxEXPAND, FromDIP(12));
 
   wxCheckBox *updateCheck =
       new wxCheckBox(&dlg, wxID_ANY, _("Update all sources now"));
   updateCheck->SetValue(false);
-  topSizer->Add(updateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+  topSizer->Add(updateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
 
   wxSizer *btnSizer = dlg.CreateButtonSizer(wxOK | wxCANCEL);
   if (btnSizer) {
@@ -403,7 +421,7 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
         wxDynamicCast(wxWindow::FindWindowById(wxID_OK, &dlg), wxButton);
     if (okBtn)
       okBtn->SetLabel(_("Delete"));
-    topSizer->Add(btnSizer, 0, wxALL | wxALIGN_RIGHT, 10);
+    topSizer->Add(btnSizer, 0, wxALL | wxALIGN_RIGHT, FromDIP(12));
   }
 
   dlg.SetSizerAndFit(topSizer);
@@ -720,6 +738,7 @@ void EpgSourceManagerPanel::SetBusy(bool busy) {
   m_deleteCacheBtn->Enable(!busy);
   m_manualMapBtn->Enable(!busy);
   m_applyMatchBtn->Enable(!busy);
+  m_autoApplyBtn->Enable(!busy);
   if (m_autoUpdateCheck)
     m_autoUpdateCheck->Enable(!busy);
   if (m_updateIntervalSpin)

@@ -9,7 +9,7 @@
 ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
                                          MainFrame *mainFrame)
     : wxDialog(parent, wxID_ANY, "Manual Mapping", wxDefaultPosition,
-               wxSize(900, 600), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
+               wxSize(950, 650), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       m_epgMgr(epgMgr), m_mainFrame(mainFrame), m_selectedMappingIndex(-1) {
 
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
@@ -39,19 +39,26 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
 
   mainSizer->Add(topSizer, 2, wxEXPAND);
 
-  // Кнопки Add/Remove
+  // Кнопки Add/Remove/Ignore/Unignore
   wxBoxSizer *btnSizer = new wxBoxSizer(wxHORIZONTAL);
   m_addBtn = new wxButton(this, wxID_ANY, "Add mapping ->");
   m_removeBtn = new wxButton(this, wxID_ANY, "Remove mapping");
+  m_ignoreBtn = new wxButton(this, wxID_ANY, "Ignore");
+  m_unignoreBtn = new wxButton(this, wxID_ANY, "Unignore");
+
   m_addBtn->Enable(false);
   m_removeBtn->Enable(false);
+  m_ignoreBtn->Enable(false);
+  m_unignoreBtn->Enable(false);
+
   btnSizer->Add(m_addBtn, 0, wxALL, 5);
   btnSizer->Add(m_removeBtn, 0, wxALL, 5);
+  btnSizer->Add(m_ignoreBtn, 0, wxALL, 5);
+  btnSizer->Add(m_unignoreBtn, 0, wxALL, 5);
   mainSizer->Add(btnSizer, 0, wxALIGN_CENTER);
 
-  // Нижний список: текущие маппинги
-  wxStaticBox *mapBox =
-      new wxStaticBox(this, wxID_ANY, "Current Manual Mappings");
+  // Нижний список: текущие маппинги (все)
+  wxStaticBox *mapBox = new wxStaticBox(this, wxID_ANY, "Current Mappings");
   wxStaticBoxSizer *mapSizer = new wxStaticBoxSizer(mapBox, wxVERTICAL);
   m_mappingList = new wxListCtrl(mapBox, wxID_ANY, wxDefaultPosition,
                                  wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
@@ -59,6 +66,7 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
   m_mappingList->InsertColumn(1, "Playlist Name", wxLIST_FORMAT_LEFT, 200);
   m_mappingList->InsertColumn(2, "EPG ID", wxLIST_FORMAT_LEFT, 150);
   m_mappingList->InsertColumn(3, "EPG Name", wxLIST_FORMAT_LEFT, 200);
+  m_mappingList->InsertColumn(4, "Status", wxLIST_FORMAT_LEFT, 80);
   mapSizer->Add(m_mappingList, 1, wxEXPAND | wxALL, 5);
   mainSizer->Add(mapSizer, 1, wxEXPAND | wxALL, 5);
 
@@ -75,7 +83,7 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
   PopulateEpgChannels();
   PopulateMappings();
 
-  // Привязка событий через Bind (без таблицы)
+  // Привязка событий
   m_playlistList->Bind(wxEVT_LIST_ITEM_SELECTED,
                        &ManualMappingDialog::OnPlaylistSelected, this);
   m_epgList->Bind(wxEVT_LIST_ITEM_SELECTED, &ManualMappingDialog::OnEpgSelected,
@@ -84,6 +92,8 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
                       &ManualMappingDialog::OnMappingSelected, this);
   m_addBtn->Bind(wxEVT_BUTTON, &ManualMappingDialog::OnAddMapping, this);
   m_removeBtn->Bind(wxEVT_BUTTON, &ManualMappingDialog::OnRemoveMapping, this);
+  m_ignoreBtn->Bind(wxEVT_BUTTON, &ManualMappingDialog::OnIgnore, this);
+  m_unignoreBtn->Bind(wxEVT_BUTTON, &ManualMappingDialog::OnUnignore, this);
 
   UpdateButtons();
 }
@@ -139,21 +149,35 @@ void ManualMappingDialog::PopulateMappings() {
     std::string tvgId = ch.getTvgId();
     if (tvgId.empty())
       continue;
-    bool isManual = false;
+
     std::string epgId;
-    if (m_epgMgr->GetMappingEntry(playlistId, tvgId, epgId, isManual) &&
-        isManual) {
-      wxString tvgIdWx = wxString::FromUTF8(tvgId);
-      wxString chNameWx = wxString::FromUTF8(ch.getName());
-      wxString epgIdWx = wxString::FromUTF8(epgId);
-      wxString epgNameWx = wxString::FromUTF8(m_epgMgr->GetEpgName(epgId));
-      long item = m_mappingList->InsertItem(idx, tvgIdWx);
-      m_mappingList->SetItem(item, 1, chNameWx);
-      m_mappingList->SetItem(item, 2, epgIdWx);
-      m_mappingList->SetItem(item, 3, epgNameWx);
-      m_mappingList->SetItemData(item, idx);
-      ++idx;
+    bool isManual = false;
+    bool hasMapping =
+        m_epgMgr->GetMappingEntry(playlistId, tvgId, epgId, isManual);
+
+    if (!hasMapping)
+      continue;
+
+    wxString status;
+    if (isManual) {
+      status = "Manual";
+    } else {
+      bool ignored = m_epgMgr->IsIgnored(playlistId, tvgId);
+      status = ignored ? "Ignored" : "Auto";
     }
+
+    wxString tvgIdWx = wxString::FromUTF8(tvgId);
+    wxString chNameWx = wxString::FromUTF8(ch.getName());
+    wxString epgIdWx = wxString::FromUTF8(epgId);
+    wxString epgNameWx = wxString::FromUTF8(m_epgMgr->GetEpgName(epgId));
+
+    long item = m_mappingList->InsertItem(idx, tvgIdWx);
+    m_mappingList->SetItem(item, 1, chNameWx);
+    m_mappingList->SetItem(item, 2, epgIdWx);
+    m_mappingList->SetItem(item, 3, epgNameWx);
+    m_mappingList->SetItem(item, 4, status);
+    m_mappingList->SetItemData(item, idx);
+    ++idx;
   }
 }
 
@@ -169,13 +193,10 @@ void ManualMappingDialog::OnAddMapping(wxCommandEvent &) {
     return;
   }
 
-  // Сохраняем ID для подсветки после обновления
-  std::string addedTvg = m_selectedPlaylistTvgId;
-  std::string addedEpg = m_selectedEpgId;
-
   m_epgMgr->SetManualMapping(m_selectedPlaylistTvgId, m_selectedEpgId);
+
   PopulateMappings();
-  SelectMapping(addedTvg, addedEpg);
+  SelectMapping(m_selectedPlaylistTvgId, m_selectedEpgId);
 
   m_selectedPlaylistTvgId.clear();
   m_selectedEpgId.clear();
@@ -183,6 +204,38 @@ void ManualMappingDialog::OnAddMapping(wxCommandEvent &) {
 }
 
 void ManualMappingDialog::OnRemoveMapping(wxCommandEvent &) {
+  if (m_selectedMappingIndex == -1)
+    return;
+  if (!m_mappingList)
+    return;
+
+  wxString tvgIdWx = m_mappingList->GetItemText(m_selectedMappingIndex, 0);
+  wxString statusWx = m_mappingList->GetItemText(m_selectedMappingIndex, 4);
+  std::string tvgId = tvgIdWx.ToUTF8().data();
+  if (tvgId.empty())
+    return;
+  if (!m_epgMgr || !m_mainFrame)
+    return;
+
+  std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
+  if (playlistId.empty()) {
+    wxMessageBox("No current playlist.", "Error", wxOK | wxICON_ERROR, this);
+    return;
+  }
+
+  if (statusWx == "Manual") {
+    m_epgMgr->RemoveChannelMapping(tvgId);
+  } else {
+    // Auto или Ignored — удаляем запись полностью
+    m_epgMgr->RemoveMappingEntry(playlistId, tvgId);
+  }
+
+  PopulateMappings();
+  m_selectedMappingIndex = -1;
+  UpdateButtons();
+}
+
+void ManualMappingDialog::OnIgnore(wxCommandEvent &) {
   if (m_selectedMappingIndex == -1)
     return;
   if (!m_mappingList)
@@ -201,7 +254,32 @@ void ManualMappingDialog::OnRemoveMapping(wxCommandEvent &) {
     return;
   }
 
-  m_epgMgr->RemoveManualMapping(playlistId, tvgId);
+  m_epgMgr->IgnoreAutoMapping(playlistId, tvgId);
+  PopulateMappings();
+  m_selectedMappingIndex = -1;
+  UpdateButtons();
+}
+
+void ManualMappingDialog::OnUnignore(wxCommandEvent &) {
+  if (m_selectedMappingIndex == -1)
+    return;
+  if (!m_mappingList)
+    return;
+
+  wxString tvgIdWx = m_mappingList->GetItemText(m_selectedMappingIndex, 0);
+  std::string tvgId = tvgIdWx.ToUTF8().data();
+  if (tvgId.empty())
+    return;
+  if (!m_epgMgr || !m_mainFrame)
+    return;
+
+  std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
+  if (playlistId.empty()) {
+    wxMessageBox("No current playlist.", "Error", wxOK | wxICON_ERROR, this);
+    return;
+  }
+
+  m_epgMgr->UnignoreAutoMapping(playlistId, tvgId);
   PopulateMappings();
   m_selectedMappingIndex = -1;
   UpdateButtons();
@@ -212,6 +290,23 @@ void ManualMappingDialog::OnPlaylistSelected(wxListEvent &event) {
   if (idx == -1)
     return;
   m_selectedPlaylistTvgId = m_playlistList->GetItemText(idx, 1).ToUTF8().data();
+
+  // Если для этого tvgId есть ручной маппинг, подсветим в EPG и mapping
+  std::string epgId;
+  bool isManual = false;
+  if (m_epgMgr->GetMappingEntry(m_mainFrame->GetCurrentPlaylistId(),
+                                m_selectedPlaylistTvgId, epgId, isManual) &&
+      isManual) {
+    HighlightEpgChannel(epgId);
+    HighlightMapping(m_selectedPlaylistTvgId);
+  } else {
+    // Снимаем подсветку в EPG
+    for (long i = 0; i < m_epgList->GetItemCount(); ++i) {
+      m_epgList->SetItemState(i, 0, wxLIST_STATE_SELECTED);
+    }
+    HighlightMapping(m_selectedPlaylistTvgId);
+  }
+
   UpdateButtons();
 }
 
@@ -232,7 +327,22 @@ void ManualMappingDialog::UpdateButtons() {
   bool hasPlaylist = !m_selectedPlaylistTvgId.empty();
   bool hasEpg = !m_selectedEpgId.empty();
   m_addBtn->Enable(hasPlaylist && hasEpg);
-  m_removeBtn->Enable(m_selectedMappingIndex != -1);
+
+  bool hasSelection = (m_selectedMappingIndex != -1);
+  m_removeBtn->Enable(hasSelection);
+
+  // Для Ignore/Unignore анализируем статус выбранной записи
+  bool enableIgnore = false;
+  bool enableUnignore = false;
+  if (hasSelection && m_mappingList) {
+    wxString status = m_mappingList->GetItemText(m_selectedMappingIndex, 4);
+    if (status == "Auto")
+      enableIgnore = true;
+    else if (status == "Ignored")
+      enableUnignore = true;
+  }
+  m_ignoreBtn->Enable(enableIgnore);
+  m_unignoreBtn->Enable(enableUnignore);
 }
 
 void ManualMappingDialog::SelectMapping(const std::string &tvgId,
@@ -241,6 +351,29 @@ void ManualMappingDialog::SelectMapping(const std::string &tvgId,
     wxString t = m_mappingList->GetItemText(i, 0);
     wxString e = m_mappingList->GetItemText(i, 2);
     if (t == tvgId && e == epgId) {
+      m_mappingList->SetItemState(i, wxLIST_STATE_SELECTED,
+                                  wxLIST_STATE_SELECTED);
+      m_mappingList->EnsureVisible(i);
+      break;
+    }
+  }
+}
+
+void ManualMappingDialog::HighlightEpgChannel(const std::string &epgId) {
+  for (long i = 0; i < m_epgList->GetItemCount(); ++i) {
+    wxString itemEpgId = m_epgList->GetItemText(i, 0);
+    if (itemEpgId == epgId) {
+      m_epgList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+      m_epgList->EnsureVisible(i);
+      break;
+    }
+  }
+}
+
+void ManualMappingDialog::HighlightMapping(const std::string &tvgId) {
+  for (long i = 0; i < m_mappingList->GetItemCount(); ++i) {
+    wxString itemTvg = m_mappingList->GetItemText(i, 0);
+    if (itemTvg == tvgId) {
       m_mappingList->SetItemState(i, wxLIST_STATE_SELECTED,
                                   wxLIST_STATE_SELECTED);
       m_mappingList->EnsureVisible(i);

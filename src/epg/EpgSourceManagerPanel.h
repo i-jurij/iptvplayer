@@ -38,6 +38,9 @@ private:
   EPGManager *m_epgMgr;
   MainFrame *m_mainFrame = nullptr;
 
+  wxButton *m_autoApplyBtn;
+  void OnAutoApply(wxCommandEvent &event);
+
   wxScrolledWindow *m_scrolledWindow;
 
   // Основные элементы управления

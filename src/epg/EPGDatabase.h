@@ -60,6 +60,13 @@ public:
   bool DeleteManualMapping(const std::string &playlistId,
                            const std::string &key);
 
+  // Новые методы для общего удаления и флага ignored
+  bool DeleteMappingEntry(const std::string &playlistId,
+                          const std::string &key);
+  bool SetIgnored(const std::string &playlistId, const std::string &key,
+                  bool ignored);
+  bool IsIgnored(const std::string &playlistId, const std::string &key);
+
   struct PlaylistMetadata {
     size_t channelCount = 0;
     std::string channelHash;

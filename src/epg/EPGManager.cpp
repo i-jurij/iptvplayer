@@ -964,7 +964,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   std::string tvgId = playlistChannel.getTvgId();
   std::string channelName = playlistChannel.getName();
 
-  // Ручное сопоставление (приоритет)
+  // ---- 1. Ручное сопоставление (приоритет) ----
   {
     std::shared_lock lock(m_mappingMutex);
     if (!tvgId.empty()) {
@@ -974,21 +974,29 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
         result.method = "manual";
         result.score = 100;
         result.confidence = "high";
-        return result;
+        return result; // manual не проверяем на ignored
       }
     }
   }
 
-  // Нормализуем имя канала плейлиста
+  // ---- 2. Нормализация имени канала плейлиста ----
   std::string plName = NormalizeName(channelName);
   if (plName.empty()) {
-    // Если имя пустое, пробуем сопоставить по tvg-id
+    // Если имя пустое, пробуем сопоставить по tvg-id (fallback)
     if (!tvgId.empty()) {
       std::string normTvg = tvgId;
       NormalizeTvgId(normTvg);
       std::shared_lock lock(m_tvgIndexMutex);
       auto it = m_tvgIdIndex.find(normTvg);
       if (it != m_tvgIdIndex.end()) {
+        // Проверяем, не игнорируется ли этот ключ
+        if (IsIgnored(m_currentPlaylistId, tvgId)) {
+          result.channelId.clear();
+          result.method = "ignored";
+          result.score = 0;
+          result.confidence = "low";
+          return result;
+        }
         result.channelId = it->second;
         result.method = "exact_tvgid_fallback";
         result.score = 70;
@@ -999,10 +1007,10 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     return result;
   }
 
+  // ---- 3. Поиск кандидатов среди EPG-каналов ----
   std::vector<Candidate> candidates;
   candidates.reserve(m_normalizedCache.size());
 
-  // Обход всех EPG-каналов из нормализованного кэша
   {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
     for (const auto &nc : m_normalizedCache) {
@@ -1038,7 +1046,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
 
       // Метод «подстрока» с ужесточениями
       if (bestScore < 50) {
-        // Проверяем минимальную длину имени
         if (plName.length() >= static_cast<size_t>(m_substringMinLength) &&
             nc.normalizedName.length() >=
                 static_cast<size_t>(m_substringMinLength)) {
@@ -1046,7 +1053,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
               (nc.normalizedName.find(plName) != std::string::npos) ||
               (plName.find(nc.normalizedName) != std::string::npos);
           if (contains) {
-            // Вычисляем, какая часть подстроки составляет от длины
             int minLen = std::min(plName.length(), nc.normalizedName.length());
             int maxLen = std::max(plName.length(), nc.normalizedName.length());
             int ratio = (minLen * 100) / maxLen;
@@ -1064,7 +1070,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     }
   }
 
-  // Дополнительная проверка по tvg-id (вне цикла, как fallback)
+  // ---- 4. Дополнительный fallback по tvg-id (если ещё не добавлен) ----
   if (!tvgId.empty()) {
     std::string normTvg = tvgId;
     NormalizeTvgId(normTvg);
@@ -1084,23 +1090,34 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     }
   }
 
-  // Выбираем кандидата с максимальным баллом
+  // ---- 5. Выбор лучшего кандидата ----
   if (!candidates.empty()) {
     auto best = std::max_element(candidates.begin(), candidates.end(),
                                  [](const Candidate &a, const Candidate &b) {
                                    return a.score < b.score;
                                  });
     if (best->score >= m_minMatchScore) {
+      // Определяем ключ для проверки ignored (tvgId или "name:...")
+      std::string key = tvgId.empty() ? ("name:" + channelName) : tvgId;
+      if (IsIgnored(m_currentPlaylistId, key)) {
+        result.channelId.clear();
+        result.method = "ignored";
+        result.score = 0;
+        result.confidence = "low";
+        return result;
+      }
+
       result.channelId = best->epgId;
       result.method = best->method;
       result.score = best->score;
-      // Определяем уверенность по баллу
+
       if (best->score >= 85)
         result.confidence = "high";
       else if (best->score >= 70)
         result.confidence = "medium";
       else
         result.confidence = "low";
+
       LOG_DEBUG("FindBestMatch: channel '%s' -> EPG '%s' (method=%s, score=%d)",
                 channelName.c_str(), result.channelId.c_str(),
                 result.method.c_str(), result.score);
@@ -1477,9 +1494,16 @@ void EPGManager::SetManualMapping(const std::string &tvgId,
     LOG_ERROR("Database not open, cannot set manual mapping");
     return;
   }
+
+  // Удаляем существующую запись (любого типа) перед вставкой ручной
+  m_db->DeleteMappingEntry(m_currentPlaylistId, tvgId);
+
   if (m_db->UpdateManualMapping(m_currentPlaylistId, tvgId, epgId)) {
     std::unique_lock lock(m_mappingMutex);
     m_manualMapping[tvgId] = epgId;
+    auto it = m_channelMapping.find(tvgId);
+    if (it != m_channelMapping.end())
+      m_channelMapping.erase(it);
     LOG_DEBUG("Manual mapping set: playlist '%s', tvgId '%s' -> epgId '%s'",
               m_currentPlaylistId.c_str(), tvgId.c_str(), epgId.c_str());
   } else {
@@ -1875,3 +1899,74 @@ void EPGManager::RebuildTvgIdIndex() {
     m_tvgIdIndex.swap(tmp);
   }
 }
+
+void EPGManager::RemoveMappingEntry(const std::string &playlistId,
+                                    const std::string &key) {
+  if (playlistId.empty() || key.empty()) {
+    LOG_WARN("EPGManager::RemoveMappingEntry: empty playlistId or key");
+    return;
+  }
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen()) {
+    LOG_ERROR("EPGManager::RemoveMappingEntry: database not open");
+    return;
+  }
+  if (m_db->DeleteMappingEntry(playlistId, key)) {
+    std::unique_lock lock(m_mappingMutex);
+    auto itManual = m_manualMapping.find(key);
+    if (itManual != m_manualMapping.end())
+      m_manualMapping.erase(itManual);
+    auto itAuto = m_channelMapping.find(key);
+    if (itAuto != m_channelMapping.end())
+      m_channelMapping.erase(itAuto);
+    LOG_DEBUG("EPGManager: Removed mapping entry for playlist '%s', key '%s'",
+              playlistId.c_str(), key.c_str());
+  } else {
+    LOG_ERROR("EPGManager::RemoveMappingEntry: failed to delete from DB");
+  }
+}
+
+void EPGManager::IgnoreAutoMapping(const std::string &playlistId,
+                                   const std::string &key) {
+  if (playlistId.empty() || key.empty())
+    return;
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return;
+
+  bool isManual = false;
+  std::string epgId;
+  if (m_db->GetMappingEntry(playlistId, key, epgId, isManual)) {
+    if (!isManual) {
+      m_db->SetIgnored(playlistId, key, true);
+      LOG_DEBUG("EPGManager: Auto mapping ignored for playlist '%s', key '%s'",
+                playlistId.c_str(), key.c_str());
+    }
+  }
+}
+
+void EPGManager::UnignoreAutoMapping(const std::string &playlistId,
+                                     const std::string &key) {
+  if (playlistId.empty() || key.empty())
+    return;
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return;
+
+  if (m_db->SetIgnored(playlistId, key, false)) {
+    LOG_DEBUG("EPGManager: Auto mapping unignored for playlist '%s', key '%s'",
+              playlistId.c_str(), key.c_str());
+  }
+}
+
+bool EPGManager::IsIgnored(const std::string &playlistId,
+                           const std::string &key) const {
+  if (playlistId.empty() || key.empty())
+    return false;
+  std::lock_guard<std::recursive_mutex> dbLock(
+      m_dbMutex); // m_dbMutex уже mutable
+  if (!m_db || !m_db->IsOpen())
+    return false;
+  return m_db->IsIgnored(playlistId, key);
+}
+

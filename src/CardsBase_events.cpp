@@ -633,11 +633,9 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
 
 void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
   wxMenu menu;
-  int idProgramGuide = wxNewId();
   int idCopyUrl = wxNewId();
   int idCopyName = wxNewId();
   int idRemove = wxNewId();
-  menu.Append(idProgramGuide, "Program Guide");
   menu.Append(idCopyUrl, "Copy URL");
   menu.Append(idCopyName, "Copy Name");
   menu.Append(idRemove, "Remove from playlist");

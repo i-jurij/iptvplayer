@@ -24,26 +24,29 @@ private:
   wxListCtrl *m_mappingList;
   wxButton *m_addBtn;
   wxButton *m_removeBtn;
+  wxButton *m_ignoreBtn;
+  wxButton *m_unignoreBtn;
 
   std::string m_selectedPlaylistTvgId;
   std::string m_selectedEpgId;
   long m_selectedMappingIndex;
 
-  // Методы заполнения списков
   void PopulatePlaylistChannels();
   void PopulateEpgChannels();
   void PopulateMappings();
 
-  // Обработчики событий
   void OnPlaylistSelected(wxListEvent &event);
   void OnEpgSelected(wxListEvent &event);
   void OnMappingSelected(wxListEvent &event);
   void OnAddMapping(wxCommandEvent &event);
   void OnRemoveMapping(wxCommandEvent &event);
+  void OnIgnore(wxCommandEvent &event);
+  void OnUnignore(wxCommandEvent &event);
 
-  // Вспомогательные
   void UpdateButtons();
   void SelectMapping(const std::string &tvgId, const std::string &epgId);
+  void HighlightEpgChannel(const std::string &epgId);
+  void HighlightMapping(const std::string &tvgId);
 };
 
 #endif // MANUALMAPPINGDIALOG_H

@@ -181,6 +181,13 @@ public:
 
   void AddOnProgress(ProgressCallback callback);
 
+  void RemoveMappingEntry(const std::string &playlistId,
+                          const std::string &key);
+  void IgnoreAutoMapping(const std::string &playlistId, const std::string &key);
+  void UnignoreAutoMapping(const std::string &playlistId,
+                           const std::string &key);
+  bool IsIgnored(const std::string &playlistId, const std::string &key) const;
+
 private:
   // Количество потоков для параллельного матчинга
   int m_matchThreads = 0;
@@ -259,7 +266,7 @@ private:
   void InitializeDefaultRegionalSuffixes();
   std::vector<std::string> m_regionalSuffixes;
 
-  std::unique_ptr<EPGDatabase> m_db;
+  mutable std::unique_ptr<EPGDatabase> m_db;
   std::string m_dbPath;
   std::string m_epgChannelsHash;
   std::string m_currentPlaylistId;

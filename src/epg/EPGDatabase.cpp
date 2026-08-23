@@ -150,6 +150,7 @@ bool EPGDatabase::CreateTables() {
     m_db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS playlist_mappings ("
                        "playlist_id TEXT, key TEXT, channel_id TEXT,"
                        "is_manual INTEGER DEFAULT 0, confidence TEXT,"
+                       "ignored INTEGER DEFAULT 0,"
                        "PRIMARY KEY (playlist_id, key))");
     m_db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_mappings_playlist ON "
                        "playlist_mappings(playlist_id)");
@@ -866,5 +867,71 @@ std::string EPGDatabase::LoadGlobalMetadata(const std::string &key) {
     LOG_ERROR("EPGDatabase::LoadGlobalMetadata exception for key '%s': %s",
               key.c_str(), e.GetMessage().ToUTF8().data());
     return "";
+  }
+}
+
+bool EPGDatabase::DeleteMappingEntry(const std::string &playlistId,
+                                     const std::string &key) {
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  if (!m_isOpen)
+    return false;
+  try {
+    Statement stmt = m_db.PrepareStatement(
+        "DELETE FROM playlist_mappings WHERE playlist_id = ? AND key = ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, wxString::FromUTF8(playlistId));
+    stmt.Bind(2, wxString::FromUTF8(key));
+    int rows = stmt.ExecuteUpdate();
+    return rows > 0;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::DeleteMappingEntry exception: %s",
+              e.GetMessage().ToUTF8().data());
+    return false;
+  }
+}
+
+bool EPGDatabase::SetIgnored(const std::string &playlistId,
+                             const std::string &key, bool ignored) {
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  if (!m_isOpen)
+    return false;
+  try {
+    Statement stmt =
+        m_db.PrepareStatement("UPDATE playlist_mappings SET ignored = ? WHERE "
+                              "playlist_id = ? AND key = ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, ignored ? 1 : 0);
+    stmt.Bind(2, wxString::FromUTF8(playlistId));
+    stmt.Bind(3, wxString::FromUTF8(key));
+    int rows = stmt.ExecuteUpdate();
+    return rows > 0;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::SetIgnored exception: %s",
+              e.GetMessage().ToUTF8().data());
+    return false;
+  }
+}
+
+bool EPGDatabase::IsIgnored(const std::string &playlistId,
+                            const std::string &key) {
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  if (!m_isOpen)
+    return false;
+  try {
+    Statement stmt =
+        m_db.PrepareStatement("SELECT ignored FROM playlist_mappings WHERE "
+                              "playlist_id = ? AND key = ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, wxString::FromUTF8(playlistId));
+    stmt.Bind(2, wxString::FromUTF8(key));
+    ResultSet rs = stmt.ExecuteQuery();
+    if (rs.NextRow()) {
+      return rs.GetInt(0) != 0;
+    }
+    return false;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::IsIgnored exception: %s",
+              e.GetMessage().ToUTF8().data());
+    return false;
   }
 }
