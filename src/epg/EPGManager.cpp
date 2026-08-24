@@ -1143,6 +1143,15 @@ EPGManager::GetAllEpgChannels() const {
 void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
                                const std::string &playlistId,
                                MatchCallback callback) {
+  // Проверка наличия источников EPG
+  if (m_sources.empty()) {
+    LOG_WARN("MatchChannels: no EPG sources, skipping");
+    if (callback) {
+      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, false); });
+    }
+    return;
+  }
+  
   if (m_cancelMatching.exchange(false)) {
     LOG_DEBUG("MatchChannels cancelled");
     return;
