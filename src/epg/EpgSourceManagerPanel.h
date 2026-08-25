@@ -38,6 +38,8 @@ private:
   EPGManager *m_epgMgr;
   MainFrame *m_mainFrame = nullptr;
 
+  void OnToggleAutoUpdate(wxListEvent &event);
+  
   wxButton *m_autoApplyBtn;
   void OnAutoApply(wxCommandEvent &event);
 

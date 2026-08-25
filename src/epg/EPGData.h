@@ -35,6 +35,7 @@ struct EpgSource {
   std::string url;
   std::string name;
   time_t lastUpdate = 0;
+  bool autoUpdate = false;
 };
 
 namespace EpgTime {

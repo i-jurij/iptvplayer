@@ -163,40 +163,27 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
 
       if (!playlistId.empty()) {
         epg->SetCurrentPlaylistId(playlistId);
+        // Пытаемся загрузить существующий маппинг
         bool loaded = epg->LoadMappingForPlaylist(playlistId, channels);
         if (!loaded) {
-          epg->CancelMatching();
-          if (!m_isMatching.exchange(true)) {
-            epg->MatchChannelsAsync(
-                channels, playlistId,
-                [this](int matched, int total, int progress, bool success) {
-                  wxTheApp->CallAfter(
-                      [this, matched, total, progress, success]() {
-                        if (progress < total) {
-                          // Промежуточный прогресс – статус будет обновлён в
-                          // OnEpgProgress
-                          return;
-                        }
-
-                        m_isMatching = false;
-
-                        if (success) {
-                          SetStatusText(
-                              wxString::Format("EPG matched %d/%d channels",
-                                               matched, total),
-                              1);
-                          SetStatusText("EPG matching completed", 0);
-                        } else {
-                          SetStatusText("EPG matching failed", 1);
-                          SetStatusText("Error: EPG matching failed", 0);
-                        }
-                      });
-                });
+          // Маппинг не загружен – проверим, есть ли EPG-данные
+          if (epg->IsLoaded()) {
+            auto allEpg = epg->GetAllEpgChannels();
+            if (!allEpg.empty()) {
+              // Данные есть – запускаем матчинг асинхронно
+              LOG_DEBUG("loadPlaylistChannels: mapping not found, but EPG data "
+                        "exists, starting MatchChannelsAsync");
+              epg->MatchChannelsAsync(channels, playlistId, nullptr);
+            } else {
+              LOG_DEBUG("loadPlaylistChannels: EPG data loaded but no channels "
+                        "in cache, skipping match");
+            }
           } else {
-            LOG_DEBUG("MatchChannelsAsync already running, skipping");
+            LOG_DEBUG(
+                "loadPlaylistChannels: EPG not loaded yet, skipping match");
           }
         } else {
-          // Mapping already loaded – nothing to do
+          LOG_DEBUG("loadPlaylistChannels: mapping loaded successfully");
         }
       } else {
         LOG_WARN("loadPlaylistChannels: playlistId is empty");
@@ -243,36 +230,22 @@ void MainFrame::refreshFavorites() {
       const std::string favPlaylistId = "favorites";
       bool loaded = epg->LoadMappingForPlaylist(favPlaylistId, favChannels);
       if (!loaded) {
-        epg->CancelMatching();
-        if (!m_isMatchingFavorites.exchange(true)) {
-          epg->MatchChannelsAsync(
-              favChannels, favPlaylistId,
-              [this](int matched, int total, int progress, bool success) {
-                wxTheApp->CallAfter([this, matched, total, progress,
-                                     success]() {
-                  if (progress < total) {
-                    // Промежуточный прогресс – статус будет обновлён в
-                    // OnEpgProgress
-                    return;
-                  }
-
-                  m_isMatchingFavorites = false;
-
-                  if (success) {
-                    SetStatusText(
-                        wxString::Format("Favorites EPG matched %d/%d",
-                                         matched, total),
-                        1);
-                    SetStatusText("Favorites EPG updated", 0);
-                  } else {
-                    SetStatusText("Favorites EPG matching failed", 1);
-                    SetStatusText("Error: favorites EPG matching failed", 0);
-                  }
-                });
-              });
+        if (epg->IsLoaded()) {
+          auto allEpg = epg->GetAllEpgChannels();
+          if (!allEpg.empty()) {
+            LOG_DEBUG(
+                "refreshFavorites: starting MatchChannelsAsync for favorites");
+            epg->MatchChannelsAsync(favChannels, favPlaylistId, nullptr);
+          } else {
+            LOG_DEBUG("refreshFavorites: EPG loaded but no channels in cache, "
+                      "skipping match for favorites");
+          }
+        } else {
+          LOG_DEBUG("refreshFavorites: EPG not loaded yet, skipping match for "
+                    "favorites");
         }
       } else {
-        // mapping уже загружен – ничего не делаем
+        LOG_DEBUG("refreshFavorites: mapping loaded for favorites");
       }
     }
   }

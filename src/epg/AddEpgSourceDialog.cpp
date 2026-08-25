@@ -5,7 +5,7 @@
 #include <rapidjson/error/en.h>
 
 #include <wx/clipbrd.h>
-#include <wx/dataobj.h> 
+#include <wx/dataobj.h>
 #include <wx/event.h>
 #include <wx/file.h>
 #include <wx/filedlg.h>
@@ -16,14 +16,12 @@
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/stdpaths.h>
-
 #include <wx/timer.h>
 
 //-----------------------------------------------------------------------------
 AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
     : wxDialog(parent, wxID_ANY, "Add EPG Source", wxDefaultPosition,
                wxSize(550, -1), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
-
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
   // Информационная строка + кнопка "More info"
@@ -53,6 +51,12 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
             wxALIGN_CENTER_VERTICAL);
   m_nameCtrl = new wxTextCtrl(this, wxID_ANY, "");
   grid->Add(m_nameCtrl, 1, wxEXPAND);
+
+  // ---- Чекбокс "Auto-update" ----
+  grid->Add(new wxStaticText(this, wxID_ANY, ""), 0, wxALIGN_CENTER_VERTICAL);
+  m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, "Auto-update");
+  m_autoUpdateCheck->SetValue(false);
+  grid->Add(m_autoUpdateCheck, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
 
   mainSizer->Add(grid, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
 
@@ -102,11 +106,12 @@ void AddEpgSourceDialog::ShowInfoDialog() {
   // ---- Подсказка (вверху) ----
   wxStaticText *hint = new wxStaticText(
       &infoDlg, wxID_ANY,
-      "ℹ Double‑click on any row to copy the URL to clipboard.");
+      "ℹ Double‑click on any row to copy the URL to clipboard.\n"
+      "Note: URLs may become outdated; you can search for current XMLTV "
+      "sources online."); // <-- добавлено предупреждение
   wxFont hintFont = hint->GetFont();
   hintFont.SetWeight(wxFONTWEIGHT_BOLD);
   hint->SetFont(hintFont);
-  // цвет не задаём — системный (читаемый)
   mainSizer->Add(hint, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 10);
 
   // ---- Поиск и парсинг JSON ----
@@ -209,7 +214,9 @@ void AddEpgSourceDialog::ShowInfoDialog() {
                      wxTheClipboard->SetData(new wxTextDataObject(url));
                      wxTheClipboard->Close();
 
-                     hint->SetLabel("✓ URL copied to clipboard!");
+                     hint->SetLabel("✓ URL copied to clipboard!\n"
+                                    "Note: URLs may become outdated; you can "
+                                    "search for current XMLTV sources online.");
                      hint->SetForegroundColour(wxColour(0, 180, 0)); // зелёный
 
                      timer->StartOnce(2000);
@@ -219,7 +226,9 @@ void AddEpgSourceDialog::ShowInfoDialog() {
       infoDlg.Bind(wxEVT_TIMER, [hint, timer](wxTimerEvent &evt) {
         if (evt.GetId() == timer->GetId()) {
           hint->SetLabel(
-              "ℹ Double‑click on any row to copy the URL to clipboard.");
+              "ℹ Double‑click on any row to copy the URL to clipboard.\n"
+              "Note: URLs may become outdated; you can search for current "
+              "XMLTV sources online.");
           hint->SetForegroundColour(wxNullColour); // возврат к системному цвету
         }
       });
@@ -300,3 +309,18 @@ wxString AddEpgSourceDialog::GetUrlOrPath() const {
 
 //-----------------------------------------------------------------------------
 wxString AddEpgSourceDialog::GetName() const { return m_nameCtrl->GetValue(); }
+
+//-----------------------------------------------------------------------------
+void AddEpgSourceDialog::SetUrlOrPath(const wxString &url) {
+  m_urlCtrl->SetValue(url);
+}
+
+//-----------------------------------------------------------------------------
+void AddEpgSourceDialog::SetName(const wxString &name) {
+  m_nameCtrl->SetValue(name);
+}
+
+//-----------------------------------------------------------------------------
+void AddEpgSourceDialog::SetAutoUpdate(bool value) {
+  m_autoUpdateCheck->SetValue(value);
+}

@@ -43,6 +43,18 @@
 },
 {
 "region": "Russia",
+"name": "IPTVX.one light",
+"url": "https://raw.githubusercontent.com/Lorax121/epg_v2/main/data/EPG_LITE.xml.gz",
+"notes": "Russian"
+},
+{
+"region": "Russia",
+"name": "Programtv",
+"url": "http://programtv.ru/xmltv.xml.gz;",
+"notes": "Russian"
+},
+{
+"region": "Russia",
 "name": "EPG.it999",
 "url": "http://epg.it999.ru/edem.xml.gz",
 "notes": "Russian"

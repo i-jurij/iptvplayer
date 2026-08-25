@@ -262,7 +262,6 @@ EPGManager::~EPGManager() {
   }
 
   auto start = std::chrono::steady_clock::now();
-  WaitForRefresh();
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                      std::chrono::steady_clock::now() - start)
                      .count();
@@ -401,13 +400,69 @@ void EPGManager::LoadMatchSettings() {
             m_minMatchScore);
 }
 
-void EPGManager::OnStartupUpdateTimer(wxTimerEvent&) {
-    if (m_isRefreshing) {
-        LOG_DEBUG("Startup update skipped – refresh already in progress");
-        return;
+void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
+  std::vector<EpgSource> sourcesCopy;
+  {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    sourcesCopy = m_sources;
+  }
+
+  std::vector<std::string> urlsToUpdate;
+  for (const auto &src : sourcesCopy) {
+    if (!onlyAutoUpdate || src.autoUpdate) {
+      urlsToUpdate.push_back(src.url);
     }
-    LOG_DEBUG("Startup auto-update timer triggered, running Refresh()");
-    Refresh();
+  }
+
+  if (urlsToUpdate.empty()) {
+    LOG_DEBUG("EPGManager: No sources to update");
+    return;
+  }
+
+  auto completed = std::make_shared<std::atomic<int>>(0);
+  auto anySuccess = std::make_shared<std::atomic<bool>>(false);
+  int total = static_cast<int>(urlsToUpdate.size());
+
+  for (const auto &url : urlsToUpdate) {
+    std::string name;
+    for (const auto &src : sourcesCopy) {
+      if (src.url == url) {
+        name = src.name;
+        break;
+      }
+    }
+    RefreshSourceAsync(
+        url, name,
+        [this, completed, anySuccess, total](bool success,
+                                             const std::string &) {
+          if (success)
+            anySuccess->store(true);
+          int done = ++(*completed);
+          if (done == total) {
+            // Все обновления завершены
+            m_autoUpdateInProgress = false; // сброс флага
+            if (anySuccess->load() && !m_currentPlaylistId.empty() &&
+                m_playlistManager) {
+              Playlist *pl =
+                  m_playlistManager->findByUniqueId(m_currentPlaylistId);
+              if (pl && !pl->getChannels().empty()) {
+                MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId,
+                                   nullptr);
+              }
+            }
+          }
+        });
+  }
+}
+
+void EPGManager::OnStartupUpdateTimer(wxTimerEvent &event) {
+  if (m_autoUpdateInProgress) {
+    LOG_DEBUG("Startup update skipped – auto-update already in progress");
+    return;
+  }
+  LOG_DEBUG("Startup auto-update timer triggered");
+  // Вызываем тот же обработчик, что и для периодического обновления
+  OnAutoUpdateTimer(event);
 }
 
 bool EPGManager::GetMappingEntry(const std::string &playlistId,
@@ -438,7 +493,14 @@ bool EPGManager::OpenDatabase() {
   }
 
   m_epgChannelsHash = m_db->GetEpgChannelsHash();
-  m_loaded = true;
+  auto channels = m_db->GetAllChannels();
+  m_loaded = !channels.empty();
+  if (!m_loaded) {
+    LOG_DEBUG(
+        "EPGManager: Database opened but no channels found, m_loaded=false");
+  } else {
+    LOG_DEBUG("EPGManager: Database opened with %zu channels", channels.size());
+  }
 
   // Загружаем last_update
   std::string lastUpdateStr = m_db->LoadGlobalMetadata("last_update");
@@ -1159,6 +1221,15 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
 
   RebuildNormalizedCache();
 
+  if (m_normalizedCache.empty()) {
+    LOG_DEBUG("MatchChannels: normalized cache is empty, finishing early");
+    UpdateProgress(EpgProgressStage::Done, 100, "No EPG channels in cache");
+    if (callback) {
+      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
+    }
+    return;
+  }
+
   int total = static_cast<int>(playlistChannels.size());
   if (total == 0) {
     LOG_DEBUG("MatchChannels: no channels to match");
@@ -1659,6 +1730,11 @@ void EPGManager::LoadSourcesFromConfig() {
     if (item.HasMember("lastUpdate") && item["lastUpdate"].IsInt64()) {
       src.lastUpdate = item["lastUpdate"].GetInt64();
     }
+    if (item.HasMember("autoUpdate") && item["autoUpdate"].IsBool()) {
+      src.autoUpdate = item["autoUpdate"].GetBool();
+    } else {
+      src.autoUpdate = false; // значение по умолчанию
+    }
     m_sources.push_back(src);
   }
 }
@@ -1679,6 +1755,7 @@ void EPGManager::SaveSourcesToConfig() const {
                   allocator);
     obj.AddMember("lastUpdate", static_cast<int64_t>(src.lastUpdate),
                   allocator);
+    obj.AddMember("autoUpdate", src.autoUpdate, allocator);
     doc.PushBack(obj, allocator);
   }
   rapidjson::StringBuffer buffer;
@@ -1736,83 +1813,12 @@ bool EPGManager::DeleteCache() {
 
   // Восстанавливаем состояние
   m_epgChannelsHash = m_db->GetEpgChannelsHash();
-  m_loaded = true;
+  m_loaded = false;
   m_lastUpdate = 0;
   UpdateEpgNameCache();
 
   LOG_DEBUG("EPGManager: Cache deleted and new database created");
   return true;
-}
-
-// --------------------------------------------------------------------------
-// Refresh и автообновление
-// --------------------------------------------------------------------------
-void EPGManager::Refresh() {
-  if (m_isRefreshing.exchange(true)) {
-    LOG_WARN("EPGManager::Refresh: refresh already in progress, skipping.");
-    return;
-  }
-  if (m_onRefreshStarted) {
-    wxTheApp->CallAfter(m_onRefreshStarted);
-  }
-
-  if (m_refreshFuture.valid()) {
-    auto status = m_refreshFuture.wait_for(std::chrono::seconds(1));
-    if (status == std::future_status::timeout) {
-      LOG_WARN("EPGManager::Refresh: previous refresh task is still running, "
-               "starting new one anyway.");
-    }
-  }
-
-  m_refreshFuture = std::async(std::launch::async, [this]() {
-    std::vector<EpgSource> sourcesCopy;
-    {
-      std::lock_guard<std::recursive_mutex> lock(m_mutex);
-      sourcesCopy = m_sources;
-    }
-    bool anySuccess = false;
-    std::string lastError;
-    if (sourcesCopy.empty()) {
-      lastError = "No EPG sources configured";
-      setLastError(lastError);
-    } else {
-      for (const auto &src : sourcesCopy) {
-        bool success = false;
-        if (IsNetworkUrl(src.url)) {
-          success = LoadFromUrl(src.url, "");
-        } else {
-          success = LoadFromFile(src.url);
-        }
-        if (success) {
-          anySuccess = true;
-        } else {
-          lastError = getLastError();
-        }
-      }
-    }
-
-    int status = anySuccess ? EPG_STATUS_OK
-                            : (sourcesCopy.empty() ? EPG_STATUS_NO_SOURCES
-                                                   : EPG_STATUS_ERROR);
-
-    m_isRefreshing = false;
-
-    if (m_onUpdateFinished) {
-      wxTheApp->CallAfter([this, status, lastError]() {
-        m_onUpdateFinished(status, lastError);
-      });
-    }
-  });
-}
-
-void EPGManager::WaitForRefresh() {
-  if (m_refreshFuture.valid()) {
-    auto status = m_refreshFuture.wait_for(std::chrono::seconds(5));
-    if (status == std::future_status::timeout) {
-      LOG_WARN("EPGManager::WaitForRefresh: timeout waiting for refresh task, "
-               "proceeding anyway.");
-    }
-  }
 }
 
 // --------------------------------------------------------------------------
@@ -1845,8 +1851,12 @@ void EPGManager::RestartAutoUpdate() {
 }
 
 void EPGManager::OnAutoUpdateTimer(wxTimerEvent &) {
-  LOG_DEBUG("EPGManager: Auto-update timer triggered");
-  Refresh();
+  if (m_autoUpdateInProgress.exchange(true)) {
+    LOG_DEBUG("Auto-update already in progress, skipping");
+    return;
+  }
+  LOG_DEBUG("Auto-update timer triggered");
+  UpdateAllSources(true); // обновить только источники с autoUpdate == true
 }
 
 // --------------------------------------------------------------------------

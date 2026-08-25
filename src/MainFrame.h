@@ -317,9 +317,6 @@ private:
   // Перезагрузка каналов текущего плейлиста (если это он)
   bool ReloadPlaylistIfCurrent(Playlist *pl);
 
-  std::atomic<bool> m_isMatching{false};
-  std::atomic<bool> m_isMatchingFavorites{false};
-
   EPGPanel *m_epgChannels = nullptr;
   EPGPanel *m_epgFavorites = nullptr;
   EpgSourceManagerPanel *m_epgAdminPanel = nullptr;

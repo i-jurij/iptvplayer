@@ -82,7 +82,11 @@ void EpgSourceManagerPanel::SetupUI() {
   m_sourceList->InsertColumn(2, "Imported", wxLIST_FORMAT_LEFT, FromDIP(150));
   m_sourceList->InsertColumn(3, "Availability", wxLIST_FORMAT_LEFT,
                              FromDIP(100));
+  m_sourceList->InsertColumn(4, "Auto", wxLIST_FORMAT_CENTER, FromDIP(50));
   m_sourceList->SetMinSize(wxSize(-1, FromDIP(150)));
+
+  m_sourceList->Bind(wxEVT_LIST_ITEM_ACTIVATED,
+                     &EpgSourceManagerPanel::OnToggleAutoUpdate, this);
 
   sourceBoxSizer->Add(m_sourceList, 1, wxEXPAND | wxALL, FromDIP(5));
 
@@ -231,7 +235,7 @@ void EpgSourceManagerPanel::SetupUI() {
 
   matchSizer->Add(matchGrid, 0, wxEXPAND | wxALL, FromDIP(5));
 
-  m_applyMatchBtn = new wxButton(matchBox, wxID_ANY, "Apply");
+  m_applyMatchBtn = new wxButton(matchBox, wxID_ANY, _("Apply & Match Now"));
   wxBoxSizer *applySizer = new wxBoxSizer(wxHORIZONTAL);
   applySizer->Add(m_applyMatchBtn, 0, wxLEFT, FromDIP(5));
   matchSizer->Add(applySizer, 0, wxEXPAND | wxALL, FromDIP(5)); 
@@ -259,6 +263,22 @@ void EpgSourceManagerPanel::SetupUI() {
 }
 
 // === Обработчики событий ===
+void EpgSourceManagerPanel::OnToggleAutoUpdate(wxListEvent &event) {
+  long idx = event.GetIndex();
+  if (idx == -1)
+    return;
+  if (!m_epgMgr)
+    return;
+
+  auto sources = m_epgMgr->GetSources();
+  if (idx >= (long)sources.size())
+    return;
+
+  sources[idx].autoUpdate = !sources[idx].autoUpdate;
+  m_epgMgr->SetSources(sources);
+  m_epgMgr->SaveSourcesToConfig();
+  UpdateSourceList();
+}
 
 void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
   if (!m_epgMgr) {
@@ -301,6 +321,7 @@ void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
   src.url = urlUtf8;
   src.name = name.ToUTF8().data();
   src.lastUpdate = 0;
+  src.autoUpdate = dlg.GetAutoUpdate();
   sources.push_back(src);
 
   m_epgMgr->SetSources(sources);
@@ -324,23 +345,19 @@ void EpgSourceManagerPanel::OnEdit(wxCommandEvent &) {
   if (sel >= (long)sources.size())
     return;
 
-  wxString oldUrl = wxString::FromUTF8(sources[sel].url);
-  wxString oldName = wxString::FromUTF8(sources[sel].name);
+  AddEpgSourceDialog dlg(this);
+  dlg.SetTitle("Edit EPG Source");
+  dlg.SetUrlOrPath(wxString::FromUTF8(sources[sel].url));
+  dlg.SetName(wxString::FromUTF8(sources[sel].name));
+  dlg.SetAutoUpdate(sources[sel].autoUpdate);
 
-  wxTextEntryDialog urlDlg(this, "Edit EPG source URL:", "Edit EPG Source",
-                           oldUrl);
-  if (urlDlg.ShowModal() != wxID_OK)
+  if (dlg.ShowModal() != wxID_OK)
     return;
-  wxString newUrl = urlDlg.GetValue();
 
-  wxTextEntryDialog nameDlg(this, "Edit source name:", "Edit Source Name",
-                            oldName);
-  wxString newName;
-  if (nameDlg.ShowModal() == wxID_OK)
-    newName = nameDlg.GetValue();
+  sources[sel].url = dlg.GetUrlOrPath().ToUTF8().data();
+  sources[sel].name = dlg.GetName().ToUTF8().data();
+  sources[sel].autoUpdate = dlg.GetAutoUpdate();
 
-  sources[sel].url = newUrl.ToUTF8().data();
-  sources[sel].name = newName.ToUTF8().data();
   m_epgMgr->SetSources(sources);
   m_epgMgr->SaveSourcesToConfig();
   UpdateSourceList();
@@ -434,7 +451,8 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
 
   if (updateCheck->GetValue()) {
     SetBusy(true);
-    m_epgMgr->Refresh();
+    m_epgMgr->UpdateAllSources(
+        false); // обновить все источники (не только autoUpdate)
   } else {
     wxMessageBox(_("EPG cache cleared. You can now refresh sources manually."),
                  _("Info"), wxOK | wxICON_INFORMATION, this);
@@ -504,6 +522,7 @@ void EpgSourceManagerPanel::UpdateSourceList() {
       avail = wxFileExists(url) ? "✔" : "✘ (missing)";
     }
     m_sourceList->SetItem(idx, 3, avail);
+    m_sourceList->SetItem(idx, 4, sources[i].autoUpdate ? "✔" : "");
   }
 
   m_dirty = false;

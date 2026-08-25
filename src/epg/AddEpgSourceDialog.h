@@ -3,6 +3,7 @@
 
 #include <wx/button.h>
 #include <wx/dialog.h>
+#include <wx/checkbox.h>
 #include <wx/textctrl.h>
 
 class AddEpgSourceDialog : public wxDialog {
@@ -12,7 +13,14 @@ public:
   wxString GetUrlOrPath() const;
   wxString GetName() const;
 
+  bool GetAutoUpdate() const { return m_autoUpdateCheck->GetValue(); }
+  void SetUrlOrPath(const wxString &url);
+  void SetName(const wxString &name);
+  void SetAutoUpdate(bool value);
+
 private:
+  wxCheckBox *m_autoUpdateCheck;
+  
   wxTextCtrl *m_urlCtrl;
   wxTextCtrl *m_nameCtrl;
   wxButton *m_browseBtn;

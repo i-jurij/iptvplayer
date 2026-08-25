@@ -67,8 +67,6 @@ public:
   bool OpenDatabase();
 
   bool LoadFromUrl(const std::string &url, const std::string &userAgent = "");
-  void Refresh();
-  void WaitForRefresh();
 
   struct MatchResult {
     std::string channelId;
@@ -159,7 +157,7 @@ public:
   void SetMinMatchScore(int value);
 
   void ReMatchCurrentPlaylist();
-                                 
+
   // ---- Для ручного маппинга (будет использовано позже) ----
   std::vector<std::pair<std::string, std::string>> GetAllEpgChannels() const;
 
@@ -192,14 +190,19 @@ public:
 
   std::string NormalizeName(const std::string &name) const;
 
+  void UpdateAllSources(bool onlyAutoUpdate);
+
 private:
+
+  std::atomic<bool> m_autoUpdateInProgress{false};
+
   // Количество потоков для параллельного матчинга
   int m_matchThreads = 0;
 
   // Вспомогательный метод для параллельной обработки части каналов
   std::unordered_map<std::string, std::string>
   ProcessChannelBatch(const std::vector<Channel> &batch) const;
-  
+
   std::future<void> m_singleRefreshFuture;
 
   // Прогресс
@@ -236,7 +239,7 @@ private:
   mutable std::shared_mutex m_tvgIndexMutex; // защита индекса
 
   void RebuildTvgIdIndex();
-  
+
   wxTimer *m_startupUpdateTimer = nullptr;
   void OnStartupUpdateTimer(wxTimerEvent &event);
 
@@ -247,9 +250,6 @@ private:
   wxTimer *m_autoUpdateTimer = nullptr;
   void OnAutoUpdateTimer(wxTimerEvent &event);
 
-  std::atomic<bool> m_isRefreshing{false};
-  bool IsRefreshing() const { return m_isRefreshing.load(); }
-  
   std::function<void(int, const std::string &)> m_onUpdateFinished;
   RefreshStartedCallback m_onRefreshStarted;
 
@@ -294,7 +294,6 @@ private:
 
   mutable std::recursive_mutex m_dbMutex;
   mutable std::recursive_mutex m_mutex;
-  std::future<void> m_refreshFuture;
   mutable std::mutex m_lastErrorMutex;
   mutable std::string m_lastError;
 

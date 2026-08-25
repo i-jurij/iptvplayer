@@ -117,7 +117,7 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
     // Статус-бар завершения
     if (info.stage == EpgProgressStage::Done) {
       SetStatusText("EPG success", 0);
-      SetStatusText("EPG update completed successfully", 1);
+      //SetStatusText("EPG update completed successfully", 1);
     } else if (info.stage == EpgProgressStage::Cancelled) {
       SetStatusText("EPG cansel", 0);
       SetStatusText("EPG update cancelled", 1);

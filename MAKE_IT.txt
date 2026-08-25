@@ -1,2 +1,121 @@
+Да, теперь план полностью скорректирован и готов к реализации.
 
+**Полный пошаговый план (утверждённый):**
 
+---
+
+### Шаг 1. Удалить `EPGManager::Refresh()` и всё с ним связанное
+- Удалить метод `Refresh()`.
+- Удалить `m_refreshFuture`, `m_isRefreshing`, `WaitForRefresh()`.
+- В `OnAutoUpdateTimer` реализовать обновление через `RefreshSourceAsync()` для источников с `autoUpdate == true`.
+
+---
+
+### Шаг 2. Оставить матчинг в `loadPlaylistChannels`, но исправить условия
+- В `MainFrame::loadPlaylistChannels`:
+  - Пытаемся загрузить маппинг через `LoadMappingForPlaylist`.
+  - Если маппинг не загружен (`false`), **и** EPG-данные загружены (`IsLoaded()`), **и** кеш не пуст (можно проверить через `!GetAllEpgChannels().empty()`) – тогда запускаем `MatchChannelsAsync`.
+  - Если кеш пуст – не запускаем, чтобы избежать зависания.
+
+---
+
+### Шаг 3. В `EPGManager::MatchChannels` добавить проверку на пустой кеш
+- После `RebuildNormalizedCache()`:
+  ```cpp
+  if (m_normalizedCache.empty()) {
+      UpdateProgress(EpgProgressStage::Done, 100, "No EPG channels in cache");
+      if (callback) wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
+      return;
+  }
+  ```
+
+---
+
+### Шаг 4. Исправить `m_loaded` в `DeleteCache`
+- После `m_db->Open(m_dbPath)` и успешного создания таблиц установить `m_loaded = false;`.
+
+---
+
+### Шаг 5. В `OpenDatabase` корректно устанавливать `m_loaded`
+- После получения `m_epgChannelsHash`:
+  ```cpp
+  auto channels = m_db->GetAllChannels();
+  m_loaded = !channels.empty();
+  ```
+
+---
+
+### Шаг 6. Добавить поле `autoUpdate` в `EpgSource`
+- В структуру добавить `bool autoUpdate = false;`.
+- В `LoadSourcesFromConfig()` парсить поле `"autoUpdate"` (если отсутствует – `false`).
+- В `SaveSourcesToConfig()` сохранять это поле.
+
+---
+
+### Шаг 7. В `EpgSourceManagerPanel`:
+- Добавить колонку "Auto" (индекс 4) после "Name".
+- При двойном клике по строке или по отдельному чекбоксу переключать `autoUpdate` и вызывать `SaveSourcesToConfig()`.
+- В `AddEpgSourceDialog` и `EditEpgSourceDialog` добавить чекбокс "Auto-update" (по умолчанию `false`).
+
+---
+
+### Шаг 8. Переименовать кнопку «Apply» в блоке «Match settings» на **«Apply & Match Now»**
+- Изменить текст кнопки в `EpgSourceManagerPanel::SetupUI()`.
+
+---
+
+### Шаг 9. Реализовать новую логику автообновления в `OnAutoUpdateTimer`
+```cpp
+void EPGManager::OnAutoUpdateTimer(wxTimerEvent&) {
+    std::vector<EpgSource> sourcesCopy;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        sourcesCopy = m_sources;
+    }
+    std::vector<std::string> urlsToUpdate;
+    for (const auto& src : sourcesCopy) {
+        if (src.autoUpdate) urlsToUpdate.push_back(src.url);
+    }
+    if (urlsToUpdate.empty()) return;
+
+    // Счётчик завершённых
+    std::atomic<int> completed{0};
+    std::atomic<bool> anySuccess{false};
+    for (const auto& url : urlsToUpdate) {
+        // Найти имя источника
+        std::string name;
+        for (const auto& src : sourcesCopy) {
+            if (src.url == url) { name = src.name; break; }
+        }
+        RefreshSourceAsync(url, name, [this, &completed, &anySuccess, urlsToUpdate](bool success, const std::string&) {
+            if (success) anySuccess = true;
+            if (++completed == (int)urlsToUpdate.size()) {
+                // Все обновления завершены
+                if (anySuccess && !m_currentPlaylistId.empty() && m_playlistManager) {
+                    Playlist* pl = m_playlistManager->findByUniqueId(m_currentPlaylistId);
+                    if (pl && !pl->getChannels().empty()) {
+                        MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId, nullptr);
+                    }
+                }
+            }
+        });
+    }
+}
+```
+
+---
+
+### Шаг 10. Удалить неиспользуемые флаги и методы
+- Из `MainFrame` удалить `m_isMatching`, `m_isMatchingFavorites` и всю логику с ними.
+- Из `EPGManager` удалить `m_refreshFuture`, `m_isRefreshing`, `WaitForRefresh()`.
+
+---
+
+### Шаг 11. Проверить, что `EpgSourceManagerPanel::OnProgressUpdate` корректно сбрасывает `busy`
+- Убедиться, что при `Done/Error/Cancelled` вызывается `SetBusy(false)` (это уже есть, но проверить).
+
+---
+
+Это окончательный, полный и логичный план. Все шаги согласованы и не противоречат друг другу.
+
+Я готов выдать код по этим шагам. Жду вашего «да».
