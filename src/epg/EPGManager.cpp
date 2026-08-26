@@ -790,9 +790,16 @@ EPGManager::GetProgramsForChannel(const std::string &tvgId,
         channelId = it->second;
     }
     if (channelId.empty() && !channelName.empty()) {
-      auto it = m_channelMapping.find("name:" + channelName);
+      std::string normalized = NormalizeName(channelName);
+      auto it = m_channelMapping.find("name:" + normalized);
       if (it != m_channelMapping.end())
         channelId = it->second;
+      else {
+        // fallback: возможно, старый ключ без нормализации
+        auto it2 = m_channelMapping.find("name:" + channelName);
+        if (it2 != m_channelMapping.end())
+          channelId = it2->second;
+      }
     }
   }
 
