@@ -117,7 +117,9 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
     // Статус-бар завершения
     if (info.stage == EpgProgressStage::Done) {
       SetStatusText("EPG success", 0);
-      SetStatusText("EPG update completed successfully", 1);
+      wxString msg = wxString::Format(_("EPG updated: %d/%d channels matched"),
+                                      info.matched, info.totalChannels);
+      SetStatusText(msg, 1);
     } else if (info.stage == EpgProgressStage::Cancelled) {
       SetStatusText("EPG cansel", 0);
       SetStatusText("EPG update cancelled", 1);

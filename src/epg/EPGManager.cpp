@@ -416,6 +416,10 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
 
   if (urlsToUpdate.empty()) {
     LOG_DEBUG("EPGManager: No sources to update");
+    // Сброс флага (если был установлен)
+    m_autoUpdateInProgress = false;
+    // Уведомление UI о завершении (сбрасывает busy и гейдж)
+    UpdateProgress(EpgProgressStage::Done, 100, "No EPG sources to update");
     return;
   }
 
@@ -1363,7 +1367,8 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   }
 
   // Завершение матчинга
-  UpdateProgress(EpgProgressStage::Done, 100, "Done");
+  UpdateProgress(EpgProgressStage::Done, 100, "Done", -1, -1, -1,
+                 static_cast<int>(matchedCount), total);
 }
 
 void EPGManager::MatchChannelsAsync(

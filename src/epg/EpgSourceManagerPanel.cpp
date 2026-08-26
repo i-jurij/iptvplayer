@@ -450,9 +450,11 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
   UpdateSourceList();
 
   if (updateCheck->GetValue()) {
-    SetBusy(true);
-    m_epgMgr->UpdateAllSources(
-        false); // обновить все источники (не только autoUpdate)
+    auto sources = m_epgMgr->GetSources();
+    if (!sources.empty()) {
+      SetBusy(true);
+      m_epgMgr->UpdateAllSources(false);
+    }
   } else {
     wxMessageBox(_("EPG cache cleared. You can now refresh sources manually."),
                  _("Info"), wxOK | wxICON_INFORMATION, this);
