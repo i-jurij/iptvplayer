@@ -1289,6 +1289,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
             
             if (m_cancelMatching)
               break;
+
             MatchResult match = FindBestMatch(ch);
             if (!match.channelId.empty()) {
               std::string key = ch.getTvgId();
@@ -1298,6 +1299,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
               matched++;
               totalMatched++;
             }
+            
             int current = processed.fetch_add(1) + 1;
             if (current % reportInterval == 0 || current == total) {
               int percent = (total > 0) ? (current * 100) / total : 0;

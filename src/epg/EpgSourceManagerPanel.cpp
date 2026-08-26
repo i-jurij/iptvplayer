@@ -235,7 +235,7 @@ void EpgSourceManagerPanel::SetupUI() {
 
   matchSizer->Add(matchGrid, 0, wxEXPAND | wxALL, FromDIP(5));
 
-  m_applyMatchBtn = new wxButton(matchBox, wxID_ANY, _("Apply & Match Now"));
+  m_applyMatchBtn = new wxButton(matchBox, wxID_ANY, _("Apply (Match Now)"));
   wxBoxSizer *applySizer = new wxBoxSizer(wxHORIZONTAL);
   applySizer->Add(m_applyMatchBtn, 0, wxLEFT, FromDIP(5));
   matchSizer->Add(applySizer, 0, wxEXPAND | wxALL, FromDIP(5)); 
