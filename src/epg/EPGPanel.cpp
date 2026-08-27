@@ -236,7 +236,7 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   if (!m_epgManager->IsLoaded()) {
     if (sources.empty()) {
       SetStatus(_("Warning"),
-                _(_("No EPG sources configured. Add sources in Settings.")));
+                _("No EPG sources configured. Add sources in Settings."));
     } else {
       SetStatus(_("Warning"), _("EPG not loaded yet. Try Refresh."));
     }
