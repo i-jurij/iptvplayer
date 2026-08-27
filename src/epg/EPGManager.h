@@ -110,7 +110,6 @@ public:
                               const std::vector<Channel> &channels);
   void InvalidatePlaylistMapping(const std::string &playlistId);
 
-  void LoadRegionalSuffixes(const std::string &path);
   void SetRegionalSuffixes(const std::vector<std::string> &suffixes);
 
   bool IsLoaded() const { return m_loaded; }

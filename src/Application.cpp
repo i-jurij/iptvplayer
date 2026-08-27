@@ -164,11 +164,6 @@ bool Application::start() {
   // Инициализация EPGManager
   if (m_epgManager) {
     m_epgManager->StartAutoUpdate();
-
-    // Загрузка региональных суффиксов из конфигурационной директории
-    std::string suffixesPath =
-        (m_configDir + "/regional_suffixes.json").ToUTF8().data();
-    m_epgManager->LoadRegionalSuffixes(suffixesPath);
   }
 
   std::cout << "Application started successfully" << std::endl;

@@ -1687,38 +1687,6 @@ void EPGManager::InitializeDefaultRegionalSuffixes() {
       "(cn)", "(tw)", "(hk)", "jp",   "kr",   "cn",   "tw",   "hk"};
 }
 
-void EPGManager::LoadRegionalSuffixes(const std::string &path) {
-  std::ifstream file(path);
-  if (!file.is_open()) {
-    LOG_DEBUG("EPGManager: Regional suffixes file not found, using defaults");
-    InitializeDefaultRegionalSuffixes();
-    return;
-  }
-  std::string json((std::istreambuf_iterator<char>(file)),
-                   std::istreambuf_iterator<char>());
-  file.close();
-  rapidjson::Document doc;
-  if (doc.Parse(json.c_str()).HasParseError() || !doc.IsArray()) {
-    LOG_WARN(
-        "EPGManager: Failed to parse regional_suffixes.json, using defaults");
-    InitializeDefaultRegionalSuffixes();
-    return;
-  }
-  m_regionalSuffixes.clear();
-  for (const auto &item : doc.GetArray()) {
-    if (item.IsString()) {
-      m_regionalSuffixes.push_back(item.GetString());
-    }
-  }
-  if (m_regionalSuffixes.empty()) {
-    LOG_WARN("EPGManager: regional_suffixes.json is empty, using defaults");
-    InitializeDefaultRegionalSuffixes();
-  } else {
-    LOG_DEBUG("EPGManager: Loaded %zu regional suffixes",
-              m_regionalSuffixes.size());
-  }
-}
-
 void EPGManager::SetRegionalSuffixes(const std::vector<std::string> &suffixes) {
   m_regionalSuffixes = suffixes;
 }
@@ -1776,6 +1744,7 @@ void EPGManager::LoadMatchingRules() {
             }
           }
         };
+        loadArray("regional_suffixes", m_regionalSuffixes);
         loadArray("quality_suffixes", m_qualitySuffixes);
         loadArray("version_suffixes", m_versionSuffixes);
         loadArray("stopwords", m_stopwords);

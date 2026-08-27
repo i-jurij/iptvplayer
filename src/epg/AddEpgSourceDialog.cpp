@@ -17,6 +17,7 @@
 #include <wx/stattext.h>
 #include <wx/stdpaths.h>
 #include <wx/timer.h>
+#include <wx/uri.h>
 
 //-----------------------------------------------------------------------------
 AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
@@ -243,13 +244,24 @@ void AddEpgSourceDialog::ShowInfoDialog() {
 
 //-----------------------------------------------------------------------------
 void AddEpgSourceDialog::OnOk(wxCommandEvent &) {
-  wxString value = m_urlCtrl->GetValue();
+  wxString value = m_urlCtrl->GetValue().Trim();
   if (value.IsEmpty()) {
     wxMessageBox(_("Please enter a URL or select a file."), _("Error"),
                  wxOK | wxICON_ERROR, this);
     return;
   }
-  if (!IsNetworkUrl(value)) {
+
+  if (IsNetworkUrl(value)) {
+    wxURI uri(value);
+    // Проверяем, что есть схема (http/https) и сервер (хост)
+    if (!uri.HasScheme() || !uri.HasServer() || uri.GetServer().IsEmpty()) {
+      wxMessageBox(_("Invalid URL: missing host (e.g., https://example.com)."),
+                   _("Error"), wxOK | wxICON_ERROR, this);
+      return;
+    }
+    // URL корректен — сохраняем как есть
+  } else {
+    // Локальный файл: делаем путь абсолютным и проверяем существование
     wxFileName fn(value);
     if (!fn.IsAbsolute()) {
       fn.MakeAbsolute();
@@ -262,6 +274,7 @@ void AddEpgSourceDialog::OnOk(wxCommandEvent &) {
     }
     m_urlCtrl->SetValue(value);
   }
+
   EndModal(wxID_OK);
 }
 
