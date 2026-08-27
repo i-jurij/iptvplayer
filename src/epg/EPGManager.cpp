@@ -1,7 +1,6 @@
 #include "EPGManager.h"
 #include "../Channel.h"
 #include "../ConfigManager.h"
-#include "../EventIDs.h"
 #include "../LogControl.h"
 #include "../PlaylistManager.h"
 #include "EPGParserExpat.h"
@@ -1685,10 +1684,6 @@ void EPGManager::InitializeDefaultRegionalSuffixes() {
       "(be)", "de",   "fr",   "es",   "it",   "pt",   "nl",   "be",   "(ru)",
       "(ua)", "(by)", "(kz)", "ru",   "ua",   "by",   "kz",   "(jp)", "(kr)",
       "(cn)", "(tw)", "(hk)", "jp",   "kr",   "cn",   "tw",   "hk"};
-}
-
-void EPGManager::SetRegionalSuffixes(const std::vector<std::string> &suffixes) {
-  m_regionalSuffixes = suffixes;
 }
 
 void EPGManager::LoadMatchingRules() {
