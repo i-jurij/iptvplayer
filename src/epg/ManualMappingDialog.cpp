@@ -8,7 +8,7 @@
 
 ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
                                          MainFrame *mainFrame)
-    : wxDialog(parent, wxID_ANY, "Manual Mapping", wxDefaultPosition,
+    : wxDialog(parent, wxID_ANY, _("Manual Mapping"), wxDefaultPosition,
                wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       m_epgMgr(epgMgr), m_mainFrame(mainFrame), m_preselectedTvgId(""),
       m_selectedMappingIndex(-1), m_preselectedChannelName("") {
@@ -19,22 +19,25 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
   wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
 
   // Левый список: каналы плейлиста
-  wxStaticBox *leftBox = new wxStaticBox(this, wxID_ANY, "Playlist Channels");
+  wxStaticBox *leftBox =
+      new wxStaticBox(this, wxID_ANY, _("Playlist Channels"));
   wxStaticBoxSizer *leftSizer = new wxStaticBoxSizer(leftBox, wxVERTICAL);
   m_playlistList = new wxListCtrl(leftBox, wxID_ANY, wxDefaultPosition,
                                   wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
-  m_playlistList->InsertColumn(0, "Name", wxLIST_FORMAT_LEFT, FromDIP(200));
-  m_playlistList->InsertColumn(1, "tvg-id", wxLIST_FORMAT_LEFT, FromDIP(150));
+  m_playlistList->InsertColumn(0, _("Name"), wxLIST_FORMAT_LEFT, FromDIP(200));
+  m_playlistList->InsertColumn(1, _("tvg-id"), wxLIST_FORMAT_LEFT,
+                               FromDIP(150));
   leftSizer->Add(m_playlistList, 1, wxEXPAND | wxALL, FromDIP(5));
   topSizer->Add(leftSizer, 1, wxEXPAND | wxALL, FromDIP(5));
 
   // Правый список: EPG-каналы
-  wxStaticBox *rightBox = new wxStaticBox(this, wxID_ANY, "EPG Channels");
+  wxStaticBox *rightBox = new wxStaticBox(this, wxID_ANY, _("EPG Channels"));
   wxStaticBoxSizer *rightSizer = new wxStaticBoxSizer(rightBox, wxVERTICAL);
   m_epgList = new wxListCtrl(rightBox, wxID_ANY, wxDefaultPosition,
                              wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
-  m_epgList->InsertColumn(0, "ID", wxLIST_FORMAT_LEFT, FromDIP(150));
-  m_epgList->InsertColumn(1, "Display Name", wxLIST_FORMAT_LEFT, FromDIP(200));
+  m_epgList->InsertColumn(0, _("ID"), wxLIST_FORMAT_LEFT, FromDIP(150));
+  m_epgList->InsertColumn(1, _("Display Name"), wxLIST_FORMAT_LEFT,
+                          FromDIP(200));
   rightSizer->Add(m_epgList, 1, wxEXPAND | wxALL, FromDIP(5));
   topSizer->Add(rightSizer, 1, wxEXPAND | wxALL, FromDIP(5));
 
@@ -42,32 +45,33 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
 
   // ---- Кнопка Add ----
   wxBoxSizer *btnSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_addBtn = new wxButton(this, wxID_ANY, "Add mapping ->");
+  m_addBtn = new wxButton(this, wxID_ANY, _("Add mapping ->"));
   m_addBtn->Enable(false);
   btnSizer->Add(m_addBtn, 0, wxALL, FromDIP(5));
   mainSizer->Add(btnSizer, 0, wxALIGN_CENTER);
 
   // ---- Список маппингов ----
-  wxStaticBox *mapBox = new wxStaticBox(this, wxID_ANY, "Current Mappings");
+  wxStaticBox *mapBox = new wxStaticBox(this, wxID_ANY, _("Current Mappings"));
   wxStaticBoxSizer *mapSizer = new wxStaticBoxSizer(mapBox, wxVERTICAL);
 
   m_mappingList = new wxListCtrl(mapBox, wxID_ANY, wxDefaultPosition,
                                  wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
-  m_mappingList->InsertColumn(0, "Playlist tvg-id", wxLIST_FORMAT_LEFT,
+  m_mappingList->InsertColumn(0, _("Playlist tvg-id"), wxLIST_FORMAT_LEFT,
                               FromDIP(150));
-  m_mappingList->InsertColumn(1, "Playlist Name", wxLIST_FORMAT_LEFT,
+  m_mappingList->InsertColumn(1, _("Playlist Name"), wxLIST_FORMAT_LEFT,
                               FromDIP(200));
-  m_mappingList->InsertColumn(2, "EPG ID", wxLIST_FORMAT_LEFT, FromDIP(150));
-  m_mappingList->InsertColumn(3, "EPG Name", wxLIST_FORMAT_LEFT, FromDIP(200));
-  m_mappingList->InsertColumn(4, "Status", wxLIST_FORMAT_LEFT, FromDIP(80));
-  m_mappingList->InsertColumn(5, "Key", wxLIST_FORMAT_LEFT, 0); // скрытая
+  m_mappingList->InsertColumn(2, _("EPG ID"), wxLIST_FORMAT_LEFT, FromDIP(150));
+  m_mappingList->InsertColumn(3, _("EPG Name"), wxLIST_FORMAT_LEFT,
+                              FromDIP(200));
+  m_mappingList->InsertColumn(4, _("Status"), wxLIST_FORMAT_LEFT, FromDIP(80));
+  m_mappingList->InsertColumn(5, _("Key"), wxLIST_FORMAT_LEFT, 0); // скрытая
   mapSizer->Add(m_mappingList, 1, wxEXPAND | wxALL, FromDIP(5));
 
   // Кнопки управления
   wxBoxSizer *manageSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_removeBtn = new wxButton(mapBox, wxID_ANY, "Remove mapping");
-  m_ignoreBtn = new wxButton(mapBox, wxID_ANY, "Ignore");
-  m_unignoreBtn = new wxButton(mapBox, wxID_ANY, "Unignore");
+  m_removeBtn = new wxButton(mapBox, wxID_ANY, _("Remove mapping"));
+  m_ignoreBtn = new wxButton(mapBox, wxID_ANY, _("Ignore"));
+  m_unignoreBtn = new wxButton(mapBox, wxID_ANY, _("Unignore"));
   m_removeBtn->Enable(false);
   m_ignoreBtn->Enable(false);
   m_unignoreBtn->Enable(false);
@@ -128,15 +132,13 @@ ManualMappingDialog::~ManualMappingDialog() {}
 void ManualMappingDialog::SetPreselectedChannel(const Channel &channel) {
   m_preselectedTvgId = channel.getTvgId();
   m_preselectedChannelName = channel.getName();
-  HighlightPreselected(); // теперь вызываем сразу после установки
+  HighlightPreselected();
 }
 
 void ManualMappingDialog::HighlightPreselected() {
   if (m_preselectedTvgId.empty() && m_preselectedChannelName.empty())
     return;
 
-  // ---- 1. Выделить канал в списке Playlist Channels ----
-  // Сначала по tvgId
   bool foundInPlaylist = false;
   if (!m_preselectedTvgId.empty()) {
     for (long i = 0; i < m_playlistList->GetItemCount(); ++i) {
@@ -153,7 +155,6 @@ void ManualMappingDialog::HighlightPreselected() {
       }
     }
   }
-  // Если не нашли по tvgId, ищем по имени
   if (!foundInPlaylist && !m_preselectedChannelName.empty()) {
     for (long i = 0; i < m_playlistList->GetItemCount(); ++i) {
       wxString name = m_playlistList->GetItemText(i, 0);
@@ -170,21 +171,19 @@ void ManualMappingDialog::HighlightPreselected() {
     }
   }
 
-  // ---- 2. Выделить маппинг в списке Current Mappings ----
-  // Сначала формируем возможные ключи
   std::vector<std::string> keysToTry;
   if (!m_preselectedTvgId.empty())
     keysToTry.push_back(m_preselectedTvgId);
   if (!m_preselectedChannelName.empty()) {
     keysToTry.push_back("name:" +
                         m_epgMgr->NormalizeName(m_preselectedChannelName));
-    keysToTry.push_back("name:" + m_preselectedChannelName); // старый формат
+    keysToTry.push_back("name:" + m_preselectedChannelName);
   }
 
   bool foundInMapping = false;
   for (const auto &key : keysToTry) {
     for (long i = 0; i < m_mappingList->GetItemCount(); ++i) {
-      wxString keyWx = m_mappingList->GetItemText(i, 5); // скрытая колонка Key
+      wxString keyWx = m_mappingList->GetItemText(i, 5);
       if (keyWx == key) {
         m_mappingList->SetItemState(i, wxLIST_STATE_SELECTED,
                                     wxLIST_STATE_SELECTED);
@@ -256,22 +255,17 @@ void ManualMappingDialog::PopulateMappings() {
     bool isManual = false;
     std::string usedKey;
 
-    // 1. По tvgId
     if (!tvgId.empty() &&
         m_epgMgr->GetMappingEntry(playlistId, tvgId, epgId, isManual)) {
       usedKey = tvgId;
-    }
-    // 2. По нормализованному имени
-    else if (!name.empty() &&
-             m_epgMgr->GetMappingEntry(playlistId,
-                                       "name:" + m_epgMgr->NormalizeName(name),
-                                       epgId, isManual)) {
+    } else if (!name.empty() &&
+               m_epgMgr->GetMappingEntry(
+                   playlistId, "name:" + m_epgMgr->NormalizeName(name), epgId,
+                   isManual)) {
       usedKey = "name:" + m_epgMgr->NormalizeName(name);
-    }
-    // 3. По ненормализованному имени (старый формат)
-    else if (!name.empty() &&
-             m_epgMgr->GetMappingEntry(playlistId, "name:" + name, epgId,
-                                       isManual)) {
+    } else if (!name.empty() &&
+               m_epgMgr->GetMappingEntry(playlistId, "name:" + name, epgId,
+                                         isManual)) {
       usedKey = "name:" + name;
     }
 
@@ -297,7 +291,7 @@ void ManualMappingDialog::PopulateMappings() {
     m_mappingList->SetItem(item, 2, epgIdWx);
     m_mappingList->SetItem(item, 3, epgNameWx);
     m_mappingList->SetItem(item, 4, status);
-    m_mappingList->SetItem(item, 5, keyWx); // скрытая колонка
+    m_mappingList->SetItem(item, 5, keyWx);
     m_mappingList->SetItemData(item, idx);
     ++idx;
   }
@@ -311,7 +305,8 @@ void ManualMappingDialog::OnAddMapping(wxCommandEvent &) {
 
   std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
   if (playlistId.empty()) {
-    wxMessageBox("No current playlist.", "Error", wxOK | wxICON_ERROR, this);
+    wxMessageBox(_("No current playlist."), _("Error"), wxOK | wxICON_ERROR,
+                 this);
     return;
   }
 
@@ -337,7 +332,8 @@ void ManualMappingDialog::OnRemoveMapping(wxCommandEvent &) {
 
   std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
   if (playlistId.empty()) {
-    wxMessageBox("No current playlist.", "Error", wxOK | wxICON_ERROR, this);
+    wxMessageBox(_("No current playlist."), _("Error"), wxOK | wxICON_ERROR,
+                 this);
     return;
   }
 
@@ -351,7 +347,6 @@ void ManualMappingDialog::OnIgnore(wxCommandEvent &) {
   if (m_selectedMappingIndex == -1)
     return;
 
-  // Проверяем статус – нельзя игнорировать ручные маппинги
   wxString status = m_mappingList->GetItemText(m_selectedMappingIndex, 4);
   if (status == "Manual") {
     wxMessageBox(_("Cannot ignore a manual mapping."), _("Info"),
@@ -419,7 +414,6 @@ void ManualMappingDialog::OnPlaylistSelected(wxListEvent &event) {
   m_selectedPlaylistTvgId = m_playlistList->GetItemText(idx, 1).ToUTF8().data();
   m_selectedPlaylistName = m_playlistList->GetItemText(idx, 0).ToUTF8().data();
 
-  // Сбрасываем выделение в обоих списках
   for (long i = 0; i < m_epgList->GetItemCount(); ++i) {
     m_epgList->SetItemState(i, 0, wxLIST_STATE_SELECTED);
   }
@@ -517,7 +511,6 @@ void ManualMappingDialog::AdjustMappingColumns() {
   if (totalWidth <= 0)
     return;
 
-  // Пропорции без учёта скрытой колонки (индекс 5)
   int colWidths[5] = {15, 30, 15, 25, 15};
   int sum = 0;
   for (int w : colWidths)
@@ -530,6 +523,5 @@ void ManualMappingDialog::AdjustMappingColumns() {
     m_mappingList->SetColumnWidth(i, width);
     used += width;
   }
-  // Скрытая колонка (индекс 5) – ширина 0
   m_mappingList->SetColumnWidth(5, 0);
 }

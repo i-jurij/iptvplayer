@@ -38,6 +38,11 @@ private:
   EPGManager *m_epgMgr;
   MainFrame *m_mainFrame = nullptr;
 
+  wxButton *m_aboutMatchBtn;
+  wxButton *m_editRulesBtn;
+  void OnAboutMatch(wxCommandEvent &event);
+  void OnEditRules(wxCommandEvent &event);
+  
   void OnToggleAutoUpdate(wxListEvent &event);
   
   wxButton *m_autoApplyBtn;

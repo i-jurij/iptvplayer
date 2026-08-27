@@ -70,9 +70,10 @@ public:
 
   struct MatchResult {
     std::string channelId;
-    std::string method;
+    std::string method; // "alias", "tvg-id", "exact_name", "substring",
+                        // "tokens", "jaro"
     int score = 0;
-    std::string confidence;
+    std::string confidence; // "high", "medium", "low", "none"
   };
 
   using MatchCallback =
@@ -253,22 +254,6 @@ private:
   std::function<void(int, const std::string &)> m_onUpdateFinished;
   RefreshStartedCallback m_onRefreshStarted;
 
-  struct NormalizedChannel {
-    std::string id;
-    std::string normalizedName;
-    std::vector<std::string> tokens;
-  };
-
-  void RebuildNormalizedCache();
-  void NormalizeTvgId(std::string &id) const;
-  std::vector<std::string> Tokenize(const std::string &name) const;
-  int LevenshteinDistance(const std::string &s1, const std::string &s2) const;
-  int CalculateNameScore(const std::string &name1,
-                         const std::string &name2) const;
-
-  void InitializeDefaultRegionalSuffixes();
-  std::vector<std::string> m_regionalSuffixes;
-
   mutable std::unique_ptr<EPGDatabase> m_db;
   std::string m_dbPath;
   std::string m_epgChannelsHash;
@@ -277,9 +262,6 @@ private:
   mutable std::shared_mutex m_mappingMutex;
   std::unordered_map<std::string, std::string> m_channelMapping;
   std::unordered_map<std::string, std::string> m_manualMapping;
-
-  mutable std::mutex m_normalizedCacheMutex;
-  std::vector<NormalizedChannel> m_normalizedCache;
 
   std::vector<EpgSource> m_sources;
   bool m_loaded = false;
@@ -301,6 +283,45 @@ private:
   void CleanExpiredPrograms();
   void LoadSourcesFromConfig();
   std::string ComputePlaylistHash(const std::vector<Channel> &channels) const;
+
+  struct NormalizedChannel {
+    std::string id;       // EPG channel id
+    std::string baseName; // очищенное имя без суффиксов и стоп-слов
+    std::string region;   // ru, us и т.п. (из региональных суффиксов)
+    std::string quality;  // hd, 1080p и т.п.
+    std::string version;  // plus, premium и т.п.
+    std::vector<std::string> tokens; // слова из baseName (уже без стоп-слов)
+  };
+
+  void RebuildNormalizedCache();
+  void NormalizeTvgId(std::string &id) const;
+  std::vector<std::string> Tokenize(const std::string &name) const;
+
+  void InitializeDefaultRegionalSuffixes();
+  std::vector<std::string> m_regionalSuffixes;
+
+  mutable std::mutex m_normalizedCacheMutex;
+  std::vector<NormalizedChannel> m_normalizedCache;
+
+  void LoadMatchingRules();
+  void LoadChannelAliases();
+  void NormalizeWithAttributes(const std::string &rawName,
+                               NormalizedChannel &out) const;
+  double ComputeJaroWinkler(const std::string &s1, const std::string &s2) const;
+
+  // Правила (загружаются из файлов)
+  std::vector<std::string> m_qualitySuffixes;
+  std::vector<std::string> m_versionSuffixes;
+  std::vector<std::string> m_stopwords;
+  std::unordered_map<std::string, std::string> m_channelAliases;
+
+  // Пороги
+  double m_tokenHigh = 0.7;
+  double m_tokenLow = 0.5;
+  double m_jaroHigh = 0.9;
+  double m_jaroMedium = 0.85;
+  double m_jaroLow = 0.8;
+  int m_substringMinLen = 4;
 };
 
 #endif

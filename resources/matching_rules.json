@@ -1,0 +1,36 @@
+{
+  "comment": "Правила сопоставления EPG. Редактируйте с осторожностью.",
+  "quality_suffixes": [
+    "hd", "fhd", "sd", "4k", "uhd", "1080p", "576p", "480p", "720p",
+    "full hd", "ultra hd", "hq", "lq", "2160p", "1440p"
+  ],
+  "regional_suffixes": [
+    "ru", "us", "uk", "de", "fr", "es", "it", "pt", "nl", "be",
+    "jp", "kr", "cn", "tw", "hk", "au", "nz", "ca", "ie",
+    "ua", "by", "kz", "pl", "cz", "sk", "hu", "ro", "bg", "gr",
+    "tr", "il", "sa", "ae", "in", "th", "vn", "id", "my", "ph", "sg",
+    "ar", "eg", "za", "ng", "ke", "gh", "tz"
+  ],
+  "version_suffixes": [
+    "plus", "premium", "extra", "gold", "classic", "deluxe",
+    "international", "europe", "asia", "pacific", "america", "world", "global",
+    "universal", "ultimate", "platinum", "diamond", "exclusive", "special",
+    "edition", "collection", "hit", "series", "serial", "cinema", "film", "movie",
+    "live", "news", "sport", "music", "doc", "kids", "family",
+    "travel", "nature", "wildlife", "adventure", "history", "science",
+    "education", "entertainment", "comedy", "drama", "action", "thriller",
+    "horror", "romance", "reality", "lifestyle"
+  ],
+  "stopwords": [
+    "tv", "тв", "канал", "телеканал", "channel", "television",
+    "телекомпания", "тк", "прямой эфир", "live", "online",
+    "трансляция", "broadcast", "streaming", "прямая трансляция",
+    "not 247", "geoblocked", "региональный", "федеральный"
+  ],
+  "token_high": 0.7,
+  "token_low": 0.5,
+  "jaro_high": 0.9,
+  "jaro_medium": 0.85,
+  "jaro_low": 0.8,
+  "substring_min_len": 4
+}

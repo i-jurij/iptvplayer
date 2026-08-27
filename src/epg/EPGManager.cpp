@@ -31,6 +31,7 @@
 #include <fstream>
 #include <future>
 #include <memory>
+#include <regex>
 #include <unordered_set>
 
 // --------------------------------------------------------------------------
@@ -202,6 +203,9 @@ EPGManager::EPGManager(ConfigManager *configManager,
     LoadMatchSettings();
   }
 
+  LoadMatchingRules();
+  LoadChannelAliases();
+
   if (!m_dbPath.empty()) {
     OpenDatabase();
   }
@@ -342,9 +346,9 @@ void EPGManager::OnProgressTimer(wxTimerEvent &) {
 
   int percent = (total > 0) ? static_cast<int>((downloaded / total) * 100) : 0;
 
-  std::string stageText = "Downloading";
+  std::string stageText = std::string(_("Downloading").ToUTF8().data());
   if (m_downloadProgress.abort.load()) {
-    stageText = "Cancelled";
+    stageText = std::string(_("Cancelled").ToUTF8().data());
     UpdateProgress(EpgProgressStage::Cancelled, percent, stageText, downloaded,
                    total, speed);
     StopProgressTimer();
@@ -419,7 +423,8 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
     // Сброс флага (если был установлен)
     m_autoUpdateInProgress = false;
     // Уведомление UI о завершении (сбрасывает busy и гейдж)
-    UpdateProgress(EpgProgressStage::Done, 100, "No EPG sources to update");
+    UpdateProgress(EpgProgressStage::Done, 100,
+                   std::string(_("No EPG sources to update").ToUTF8().data()));
     return;
   }
 
@@ -557,7 +562,8 @@ bool EPGManager::LoadFromUrl(const std::string &url,
               check.contentLength);
   }
 
-  UpdateProgress(EpgProgressStage::Downloading, 0, "Downloading", 0,
+  UpdateProgress(EpgProgressStage::Downloading, -1,
+                 std::string(_("Downloading").ToUTF8().data()), 0,
                  check.contentLength > 0 ? check.contentLength : 0, 0, 0, 0);
 
   StartProgressTimer();
@@ -580,12 +586,14 @@ bool EPGManager::LoadFromUrl(const std::string &url,
   StopProgressTimer();
 
   if (m_downloadProgress.abort.load()) {
-    UpdateProgress(EpgProgressStage::Cancelled, -1, "Cancelled");
+    UpdateProgress(EpgProgressStage::Cancelled, -1,
+                   std::string(_("Cancelled").ToUTF8().data()));
     setLastError("Download cancelled");
     return false;
   }
 
-  UpdateProgress(EpgProgressStage::Extracting, -1, "Extracting");
+  UpdateProgress(EpgProgressStage::Extracting, -1,
+                 std::string(_("Extracting").ToUTF8().data()));
 
   // ... дальше распаковка и парсинг
   if (xmlData.size() > 100 * 1024 * 1024) {
@@ -612,13 +620,15 @@ bool EPGManager::LoadFromUrl(const std::string &url,
 
 bool EPGManager::LoadFromFile(const std::string &filePath) {
   // Уведомление о начале
-  UpdateProgress(EpgProgressStage::Extracting, -1, "Extracting");
+  UpdateProgress(EpgProgressStage::Extracting, -1,
+                 std::string(_("Extracting").ToUTF8().data()));
 
   std::ifstream file(filePath, std::ios::binary);
   if (!file.is_open()) {
     setLastError("Cannot open file: " + filePath);
     LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
-    UpdateProgress(EpgProgressStage::Error, 0, "Error: Cannot open file");
+    UpdateProgress(EpgProgressStage::Error, 0,
+                   std::string(_("Error: Cannot open file").ToUTF8().data()));
     return false;
   }
   std::string content((std::istreambuf_iterator<char>(file)),
@@ -628,7 +638,9 @@ bool EPGManager::LoadFromFile(const std::string &filePath) {
   if (!DecompressIfNeeded(content)) {
     setLastError("Failed to decompress file: " + filePath);
     LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
-    UpdateProgress(EpgProgressStage::Error, 0, "Error: Decompression failed");
+    UpdateProgress(
+        EpgProgressStage::Error, 0,
+        std::string(_("Error: Decompression failed").ToUTF8().data()));
     return false;
   }
 
@@ -643,7 +655,9 @@ void EPGManager::RefreshSourceAsync(
     auto status = m_singleRefreshFuture.wait_for(std::chrono::seconds(0));
     if (status != std::future_status::ready) {
       if (callback)
-        callback(false, "Previous refresh still in progress");
+        callback(false,
+                 std::string(
+                     _("Previous refresh still in progress").ToUTF8().data()));
       return;
     }
   }
@@ -681,7 +695,8 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
   }
 
   // Начало парсинга
-  UpdateProgress(EpgProgressStage::Parsing, 0, "Parsing");
+  UpdateProgress(EpgProgressStage::Parsing, -1,
+                 std::string(_("Parsing").ToUTF8().data()));
 
   EPGParserExpat parser;
   if (!parser.Parse(xmlData)) {
@@ -719,7 +734,8 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     // Обновляем прогресс каждые 10 каналов или после последнего
     if (processed % 10 == 0 || processed == total) {
       int percent = static_cast<int>((processed * 100) / total);
-      UpdateProgress(EpgProgressStage::Parsing, percent, "Parsing");
+      UpdateProgress(EpgProgressStage::Parsing, percent,
+                     std::string(_("Parsing").ToUTF8().data()));
     }
   }
 
@@ -751,7 +767,8 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
               sourceUrl.c_str(), newChannels.size());
 
     // Завершение
-    UpdateProgress(EpgProgressStage::Done, 100, "Done");
+    UpdateProgress(EpgProgressStage::Done, 100,
+                   std::string(_("Done").ToUTF8().data()));
   } else {
     m_db->RollbackTransaction();
     setLastError("Failed to insert data into database");
@@ -933,75 +950,6 @@ std::vector<std::string> EPGManager::Tokenize(const std::string &name) const {
   return tokens;
 }
 
-int EPGManager::LevenshteinDistance(const std::string &s1,
-                                    const std::string &s2) const {
-  const size_t m = s1.size();
-  const size_t n = s2.size();
-  if (m == 0)
-    return static_cast<int>(n);
-  if (n == 0)
-    return static_cast<int>(m);
-  std::vector<int> v0(n + 1), v1(n + 1);
-  for (size_t i = 0; i <= n; ++i)
-    v0[i] = static_cast<int>(i);
-  for (size_t i = 0; i < m; ++i) {
-    v1[0] = static_cast<int>(i + 1);
-    for (size_t j = 0; j < n; ++j) {
-      int cost = (s1[i] == s2[j]) ? 0 : 1;
-      v1[j + 1] = std::min({v1[j] + 1, v0[j + 1] + 1, v0[j] + cost});
-    }
-    v0.swap(v1);
-  }
-  return v0[n];
-}
-
-int EPGManager::CalculateNameScore(const std::string &name1,
-                                   const std::string &name2) const {
-  if (name1.empty() || name2.empty())
-    return 0;
-
-  if (name1 == name2)
-    return 100;
-
-  if (name1.find(name2) != std::string::npos ||
-      name2.find(name1) != std::string::npos) {
-    return 85;
-  }
-
-  auto tokens1 = Tokenize(name1);
-  auto tokens2 = Tokenize(name2);
-  if (tokens1.size() == tokens2.size()) {
-    std::sort(tokens1.begin(), tokens1.end());
-    std::sort(tokens2.begin(), tokens2.end());
-    if (tokens1 == tokens2)
-      return 80;
-  }
-
-  int dist = LevenshteinDistance(name1, name2);
-  int maxLen = std::max(name1.size(), name2.size());
-  if (maxLen == 0)
-    return 0;
-  int similarity = 100 - (dist * 100) / maxLen;
-  if (similarity >= 60)
-    return similarity;
-
-  std::unordered_set<std::string> set1(tokens1.begin(), tokens1.end());
-  std::unordered_set<std::string> set2(tokens2.begin(), tokens2.end());
-  int common = 0;
-  for (const auto &t : set1) {
-    if (set2.find(t) != set2.end())
-      common++;
-  }
-  int total = std::max(set1.size(), set2.size());
-  if (total > 0 && common > 0) {
-    int overlapScore = (common * 100) / total;
-    if (overlapScore >= 70)
-      return overlapScore;
-  }
-
-  return similarity;
-}
-
 // --------------------------------------------------------------------------
 // Сопоставление (Match)
 // --------------------------------------------------------------------------
@@ -1017,8 +965,7 @@ void EPGManager::RebuildNormalizedCache() {
   for (const auto &p : channels) {
     NormalizedChannel nc;
     nc.id = p.first;
-    nc.normalizedName = NormalizeName(p.second);
-    nc.tokens = Tokenize(nc.normalizedName);
+    NormalizeWithAttributes(p.second, nc);
     newCache.push_back(std::move(nc));
   }
 
@@ -1031,174 +978,231 @@ void EPGManager::RebuildNormalizedCache() {
 EPGManager::MatchResult
 EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   MatchResult result;
-  result.score = 0;
-  result.confidence = "low";
+
+  NormalizedChannel playlistNorm;
+  NormalizeWithAttributes(playlistChannel.getName(), playlistNorm);
 
   std::string tvgId = playlistChannel.getTvgId();
-  std::string channelName = playlistChannel.getName();
-
-  // ---- 1. Ручное сопоставление (приоритет) ----
-  {
-    std::shared_lock lock(m_mappingMutex);
-    if (!tvgId.empty()) {
-      auto manualIt = m_manualMapping.find(tvgId);
-      if (manualIt != m_manualMapping.end()) {
-        result.channelId = manualIt->second;
-        result.method = "manual";
-        result.score = 100;
-        result.confidence = "high";
-        return result; // manual не проверяем на ignored
-      }
-    }
+  if (!tvgId.empty()) {
+    std::transform(tvgId.begin(), tvgId.end(), tvgId.begin(), ::tolower);
+    tvgId.erase(std::remove(tvgId.begin(), tvgId.end(), ' '), tvgId.end());
+    tvgId.erase(std::remove(tvgId.begin(), tvgId.end(), '.'), tvgId.end());
+    tvgId.erase(std::remove(tvgId.begin(), tvgId.end(), '-'), tvgId.end());
+    tvgId.erase(std::remove(tvgId.begin(), tvgId.end(), '_'), tvgId.end());
   }
 
-  // ---- 2. Нормализация имени канала плейлиста ----
-  std::string plName = NormalizeName(channelName);
-  if (plName.empty()) {
-    // Если имя пустое, пробуем сопоставить по tvg-id (fallback)
-    if (!tvgId.empty()) {
-      std::string normTvg = tvgId;
-      NormalizeTvgId(normTvg);
-      std::shared_lock lock(m_tvgIndexMutex);
-      auto it = m_tvgIdIndex.find(normTvg);
-      if (it != m_tvgIdIndex.end()) {
-        // Проверяем, не игнорируется ли этот ключ
-        if (IsIgnored(m_currentPlaylistId, tvgId)) {
-          result.channelId.clear();
-          result.method = "ignored";
-          result.score = 0;
-          result.confidence = "low";
-          return result;
-        }
-        result.channelId = it->second;
-        result.method = "exact_tvgid_fallback";
-        result.score = 70;
-        result.confidence = "medium";
-        return result;
-      }
-    }
-    return result;
-  }
-
-  // ---- 3. Поиск кандидатов среди EPG-каналов ----
-  std::vector<Candidate> candidates;
-  candidates.reserve(m_normalizedCache.size());
-
+  // Шаг 1: алиасы (если baseName совпадает с EPG-каналом)
   {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
-    for (const auto &nc : m_normalizedCache) {
-      int bestScore = 0;
-      std::string bestMethod;
-
-      // Точное совпадение нормализованных имён
-      if (nc.normalizedName == plName) {
-        bestScore = 100;
-        bestMethod = "exact_name";
-      }
-
-      // Сравнение наборов токенов (после сортировки)
-      if (bestScore < 85) {
-        auto plTokens = Tokenize(plName);
-        auto epgTokens = nc.tokens;
-        std::sort(plTokens.begin(), plTokens.end());
-        std::sort(epgTokens.begin(), epgTokens.end());
-        if (plTokens.size() == epgTokens.size() && plTokens == epgTokens) {
-          bestScore = 85;
-          bestMethod = "token_sort";
+    for (const auto &epg : m_normalizedCache) {
+      if (epg.baseName == playlistNorm.baseName) {
+        bool regionOk = true;
+        if (!playlistNorm.region.empty() && !epg.region.empty() &&
+            playlistNorm.region != epg.region)
+          regionOk = false;
+        bool versionOk = true;
+        if (!playlistNorm.version.empty() && !epg.version.empty() &&
+            playlistNorm.version != epg.version)
+          versionOk = false;
+        if (regionOk && versionOk) {
+          result.channelId = epg.id;
+          result.method = "alias";
+          result.score = 100;
+          result.confidence = "high";
+          return result;
         }
-      }
-
-      // Нечёткое сравнение (расстояние Левенштейна)
-      if (bestScore < m_fuzzyThreshold) {
-        int similarity = CalculateNameScore(plName, nc.normalizedName);
-        if (similarity >= m_fuzzyThreshold) {
-          bestScore = similarity;
-          bestMethod = "fuzzy";
-        }
-      }
-
-      // Метод «подстрока» с ужесточениями
-      if (bestScore < 50) {
-        if (plName.length() >= static_cast<size_t>(m_substringMinLength) &&
-            nc.normalizedName.length() >=
-                static_cast<size_t>(m_substringMinLength)) {
-          bool contains =
-              (nc.normalizedName.find(plName) != std::string::npos) ||
-              (plName.find(nc.normalizedName) != std::string::npos);
-          if (contains) {
-            int minLen = std::min(plName.length(), nc.normalizedName.length());
-            int maxLen = std::max(plName.length(), nc.normalizedName.length());
-            int ratio = (minLen * 100) / maxLen;
-            if (ratio >= m_substringMinRatio) {
-              bestScore = 50;
-              bestMethod = "substring";
-            }
-          }
-        }
-      }
-
-      if (bestScore > 0) {
-        candidates.push_back({nc.id, bestScore, bestMethod});
       }
     }
   }
 
-  // ---- 4. Дополнительный fallback по tvg-id (если ещё не добавлен) ----
+  // Шаг 2: tvg-id
   if (!tvgId.empty()) {
-    std::string normTvg = tvgId;
-    NormalizeTvgId(normTvg);
     std::shared_lock lock(m_tvgIndexMutex);
-    auto it = m_tvgIdIndex.find(normTvg);
+    auto it = m_tvgIdIndex.find(tvgId);
     if (it != m_tvgIdIndex.end()) {
-      bool alreadyAdded = false;
-      for (const auto &c : candidates) {
-        if (c.epgId == it->second && c.score >= 70) {
-          alreadyAdded = true;
-          break;
-        }
-      }
-      if (!alreadyAdded) {
-        candidates.push_back({it->second, 70, "exact_tvgid_fallback"});
-      }
-    }
-  }
-
-  // ---- 5. Выбор лучшего кандидата ----
-  if (!candidates.empty()) {
-    auto best = std::max_element(candidates.begin(), candidates.end(),
-                                 [](const Candidate &a, const Candidate &b) {
-                                   return a.score < b.score;
-                                 });
-    if (best->score >= m_minMatchScore) {
-      // Определяем ключ для проверки ignored (tvgId или "name:...")
-      std::string key = tvgId.empty() ? ("name:" + channelName) : tvgId;
-      if (IsIgnored(m_currentPlaylistId, key)) {
-        result.channelId.clear();
-        result.method = "ignored";
-        result.score = 0;
-        result.confidence = "low";
-        return result;
-      }
-
-      result.channelId = best->epgId;
-      result.method = best->method;
-      result.score = best->score;
-
-      if (best->score >= 85)
-        result.confidence = "high";
-      else if (best->score >= 70)
-        result.confidence = "medium";
-      else
-        result.confidence = "low";
-
-      LOG_DEBUG("FindBestMatch: channel '%s' -> EPG '%s' (method=%s, score=%d)",
-                channelName.c_str(), result.channelId.c_str(),
-                result.method.c_str(), result.score);
+      result.channelId = it->second;
+      result.method = "tvg-id";
+      result.score = 100;
+      result.confidence = "high";
       return result;
     }
   }
 
-  LOG_DEBUG("FindBestMatch: no match for channel '%s'", channelName.c_str());
+  // Шаг 3: точное совпадение baseName
+  {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    for (const auto &epg : m_normalizedCache) {
+      if (epg.baseName == playlistNorm.baseName) {
+        bool regionOk = true;
+        if (!playlistNorm.region.empty() && !epg.region.empty() &&
+            playlistNorm.region != epg.region)
+          regionOk = false;
+        bool versionOk = true;
+        if (!playlistNorm.version.empty() && !epg.version.empty() &&
+            playlistNorm.version != epg.version)
+          versionOk = false;
+        if (regionOk && versionOk) {
+          result.channelId = epg.id;
+          result.method = "exact_name";
+          result.score = 100;
+          result.confidence = "high";
+          return result;
+        }
+      }
+    }
+  }
+
+  // Шаг 4: фильтрация по атрибутам и сбор кандидатов
+  struct Candidate {
+    std::string id;
+    std::string baseName;
+    std::vector<std::string> tokens;
+    std::string region, version, quality;
+    int score = 0;
+    double ratio = 0.0;
+    bool fromSubstring = false;
+  };
+  std::vector<Candidate> candidates;
+  {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    for (const auto &epg : m_normalizedCache) {
+      bool regionOk = true;
+      if (!playlistNorm.region.empty() && !epg.region.empty() &&
+          playlistNorm.region != epg.region)
+        regionOk = false;
+      bool versionOk = true;
+      if (!playlistNorm.version.empty() && !epg.version.empty() &&
+          playlistNorm.version != epg.version)
+        versionOk = false;
+      if (regionOk && versionOk) {
+        Candidate cand;
+        cand.id = epg.id;
+        cand.baseName = epg.baseName;
+        cand.tokens = epg.tokens;
+        cand.region = epg.region;
+        cand.version = epg.version;
+        cand.quality = epg.quality;
+        candidates.push_back(cand);
+      }
+    }
+  }
+
+  // Шаг 5: substring
+  for (auto &cand : candidates) {
+    const std::string &shortName =
+        (playlistNorm.baseName.length() <= cand.baseName.length())
+            ? playlistNorm.baseName
+            : cand.baseName;
+    const std::string &longName =
+        (playlistNorm.baseName.length() > cand.baseName.length())
+            ? playlistNorm.baseName
+            : cand.baseName;
+    if (shortName.length() >= static_cast<size_t>(m_substringMinLen) &&
+        longName.find(shortName) != std::string::npos) {
+      bool isStop = false;
+      for (const auto &sw : m_stopwords) {
+        if (shortName == sw) {
+          isStop = true;
+          break;
+        }
+      }
+      if (!isStop) {
+        cand.score = 75;
+        cand.fromSubstring = true;
+      }
+    }
+  }
+
+  // Шаг 6: token-sort
+  for (auto &cand : candidates) {
+    const auto &t1 = playlistNorm.tokens;
+    const auto &t2 = cand.tokens;
+    if (t1.empty() || t2.empty()) {
+      cand.ratio = 0.0;
+    } else {
+      std::unordered_set<std::string> set1(t1.begin(), t1.end());
+      std::unordered_set<std::string> set2(t2.begin(), t2.end());
+      size_t inter = 0;
+      for (const auto &t : set1) {
+        if (set2.find(t) != set2.end())
+          inter++;
+      }
+      size_t uni = set1.size() + set2.size() - inter;
+      cand.ratio = (uni > 0) ? static_cast<double>(inter) / uni : 0.0;
+    }
+
+    if (cand.ratio >= m_tokenHigh) {
+      cand.score = 85;
+    } else if (cand.ratio >= m_tokenLow) {
+      cand.score = 65;
+    } else {
+      cand.score = 0;
+    }
+  }
+
+  // Шаг 7: Jaro-Winkler и бонусы
+  for (auto &cand : candidates) {
+    if (cand.score == 0)
+      continue;
+    if (cand.score == 85) {
+      // только бонусы
+    } else {
+      double jaro = ComputeJaroWinkler(playlistNorm.baseName, cand.baseName);
+      if (jaro >= m_jaroHigh)
+        cand.score += 5;
+      else if (jaro >= m_jaroMedium)
+        cand.score += 3;
+      else if (jaro < m_jaroLow)
+        cand.score -= 5;
+      if (cand.score > 100)
+        cand.score = 100;
+      if (cand.score < 0)
+        cand.score = 0;
+    }
+
+    if (cand.score > 0) {
+      if (!playlistNorm.quality.empty() && !cand.quality.empty() &&
+          playlistNorm.quality == cand.quality)
+        cand.score += 2;
+      if (!playlistNorm.region.empty() && !cand.region.empty() &&
+          playlistNorm.region == cand.region)
+        cand.score += 2;
+      if (cand.score > 100)
+        cand.score = 100;
+    }
+  }
+
+  // Шаг 8: выбор лучшего
+  Candidate *best = nullptr;
+  int bestScore = m_minMatchScore - 1;
+  for (auto &cand : candidates) {
+    if (cand.score > bestScore) {
+      bestScore = cand.score;
+      best = &cand;
+    }
+  }
+
+  if (best && bestScore >= m_minMatchScore) {
+    result.channelId = best->id;
+    if (best->score >= 85) {
+      result.method = "tokens";
+    } else if (best->score >= 70) {
+      result.method = "jaro";
+    } else {
+      result.method = "substring"; // маловероятно
+    }
+    result.score = bestScore;
+    if (bestScore >= 85)
+      result.confidence = "high";
+    else if (bestScore >= 70)
+      result.confidence = "medium";
+    else if (bestScore >= 60)
+      result.confidence = "low";
+    else
+      result.confidence = "none";
+    return result;
+  }
+
   return result;
 }
 
@@ -1224,7 +1228,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
     }
     return;
   }
-  
+
   if (m_cancelMatching.exchange(false)) {
     LOG_DEBUG("MatchChannels cancelled");
     return;
@@ -1234,7 +1238,8 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
 
   if (m_normalizedCache.empty()) {
     LOG_DEBUG("MatchChannels: normalized cache is empty, finishing early");
-    UpdateProgress(EpgProgressStage::Done, 100, "No EPG channels in cache");
+    UpdateProgress(EpgProgressStage::Done, 100,
+                   std::string(_("No EPG channels in cache").ToUTF8().data()));
     if (callback) {
       wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
     }
@@ -1279,7 +1284,8 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   int reportInterval = std::max(1, std::min(50, total / 20));
 
   // Начало матчинга
-  UpdateProgress(EpgProgressStage::Matching, 0, "Matching", -1, -1, -1, 0,
+  UpdateProgress(EpgProgressStage::Matching, -1,
+                 std::string(_("Matching").ToUTF8().data()), -1, -1, -1, 0,
                  total);
 
   for (const auto &batch : batches) {
@@ -1293,11 +1299,12 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
           for (const auto &ch : batch) {
             if (m_cancelMatching) {
               wxTheApp->CallAfter([this]() {
-                UpdateProgress(EpgProgressStage::Cancelled, 0, "Cancelled");
+                UpdateProgress(EpgProgressStage::Cancelled, 0,
+                               std::string(_("Cancelled").ToUTF8().data()));
               });
               break;
             }
-            
+
             if (m_cancelMatching)
               break;
 
@@ -1310,15 +1317,16 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
               matched++;
               totalMatched++;
             }
-            
+
             int current = processed.fetch_add(1) + 1;
             if (current % reportInterval == 0 || current == total) {
               int percent = (total > 0) ? (current * 100) / total : 0;
-              wxTheApp->CallAfter([this, totalMatched = totalMatched.load(),
-                                   total, percent]() {
-                UpdateProgress(EpgProgressStage::Matching, percent, "Matching",
-                               -1, -1, -1, totalMatched, total);
-              });
+              wxTheApp->CallAfter(
+                  [this, totalMatched = totalMatched.load(), total, percent]() {
+                    UpdateProgress(EpgProgressStage::Matching, percent,
+                                   std::string(_("Matching").ToUTF8().data()),
+                                   -1, -1, -1, totalMatched, total);
+                  });
               if (callback) {
                 wxTheApp->CallAfter([callback, current, total]() {
                   callback(0, total, current, true);
@@ -1374,7 +1382,8 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   }
 
   // Завершение матчинга
-  UpdateProgress(EpgProgressStage::Done, 100, "Done", -1, -1, -1,
+  UpdateProgress(EpgProgressStage::Done, 100,
+                 std::string(_("Done").ToUTF8().data()), -1, -1, -1,
                  static_cast<int>(matchedCount), total);
 }
 
@@ -1475,7 +1484,7 @@ std::string EPGManager::GetEpgName(const std::string &epgId) const {
   auto it = m_epgNameCache.find(epgId);
   if (it != m_epgNameCache.end())
     return it->second;
-  
+
   return "";
 }
 
@@ -1714,6 +1723,245 @@ void EPGManager::SetRegionalSuffixes(const std::vector<std::string> &suffixes) {
   m_regionalSuffixes = suffixes;
 }
 
+void EPGManager::LoadMatchingRules() {
+  // Дефолты
+  m_qualitySuffixes = {"hd",   "fhd",  "sd",   "4k",      "uhd",     "1080p",
+                       "576p", "480p", "720p", "full hd", "ultra hd"};
+  m_versionSuffixes = {
+      "plus",      "premium",       "extra",     "gold",      "classic",
+      "deluxe",    "international", "europe",    "asia",      "world",
+      "global",    "ultimate",      "platinum",  "exclusive", "special",
+      "edition",   "hit",           "series",    "serial",    "cinema",
+      "film",      "movie",         "live",      "news",      "sport",
+      "music",     "doc",           "kids",      "family",    "travel",
+      "nature",    "wildlife",      "adventure", "history",   "science",
+      "education", "entertainment"};
+  m_stopwords = {"tv",
+                 "тв",
+                 "канал",
+                 "телеканал",
+                 "channel",
+                 "television",
+                 "телекомпания",
+                 "live",
+                 "online",
+                 "трансляция",
+                 "broadcast",
+                 "streaming",
+                 "прямая трансляция",
+                 "not 247",
+                 "geoblocked"};
+  m_tokenHigh = 0.7;
+  m_tokenLow = 0.5;
+  m_jaroHigh = 0.9;
+  m_jaroMedium = 0.85;
+  m_jaroLow = 0.8;
+  m_substringMinLen = 4;
+
+  wxString jsonPath = FindResourceFile("matching_rules.json");
+  wxString jsonContent;
+  if (!jsonPath.IsEmpty()) {
+    wxFile file(jsonPath);
+    if (file.IsOpened() && file.ReadAll(&jsonContent)) {
+      rapidjson::Document doc;
+      doc.Parse(jsonContent.ToUTF8().data());
+      if (!doc.HasParseError() && doc.IsObject()) {
+        auto loadArray = [&](const char *key,
+                             std::vector<std::string> &target) {
+          if (doc.HasMember(key) && doc[key].IsArray()) {
+            target.clear();
+            for (const auto &val : doc[key].GetArray()) {
+              if (val.IsString())
+                target.push_back(val.GetString());
+            }
+          }
+        };
+        loadArray("quality_suffixes", m_qualitySuffixes);
+        loadArray("version_suffixes", m_versionSuffixes);
+        loadArray("stopwords", m_stopwords);
+
+        if (doc.HasMember("token_high") && doc["token_high"].IsNumber())
+          m_tokenHigh = doc["token_high"].GetDouble();
+        if (doc.HasMember("token_low") && doc["token_low"].IsNumber())
+          m_tokenLow = doc["token_low"].GetDouble();
+        if (doc.HasMember("jaro_high") && doc["jaro_high"].IsNumber())
+          m_jaroHigh = doc["jaro_high"].GetDouble();
+        if (doc.HasMember("jaro_medium") && doc["jaro_medium"].IsNumber())
+          m_jaroMedium = doc["jaro_medium"].GetDouble();
+        if (doc.HasMember("jaro_low") && doc["jaro_low"].IsNumber())
+          m_jaroLow = doc["jaro_low"].GetDouble();
+        if (doc.HasMember("substring_min_len") &&
+            doc["substring_min_len"].IsInt())
+          m_substringMinLen = doc["substring_min_len"].GetInt();
+      }
+    }
+  }
+  LOG_DEBUG("EPGManager: Loaded matching rules (quality=%zu, version=%zu, "
+            "stopwords=%zu)",
+            m_qualitySuffixes.size(), m_versionSuffixes.size(),
+            m_stopwords.size());
+}
+
+void EPGManager::LoadChannelAliases() {
+  m_channelAliases.clear();
+  wxString jsonPath = FindResourceFile("channel_aliases.json");
+  wxString jsonContent;
+  if (!jsonPath.IsEmpty()) {
+    wxFile file(jsonPath);
+    if (file.IsOpened() && file.ReadAll(&jsonContent)) {
+      rapidjson::Document doc;
+      doc.Parse(jsonContent.ToUTF8().data());
+      if (!doc.HasParseError() && doc.IsObject()) {
+        for (auto it = doc.MemberBegin(); it != doc.MemberEnd(); ++it) {
+          if (it->value.IsString()) {
+            std::string key = it->name.GetString();
+            std::string value = it->value.GetString();
+            std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+            m_channelAliases[key] = value;
+          }
+        }
+      }
+    }
+  }
+  LOG_DEBUG("EPGManager: Loaded %zu channel aliases", m_channelAliases.size());
+}
+
+void EPGManager::NormalizeWithAttributes(const std::string &rawName,
+                                         NormalizedChannel &out) const {
+  out.id.clear();
+  out.baseName.clear();
+  out.region.clear();
+  out.quality.clear();
+  out.version.clear();
+  out.tokens.clear();
+
+  std::string name = rawName;
+  std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+
+  std::regex rating_pattern(R"(\(\s*(\d+)\s*\+\s*\))");
+  name = std::regex_replace(name, rating_pattern, "");
+  name = std::regex_replace(name, std::regex("\\s+"), " ");
+
+  auto it = m_channelAliases.find(name);
+  if (it != m_channelAliases.end()) {
+    name = it->second;
+    std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+    name = std::regex_replace(name, std::regex("\\s+"), " ");
+  }
+
+  for (const auto &sw : m_stopwords) {
+    std::string pattern1 = " " + sw + "$";
+    if (name.length() >= pattern1.length() &&
+        name.compare(name.length() - pattern1.length(), pattern1.length(),
+                     pattern1) == 0) {
+      name.erase(name.length() - pattern1.length());
+      name = std::regex_replace(name, std::regex("\\s+"), " ");
+    }
+    std::regex pattern2("\\(" + sw + "\\)");
+    name = std::regex_replace(name, pattern2, "");
+    name = std::regex_replace(name, std::regex("\\s+"), " ");
+  }
+
+  auto extractSuffix = [&](const std::vector<std::string> &suffixes,
+                           std::string &store) {
+    for (const auto &suf : suffixes) {
+      std::string pattern = " " + suf + "$";
+      if (name.length() >= pattern.length() &&
+          name.compare(name.length() - pattern.length(), pattern.length(),
+                       pattern) == 0) {
+        store = suf;
+        name.erase(name.length() - pattern.length());
+        name = std::regex_replace(name, std::regex("\\s+"), " ");
+        break;
+      }
+      std::regex pattern2("\\(" + suf + "\\)");
+      if (std::regex_search(name, pattern2)) {
+        store = suf;
+        name = std::regex_replace(name, pattern2, "");
+        name = std::regex_replace(name, std::regex("\\s+"), " ");
+        break;
+      }
+    }
+  };
+
+  extractSuffix(m_regionalSuffixes, out.region);
+  extractSuffix(m_qualitySuffixes, out.quality);
+  extractSuffix(m_versionSuffixes, out.version);
+
+  name = std::regex_replace(name, std::regex("^\\s+|\\s+$"), "");
+  name = std::regex_replace(name, std::regex("\\s+"), " ");
+  out.baseName = name;
+
+  std::istringstream iss(name);
+  std::string token;
+  while (iss >> token) {
+    bool isStop = false;
+    for (const auto &sw : m_stopwords) {
+      if (token == sw) {
+        isStop = true;
+        break;
+      }
+    }
+    if (!isStop && !token.empty())
+      out.tokens.push_back(token);
+  }
+}
+
+double EPGManager::ComputeJaroWinkler(const std::string &s1,
+                                      const std::string &s2) const {
+  if (s1.empty() && s2.empty())
+    return 1.0;
+  if (s1.empty() || s2.empty())
+    return 0.0;
+
+  size_t len1 = s1.size(), len2 = s2.size();
+  int matchWindow = std::max(0, static_cast<int>(std::max(len1, len2) / 2) - 1);
+  std::vector<bool> matches1(len1, false), matches2(len2, false);
+  int matches = 0;
+  for (size_t i = 0; i < len1; ++i) {
+    int start = std::max(0, static_cast<int>(i) - matchWindow);
+    int end =
+        std::min(static_cast<int>(len2), static_cast<int>(i) + matchWindow + 1);
+    for (int j = start; j < end; ++j) {
+      if (matches2[j])
+        continue;
+      if (s1[i] == s2[j]) {
+        matches1[i] = true;
+        matches2[j] = true;
+        matches++;
+        break;
+      }
+    }
+  }
+  if (matches == 0)
+    return 0.0;
+  int transpositions = 0;
+  int k = 0;
+  for (size_t i = 0; i < len1; ++i) {
+    if (!matches1[i])
+      continue;
+    while (!matches2[k])
+      k++;
+    if (s1[i] != s2[k])
+      transpositions++;
+    k++;
+  }
+  double jaro = (static_cast<double>(matches) / len1 +
+                 static_cast<double>(matches) / len2 +
+                 static_cast<double>(matches - transpositions / 2) / matches) /
+                3.0;
+
+  int prefix = 0;
+  int maxPrefix = std::min(4, static_cast<int>(std::min(len1, len2)));
+  for (int i = 0; i < maxPrefix; ++i) {
+    if (s1[i] == s2[i])
+      prefix++;
+    else
+      break;
+  }
+  return jaro + (prefix * 0.1 * (1.0 - jaro));
+}
+
 // --------------------------------------------------------------------------
 // Источники EPG (config)
 // --------------------------------------------------------------------------
@@ -1924,18 +2172,23 @@ void EPGManager::RebuildTvgIdIndex() {
     std::shared_lock lock(m_mappingMutex);
     tmp.reserve(m_channelMapping.size());
     for (const auto &[key, epgId] : m_channelMapping) {
-      // Пропускаем ключи вида "name:..."
       if (key.rfind("name:", 0) == 0)
         continue;
       std::string normalized = key;
-      NormalizeTvgId(normalized);
+      std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                     ::tolower);
+      normalized.erase(std::remove(normalized.begin(), normalized.end(), ' '),
+                       normalized.end());
+      normalized.erase(std::remove(normalized.begin(), normalized.end(), '.'),
+                       normalized.end());
+      normalized.erase(std::remove(normalized.begin(), normalized.end(), '-'),
+                       normalized.end());
+      normalized.erase(std::remove(normalized.begin(), normalized.end(), '_'),
+                       normalized.end());
       if (normalized.empty())
         continue;
-      // При коллизии оставляем первый встретившийся
       if (tmp.find(normalized) == tmp.end()) {
         tmp.emplace(std::move(normalized), epgId);
-      } else {
-        LOG_DEBUG("RebuildTvgIdIndex: collision for %s", normalized.c_str());
       }
     }
   }
@@ -2014,4 +2267,3 @@ bool EPGManager::IsIgnored(const std::string &playlistId,
     return false;
   return m_db->IsIgnored(playlistId, key);
 }
-

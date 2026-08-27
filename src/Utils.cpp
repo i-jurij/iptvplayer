@@ -1144,3 +1144,30 @@ bool NeedsEmbeddedVideoBackend(ConfigManager *cfg) {
   // неизвестный плеер → считаем НЕ embed
   return false;
 }
+
+wxString FindResourceFile(const wxString &filename) {
+  wxArrayString searchPaths;
+  wxString resourceDir = wxStandardPaths::Get().GetResourcesDir();
+  if (!resourceDir.IsEmpty())
+    searchPaths.Add(resourceDir);
+
+  wxString exeDir = wxPathOnly(wxStandardPaths::Get().GetExecutablePath());
+  if (!exeDir.IsEmpty() && exeDir != resourceDir)
+    searchPaths.Add(exeDir);
+
+  wxString cwd = wxGetCwd();
+  if (!cwd.IsEmpty() && cwd != resourceDir && cwd != exeDir)
+    searchPaths.Add(cwd);
+
+  for (const auto &base : searchPaths) {
+    wxFileName candidate(base, filename);
+    if (candidate.FileExists())
+      return candidate.GetFullPath();
+  }
+  for (const auto &base : searchPaths) {
+    wxFileName candidate(base + "/resources", filename);
+    if (candidate.FileExists())
+      return candidate.GetFullPath();
+  }
+  return wxEmptyString;
+}

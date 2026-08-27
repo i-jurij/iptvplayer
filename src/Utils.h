@@ -140,3 +140,6 @@ inline void CallAfterSafeById(int winId, F &&fn) {
 
 bool NeedsEmbeddedVideoBackend(ConfigManager *cfg);
 bool EnsureXWaylandForEmbeddedVideo(bool needsEmbeddedVideo);
+
+// Находит файл в ресурсах (рядом с exe, в текущей папке, в подпапке resources)
+wxString FindResourceFile(const wxString &filename);

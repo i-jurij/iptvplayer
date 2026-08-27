@@ -3,7 +3,6 @@
 #include "../LogControl.h"
 #include "Application.h"
 #include "EPGManager.h"
-#include "EventIDs.h"
 #include "MainFrame.h"
 #include "SettingsDialog.h"
 #include "epg/ManualMappingDialog.h"
@@ -48,7 +47,7 @@ EPGPanel::~EPGPanel() {
 void EPGPanel::UpdateHeader() {
   wxString label;
   if (m_currentChannelId.empty() && m_currentChannelName.empty()) {
-    label = "No channel selected";
+    label = _("No channel selected");
   } else {
     label = wxString::FromUTF8(m_currentChannelName);
 
@@ -99,14 +98,14 @@ void EPGPanel::SetupUI() {
 
   // ---- Верхняя строка: заголовок + кнопка ----
   wxBoxSizer *headerSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_headerLabel = new wxStaticText(this, wxID_ANY, "No channel selected");
+  m_headerLabel = new wxStaticText(this, wxID_ANY, _("No channel selected"));
   wxFont titleFont = m_headerLabel->GetFont();
   titleFont.SetWeight(wxFONTWEIGHT_BOLD);
   m_headerLabel->SetFont(titleFont);
   headerSizer->Add(m_headerLabel, 1, wxALIGN_CENTER_VERTICAL | wxALL,
                    FromDIP(10));
 
-  m_manualMapBtn = new wxButton(this, wxID_ANY, "Manual Mapping");
+  m_manualMapBtn = new wxButton(this, wxID_ANY, _("Manual Mapping"));
   headerSizer->Add(m_manualMapBtn, 0, wxALIGN_CENTER_VERTICAL | wxALL,
                    FromDIP(10));
   mainSizer->Add(headerSizer, 0, wxEXPAND);
@@ -119,14 +118,14 @@ void EPGPanel::SetupUI() {
   navSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
 
   m_prevDayBtn = new wxButton(this, wxID_ANY, "\u2190");
-  m_prevDayBtn->SetToolTip("Previous day");
+  m_prevDayBtn->SetToolTip(_("Previous day"));
   navSizer->Add(m_prevDayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
-  m_todayBtn = new wxButton(this, wxID_ANY, "Today");
+  m_todayBtn = new wxButton(this, wxID_ANY, _("Today"));
   navSizer->Add(m_todayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
   m_nextDayBtn = new wxButton(this, wxID_ANY, "\u2192");
-  m_nextDayBtn->SetToolTip("Next day");
+  m_nextDayBtn->SetToolTip(_("Next day"));
   navSizer->Add(m_nextDayBtn, 0, wxALIGN_CENTER_VERTICAL);
 
   navSizer->AddStretchSpacer();
@@ -165,7 +164,7 @@ void EPGPanel::SetupUI() {
   mainSizer->Add(m_programGrid, 1, wxEXPAND | wxALL, FromDIP(5));
 
   // ---- Блок деталей ----
-  wxStaticBox *detailBox = new wxStaticBox(this, wxID_ANY, "Details");
+  wxStaticBox *detailBox = new wxStaticBox(this, wxID_ANY, _("Details"));
   wxStaticBoxSizer *detailSizer = new wxStaticBoxSizer(detailBox, wxVERTICAL);
 
   m_detailTitle = new wxStaticText(detailBox, wxID_ANY, "");
@@ -224,10 +223,10 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   if (!m_epgManager) {
     LOG_ERROR("EPGPanel: EPGManager is null");
-    SetStatus("Error", "EPG manager not available");
+    SetStatus(_("Error"), _("⚠ EPG manager not available"));
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, "⚠ EPG manager not available");
+    m_programGrid->SetCellValue(0, 1, _("⚠ EPG manager not available"));
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;
@@ -236,24 +235,24 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   auto sources = m_epgManager->GetSources();
   if (!m_epgManager->IsLoaded()) {
     if (sources.empty()) {
-      SetStatus("Warning",
-                "No EPG sources configured. Add sources in Settings.");
+      SetStatus(_("Warning"),
+                _(_("No EPG sources configured. Add sources in Settings.")));
     } else {
-      SetStatus("Warning", "EPG not loaded yet. Try Refresh.");
+      SetStatus(_("Warning"), _("EPG not loaded yet. Try Refresh."));
     }
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, "⚠ No EPG data loaded");
+    m_programGrid->SetCellValue(0, 1, _("⚠ No EPG data loaded"));
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;
   }
 
   if (!m_epgManager->HasMapping()) {
-    SetStatus("Warning", "No EPG channels matched to playlist.");
+    SetStatus(_("Warning"), _("No EPG channels matched to playlist."));
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, "⚠ No EPG channels matched");
+    m_programGrid->SetCellValue(0, 1, _("⚠ No EPG channels matched"));
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;
@@ -265,10 +264,10 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   m_currentPrograms = programs;
 
   if (programs.empty()) {
-    SetStatus("Warning", "No programs for this date");
+    SetStatus(_("Warning"), _("No programs for this date"));
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, "No programs for this date");
+    m_programGrid->SetCellValue(0, 1, _("No programs for this date"));
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;
@@ -404,7 +403,7 @@ void EPGPanel::ClearStatus() {
 }
 
 void EPGPanel::ShowMessage(const wxString &msg) {
-  wxMessageBox(msg, "Info", wxOK | wxICON_INFORMATION, this);
+  wxMessageBox(msg, _("Info"), wxOK | wxICON_INFORMATION, this);
 }
 
 // ----------------------------------------------------------------------------
@@ -447,7 +446,7 @@ void EPGPanel::ShowMatchProgress(bool show) {
   // Здесь можно показать что-то, но в новой панели мы не показываем прогресс,
   // так как он управляется глобально. Оставляем заглушку.
   if (show) {
-    SetStatus("Matching", "Matching channels...");
+    SetStatus(_("Matching"), _("Matching channels..."));
   } else {
     ClearStatus();
   }
@@ -455,24 +454,28 @@ void EPGPanel::ShowMatchProgress(bool show) {
 
 void EPGPanel::UpdateMatchProgress(int matched, int total, int progress) {
   if (m_isActive) {
-    SetStatus("Matching", wxString::Format("Matched %d/%d (%d%%)", matched,
-                                           progress, progress * 100 / total));
+    SetStatus(_("Matching"),
+              wxString::Format(_("Matched %d/%d (%d%%)"), matched, progress,
+                               progress * 100 / total));
   }
 }
 
 void EPGPanel::OnManualMapping(wxCommandEvent &) {
   if (!m_mainFrame) {
-    wxMessageBox("MainFrame not available", "Error", wxOK | wxICON_ERROR, this);
+    wxMessageBox(_("MainFrame not available"), _("Error"), wxOK | wxICON_ERROR,
+                 this);
     return;
   }
+  /*
   if (m_currentChannelId.empty() && m_currentChannelName.empty()) {
-    wxMessageBox("No channel selected", "Info", wxOK | wxICON_INFORMATION,
+    wxMessageBox(_("No channel selected"), _("Info"), wxOK | wxICON_INFORMATION,
                  this);
     return;
   }
+  */
   if (!m_epgManager) {
-    wxMessageBox("EPG Manager not available", "Error", wxOK | wxICON_ERROR,
-                 this);
+    wxMessageBox(_("EPG Manager not available"), _("Error"),
+                 wxOK | wxICON_ERROR, this);
     return;
   }
 
