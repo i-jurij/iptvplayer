@@ -128,11 +128,6 @@ public:
   void WarmUpTiles();
   void StopWarmUp();
 
-  // for debug only -------------------
-  void DebugTileMemory();
-  void DebugInternalMemory();
-  //------------------------------
-
 protected:
   void OnContextMenu(wxContextMenuEvent &evt);
   

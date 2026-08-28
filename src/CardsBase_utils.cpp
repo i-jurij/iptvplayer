@@ -49,7 +49,7 @@ wxString CardsBase::GetTruncatedText(const Channel &ch) {
 wxBitmap m_cachedTileBG;
 int m_cachedTileBG_DPI = 0;
 
-//argb32
+// argb32
 wxBitmap CardsBase::CreateTileBackground(int w, int h) {
   wxBitmap bmp(w, h);
   wxMemoryDC mdc(bmp);
@@ -418,56 +418,6 @@ void CardsBase::ResumeLogoLoading() {
 void CardsBase::InvalidateAll() {
   wxTheApp->CallAfter([this]() { Refresh(); });
 }
-
-// for debug only ----------------------------------------
-void CardsBase::DebugTileMemory() {
-  size_t totalTiles = 0;
-  size_t totalBytes = 0;
-
-  for (auto &dpiLayer : m_tileCacheDPI) {
-    for (auto &kv : dpiLayer.second) {
-      auto bmp = kv.second;
-      if (bmp && bmp->IsOk()) {
-        totalTiles++;
-        totalBytes += (size_t)bmp->GetWidth() * bmp->GetHeight() * 4;
-      }
-    }
-  }
-
-  //LOG_DEBUG("CardsBase Tiles: count=%zu, approx=%zu KB", totalTiles,
-    //        totalBytes / 1024);
-}
-
-void CardsBase::DebugInternalMemory() {
-  size_t textCount = m_textCache.size();
-  size_t textSizeCount = m_textSizeCache.size();
-  size_t layoutCount = m_layoutCache.size();
-
-  size_t tileCount = 0;
-  for (auto &dpiLayer : m_tileCacheDPI)
-    tileCount += dpiLayer.second.size();
-
-  // --- оценка памяти textCache ---
-  size_t textBytes = 0;
-  for (const auto &kv : m_textCache) {
-    textBytes += kv.first.size();                     // ключ std::string
-    textBytes += kv.second.length() * sizeof(wxChar); // значение wxString
-  }
-
-  
-  // --- грубая оценка textSizeCache ---
-  size_t textSizeBytes = 0;
-  textSizeBytes +=
-      textSizeCount * (sizeof(std::string) + sizeof(std::pair<int, int>));
-
-  LOG_DEBUG("CardsBase Internal: text=%zu textSize=%zu layout=%zu tiles=%zu "
-            "textBytes≈%zu B (≈%zu KB) textSizeBytes≈%zu B (≈%zu KB)",
-            textCount, textSizeCount, layoutCount, tileCount, textBytes,
-            textBytes / 1024, textSizeBytes, textSizeBytes / 1024);
-  LOG_DEBUG("m_logoW=%d m_logoH=%d", m_logoW, m_logoH);
-}
-
-// --------------------------------------------
 
 bool CardsBase::RemoveChannel(const std::string &name,
                               const std::string &playlistName) {

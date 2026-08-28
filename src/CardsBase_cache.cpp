@@ -416,8 +416,6 @@ void CardsBase::WarmUpTiles() {
   }
 
   LogoCache::DebugMemoryUsage();
-  DebugTileMemory();
-  DebugInternalMemory();
 }
 
 void CardsBase::AddTileToLRU(size_t index,

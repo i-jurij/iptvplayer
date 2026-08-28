@@ -26,13 +26,12 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  // ---- Кнопка "More info" (сверху, выровнена вправо) ----
+  // ---- Кнопка "More info" ----
   wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
-  topSizer->AddStretchSpacer();
   m_infoBtn =
       new wxButton(this, wxID_ANY, _("More info about popular sources →"));
   topSizer->Add(m_infoBtn, 0);
-  mainSizer->Add(topSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(10));
+  mainSizer->Add(topSizer, 0, wxEXPAND | wxALL, FromDIP(14));
 
   // ---- Информационная строка  ----
   wxBoxSizer *infoSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -58,20 +57,21 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
             wxALIGN_CENTER_VERTICAL);
   m_nameCtrl = new wxTextCtrl(this, wxID_ANY, "");
   grid->Add(m_nameCtrl, 1, wxEXPAND);
-
-  // ---- Чекбокс "Auto-update" ----
-  grid->Add(new wxStaticText(this, wxID_ANY, ""), 0, wxALIGN_CENTER_VERTICAL);
-  m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, _("Auto-update"));
-  m_autoUpdateCheck->SetValue(false);
-  grid->Add(m_autoUpdateCheck, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));
-
-  mainSizer->Add(grid, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));
-
   wxStaticText *nameNote = new wxStaticText(
       this, wxID_ANY,
       _("If empty, name will be auto-filled from URL or file name."));
   nameNote->SetForegroundColour(*wxLIGHT_GREY);
   mainSizer->Add(nameNote, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+
+  // ---- Чекбокс "Auto-update" ----
+  grid->Add(new wxStaticText(this, wxID_ANY, ""), 0, wxALIGN_CENTER_VERTICAL);
+  m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, _("Auto-update"));
+  m_autoUpdateCheck->SetValue(false);
+  grid->Add(m_autoUpdateCheck, 0, wxALL, FromDIP(14));
+
+  mainSizer->Add(grid, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));
+
+
 
   wxSizer *btnSizer = CreateButtonSizer(wxOK | wxCANCEL);
   if (btnSizer)

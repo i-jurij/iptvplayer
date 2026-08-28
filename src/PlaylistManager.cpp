@@ -26,7 +26,6 @@
 #include <iostream>
 #include <mutex>
 #include <sstream>
-#include <thread>
 
 static std::string wstringToUtf8(const std::wstring &ws) {
   wxString tmp(ws);

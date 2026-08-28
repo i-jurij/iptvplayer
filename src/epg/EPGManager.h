@@ -191,6 +191,7 @@ public:
   void UpdateAllSources(bool onlyAutoUpdate);
 
 private:
+  void EnsureConfigFile(const wxString &filename);
 
   std::atomic<bool> m_autoUpdateInProgress{false};
 
@@ -282,7 +283,8 @@ private:
   std::string ComputePlaylistHash(const std::vector<Channel> &channels) const;
 
   struct NormalizedChannel {
-    std::string id;       // EPG channel id
+    std::string id; // EPG channel id
+    std::string displayName;   // оригинальное display‑name (для индекса алиасов)
     std::string baseName; // очищенное имя без суффиксов и стоп-слов
     std::string region;   // ru, us и т.п. (из региональных суффиксов)
     std::string quality;  // hd, 1080p и т.п.
@@ -296,6 +298,9 @@ private:
 
   void InitializeDefaultRegionalSuffixes();
   std::vector<std::string> m_regionalSuffixes;
+
+  std::unordered_map<std::string, std::string> m_aliasIndex; // очищенное имя EPG → epgId
+  void RebuildAliasIndex();
 
   mutable std::mutex m_normalizedCacheMutex;
   std::vector<NormalizedChannel> m_normalizedCache;
@@ -319,6 +324,15 @@ private:
   double m_jaroMedium = 0.85;
   double m_jaroLow = 0.8;
   int m_substringMinLen = 4;
+
+  // Вспомогательные методы нормализации
+  static std::string ToLower(const std::string &str);
+  static std::string RemoveRatingSuffixes(const std::string &str);
+  std::string RemoveStopwords(const std::string &str) const;
+  std::string ExtractSuffix(const std::string &str,
+                            const std::vector<std::string> &suffixes,
+                            std::string &outSuffix) const;
+  std::string CleanPunctuation(const std::string &str) const;
 };
 
 #endif

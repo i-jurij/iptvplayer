@@ -2,7 +2,8 @@
   "comment": "Правила сопоставления EPG. Редактируйте с осторожностью.",
   "quality_suffixes": [
     "hd", "fhd", "sd", "4k", "uhd", "1080p", "576p", "480p", "720p",
-    "full hd", "ultra hd", "hq", "lq", "2160p", "1440p"
+    "full hd", "ultra hd", "hq", "lq", "2160p", "1440p",
+    "540p", "576i", "480i", "1080i", "360p", "240p", "1440i", "2160i"
   ],
   "regional_suffixes": [
     "ru", "us", "uk", "de", "fr", "es", "it", "pt", "nl", "be",
@@ -22,7 +23,7 @@
     "horror", "romance", "reality", "lifestyle"
   ],
   "stopwords": [
-    "tv", "тв", "канал", "телеканал", "channel", "television",
+    "телеканал", "television",
     "телекомпания", "тк", "прямой эфир", "live", "online",
     "трансляция", "broadcast", "streaming", "прямая трансляция",
     "not 247", "geoblocked", "региональный", "федеральный"

@@ -195,38 +195,44 @@ EPGManager::EPGManager(ConfigManager *configManager,
                        PlaylistManager *playlistManager)
     : wxEvtHandler(), m_configManager(configManager),
       m_playlistManager(playlistManager) {
-  LoadSourcesFromConfig();
+
+  // 1. Копирование файлов настроек из ресурсов в конфиг-каталог при первом запуске
+  EnsureConfigFile("matching_rules.json");
+  EnsureConfigFile("channel_aliases.json");
+
+  // 2. Загрузка основных настроек
+  LoadSourcesFromConfig(); 
   InitializeDefaultRegionalSuffixes();
 
   if (m_configManager) {
-    LoadMatchSettings();
+    LoadMatchSettings(); 
   }
 
-  LoadMatchingRules();
-  LoadChannelAliases();
+  // 3. Загрузка правил и алиасов 
+  LoadMatchingRules();  // читает matching_rules.json из конфиг-каталога
+  LoadChannelAliases(); // читает channel_aliases.json из конфиг-каталога
 
+  // 4. Открытие БД
   if (!m_dbPath.empty()) {
     OpenDatabase();
   }
 
+  // 5. Остальная инициализация (таймеры, потоки)
   m_autoUpdateTimer = new wxTimer(this);
   m_autoUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnAutoUpdateTimer, this);
 
   m_progressTimer = new wxTimer(this);
   m_progressTimer->Bind(wxEVT_TIMER, &EPGManager::OnProgressTimer, this);
 
-  // Инициализация таймера для стартового обновления
   m_startupUpdateTimer = new wxTimer(this);
   m_startupUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnStartupUpdateTimer,
                              this);
 
-  // Определяем количество потоков для матчинга на основе системных ресурсов
   unsigned cores = std::max(1u, std::thread::hardware_concurrency());
   size_t availMB = GetAvailableRAM_MB();
-  // Пока нет размера плейлиста, передаём 0
   auto tuning = GetPerformanceTuning(availMB, cores, 0);
   int recommended = tuning.maxConcurrentLoads;
-  m_matchThreads = std::min(recommended, 16); // ограничиваем 16
+  m_matchThreads = std::min(recommended, 16);
   m_matchThreads = std::max(1, m_matchThreads);
 
   LOG_DEBUG("EPGManager: Match threads = %d", m_matchThreads);
@@ -273,6 +279,23 @@ EPGManager::~EPGManager() {
         "EPGManager::~EPGManager: WaitForRefresh exceeded 5 seconds (%lld ms)",
         elapsed);
   }
+}
+
+void EPGManager::EnsureConfigFile(const wxString &filename) {
+  if (!m_configManager)
+    return;
+  wxString configDir = m_configManager->getConfigDirectory();
+  if (configDir.IsEmpty())
+    return;
+  wxString configPath = configDir + wxFileName::GetPathSeparator() + filename;
+  if (wxFileExists(configPath))
+    return;
+
+  wxString resourcePath = FindResourceFile(filename);
+  if (resourcePath.IsEmpty())
+    return;
+
+  wxCopyFile(resourcePath, configPath, false);
 }
 
 void EPGManager::SetOnProgress(ProgressCallback callback) {
@@ -810,12 +833,6 @@ EPGManager::GetProgramsForChannel(const std::string &tvgId,
       auto it = m_channelMapping.find("name:" + normalized);
       if (it != m_channelMapping.end())
         channelId = it->second;
-      else {
-        // fallback: возможно, старый ключ без нормализации
-        auto it2 = m_channelMapping.find("name:" + channelName);
-        if (it2 != m_channelMapping.end())
-          channelId = it2->second;
-      }
     }
   }
 
@@ -882,51 +899,25 @@ void EPGManager::NormalizeTvgId(std::string &id) const {
 }
 
 std::string EPGManager::NormalizeName(const std::string &name) const {
-  std::string result = name;
-  std::transform(
-      result.begin(), result.end(), result.begin(),
-      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::string result = ToLower(name);
 
-  const std::vector<std::string> qualitySuffixes = {
-      "(hd)", "(fhd)", "(4k)", "(uhd)", "(sd)", "hd",    "fhd", "4k",
-      "uhd",  "sd",    "[hd]", "[fhd]", "[4k]", "[uhd]", "[sd]"};
-  for (const auto &suffix : qualitySuffixes) {
-    size_t pos = result.rfind(suffix);
-    if (pos != std::string::npos && pos + suffix.length() == result.length()) {
-      result = result.substr(0, pos);
-      while (!result.empty() && result.back() == ' ')
-        result.pop_back();
-      break;
-    }
-  }
+  // Удаляем возрастные рейтинги
+  result = RemoveRatingSuffixes(result);
 
-  for (const auto &suffix : m_regionalSuffixes) {
-    size_t pos = result.rfind(suffix);
-    if (pos != std::string::npos && pos + suffix.length() == result.length()) {
-      result = result.substr(0, pos);
-      while (!result.empty() && result.back() == ' ')
-        result.pop_back();
-      break;
-    }
-  }
+  // Удаляем суффиксы качества и версионные (НО НЕ региональные)
+  std::string dummy;
+  result = ExtractSuffix(result, m_qualitySuffixes, dummy);
+  result = ExtractSuffix(result, m_versionSuffixes, dummy);
 
+  // Заменяем & на and
   size_t pos = result.find('&');
   while (pos != std::string::npos) {
     result.replace(pos, 1, "and");
     pos = result.find('&', pos + 3);
   }
 
-  result.erase(std::unique(result.begin(), result.end(),
-                           [](char a, char b) { return a == ' ' && b == ' '; }),
-               result.end());
-
-  result.erase(std::remove_if(result.begin(), result.end(),
-                              [](char c) {
-                                return std::ispunct(
-                                           static_cast<unsigned char>(c)) &&
-                                       c != '+';
-                              }),
-               result.end());
+  // Очистка пунктуации и пробелов
+  result = CleanPunctuation(result);
   return result;
 }
 
@@ -952,19 +943,34 @@ std::vector<std::string> EPGManager::Tokenize(const std::string &name) const {
 // --------------------------------------------------------------------------
 // Сопоставление (Match)
 // --------------------------------------------------------------------------
+void EPGManager::RebuildAliasIndex() {
+  m_aliasIndex.clear();
+  std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+  for (const auto &epg : m_normalizedCache) {
+    std::string key = epg.displayName;
+    key = ToLower(key);
+    key = RemoveRatingSuffixes(key);
+    key = CleanPunctuation(key);
+    if (!key.empty()) {
+      m_aliasIndex[key] = epg.id;
+    }
+  }
+}
+
 void EPGManager::RebuildNormalizedCache() {
   std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
   if (!m_db || !m_db->IsOpen())
     return;
 
-  auto channels = m_db->GetAllChannels();
+  auto channels = m_db->GetAllChannels(); // vector<pair<id, display_name>>
   std::vector<NormalizedChannel> newCache;
   newCache.reserve(channels.size());
 
   for (const auto &p : channels) {
     NormalizedChannel nc;
     nc.id = p.first;
-    NormalizeWithAttributes(p.second, nc);
+    nc.displayName = p.second;             // сохраняем оригинальное имя
+    NormalizeWithAttributes(p.second, nc); // заполняет baseName, регион и т.д.
     newCache.push_back(std::move(nc));
   }
 
@@ -972,64 +978,114 @@ void EPGManager::RebuildNormalizedCache() {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
     m_normalizedCache = std::move(newCache);
   }
+
+  // После обновления кэша перестраиваем индекс для алиасов
+  RebuildAliasIndex();
 }
 
 EPGManager::MatchResult
 EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   MatchResult result;
 
-  NormalizedChannel playlistNorm;
-  NormalizeWithAttributes(playlistChannel.getName(), playlistNorm);
+  const std::string channelName = playlistChannel.getName();
+  LOG_DEBUG("FindBestMatch: START for channel '%s'", channelName.c_str());
 
+  // ========================================================================
+  // ЭТАП 0: Алиас (прямое сопоставление, выполняется ДО любой нормализации)
+  // ========================================================================
+  std::string rawName = playlistChannel.getName();
+  std::string aliasKey = rawName;
+  aliasKey = ToLower(aliasKey);
+  aliasKey = RemoveRatingSuffixes(aliasKey);
+  aliasKey = CleanPunctuation(aliasKey); 
+  // Удаление суффиксов качества/региона/версии
+  std::string region, quality, version;
+  aliasKey = ExtractSuffix(aliasKey, m_regionalSuffixes, region);
+  aliasKey = ExtractSuffix(aliasKey, m_qualitySuffixes, quality);
+  aliasKey = ExtractSuffix(aliasKey, m_versionSuffixes, version);
+  aliasKey = CleanPunctuation(aliasKey); // повторная очистка
+
+  LOG_DEBUG("FindBestMatch: aliasKey='%s'", aliasKey.c_str());
+
+  auto aliasIt = m_channelAliases.find(aliasKey);
+  if (aliasIt != m_channelAliases.end()) {
+    std::string targetName = aliasIt->second;
+    targetName = ToLower(targetName);
+    targetName = CleanPunctuation(targetName);
+    LOG_DEBUG("FindBestMatch: alias found, targetName='%s'",
+              targetName.c_str());
+
+    std::shared_lock lock(m_tvgIndexMutex);
+    auto indexIt = m_aliasIndex.find(targetName);
+    if (indexIt != m_aliasIndex.end()) {
+      result.channelId = indexIt->second;
+      result.method = "alias";
+      result.score = 100;
+      result.confidence = "high";
+      LOG_DEBUG("FindBestMatch: ALIAS MATCH -> epgId='%s'",
+                result.channelId.c_str());
+      return result;
+    } else {
+      LOG_DEBUG("FindBestMatch: targetName='%s' NOT found in m_aliasIndex",
+                targetName.c_str());
+    }
+  } else {
+    LOG_DEBUG("FindBestMatch: aliasKey='%s' NOT found in m_channelAliases",
+              aliasKey.c_str());
+  }
+
+  // ========================================================================
+  // Нормализация имени канала для остальных этапов (без алиасов)
+  // ========================================================================
+  NormalizedChannel playlistNorm;
+  NormalizeWithAttributes(channelName, playlistNorm);
+  LOG_DEBUG("FindBestMatch: normalized: baseName='%s', region='%s', "
+            "quality='%s', version='%s'",
+            playlistNorm.baseName.c_str(), playlistNorm.region.c_str(),
+            playlistNorm.quality.c_str(), playlistNorm.version.c_str());
+
+  // ========================================================================
+  // ЭТАП 1: tvg‑id (точное совпадение после нормализации)
+  // ========================================================================
   std::string tvgId = playlistChannel.getTvgId();
   if (!tvgId.empty()) {
-    std::transform(tvgId.begin(), tvgId.end(), tvgId.begin(), ::tolower);
-    tvgId.erase(std::remove(tvgId.begin(), tvgId.end(), ' '), tvgId.end());
-    tvgId.erase(std::remove(tvgId.begin(), tvgId.end(), '.'), tvgId.end());
-    tvgId.erase(std::remove(tvgId.begin(), tvgId.end(), '-'), tvgId.end());
-    tvgId.erase(std::remove(tvgId.begin(), tvgId.end(), '_'), tvgId.end());
-  }
+    std::string tvgIdNorm = tvgId;
+    std::transform(tvgIdNorm.begin(), tvgIdNorm.end(), tvgIdNorm.begin(),
+                   ::tolower);
+    tvgIdNorm.erase(std::remove(tvgIdNorm.begin(), tvgIdNorm.end(), ' '),
+                    tvgIdNorm.end());
+    tvgIdNorm.erase(std::remove(tvgIdNorm.begin(), tvgIdNorm.end(), '.'),
+                    tvgIdNorm.end());
+    tvgIdNorm.erase(std::remove(tvgIdNorm.begin(), tvgIdNorm.end(), '-'),
+                    tvgIdNorm.end());
+    tvgIdNorm.erase(std::remove(tvgIdNorm.begin(), tvgIdNorm.end(), '_'),
+                    tvgIdNorm.end());
+    LOG_DEBUG("FindBestMatch: tvgIdNorm='%s'", tvgIdNorm.c_str());
 
-  // Шаг 1: алиасы (если baseName совпадает с EPG-каналом)
-  {
-    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
-    for (const auto &epg : m_normalizedCache) {
-      if (epg.baseName == playlistNorm.baseName) {
-        bool regionOk = true;
-        if (!playlistNorm.region.empty() && !epg.region.empty() &&
-            playlistNorm.region != epg.region)
-          regionOk = false;
-        bool versionOk = true;
-        if (!playlistNorm.version.empty() && !epg.version.empty() &&
-            playlistNorm.version != epg.version)
-          versionOk = false;
-        if (regionOk && versionOk) {
-          result.channelId = epg.id;
-          result.method = "alias";
-          result.score = 100;
-          result.confidence = "high";
-          return result;
-        }
-      }
-    }
-  }
-
-  // Шаг 2: tvg-id
-  if (!tvgId.empty()) {
     std::shared_lock lock(m_tvgIndexMutex);
-    auto it = m_tvgIdIndex.find(tvgId);
+    auto it = m_tvgIdIndex.find(tvgIdNorm);
     if (it != m_tvgIdIndex.end()) {
       result.channelId = it->second;
       result.method = "tvg-id";
       result.score = 100;
       result.confidence = "high";
+      LOG_DEBUG("FindBestMatch: TVG-ID MATCH -> epgId='%s'",
+                result.channelId.c_str());
       return result;
+    } else {
+      LOG_DEBUG("FindBestMatch: tvgIdNorm NOT found in m_tvgIdIndex");
     }
+  } else {
+    LOG_DEBUG("FindBestMatch: no tvg-id present");
   }
 
-  // Шаг 3: точное совпадение baseName
+  // ========================================================================
+  // ЭТАП 2: Точное совпадение baseName (с учётом региона и версии)
+  // ========================================================================
   {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    LOG_DEBUG("FindBestMatch: checking exact match for baseName='%s'",
+              playlistNorm.baseName.c_str());
     for (const auto &epg : m_normalizedCache) {
       if (epg.baseName == playlistNorm.baseName) {
         bool regionOk = true;
@@ -1045,13 +1101,18 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
           result.method = "exact_name";
           result.score = 100;
           result.confidence = "high";
+          LOG_DEBUG("FindBestMatch: EXACT NAME MATCH -> epgId='%s'",
+                    result.channelId.c_str());
           return result;
         }
       }
     }
+    LOG_DEBUG("FindBestMatch: exact match not found");
   }
 
-  // Шаг 4: фильтрация по атрибутам и сбор кандидатов
+  // ========================================================================
+  // ЭТАП 3: Фильтрация кандидатов по региону/версии и сбор для нечёткого поиска
+  // ========================================================================
   struct Candidate {
     std::string id;
     std::string baseName;
@@ -1062,6 +1123,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     bool fromSubstring = false;
   };
   std::vector<Candidate> candidates;
+
   {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
     for (const auto &epg : m_normalizedCache) {
@@ -1085,8 +1147,17 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       }
     }
   }
+  LOG_DEBUG("FindBestMatch: candidates after filtering = %zu",
+            candidates.size());
 
-  // Шаг 5: substring
+  if (candidates.empty()) {
+    LOG_DEBUG("FindBestMatch: no candidates, returning empty result");
+    return result;
+  }
+
+  // ========================================================================
+  // ЭТАП 4: Substring (если одно имя содержит другое)
+  // ========================================================================
   for (auto &cand : candidates) {
     const std::string &shortName =
         (playlistNorm.baseName.length() <= cand.baseName.length())
@@ -1108,11 +1179,15 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       if (!isStop) {
         cand.score = 75;
         cand.fromSubstring = true;
+        LOG_DEBUG("FindBestMatch: substring candidate '%s' (score=75)",
+                  cand.baseName.c_str());
       }
     }
   }
 
-  // Шаг 6: token-sort
+  // ========================================================================
+  // ЭТАП 5: Token‑sort (процент общих слов)
+  // ========================================================================
   for (auto &cand : candidates) {
     const auto &t1 = playlistNorm.tokens;
     const auto &t2 = cand.tokens;
@@ -1132,21 +1207,29 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
 
     if (cand.ratio >= m_tokenHigh) {
       cand.score = 85;
+      LOG_DEBUG("FindBestMatch: token-high candidate '%s' (ratio=%.2f)",
+                cand.baseName.c_str(), cand.ratio);
     } else if (cand.ratio >= m_tokenLow) {
       cand.score = 65;
+      LOG_DEBUG("FindBestMatch: token-low candidate '%s' (ratio=%.2f)",
+                cand.baseName.c_str(), cand.ratio);
     } else {
       cand.score = 0;
     }
   }
 
-  // Шаг 7: Jaro-Winkler и бонусы
+  // ========================================================================
+  // ЭТАП 6: Jaro‑Winkler и бонусы за качество/регион
+  // ========================================================================
   for (auto &cand : candidates) {
     if (cand.score == 0)
       continue;
     if (cand.score == 85) {
-      // только бонусы
+      // уже высокий, можно добавить бонусы позже
     } else {
       double jaro = ComputeJaroWinkler(playlistNorm.baseName, cand.baseName);
+      LOG_DEBUG("FindBestMatch: Jaro-Winkler for '%s' = %.4f",
+                cand.baseName.c_str(), jaro);
       if (jaro >= m_jaroHigh)
         cand.score += 5;
       else if (jaro >= m_jaroMedium)
@@ -1168,10 +1251,14 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
         cand.score += 2;
       if (cand.score > 100)
         cand.score = 100;
+      LOG_DEBUG("FindBestMatch: final score for '%s' = %d",
+                cand.baseName.c_str(), cand.score);
     }
   }
 
-  // Шаг 8: выбор лучшего
+  // ========================================================================
+  // ЭТАП 7: Выбор лучшего кандидата
+  // ========================================================================
   Candidate *best = nullptr;
   int bestScore = m_minMatchScore - 1;
   for (auto &cand : candidates) {
@@ -1181,6 +1268,9 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     }
   }
 
+  LOG_DEBUG("FindBestMatch: best score=%d, threshold=%d", bestScore,
+            m_minMatchScore);
+
   if (best && bestScore >= m_minMatchScore) {
     result.channelId = best->id;
     if (best->score >= 85) {
@@ -1188,7 +1278,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     } else if (best->score >= 70) {
       result.method = "jaro";
     } else {
-      result.method = "substring"; // маловероятно
+      result.method = "substring";
     }
     result.score = bestScore;
     if (bestScore >= 85)
@@ -1199,9 +1289,14 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       result.confidence = "low";
     else
       result.confidence = "none";
+    LOG_DEBUG("FindBestMatch: MATCH FOUND for '%s' -> epgId='%s', method='%s', "
+              "score=%d",
+              channelName.c_str(), result.channelId.c_str(),
+              result.method.c_str(), result.score);
     return result;
   }
 
+  LOG_DEBUG("FindBestMatch: NO MATCH for '%s'", channelName.c_str());
   return result;
 }
 
@@ -1721,7 +1816,15 @@ void EPGManager::LoadMatchingRules() {
   m_jaroLow = 0.8;
   m_substringMinLen = 4;
 
-  wxString jsonPath = FindResourceFile("matching_rules.json");
+  wxString jsonPath;
+  if (m_configManager) {
+    wxString configDir = m_configManager->getConfigDirectory();
+    if (!configDir.IsEmpty()) {
+      wxFileName fn(configDir, "matching_rules.json");
+      if (fn.FileExists())
+        jsonPath = fn.GetFullPath();
+    }
+  }
   wxString jsonContent;
   if (!jsonPath.IsEmpty()) {
     wxFile file(jsonPath);
@@ -1768,7 +1871,15 @@ void EPGManager::LoadMatchingRules() {
 
 void EPGManager::LoadChannelAliases() {
   m_channelAliases.clear();
-  wxString jsonPath = FindResourceFile("channel_aliases.json");
+  wxString jsonPath;
+  if (m_configManager) {
+    wxString configDir = m_configManager->getConfigDirectory();
+    if (!configDir.IsEmpty()) {
+      wxFileName fn(configDir, "channel_aliases.json");
+      if (fn.FileExists())
+        jsonPath = fn.GetFullPath();
+    }
+  }
   wxString jsonContent;
   if (!jsonPath.IsEmpty()) {
     wxFile file(jsonPath);
@@ -1792,70 +1903,24 @@ void EPGManager::LoadChannelAliases() {
 
 void EPGManager::NormalizeWithAttributes(const std::string &rawName,
                                          NormalizedChannel &out) const {
-  out.id.clear();
   out.baseName.clear();
   out.region.clear();
   out.quality.clear();
   out.version.clear();
   out.tokens.clear();
 
-  std::string name = rawName;
-  std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+  std::string name = ToLower(rawName);
+  name = RemoveRatingSuffixes(name);
+  name = CleanPunctuation(name); // очистка перед удалением стоп‑слов
 
-  std::regex rating_pattern(R"(\(\s*(\d+)\s*\+\s*\))");
-  name = std::regex_replace(name, rating_pattern, "");
-  name = std::regex_replace(name, std::regex("\\s+"), " ");
-
-  auto it = m_channelAliases.find(name);
-  if (it != m_channelAliases.end()) {
-    name = it->second;
-    std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-    name = std::regex_replace(name, std::regex("\\s+"), " ");
-  }
-
-  for (const auto &sw : m_stopwords) {
-    std::string pattern1 = " " + sw + "$";
-    if (name.length() >= pattern1.length() &&
-        name.compare(name.length() - pattern1.length(), pattern1.length(),
-                     pattern1) == 0) {
-      name.erase(name.length() - pattern1.length());
-      name = std::regex_replace(name, std::regex("\\s+"), " ");
-    }
-    std::regex pattern2("\\(" + sw + "\\)");
-    name = std::regex_replace(name, pattern2, "");
-    name = std::regex_replace(name, std::regex("\\s+"), " ");
-  }
-
-  auto extractSuffix = [&](const std::vector<std::string> &suffixes,
-                           std::string &store) {
-    for (const auto &suf : suffixes) {
-      std::string pattern = " " + suf + "$";
-      if (name.length() >= pattern.length() &&
-          name.compare(name.length() - pattern.length(), pattern.length(),
-                       pattern) == 0) {
-        store = suf;
-        name.erase(name.length() - pattern.length());
-        name = std::regex_replace(name, std::regex("\\s+"), " ");
-        break;
-      }
-      std::regex pattern2("\\(" + suf + "\\)");
-      if (std::regex_search(name, pattern2)) {
-        store = suf;
-        name = std::regex_replace(name, pattern2, "");
-        name = std::regex_replace(name, std::regex("\\s+"), " ");
-        break;
-      }
-    }
-  };
-
-  extractSuffix(m_regionalSuffixes, out.region);
-  extractSuffix(m_qualitySuffixes, out.quality);
-  extractSuffix(m_versionSuffixes, out.version);
-
-  name = std::regex_replace(name, std::regex("^\\s+|\\s+$"), "");
-  name = std::regex_replace(name, std::regex("\\s+"), " ");
+  name = RemoveStopwords(name);
+  name = ExtractSuffix(name, m_regionalSuffixes, out.region);
+  name = ExtractSuffix(name, m_qualitySuffixes, out.quality);
+  name = ExtractSuffix(name, m_versionSuffixes, out.version);
+  name = CleanPunctuation(name);
   out.baseName = name;
 
+  // Токены (без стоп‑слов)
   std::istringstream iss(name);
   std::string token;
   while (iss >> token) {
@@ -2230,4 +2295,83 @@ bool EPGManager::IsIgnored(const std::string &playlistId,
   if (!m_db || !m_db->IsOpen())
     return false;
   return m_db->IsIgnored(playlistId, key);
+}
+
+std::string EPGManager::ToLower(const std::string &str) {
+  std::string result = str;
+  std::transform(
+      result.begin(), result.end(), result.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return result;
+}
+
+std::string EPGManager::RemoveRatingSuffixes(const std::string &str) {
+  std::regex rating_pattern(R"(\(\s*(\d+)\s*\+\s*\))");
+  std::string result = std::regex_replace(str, rating_pattern, "");
+  result = std::regex_replace(result, std::regex("\\s+"), " ");
+  return result;
+}
+
+std::string EPGManager::RemoveStopwords(const std::string &str) const {
+  std::string result = str;
+  for (const auto &sw : m_stopwords) {
+    // В конце: " стоп-слово"
+    std::string pattern1 = " " + sw + "$";
+    if (result.length() >= pattern1.length() &&
+        result.compare(result.length() - pattern1.length(), pattern1.length(),
+                       pattern1) == 0) {
+      result.erase(result.length() - pattern1.length());
+      result = std::regex_replace(result, std::regex("\\s+"), " ");
+    }
+    // В скобках: (стоп-слово)
+    std::regex pattern2("\\(" + sw + "\\)");
+    result = std::regex_replace(result, pattern2, "");
+    result = std::regex_replace(result, std::regex("\\s+"), " ");
+  }
+  return result;
+}
+
+std::string EPGManager::ExtractSuffix(const std::string &str,
+                                      const std::vector<std::string> &suffixes,
+                                      std::string &outSuffix) const {
+  std::string result = str;
+  outSuffix.clear();
+  for (const auto &suf : suffixes) {
+    // Ищем " suf" в конце
+    std::string pattern = " " + suf + "$";
+    if (result.length() >= pattern.length() &&
+        result.compare(result.length() - pattern.length(), pattern.length(),
+                       pattern) == 0) {
+      outSuffix = suf;
+      result.erase(result.length() - pattern.length());
+      result = std::regex_replace(result, std::regex("\\s+"), " ");
+      break;
+    }
+    // Ищем "(suf)" в любом месте
+    std::regex pattern2("\\(" + suf + "\\)");
+    if (std::regex_search(result, pattern2)) {
+      outSuffix = suf;
+      result = std::regex_replace(result, pattern2, "");
+      result = std::regex_replace(result, std::regex("\\s+"), " ");
+      break;
+    }
+  }
+  return result;
+}
+
+std::string EPGManager::CleanPunctuation(const std::string &str) const {
+  std::string result = str;
+  // Удаляем ведущие и завершающие пробелы
+  result = std::regex_replace(result, std::regex("^\\s+|\\s+$"), "");
+  // Сжимаем множественные пробелы
+  result = std::regex_replace(result, std::regex("\\s+"), " ");
+  // Удаляем пунктуацию, кроме '+'
+  result.erase(std::remove_if(result.begin(), result.end(),
+                              [](char c) {
+                                return std::ispunct(
+                                           static_cast<unsigned char>(c)) &&
+                                       c != '+';
+                              }),
+               result.end());
+  return result;
 }

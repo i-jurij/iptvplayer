@@ -237,6 +237,66 @@ else()
 endif()
 # --- END EPG sources ---
 
+# ------------------------
+# Matching rules JSON
+# ------------------------
+set(MATCHING_RULES_JSON ${CMAKE_SOURCE_DIR}/resources/matching_rules.json)
+
+add_custom_command(TARGET iptvplayer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${MATCHING_RULES_JSON}
+            $<TARGET_FILE_DIR:iptvplayer>/matching_rules.json
+    COMMENT "Copying matching_rules.json to build directory"
+)
+
+if(WIN32)
+    install(FILES ${MATCHING_RULES_JSON} DESTINATION .)
+elseif(APPLE)
+    set( BUNDLE_RESOURCES_DIR "${CMAKE_BINARY_DIR}/iptvplayer.app/Contents/Resources" )
+    add_custom_command(TARGET iptvplayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${MATCHING_RULES_JSON}
+                ${BUNDLE_RESOURCES_DIR}/matching_rules.json
+        COMMENT "Copying matching_rules.json to macOS app bundle"
+    )
+    install(FILES ${MATCHING_RULES_JSON}
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/iptvplayer.app/Contents/Resources)
+else()
+    install(FILES ${MATCHING_RULES_JSON} 
+            DESTINATION share/iptvplayer)
+endif()
+
+# ------------------------
+# Channel aliases JSON
+# ------------------------
+set(CHANNEL_ALIASES_JSON ${CMAKE_SOURCE_DIR}/resources/channel_aliases.json)
+
+add_custom_command(TARGET iptvplayer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CHANNEL_ALIASES_JSON}
+            $<TARGET_FILE_DIR:iptvplayer>/channel_aliases.json
+    COMMENT "Copying channel_aliases.json to build directory"
+)
+
+if(WIN32)
+    install(FILES ${CHANNEL_ALIASES_JSON} DESTINATION .)
+elseif(APPLE)
+    set( BUNDLE_RESOURCES_DIR "${CMAKE_BINARY_DIR}/iptvplayer.app/Contents/Resources" )
+    add_custom_command(TARGET iptvplayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CHANNEL_ALIASES_JSON}
+                ${BUNDLE_RESOURCES_DIR}/channel_aliases.json
+        COMMENT "Copying channel_aliases.json to macOS app bundle"
+    )
+    install(FILES ${CHANNEL_ALIASES_JSON}
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/iptvplayer.app/Contents/Resources)
+else()
+    install(FILES ${CHANNEL_ALIASES_JSON} 
+            DESTINATION share/iptvplayer)
+endif()
+
+# -----------------------------------------
+
 set(DATADIR "${CMAKE_INSTALL_PREFIX}/share")
 target_compile_definitions(${PROJECT_NAME} PRIVATE DATADIR=\"${DATADIR}\")
 

@@ -1147,27 +1147,61 @@ bool NeedsEmbeddedVideoBackend(ConfigManager *cfg) {
 
 wxString FindResourceFile(const wxString &filename) {
   wxArrayString searchPaths;
+
+  // 1. Стандартный каталог ресурсов
   wxString resourceDir = wxStandardPaths::Get().GetResourcesDir();
   if (!resourceDir.IsEmpty())
     searchPaths.Add(resourceDir);
 
+  // 2. Каталог данных (обычно /usr/share/appname)
+  wxString dataDir = wxStandardPaths::Get().GetDataDir();
+  if (!dataDir.IsEmpty() && dataDir != resourceDir)
+    searchPaths.Add(dataDir);
+
+  // 3. Локальный каталог данных (пользовательский)
+  wxString localDataDir = wxStandardPaths::Get().GetLocalDataDir();
+  if (!localDataDir.IsEmpty() && localDataDir != resourceDir &&
+      localDataDir != dataDir)
+    searchPaths.Add(localDataDir);
+
+  // 4. Каталог исполняемого файла (для разработки)
   wxString exeDir = wxPathOnly(wxStandardPaths::Get().GetExecutablePath());
-  if (!exeDir.IsEmpty() && exeDir != resourceDir)
+  if (!exeDir.IsEmpty() && exeDir != resourceDir && exeDir != dataDir &&
+      exeDir != localDataDir)
     searchPaths.Add(exeDir);
 
+  // 5. Текущий рабочий каталог (для запуска из консоли)
   wxString cwd = wxGetCwd();
-  if (!cwd.IsEmpty() && cwd != resourceDir && cwd != exeDir)
+  if (!cwd.IsEmpty() && cwd != resourceDir && cwd != dataDir &&
+      cwd != localDataDir && cwd != exeDir)
     searchPaths.Add(cwd);
 
+  // 6. Добавляем системный каталог, определённый в CMake (DATADIR)
+#ifdef DATADIR
+  wxString sysDataDir = wxString::FromUTF8(DATADIR) + "/iptvplayer";
+  if (!sysDataDir.IsEmpty() && sysDataDir != resourceDir &&
+      sysDataDir != dataDir && sysDataDir != localDataDir &&
+      sysDataDir != exeDir && sysDataDir != cwd)
+    searchPaths.Add(sysDataDir);
+#endif
+
+  // Поиск по всем путям
   for (const auto &base : searchPaths) {
     wxFileName candidate(base, filename);
     if (candidate.FileExists())
       return candidate.GetFullPath();
   }
+
+  // Дополнительный поиск в подкаталогах "resources" или "share"
   for (const auto &base : searchPaths) {
     wxFileName candidate(base + "/resources", filename);
     if (candidate.FileExists())
       return candidate.GetFullPath();
+    wxFileName candidate2(base + "/share/iptvplayer", filename);
+    if (candidate2.FileExists())
+      return candidate2.GetFullPath();
   }
+
   return wxEmptyString;
 }
+

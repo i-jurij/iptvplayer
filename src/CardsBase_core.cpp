@@ -158,8 +158,6 @@ void CardsBase::SetChannelsBase(const std::vector<Channel> &channels) {
 
     // debug ----------------------
     LogoCache::DebugMemoryUsage();
-    DebugTileMemory();
-    DebugInternalMemory();
     // --------------------------------------
 
     CallAfterSafeById(winId, [](wxWindow *w2) {
