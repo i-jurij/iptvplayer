@@ -1,667 +1,144 @@
-## План рефакторинга `ManualMappingDialog`
+## План рефакторинга `ManualMappingDialog` (поэтапно)
 
-1. **Оптимизация `PopulateMappings()`**
-   - Добавить в `EPGDatabase` метод `GetAllMappings(playlistId)` → возвращает `std::unordered_map<key, MappingEntry>` (epgId, isManual, ignored).
-   - Добавить в `EPGManager` обёртку `GetAllMappingsForPlaylist(playlistId)`.
-   - В `PopulateMappings()` заменить цикл с `GetMappingEntry()` на однократное получение карты и проверку наличия ключа для каждого канала.
-   - **Результат:** один запрос к БД вместо N.
-
-2. **Сортировка верхних списков**
-   - **Плейлист:** в `PopulatePlaylistChannels()` отсортировать вектор `channels` по `getName()` (регистронезависимо) перед вставкой.
-   - **EPG:** в `PopulateEpgChannels()` отсортировать вектор пар `(id, display_name)` по `display_name` перед вставкой.
-   - **Результат:** списки всегда отображаются в алфавитном порядке по имени.
-
-3. **Сортировка нижнего списка (текущие маппинги)**
-   - Добавить переменные состояния: `m_sortColumn` (индекс колонки) и `m_sortAscending` (bool).
-   - **Сортировка по умолчанию:** после заполнения списка (`PopulateMappings`) вызвать `SortItems` с компаратором по имени канала (колонка 1) по возрастанию.
-   - **Интерактивная сортировка:** добавить обработчик `wxEVT_LIST_COL_CLICK`, который:
-     - Определяет индекс колонки.
-     - Если кликнули по той же колонке – переключает направление.
-     - Вызывает `SortItems` с соответствующим компаратором.
-   - Компараторы сравнивают текст в указанной колонке (регистронезависимо через `wxStricmp`).
-   - **Результат:** пользователь может сортировать по любой колонке кликом по заголовку.
-
-4. **Обновление списка при изменении маппингов**
-   - После операций (добавление, удаление, игнорирование) вызывать `PopulateMappings()`.
-   - Внутри `PopulateMappings()` после вставки всех строк повторно применять текущую сортировку (`m_sortColumn`/`m_sortAscending`), чтобы порядок сохранялся.
-   - **Результат:** список всегда отражает актуальные данные с сохранением выбранной сортировки.
-
-5. **Поиск в списках**
-   - Над каждым списком разместить `wxSearchCtrl` (с кнопкой очистки):
-     - Над списком плейлиста – поиск по имени канала.
-     - Над списком EPG – поиск по display_name.
-     - Над списком маппингов – поиск по имени канала плейлиста (вторая колонка).
-   - При вводе текста фильтровать список мгновенно (по каждому символу).
-   - Фильтрация применяется к исходным данным, затем к отфильтрованному набору применяется текущая сортировка.
-   - При обновлении списков (добавление/удаление маппингов) поисковый запрос сохраняется и применяется к новым данным.
-   - Очистка поля поиска (через кнопку или удаление текста) сбрасывает фильтр.
-   - **Результат:** пользователь может быстро найти нужный канал в любом списке.
-
-6. **Производительность и UX**
-   - При массовом обновлении списков использовать `Freeze()`/`Thaw()` для предотвращения мерцания.
-   - `SortItems` работает с уже вставленными строками – быстро и без пересоздания списка.
-   - Фильтрация с перестроением списка также выполняется быстро для 1000+ записей.
-   - **Результат:** диалог открывается и реагирует на действия пользователя мгновенно.
-
-7. **Чистота кода**
-   - Вынести компараторы для `SortItems` в отдельные методы или лямбды внутри класса.
-   - Удалить старый цикл с `GetMappingEntry()`.
-   - Убедиться, что все методы используют новые данные (карту маппингов), сортировку и фильтрацию единообразно.
-   - **Результат:** код становится короче, понятнее и быстрее.
-
-
-Хорошо. Основываясь на существующем коде, составлю точный полный пошаговый план рефакторинга `ManualMappingDialog`.
+### Общий подход
+Рефакторинг выполняется поэтапно. Каждый этап завершается полной сборкой и тестированием. Если на каком-то этапе возникают проблемы – откат только к началу этапа, а не всего диалога.
 
 ---
 
-## План рефакторинга `ManualMappingDialog`
+## Этап 1: Оптимизация `PopulateMappings()` (один запрос вместо N)
 
-### Шаг 1. Оптимизация `PopulateMappings()` – один запрос вместо N
+**Цель:** заменить N запросов к БД (по одному на каждый канал) на один запрос, получающий все маппинги для плейлиста.
 
-**Что меняем:**
-- В `EPGData.h` добавляем структуру `MappingEntry`.
-- В `EPGDatabase` добавляем метод `GetAllMappings()`, возвращающий `unordered_map<key, MappingEntry>`.
-- В `EPGManager` добавляем обёртку `GetAllMappingsForPlaylist()`.
-- В `ManualMappingDialog::PopulateMappings()` заменяем цикл с `GetMappingEntry()` и `IsIgnored()` на однократное получение карты и проверку наличия ключа.
+**Изменения:**
 
-**Где изменения:**
-- `src/epg/EPGData.h` – добавить `struct MappingEntry`.
-- `src/epg/EPGDatabase.h` – объявить `bool GetAllMappings(...)`.
-- `src/epg/EPGDatabase.cpp` – реализовать метод.
-- `src/epg/EPGManager.h` – объявить `GetAllMappingsForPlaylist()`.
-- `src/epg/EPGManager.cpp` – реализовать метод.
-- `src/epg/ManualMappingDialog.cpp` – переписать `PopulateMappings()`.
+1. В `EPGData.h` добавить структуру:
+   ```cpp
+   struct MappingEntry {
+       std::string epgId;
+       bool isManual = false;
+       bool ignored = false;
+   };
+   ```
 
----
+2. В `EPGDatabase.h` объявить метод:
+   ```cpp
+   bool GetAllMappings(const std::string &playlistId,
+                       std::unordered_map<std::string, MappingEntry> &out);
+   ```
 
-### Шаг 2. Сортировка верхних списков (плейлист и EPG)
+3. В `EPGDatabase.cpp` реализовать метод (один SQL-запрос).
 
-**Что меняем:**
-- В `PopulatePlaylistChannels()` – перед вставкой сортируем вектор `channels` по `getName()` (регистронезависимо).
-- В `PopulateEpgChannels()` – перед вставкой сортируем вектор пар по `display_name`.
+4. В `EPGManager.h` объявить обёртку:
+   ```cpp
+   std::unordered_map<std::string, MappingEntry> GetAllMappingsForPlaylist(const std::string &playlistId);
+   ```
 
-**Где изменения:**
-- `src/epg/ManualMappingDialog.cpp` – модифицируем оба метода.
+5. В `EPGManager.cpp` реализовать обёртку (вызывает `EPGDatabase::GetAllMappings`).
 
----
+6. В `ManualMappingDialog.cpp` переписать `PopulateMappings()`:
+   - Удалить цикл с `GetMappingEntry` и `IsIgnored`.
+   - Вместо него получить все маппинги через `m_epgMgr->GetAllMappingsForPlaylist(playlistId)`.
+   - Для каждого канала проверять наличие ключа в полученной карте (по tvgId, нормализованному имени, сырому имени).
+   - Заполнять список маппингов напрямую, как раньше, но без дополнительных запросов.
 
-### Шаг 3. Сортировка нижнего списка (маппинги) – по умолчанию и интерактивная
-
-**Что меняем:**
-- Добавляем в класс `ManualMappingDialog` переменные `m_sortColumn` (int) и `m_sortAscending` (bool).
-- В `PopulateMappings()` после заполнения списка вызываем `ApplySortToMappings()`.
-- Реализуем `ApplySortToMappings()` – метод, который использует `SortItems` с компаратором по текущей колонке.
-- Добавляем обработчик `wxEVT_LIST_COL_CLICK` для `m_mappingList`, который меняет сортировку и вызывает `ApplySortToMappings()`.
-
-**Где изменения:**
-- `src/epg/ManualMappingDialog.h` – добавить переменные и объявление `ApplySortToMappings()`.
-- `src/epg/ManualMappingDialog.cpp` – реализовать метод, добавить обработчик.
+**Проверка:**  
+Открыть диалог ручного маппинга. Убедиться, что список маппингов отображается корректно и соответствует данным в БД. Время открытия должно уменьшиться (особенно при большом количестве каналов).
 
 ---
 
-### Шаг 4. Обновление списка при изменении маппингов
+## Этап 2: Сортировка списков
 
-**Что меняем:**
-- В обработчиках `OnAddMapping`, `OnRemoveMapping`, `OnIgnore`, `OnUnignore` после вызова методов `EPGManager` вызываем `PopulateMappings()`, которая теперь перезаполняет список и применяет сортировку.
+**Цель:** добавить сортировку по имени в верхних списках (плейлист и EPG) и сортировку по клику на заголовок в нижнем списке.
 
-**Где изменения:**
-- `src/epg/ManualMappingDialog.cpp` – убедиться, что все обработчики вызывают `PopulateMappings()`.
+### 2.1. Сортировка верхних списков (статическая)
 
----
+1. В `PopulatePlaylistChannels()` перед вставкой отсортировать вектор `channels` по `getName()` (регистронезависимо, через `wxStricmp`).
+2. В `PopulateEpgChannels()` перед вставкой отсортировать вектор пар по `display_name` (аналогично).
 
-### Шаг 5. Поиск в списках
-
-**Что меняем:**
-- Добавляем в класс `ManualMappingDialog` три `wxSearchCtrl*` (или `wxTextCtrl` с кнопкой очистки): `m_searchPlaylist`, `m_searchEpg`, `m_searchMappings`.
-- В конструкторе размещаем их над соответствующими списками в UI.
-- Вводим переменные для хранения полных данных: `m_allPlaylistChannels` (vector<Channel>), `m_allEpgChannels` (vector<pair<string,string>>), `m_allMappingRows` (vector<MappingRow> – структура с полями для отображения).
-- Реализуем методы фильтрации: `ApplyFilterAndSortPlaylist()`, `ApplyFilterAndSortEpg()`, `ApplyFilterAndSortMappings()`.
-- Привязываем события `wxEVT_TEXT` к обработчикам, которые вызывают соответствующие методы фильтрации.
-- При обновлении маппингов (`PopulateMappings`) – перезаполняем `m_allMappingRows` и вызываем `ApplyFilterAndSortMappings()`.
-
-**Где изменения:**
-- `src/epg/ManualMappingDialog.h` – добавить поля и методы.
-- `src/epg/ManualMappingDialog.cpp` – изменить конструктор (UI), добавить методы фильтрации, модифицировать `PopulatePlaylistChannels`, `PopulateEpgChannels`, `PopulateMappings` для заполнения полных данных.
+**Проверка:**  
+Открыть диалог – верхние списки должны быть отсортированы по алфавиту.
 
 ---
 
-### Шаг 6. Производительность и UX
+### 2.2. Сортировка нижнего списка (интерактивная)
 
-**Что меняем:**
-- В методах перестроения списков использовать `Freeze()`/`Thaw()` для предотвращения мерцания.
-- Убедиться, что `SortItems` вызывается только после завершения вставки.
+1. В `ManualMappingDialog.h` добавить:
+   ```cpp
+   int m_sortColumn = 1;     // по умолчанию колонка "Имя канала"
+   bool m_sortAscending = true;
+   void ApplySortToMappings();
+   void OnColumnClick(wxListEvent &event);
+   static int SortComparator(long item1, long item2, long sortData);
+   ```
 
-**Где изменения:**
-- В `PopulatePlaylistChannels`, `PopulateEpgChannels`, `PopulateMappings`, а также в методах фильтрации – добавить `Freeze()`/`Thaw()`.
+2. В конструкторе привязать `wxEVT_LIST_COL_CLICK` к `OnColumnClick`.
 
----
+3. Реализовать `SortComparator` как статический метод (без захвата `this`) с проверкой колонок.
 
-### Шаг 7. Чистота кода
+4. Реализовать `ApplySortToMappings()`, вызывающий `SortItems(SortComparator, (long)this)`.
 
-**Что меняем:**
-- Удалить старый код с `GetMappingEntry` и `IsIgnored` из `PopulateMappings`.
-- Вынести компараторы для `SortItems` в отдельные статические методы или лямбды.
-- Убедиться, что все методы используют единообразно новые данные и не обращаются к БД в циклах.
+5. В конце `PopulateMappings()` после заполнения вызвать `ApplySortToMappings()` (сортировка по умолчанию).
 
-**Где изменения:**
-- `src/epg/ManualMappingDialog.cpp` – удалить лишнее, вынести компараторы.
-
----
-
-Это полный план, основанный на существующем коде. Если нужно уточнить детали по какому-либо шагу – спрашивайте.
-
-## Шаг 1. Добавление структуры `MappingEntry` в `EPGData.h`
-
-**Файл:** `src/epg/EPGData.h`
-
-**Место:** после определения `struct EpgSource` и перед `namespace EpgTime`.
-
-**Добавить:**
-```cpp
-struct MappingEntry {
-    std::string epgId;
-    bool isManual = false;
-    bool ignored = false;
-};
-```
+**Проверка:**  
+Открыть диалог – нижний список отсортирован по имени канала. Кликнуть на любой заголовок – сортировка должна меняться.
 
 ---
 
-## Шаг 2. Добавление метода `GetAllMappings` в `EPGDatabase`
+## Этап 3: Поиск в списках
 
-### 2.1. Заголовочный файл `src/epg/EPGDatabase.h`
+**Цель:** добавить мгновенный поиск над каждым списком.
 
-**Место:** в секцию `public`, например, после объявления `GetMappingEntry`.
+### 3.1. Добавление элементов управления
 
-**Добавить:**
-```cpp
-bool GetAllMappings(const std::string &playlistId,
-                    std::unordered_map<std::string, MappingEntry> &out);
-```
+1. В `ManualMappingDialog.h` добавить:
+   ```cpp
+   wxSearchCtrl *m_searchPlaylist;
+   wxSearchCtrl *m_searchEpg;
+   wxSearchCtrl *m_searchMappings;
+   
+   std::vector<Channel> m_allPlaylistChannels;
+   std::vector<std::pair<std::string, std::string>> m_allEpgChannels;
+   struct MappingRow { wxString tvgId, channelName, epgId, epgName, status, key; };
+   std::vector<MappingRow> m_allMappingRows;
+   
+   void ApplyFilterAndSortPlaylist();
+   void ApplyFilterAndSortEpg();
+   void ApplyFilterAndSortMappings();
+   void OnSearchPlaylist(wxCommandEvent &);
+   void OnSearchEpg(wxCommandEvent &);
+   void OnSearchMappings(wxCommandEvent &);
+   ```
 
-**Убедиться, что** в начале файла уже есть `#include <unordered_map>` – он там есть.
+2. В конструкторе создать `wxSearchCtrl` над каждым списком (использовать `Insert(0, ...)` в соответствующих `wxStaticBoxSizer`).
 
----
+3. Привязать `wxEVT_TEXT` к соответствующим обработчикам.
 
-### 2.2. Реализация в `src/epg/EPGDatabase.cpp`
+### 3.2. Хранилища и методы фильтрации
 
-**Место:** после реализации метода `GetMappingEntry` (или в конце блока методов работы с маппингами).
+1. `PopulatePlaylistChannels()`: сохранять копию всех каналов в `m_allPlaylistChannels`, затем вызывать `ApplyFilterAndSortPlaylist()`.
 
-**Добавить:**
-```cpp
-bool EPGDatabase::GetAllMappings(const std::string &playlistId,
-                                  std::unordered_map<std::string, MappingEntry> &out) {
-    std::lock_guard<std::recursive_mutex> lock(m_mutex);
-    if (!m_isOpen) return false;
+2. `PopulateEpgChannels()`: аналогично – сохранять в `m_allEpgChannels`, затем вызывать `ApplyFilterAndSortEpg()`.
 
-    try {
-        Statement stmt = m_db.PrepareStatement(
-            "SELECT key, channel_id, is_manual, ignored FROM playlist_mappings WHERE playlist_id = ?");
-        StatementGuard guard(stmt);
-        stmt.Bind(1, wxString::FromUTF8(playlistId));
-        ResultSet rs = stmt.ExecuteQuery();
-        while (rs.NextRow()) {
-            std::string key = wx_to_std(rs.GetString(0));
-            MappingEntry entry;
-            entry.epgId = wx_to_std(rs.GetString(1));
-            entry.isManual = rs.GetInt(2) != 0;
-            entry.ignored = rs.GetInt(3) != 0;
-            out[key] = std::move(entry);
-        }
-        return true;
-    } catch (wxSQLite3::Exception &e) {
-        LOG_ERROR("EPGDatabase::GetAllMappings exception: %s", e.GetMessage().ToUTF8().data());
-        return false;
-    }
-}
-```
+3. `PopulateMappings()`: вместо прямой вставки заполнять `m_allMappingRows` (вектор структур), затем вызывать `ApplyFilterAndSortMappings()`.
 
----
+4. В `ApplyFilterAndSortPlaylist()`: очищать список, проходить по `m_allPlaylistChannels`, применять фильтр (поиск по имени), вставлять отфильтрованные строки, затем применять сортировку (если нужна) – но сортировка уже есть в верхних списках, поэтому достаточно просто вставлять в отсортированном порядке.
 
-## Шаг 3. Добавление обёртки в `EPGManager`
+5. Аналогично для EPG и маппингов. Для маппингов в `ApplyFilterAndSortMappings()` после вставки вызывать `ApplySortToMappings()`.
 
-### 3.1. Заголовочный файл `src/epg/EPGManager.h`
+### 3.3. Обновление при изменении маппингов
 
-**Место:** в секцию `public`, например, после объявления `GetMappingEntry` (строка ~110).
+- В обработчиках (`OnAddMapping`, `OnRemoveMapping`, `OnIgnore`, `OnUnignore`) после изменения данных вызывать `PopulateMappings()`, которая перестроит хранилище и применит фильтр и сортировку.
 
-**Добавить:**
-```cpp
-std::unordered_map<std::string, MappingEntry> GetAllMappingsForPlaylist(const std::string &playlistId);
-```
+**Проверка:**  
+Открыть диалог. Ввести текст в любое поле поиска – соответствующий список должен мгновенно фильтроваться. Очистить поле – список должен вернуться к полному набору.
 
 ---
 
-### 3.2. Реализация в `src/epg/EPGManager.cpp`
-
-**Место:** после метода `GetMappingEntry` (или в конце блока "Управление mapping по плейлистам").
-
-**Добавить:**
-```cpp
-std::unordered_map<std::string, MappingEntry> EPGManager::GetAllMappingsForPlaylist(const std::string &playlistId) {
-    std::unordered_map<std::string, MappingEntry> result;
-    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-    if (m_db && m_db->IsOpen()) {
-        m_db->GetAllMappings(playlistId, result);
-    }
-    return result;
-}
-```
-
----
-
-## Шаг 4. Переписываем `PopulateMappings()` в `ManualMappingDialog`
-
-**Файл:** `src/epg/ManualMappingDialog.cpp`
-
-**Метод:** `void ManualMappingDialog::PopulateMappings()`
-
-**Полностью заменить на:**
-```cpp
-void ManualMappingDialog::PopulateMappings() {
-    m_mappingList->DeleteAllItems();
-    if (!m_epgMgr || !m_mainFrame) return;
-
-    std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
-    if (playlistId.empty()) return;
-
-    // Получаем все маппинги одним запросом
-    auto allMappings = m_epgMgr->GetAllMappingsForPlaylist(playlistId);
-
-    auto channels = m_mainFrame->GetCurrentChannels();
-    long idx = 0;
-    for (const auto &ch : channels) {
-        std::string tvgId = ch.getTvgId();
-        std::string name = ch.getName();
-        if (tvgId.empty() && name.empty()) continue;
-
-        std::string epgId;
-        bool isManual = false;
-        bool ignored = false;
-        std::string usedKey;
-
-        // Проверяем по tvgId
-        if (!tvgId.empty()) {
-            auto it = allMappings.find(tvgId);
-            if (it != allMappings.end()) {
-                epgId = it->second.epgId;
-                isManual = it->second.isManual;
-                ignored = it->second.ignored;
-                usedKey = tvgId;
-            }
-        }
-        // Если не нашли, проверяем по нормализованному имени
-        if (epgId.empty() && !name.empty()) {
-            std::string normKey = "name:" + m_epgMgr->NormalizeName(name);
-            auto it = allMappings.find(normKey);
-            if (it != allMappings.end()) {
-                epgId = it->second.epgId;
-                isManual = it->second.isManual;
-                ignored = it->second.ignored;
-                usedKey = normKey;
-            }
-        }
-        // Если не нашли, проверяем по сырому имени (для обратной совместимости)
-        if (epgId.empty() && !name.empty()) {
-            std::string rawKey = "name:" + name;
-            auto it = allMappings.find(rawKey);
-            if (it != allMappings.end()) {
-                epgId = it->second.epgId;
-                isManual = it->second.isManual;
-                ignored = it->second.ignored;
-                usedKey = rawKey;
-            }
-        }
-
-        if (epgId.empty()) continue;
-
-        wxString status;
-        if (isManual) {
-            status = "Manual";
-        } else {
-            status = ignored ? "Ignored" : "Auto";
-        }
-
-        wxString tvgIdWx = wxString::FromUTF8(tvgId);
-        wxString chNameWx = wxString::FromUTF8(name);
-        wxString epgIdWx = wxString::FromUTF8(epgId);
-        wxString epgNameWx = wxString::FromUTF8(m_epgMgr->GetEpgName(epgId));
-        wxString keyWx = wxString::FromUTF8(usedKey);
-
-        long item = m_mappingList->InsertItem(idx, tvgIdWx);
-        m_mappingList->SetItem(item, 1, chNameWx);
-        m_mappingList->SetItem(item, 2, epgIdWx);
-        m_mappingList->SetItem(item, 3, epgNameWx);
-        m_mappingList->SetItem(item, 4, status);
-        m_mappingList->SetItem(item, 5, keyWx);
-        m_mappingList->SetItemData(item, idx);
-        ++idx;
-    }
-}
-```
-
-**Удалить** старый код, который использовал `GetMappingEntry` и `IsIgnored` в цикле.
-
----
-
-## Шаг 5. Сортировка верхних списков
-
-### 5.1. В `PopulatePlaylistChannels()`
-
-**Файл:** `src/epg/ManualMappingDialog.cpp`
-
-**Найти** реализацию метода и **заменить** его на следующий (добавляем сортировку перед вставкой):
-
-```cpp
-void ManualMappingDialog::PopulatePlaylistChannels() {
-    m_playlistList->DeleteAllItems();
-    if (!m_mainFrame) return;
-
-    auto channels = m_mainFrame->GetCurrentChannels();
-    // Сортируем по имени (регистронезависимо)
-    std::sort(channels.begin(), channels.end(),
-              [](const Channel &a, const Channel &b) {
-                  return wxStricmp(wxString::FromUTF8(a.getName()),
-                                   wxString::FromUTF8(b.getName())) < 0;
-              });
-
-    long idx = 0;
-    for (const auto &ch : channels) {
-        wxString name = wxString::FromUTF8(ch.getName());
-        wxString tvgId = wxString::FromUTF8(ch.getTvgId());
-        long item = m_playlistList->InsertItem(idx, name);
-        m_playlistList->SetItem(item, 1, tvgId);
-        m_playlistList->SetItemData(item, idx);
-        ++idx;
-    }
-}
-```
-
-### 5.2. В `PopulateEpgChannels()`
-
-**Файл:** `src/epg/ManualMappingDialog.cpp`
-
-**Заменить** метод на:
-
-```cpp
-void ManualMappingDialog::PopulateEpgChannels() {
-    m_epgList->DeleteAllItems();
-    if (!m_epgMgr) return;
-
-    auto epgChannels = m_epgMgr->GetAllEpgChannels();
-    // Сортируем по display_name (регистронезависимо)
-    std::sort(epgChannels.begin(), epgChannels.end(),
-              [](const std::pair<std::string, std::string> &a,
-                 const std::pair<std::string, std::string> &b) {
-                  return wxStricmp(wxString::FromUTF8(a.second),
-                                   wxString::FromUTF8(b.second)) < 0;
-              });
-
-    long idx = 0;
-    for (const auto &pair : epgChannels) {
-        wxString id = wxString::FromUTF8(pair.first);
-        wxString name = wxString::FromUTF8(pair.second);
-        long item = m_epgList->InsertItem(idx, id);
-        m_epgList->SetItem(item, 1, name);
-        m_epgList->SetItemData(item, idx);
-        ++idx;
-    }
-}
-```
-
----
-
-## Шаг 6. Сортировка нижнего списка (интерактивная)
-
-### 6.1. Добавить переменные в `ManualMappingDialog.h`
-
-**Файл:** `src/epg/ManualMappingDialog.h`
-
-**В секцию `private` добавить:**
-```cpp
-int m_sortColumn = 1;
-bool m_sortAscending = true;
-void ApplySortToMappings();
-void OnColumnClick(wxListEvent &event);
-```
-
-### 6.2. Реализовать методы в `ManualMappingDialog.cpp`
-
-**Добавить** в конец файла (или в секцию реализации):
-
-```cpp
-void ManualMappingDialog::ApplySortToMappings() {
-    if (!m_mappingList || m_mappingList->GetItemCount() == 0) return;
-    m_mappingList->SortItems(
-        [this](long item1, long item2, long sortData) -> int {
-            int col = m_sortColumn;
-            wxString text1 = m_mappingList->GetItemText(item1, col);
-            wxString text2 = m_mappingList->GetItemText(item2, col);
-            int cmp = wxStricmp(text1, text2);
-            if (!m_sortAscending) cmp = -cmp;
-            return cmp;
-        }, 0);
-}
-
-void ManualMappingDialog::OnColumnClick(wxListEvent &event) {
-    int col = event.GetColumn();
-    if (col == m_sortColumn) {
-        m_sortAscending = !m_sortAscending;
-    } else {
-        m_sortColumn = col;
-        m_sortAscending = true;
-    }
-    ApplySortToMappings();
-}
-```
-
-### 6.3. Привязка события в конструкторе
-
-**В конструкторе** (после создания `m_mappingList`) добавить:
-```cpp
-m_mappingList->Bind(wxEVT_LIST_COL_CLICK, &ManualMappingDialog::OnColumnClick, this);
-```
-
-### 6.4. Применение сортировки после заполнения
-
-**В конце метода `PopulateMappings()`** (после цикла вставки) добавить:
-```cpp
-ApplySortToMappings();
-```
-
----
-
-## Шаг 7. Поиск в списках
-
-### 7.1. Добавить элементы управления и данные в `ManualMappingDialog.h`
-
-**В секцию `private` добавить:**
-```cpp
-// Поля поиска
-wxSearchCtrl *m_searchPlaylist;
-wxSearchCtrl *m_searchEpg;
-wxSearchCtrl *m_searchMappings;
-
-// Хранилища полных данных
-std::vector<Channel> m_allPlaylistChannels;
-std::vector<std::pair<std::string, std::string>> m_allEpgChannels;
-
-struct MappingRow {
-    wxString tvgId;
-    wxString channelName;
-    wxString epgId;
-    wxString epgName;
-    wxString status;
-    wxString key;
-};
-std::vector<MappingRow> m_allMappingRows;
-
-// Методы фильтрации и обработчики
-void ApplyFilterAndSortPlaylist();
-void ApplyFilterAndSortEpg();
-void ApplyFilterAndSortMappings();
-void OnSearchPlaylist(wxCommandEvent &event);
-void OnSearchEpg(wxCommandEvent &event);
-void OnSearchMappings(wxCommandEvent &event);
-```
-
-### 7.2. Создание `wxSearchCtrl` в конструкторе
-
-**В конструкторе**, после создания списков, добавить создание и размещение полей поиска. Например, над каждым списком:
-
-```cpp
-// Над списком плейлиста
-m_searchPlaylist = new wxSearchCtrl(leftBox, wxID_ANY, wxEmptyString,
-                                    wxDefaultPosition, wxDefaultSize,
-                                    wxTE_PROCESS_ENTER);
-m_searchPlaylist->ShowSearchButton(true);
-m_searchPlaylist->ShowCancelButton(true);
-m_searchPlaylist->SetDescriptiveText(_("Search playlist..."));
-leftSizer->Insert(0, m_searchPlaylist, 0, wxEXPAND | wxBOTTOM, FromDIP(5));
-
-// Над списком EPG
-m_searchEpg = new wxSearchCtrl(rightBox, wxID_ANY, wxEmptyString,
-                               wxDefaultPosition, wxDefaultSize,
-                               wxTE_PROCESS_ENTER);
-m_searchEpg->ShowSearchButton(true);
-m_searchEpg->ShowCancelButton(true);
-m_searchEpg->SetDescriptiveText(_("Search EPG..."));
-rightSizer->Insert(0, m_searchEpg, 0, wxEXPAND | wxBOTTOM, FromDIP(5));
-
-// Над списком маппингов
-m_searchMappings = new wxSearchCtrl(mapBox, wxID_ANY, wxEmptyString,
-                                    wxDefaultPosition, wxDefaultSize,
-                                    wxTE_PROCESS_ENTER);
-m_searchMappings->ShowSearchButton(true);
-m_searchMappings->ShowCancelButton(true);
-m_searchMappings->SetDescriptiveText(_("Search mappings..."));
-mapSizer->Insert(0, m_searchMappings, 0, wxEXPAND | wxBOTTOM, FromDIP(5));
-```
-
-### 7.3. Привязка событий
-
-В конструкторе добавить:
-```cpp
-m_searchPlaylist->Bind(wxEVT_TEXT, &ManualMappingDialog::OnSearchPlaylist, this);
-m_searchEpg->Bind(wxEVT_TEXT, &ManualMappingDialog::OnSearchEpg, this);
-m_searchMappings->Bind(wxEVT_TEXT, &ManualMappingDialog::OnSearchMappings, this);
-```
-
-### 7.4. Реализация методов фильтрации
-
-**Добавить** в `ManualMappingDialog.cpp`:
-
-```cpp
-void ManualMappingDialog::ApplyFilterAndSortPlaylist() {
-    m_playlistList->Freeze();
-    m_playlistList->DeleteAllItems();
-    wxString filter = m_searchPlaylist->GetValue().Lower();
-    long idx = 0;
-    for (const auto &ch : m_allPlaylistChannels) {
-        wxString name = wxString::FromUTF8(ch.getName());
-        if (!filter.IsEmpty() && !name.Lower().Contains(filter)) continue;
-        wxString tvgId = wxString::FromUTF8(ch.getTvgId());
-        long item = m_playlistList->InsertItem(idx, name);
-        m_playlistList->SetItem(item, 1, tvgId);
-        m_playlistList->SetItemData(item, idx);
-        ++idx;
-    }
-    m_playlistList->Thaw();
-}
-
-void ManualMappingDialog::ApplyFilterAndSortEpg() {
-    m_epgList->Freeze();
-    m_epgList->DeleteAllItems();
-    wxString filter = m_searchEpg->GetValue().Lower();
-    long idx = 0;
-    for (const auto &pair : m_allEpgChannels) {
-        wxString name = wxString::FromUTF8(pair.second);
-        if (!filter.IsEmpty() && !name.Lower().Contains(filter)) continue;
-        wxString id = wxString::FromUTF8(pair.first);
-        long item = m_epgList->InsertItem(idx, id);
-        m_epgList->SetItem(item, 1, name);
-        m_epgList->SetItemData(item, idx);
-        ++idx;
-    }
-    m_epgList->Thaw();
-}
-
-void ManualMappingDialog::ApplyFilterAndSortMappings() {
-    m_mappingList->Freeze();
-    m_mappingList->DeleteAllItems();
-    wxString filter = m_searchMappings->GetValue().Lower();
-    long idx = 0;
-    for (const auto &row : m_allMappingRows) {
-        if (!filter.IsEmpty() && !row.channelName.Lower().Contains(filter)) continue;
-        long item = m_mappingList->InsertItem(idx, row.tvgId);
-        m_mappingList->SetItem(item, 1, row.channelName);
-        m_mappingList->SetItem(item, 2, row.epgId);
-        m_mappingList->SetItem(item, 3, row.epgName);
-        m_mappingList->SetItem(item, 4, row.status);
-        m_mappingList->SetItem(item, 5, row.key);
-        m_mappingList->SetItemData(item, idx);
-        ++idx;
-    }
-    m_mappingList->Thaw();
-    ApplySortToMappings();
-}
-
-void ManualMappingDialog::OnSearchPlaylist(wxCommandEvent &) {
-    ApplyFilterAndSortPlaylist();
-}
-
-void ManualMappingDialog::OnSearchEpg(wxCommandEvent &) {
-    ApplyFilterAndSortEpg();
-}
-
-void ManualMappingDialog::OnSearchMappings(wxCommandEvent &) {
-    ApplyFilterAndSortMappings();
-}
-```
-
-### 7.5. Заполнение хранилищ в методах заполнения
-
-**В `PopulatePlaylistChannels()`** после получения `channels` сохранить в `m_allPlaylistChannels` и вызвать `ApplyFilterAndSortPlaylist()` вместо прямой вставки.
-
-**В `PopulateEpgChannels()`** аналогично.
-
-**В `PopulateMappings()`** после получения данных заполнить `m_allMappingRows` (вместо прямой вставки), затем вызвать `ApplyFilterAndSortMappings()`.
-
-Пример для `PopulatePlaylistChannels` (полностью):
-
-```cpp
-void ManualMappingDialog::PopulatePlaylistChannels() {
-    if (!m_mainFrame) return;
-    m_allPlaylistChannels = m_mainFrame->GetCurrentChannels();
-    // Сортируем полный список
-    std::sort(m_allPlaylistChannels.begin(), m_allPlaylistChannels.end(),
-              [](const Channel &a, const Channel &b) {
-                  return wxStricmp(wxString::FromUTF8(a.getName()),
-                                   wxString::FromUTF8(b.getName())) < 0;
-              });
-    ApplyFilterAndSortPlaylist();
-}
-```
-
-Аналогично для EPG и маппингов. Для маппингов в `PopulateMappings` заполняем `m_allMappingRows` вектором структур, затем вызываем `ApplyFilterAndSortMappings()`.
-
----
-
-## Шаг 8. Добавление `Freeze`/`Thaw` в остальные методы
-
-Убедиться, что все методы, которые изменяют содержимое списков, используют `Freeze()`/`Thaw()`. В `ApplyFilterAndSort*` уже добавлено. В `PopulateMappings` при заполнении `m_allMappingRows` не нужно, но при вызове `ApplyFilterAndSortMappings` – будет.
-
----
-
-## Шаг 9. Удаление старого кода и чистка
-
-- Удалить из `PopulateMappings` старые вызовы `GetMappingEntry` и `IsIgnored`.
-- Удалить из заголовка `ManualMappingDialog.h` объявления, которые больше не используются (если есть).
-- Убедиться, что все инклуды для `wxSearchCtrl` и `wx/srchctrl.h` добавлены в `ManualMappingDialog.cpp` (или в заголовок). Добавить `#include <wx/srchctrl.h>`.
-
----
-
-Это полный пошаговый план с кодом. Все изменения учтены. Приступайте к реализации.
-
+## Итоговые замечания
+
+- Каждый этап независим и может быть протестирован отдельно.
+- После завершения всех этапов диалог будет быстрым (один запрос к БД) и удобным (сортировка, поиск).
+- Все изменения локализованы в `ManualMappingDialog`, `EPGDatabase`, `EPGManager` и не затрагивают остальной код.
 ========================================
 Логические моменты
 SetManualMapping: при установке ручного маппинга ты сначала удаляешь любую существующую запись 

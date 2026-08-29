@@ -525,6 +525,16 @@ bool EPGManager::GetMappingEntry(const std::string &playlistId,
   return m_db->GetMappingEntry(playlistId, key, channelId, isManual);
 }
 
+std::unordered_map<std::string, MappingEntry>
+EPGManager::GetAllMappingsForPlaylist(const std::string &playlistId) {
+  std::unordered_map<std::string, MappingEntry> result;
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (m_db && m_db->IsOpen()) {
+    m_db->GetAllMappings(playlistId, result);
+  }
+  return result;
+}
+
 // --------------------------------------------------------------------------
 // Управление БД
 // --------------------------------------------------------------------------

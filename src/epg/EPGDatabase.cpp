@@ -770,6 +770,36 @@ bool EPGDatabase::GetMappingEntry(const std::string &playlistId,
   }
 }
 
+bool EPGDatabase::GetAllMappings(
+    const std::string &playlistId,
+    std::unordered_map<std::string, MappingEntry> &out) {
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  if (!m_isOpen)
+    return false;
+
+  try {
+    Statement stmt =
+        m_db.PrepareStatement("SELECT key, channel_id, is_manual, ignored FROM "
+                              "playlist_mappings WHERE playlist_id = ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, wxString::FromUTF8(playlistId));
+    ResultSet rs = stmt.ExecuteQuery();
+    while (rs.NextRow()) {
+      std::string key = wx_to_std(rs.GetString(0));
+      MappingEntry entry;
+      entry.epgId = wx_to_std(rs.GetString(1));
+      entry.isManual = rs.GetInt(2) != 0;
+      entry.ignored = rs.GetInt(3) != 0;
+      out[key] = std::move(entry);
+    }
+    return true;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::GetAllMappings exception: %s",
+              e.GetMessage().ToUTF8().data());
+    return false;
+  }
+}
+
 bool EPGDatabase::DeletePlaylistMapping(const std::string &playlistId) {
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
   if (!m_isOpen)

@@ -38,6 +38,12 @@ struct EpgSource {
   bool autoUpdate = false;
 };
 
+struct MappingEntry {
+  std::string epgId;
+  bool isManual = false;
+  bool ignored = false;
+};
+
 namespace EpgTime {
 time_t ParseXmltvTime(const std::string &timeStr);
 time_t GetStartOfDay(time_t date);

@@ -166,7 +166,9 @@ public:
   std::string GetEpgName(const std::string &epgId) const;
   bool GetMappingEntry(const std::string &playlistId, const std::string &key,
                        std::string &channelId, bool &isManual);
-
+  std::unordered_map<std::string, MappingEntry>
+  GetAllMappingsForPlaylist(const std::string &playlistId);
+  
   // Колбэк прогресса
   using ProgressCallback = std::function<void(const EpgProgressInfo &)>;
   void SetOnProgress(ProgressCallback callback);

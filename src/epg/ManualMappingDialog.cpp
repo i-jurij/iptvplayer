@@ -235,7 +235,6 @@ void ManualMappingDialog::PopulateEpgChannels() {
 }
 
 void ManualMappingDialog::PopulateMappings() {
-  m_mappingList->DeleteAllItems();
   if (!m_epgMgr || !m_mainFrame)
     return;
 
@@ -243,7 +242,11 @@ void ManualMappingDialog::PopulateMappings() {
   if (playlistId.empty())
     return;
 
+  // Получаем все маппинги одним запросом
+  auto allMappings = m_epgMgr->GetAllMappingsForPlaylist(playlistId);
+
   auto channels = m_mainFrame->GetCurrentChannels();
+  m_mappingList->DeleteAllItems();
   long idx = 0;
   for (const auto &ch : channels) {
     std::string tvgId = ch.getTvgId();
@@ -253,20 +256,40 @@ void ManualMappingDialog::PopulateMappings() {
 
     std::string epgId;
     bool isManual = false;
+    bool ignored = false;
     std::string usedKey;
 
-    if (!tvgId.empty() &&
-        m_epgMgr->GetMappingEntry(playlistId, tvgId, epgId, isManual)) {
-      usedKey = tvgId;
-    } else if (!name.empty() &&
-               m_epgMgr->GetMappingEntry(
-                   playlistId, "name:" + m_epgMgr->NormalizeName(name), epgId,
-                   isManual)) {
-      usedKey = "name:" + m_epgMgr->NormalizeName(name);
-    } else if (!name.empty() &&
-               m_epgMgr->GetMappingEntry(playlistId, "name:" + name, epgId,
-                                         isManual)) {
-      usedKey = "name:" + name;
+    // Проверяем по tvgId
+    if (!tvgId.empty()) {
+      auto it = allMappings.find(tvgId);
+      if (it != allMappings.end()) {
+        epgId = it->second.epgId;
+        isManual = it->second.isManual;
+        ignored = it->second.ignored;
+        usedKey = tvgId;
+      }
+    }
+    // Если не нашли, проверяем по нормализованному имени
+    if (epgId.empty() && !name.empty()) {
+      std::string normKey = "name:" + m_epgMgr->NormalizeName(name);
+      auto it = allMappings.find(normKey);
+      if (it != allMappings.end()) {
+        epgId = it->second.epgId;
+        isManual = it->second.isManual;
+        ignored = it->second.ignored;
+        usedKey = normKey;
+      }
+    }
+    // Если не нашли, проверяем по сырому имени (для обратной совместимости)
+    if (epgId.empty() && !name.empty()) {
+      std::string rawKey = "name:" + name;
+      auto it = allMappings.find(rawKey);
+      if (it != allMappings.end()) {
+        epgId = it->second.epgId;
+        isManual = it->second.isManual;
+        ignored = it->second.ignored;
+        usedKey = rawKey;
+      }
     }
 
     if (epgId.empty())
@@ -276,7 +299,6 @@ void ManualMappingDialog::PopulateMappings() {
     if (isManual) {
       status = "Manual";
     } else {
-      bool ignored = m_epgMgr->IsIgnored(playlistId, usedKey);
       status = ignored ? "Ignored" : "Auto";
     }
 

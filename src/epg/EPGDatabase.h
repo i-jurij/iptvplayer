@@ -96,6 +96,8 @@ public:
 
   bool GetMappingEntry(const std::string &playlistId, const std::string &key,
                        std::string &channelId, bool &isManual);
+  bool GetAllMappings(const std::string &playlistId,
+                      std::unordered_map<std::string, MappingEntry> &out);
 
   bool DeletePlaylistMapping(const std::string &playlistId);
   std::string GetEpgChannelsHash();
