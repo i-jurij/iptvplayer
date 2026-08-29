@@ -333,6 +333,9 @@ private:
                             const std::vector<std::string> &suffixes,
                             std::string &outSuffix) const;
   std::string CleanPunctuation(const std::string &str) const;
+
+  std::string NormalizeAliasKey(const std::string &name) const;
+  MatchResult MatchByAlias(const std::string &playlistName) const;
 };
 
 #endif

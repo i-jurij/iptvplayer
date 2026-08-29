@@ -33,160 +33,174 @@
 #include <regex>
 #include <unordered_set>
 
-// --------------------------------------------------------------------------
-// Вспомогательные статические функции
-// --------------------------------------------------------------------------
-static bool IsValidXmltv(const std::string &data) {
-  if (data.empty())
-    return false;
-  std::string lower = data;
-  std::transform(
-      lower.begin(), lower.end(), lower.begin(),
-      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-  if (lower.find("<!doctype html") != std::string::npos ||
-      lower.find("<html") != std::string::npos) {
-    LOG_ERROR("IsValidXmltv: Data appears to be HTML (not XMLTV)");
-    return false;
+namespace {
+  // Сжатие множественных пробелов и удаление ведущих/завершающих пробелов
+  static void TrimAndCollapseSpaces(std::string &s) {
+    s = std::regex_replace(s, std::regex("\\s+"), " ");
+    s = std::regex_replace(s, std::regex("^\\s+|\\s+$"), "");
   }
-  return lower.find("<?xml") != std::string::npos ||
-         lower.find("<tv") != std::string::npos;
-}
 
-static bool DecompressIfNeeded(std::string &data) {
-  // GZIP
-  if (data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1F &&
-      static_cast<unsigned char>(data[1]) == 0x8B) {
-    std::vector<unsigned char> inbuf(data.begin(), data.end());
-    z_stream zs;
-    memset(&zs, 0, sizeof(zs));
-    if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
-      LOG_ERROR("DecompressIfNeeded: inflateInit2 failed");
+  // Удаление суффикса качества (число+p/i в скобках) в конце строки
+  static std::string RemoveQualityNumericSuffix(const std::string &s) {
+    static std::regex pattern(R"(\s*\(\s*\d+[pi]\s*\)\s*$)");
+    return std::regex_replace(s, pattern, "");
+  }
+
+  // --------------------------------------------------------------------------
+  // Вспомогательные статические функции
+  // --------------------------------------------------------------------------
+  static bool IsValidXmltv(const std::string &data) {
+    if (data.empty())
+      return false;
+    std::string lower = data;
+    std::transform(
+        lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (lower.find("<!doctype html") != std::string::npos ||
+        lower.find("<html") != std::string::npos) {
+      LOG_ERROR("IsValidXmltv: Data appears to be HTML (not XMLTV)");
       return false;
     }
-    zs.next_in = inbuf.data();
-    zs.avail_in = inbuf.size();
+    return lower.find("<?xml") != std::string::npos ||
+          lower.find("<tv") != std::string::npos;
+  }
 
-    std::string out;
-    char buf[16384];
-    int ret;
-    do {
-      zs.next_out = reinterpret_cast<Bytef *>(buf);
-      zs.avail_out = sizeof(buf);
-      ret = inflate(&zs, Z_NO_FLUSH);
-      if (ret != Z_OK && ret != Z_STREAM_END) {
-        inflateEnd(&zs);
-        LOG_ERROR("DecompressIfNeeded: inflate error %d", ret);
+  static bool DecompressIfNeeded(std::string &data) {
+    // GZIP
+    if (data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1F &&
+        static_cast<unsigned char>(data[1]) == 0x8B) {
+      std::vector<unsigned char> inbuf(data.begin(), data.end());
+      z_stream zs;
+      memset(&zs, 0, sizeof(zs));
+      if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
+        LOG_ERROR("DecompressIfNeeded: inflateInit2 failed");
         return false;
       }
-      out.append(buf, sizeof(buf) - zs.avail_out);
-    } while (ret != Z_STREAM_END);
-    inflateEnd(&zs);
+      zs.next_in = inbuf.data();
+      zs.avail_in = inbuf.size();
 
-    if (out.size() > 1024 * 1024 * 1024) {
-      LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
-      return false;
-    }
-    if (out.empty()) {
-      LOG_ERROR("DecompressIfNeeded: decompressed GZIP data is empty");
-      return false;
-    }
-    if (!IsValidXmltv(out)) {
-      LOG_ERROR("DecompressIfNeeded: decompressed gzip is not valid XMLTV");
-      return false;
-    }
-    data.swap(out);
-    return true;
-  }
+      std::string out;
+      char buf[16384];
+      int ret;
+      do {
+        zs.next_out = reinterpret_cast<Bytef *>(buf);
+        zs.avail_out = sizeof(buf);
+        ret = inflate(&zs, Z_NO_FLUSH);
+        if (ret != Z_OK && ret != Z_STREAM_END) {
+          inflateEnd(&zs);
+          LOG_ERROR("DecompressIfNeeded: inflate error %d", ret);
+          return false;
+        }
+        out.append(buf, sizeof(buf) - zs.avail_out);
+      } while (ret != Z_STREAM_END);
+      inflateEnd(&zs);
 
-  // ZIP
-  if (data.size() >= 4 && static_cast<unsigned char>(data[0]) == 0x50 &&
-      static_cast<unsigned char>(data[1]) == 0x4B &&
-      static_cast<unsigned char>(data[2]) == 0x03 &&
-      static_cast<unsigned char>(data[3]) == 0x04) {
-    wxMemoryInputStream memIn(data.data(), data.size());
-    wxZipInputStream zipIn(memIn);
-    if (!zipIn.IsOk()) {
-      LOG_ERROR("DecompressIfNeeded: wxZipInputStream not OK");
-      return false;
+      if (out.size() > 1024 * 1024 * 1024) {
+        LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
+        return false;
+      }
+      if (out.empty()) {
+        LOG_ERROR("DecompressIfNeeded: decompressed GZIP data is empty");
+        return false;
+      }
+      if (!IsValidXmltv(out)) {
+        LOG_ERROR("DecompressIfNeeded: decompressed gzip is not valid XMLTV");
+        return false;
+      }
+      data.swap(out);
+      return true;
     }
 
-    std::string extracted;
-    bool foundXml = false;
-    std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
-    while (entry) {
-      if (!entry->IsDir()) {
-        wxString name = entry->GetName();
-        bool isXml = name.EndsWith(".xml") || name.EndsWith(".XML") ||
-                     name.EndsWith(".xml.gz") || name.EndsWith(".XML.GZ");
-        if (isXml) {
-          wxMemoryOutputStream memOut;
-          zipIn.Read(memOut);
-          if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
-            LOG_ERROR("DecompressIfNeeded: error reading ZIP entry");
-            return false;
-          }
-          wxStreamBuffer *buf = memOut.GetOutputStreamBuffer();
-          if (buf) {
-            extracted.assign(static_cast<const char *>(buf->GetBufferStart()),
-                             buf->GetBufferSize());
-            foundXml = true;
-            break;
+    // ZIP
+    if (data.size() >= 4 && static_cast<unsigned char>(data[0]) == 0x50 &&
+        static_cast<unsigned char>(data[1]) == 0x4B &&
+        static_cast<unsigned char>(data[2]) == 0x03 &&
+        static_cast<unsigned char>(data[3]) == 0x04) {
+      wxMemoryInputStream memIn(data.data(), data.size());
+      wxZipInputStream zipIn(memIn);
+      if (!zipIn.IsOk()) {
+        LOG_ERROR("DecompressIfNeeded: wxZipInputStream not OK");
+        return false;
+      }
+
+      std::string extracted;
+      bool foundXml = false;
+      std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
+      while (entry) {
+        if (!entry->IsDir()) {
+          wxString name = entry->GetName();
+          bool isXml = name.EndsWith(".xml") || name.EndsWith(".XML") ||
+                      name.EndsWith(".xml.gz") || name.EndsWith(".XML.GZ");
+          if (isXml) {
+            wxMemoryOutputStream memOut;
+            zipIn.Read(memOut);
+            if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
+              LOG_ERROR("DecompressIfNeeded: error reading ZIP entry");
+              return false;
+            }
+            wxStreamBuffer *buf = memOut.GetOutputStreamBuffer();
+            if (buf) {
+              extracted.assign(static_cast<const char *>(buf->GetBufferStart()),
+                              buf->GetBufferSize());
+              foundXml = true;
+              break;
+            }
           }
         }
+        entry.reset(zipIn.GetNextEntry());
       }
-      entry.reset(zipIn.GetNextEntry());
-    }
 
-    if (!foundXml) {
-      wxMemoryInputStream memIn2(data.data(), data.size());
-      wxZipInputStream zipIn2(memIn2);
-      if (zipIn2.IsOk()) {
-        std::unique_ptr<wxZipEntry> entry2(zipIn2.GetNextEntry());
-        while (entry2) {
-          if (!entry2->IsDir()) {
-            wxMemoryOutputStream memOut2;
-            zipIn2.Read(memOut2);
-            if (zipIn2.GetLastError() == wxSTREAM_NO_ERROR) {
-              wxStreamBuffer *buf2 = memOut2.GetOutputStreamBuffer();
-              if (buf2) {
-                extracted.assign(
-                    static_cast<const char *>(buf2->GetBufferStart()),
-                    buf2->GetBufferSize());
-                if (IsValidXmltv(extracted)) {
-                  foundXml = true;
-                  break;
+      if (!foundXml) {
+        wxMemoryInputStream memIn2(data.data(), data.size());
+        wxZipInputStream zipIn2(memIn2);
+        if (zipIn2.IsOk()) {
+          std::unique_ptr<wxZipEntry> entry2(zipIn2.GetNextEntry());
+          while (entry2) {
+            if (!entry2->IsDir()) {
+              wxMemoryOutputStream memOut2;
+              zipIn2.Read(memOut2);
+              if (zipIn2.GetLastError() == wxSTREAM_NO_ERROR) {
+                wxStreamBuffer *buf2 = memOut2.GetOutputStreamBuffer();
+                if (buf2) {
+                  extracted.assign(
+                      static_cast<const char *>(buf2->GetBufferStart()),
+                      buf2->GetBufferSize());
+                  if (IsValidXmltv(extracted)) {
+                    foundXml = true;
+                    break;
+                  }
                 }
               }
             }
+            entry2.reset(zipIn2.GetNextEntry());
           }
-          entry2.reset(zipIn2.GetNextEntry());
         }
       }
+
+      if (!foundXml) {
+        LOG_ERROR("DecompressIfNeeded: ZIP archive does not contain XMLTV file");
+        return false;
+      }
+      if (extracted.empty()) {
+        LOG_ERROR("DecompressIfNeeded: ZIP archive contains no data");
+        return false;
+      }
+      if (extracted.size() > 1024 * 1024 * 1024) {
+        LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 1 GB");
+        return false;
+      }
+      data.swap(extracted);
+      return true;
     }
 
-    if (!foundXml) {
-      LOG_ERROR("DecompressIfNeeded: ZIP archive does not contain XMLTV file");
+    if (!IsValidXmltv(data)) {
+      LOG_ERROR("DecompressIfNeeded: data is not valid XMLTV (no <?xml or <tv)");
       return false;
     }
-    if (extracted.empty()) {
-      LOG_ERROR("DecompressIfNeeded: ZIP archive contains no data");
-      return false;
-    }
-    if (extracted.size() > 1024 * 1024 * 1024) {
-      LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 1 GB");
-      return false;
-    }
-    data.swap(extracted);
     return true;
   }
-
-  if (!IsValidXmltv(data)) {
-    LOG_ERROR("DecompressIfNeeded: data is not valid XMLTV (no <?xml or <tv)");
-    return false;
-  }
-  return true;
-}
+} // namespace
 
 // --------------------------------------------------------------------------
 // Конструктор / Деструктор
@@ -947,10 +961,7 @@ void EPGManager::RebuildAliasIndex() {
   m_aliasIndex.clear();
   std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
   for (const auto &epg : m_normalizedCache) {
-    std::string key = epg.displayName;
-    key = ToLower(key);
-    key = RemoveRatingSuffixes(key);
-    key = CleanPunctuation(key);
+    std::string key = NormalizeAliasKey(epg.displayName);
     if (!key.empty()) {
       m_aliasIndex[key] = epg.id;
     }
@@ -991,47 +1002,13 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   LOG_DEBUG("FindBestMatch: START for channel '%s'", channelName.c_str());
 
   // ========================================================================
-  // ЭТАП 0: Алиас (прямое сопоставление, выполняется ДО любой нормализации)
+  // ЭТАП 0: Алиас
   // ========================================================================
-  std::string rawName = playlistChannel.getName();
-  std::string aliasKey = rawName;
-  aliasKey = ToLower(aliasKey);
-  aliasKey = RemoveRatingSuffixes(aliasKey);
-  aliasKey = CleanPunctuation(aliasKey); 
-  // Удаление суффиксов качества/региона/версии
-  std::string region, quality, version;
-  aliasKey = ExtractSuffix(aliasKey, m_regionalSuffixes, region);
-  aliasKey = ExtractSuffix(aliasKey, m_qualitySuffixes, quality);
-  aliasKey = ExtractSuffix(aliasKey, m_versionSuffixes, version);
-  aliasKey = CleanPunctuation(aliasKey); // повторная очистка
-
-  LOG_DEBUG("FindBestMatch: aliasKey='%s'", aliasKey.c_str());
-
-  auto aliasIt = m_channelAliases.find(aliasKey);
-  if (aliasIt != m_channelAliases.end()) {
-    std::string targetName = aliasIt->second;
-    targetName = ToLower(targetName);
-    targetName = CleanPunctuation(targetName);
-    LOG_DEBUG("FindBestMatch: alias found, targetName='%s'",
-              targetName.c_str());
-
-    std::shared_lock lock(m_tvgIndexMutex);
-    auto indexIt = m_aliasIndex.find(targetName);
-    if (indexIt != m_aliasIndex.end()) {
-      result.channelId = indexIt->second;
-      result.method = "alias";
-      result.score = 100;
-      result.confidence = "high";
-      LOG_DEBUG("FindBestMatch: ALIAS MATCH -> epgId='%s'",
-                result.channelId.c_str());
-      return result;
-    } else {
-      LOG_DEBUG("FindBestMatch: targetName='%s' NOT found in m_aliasIndex",
-                targetName.c_str());
-    }
-  } else {
-    LOG_DEBUG("FindBestMatch: aliasKey='%s' NOT found in m_channelAliases",
-              aliasKey.c_str());
+  MatchResult aliasResult = MatchByAlias(channelName);
+  if (!aliasResult.channelId.empty()) {
+    LOG_DEBUG("FindBestMatch: ALIAS MATCH -> epgId='%s'",
+              aliasResult.channelId.c_str());
+    return aliasResult;
   }
 
   // ========================================================================
@@ -1080,7 +1057,8 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   }
 
   // ========================================================================
-  // ЭТАП 2: Точное совпадение baseName (с учётом региона и версии)
+  // ЭТАП 2: Точное совпадение baseName (с учётом региона и версии, НО БЕЗ
+  // КАЧЕСТВА)
   // ========================================================================
   {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
@@ -1096,6 +1074,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
         if (!playlistNorm.version.empty() && !epg.version.empty() &&
             playlistNorm.version != epg.version)
           versionOk = false;
+        // quality НЕ проверяем – HD и SD считаем одним каналом
         if (regionOk && versionOk) {
           result.channelId = epg.id;
           result.method = "exact_name";
@@ -1111,7 +1090,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   }
 
   // ========================================================================
-  // ЭТАП 3: Фильтрация кандидатов по региону/версии и сбор для нечёткого поиска
+  // ЭТАП 3: Фильтрация кандидатов по региону/версии (БЕЗ КАЧЕСТВА)
   // ========================================================================
   struct Candidate {
     std::string id;
@@ -1135,6 +1114,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       if (!playlistNorm.version.empty() && !epg.version.empty() &&
           playlistNorm.version != epg.version)
         versionOk = false;
+      // quality НЕ проверяем
       if (regionOk && versionOk) {
         Candidate cand;
         cand.id = epg.id;
@@ -1219,7 +1199,8 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   }
 
   // ========================================================================
-  // ЭТАП 6: Jaro‑Winkler и бонусы за качество/регион
+  // ЭТАП 6: Jaro‑Winkler и бонусы за качество/регион (бонусы – только
+  // поощрение)
   // ========================================================================
   for (auto &cand : candidates) {
     if (cand.score == 0)
@@ -1243,6 +1224,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     }
 
     if (cand.score > 0) {
+      // Бонус за совпадение качества (НЕ отсеивает)
       if (!playlistNorm.quality.empty() && !cand.quality.empty() &&
           playlistNorm.quality == cand.quality)
         cand.score += 2;
@@ -1891,8 +1873,8 @@ void EPGManager::LoadChannelAliases() {
           if (it->value.IsString()) {
             std::string key = it->name.GetString();
             std::string value = it->value.GetString();
-            std::transform(key.begin(), key.end(), key.begin(), ::tolower);
-            m_channelAliases[key] = value;
+            std::string normKey = NormalizeAliasKey(key);
+            m_channelAliases[normKey] = value;
           }
         }
       }
@@ -2298,20 +2280,21 @@ bool EPGManager::IsIgnored(const std::string &playlistId,
 }
 
 std::string EPGManager::ToLower(const std::string &str) {
-  std::string result = str;
-  std::transform(
-      result.begin(), result.end(), result.begin(),
-      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return result;
+  wxString wstr = wxString::FromUTF8(str);
+  wstr.MakeLower();
+  return std::string(wstr.utf8_str());
 }
 
+// RemoveRatingSuffixes
 std::string EPGManager::RemoveRatingSuffixes(const std::string &str) {
   std::regex rating_pattern(R"(\(\s*(\d+)\s*\+\s*\))");
   std::string result = std::regex_replace(str, rating_pattern, "");
-  result = std::regex_replace(result, std::regex("\\s+"), " ");
+  TrimAndCollapseSpaces(result);
   return result;
 }
 
+// RemoveStopwords (использует TrimAndCollapseSpaces вместо повторяющегося
+// regex)
 std::string EPGManager::RemoveStopwords(const std::string &str) const {
   std::string result = str;
   for (const auto &sw : m_stopwords) {
@@ -2321,30 +2304,35 @@ std::string EPGManager::RemoveStopwords(const std::string &str) const {
         result.compare(result.length() - pattern1.length(), pattern1.length(),
                        pattern1) == 0) {
       result.erase(result.length() - pattern1.length());
-      result = std::regex_replace(result, std::regex("\\s+"), " ");
+      TrimAndCollapseSpaces(result);
     }
     // В скобках: (стоп-слово)
     std::regex pattern2("\\(" + sw + "\\)");
     result = std::regex_replace(result, pattern2, "");
-    result = std::regex_replace(result, std::regex("\\s+"), " ");
+    TrimAndCollapseSpaces(result);
   }
   return result;
 }
 
+// ExtractSuffix (использует TrimAndCollapseSpaces)
 std::string EPGManager::ExtractSuffix(const std::string &str,
                                       const std::vector<std::string> &suffixes,
                                       std::string &outSuffix) const {
   std::string result = str;
   outSuffix.clear();
+
+  // Обрезаем завершающие пробелы
+  result.erase(result.find_last_not_of(" \t\n\r") + 1);
+
   for (const auto &suf : suffixes) {
     // Ищем " suf" в конце
-    std::string pattern = " " + suf + "$";
+    std::string pattern = " " + suf;
     if (result.length() >= pattern.length() &&
         result.compare(result.length() - pattern.length(), pattern.length(),
                        pattern) == 0) {
       outSuffix = suf;
       result.erase(result.length() - pattern.length());
-      result = std::regex_replace(result, std::regex("\\s+"), " ");
+      TrimAndCollapseSpaces(result);
       break;
     }
     // Ищем "(suf)" в любом месте
@@ -2352,26 +2340,54 @@ std::string EPGManager::ExtractSuffix(const std::string &str,
     if (std::regex_search(result, pattern2)) {
       outSuffix = suf;
       result = std::regex_replace(result, pattern2, "");
-      result = std::regex_replace(result, std::regex("\\s+"), " ");
+      TrimAndCollapseSpaces(result);
       break;
     }
   }
   return result;
 }
 
+// CleanPunctuation
 std::string EPGManager::CleanPunctuation(const std::string &str) const {
   std::string result = str;
-  // Удаляем ведущие и завершающие пробелы
-  result = std::regex_replace(result, std::regex("^\\s+|\\s+$"), "");
-  // Сжимаем множественные пробелы
-  result = std::regex_replace(result, std::regex("\\s+"), " ");
-  // Удаляем пунктуацию, кроме '+'
-  result.erase(std::remove_if(result.begin(), result.end(),
-                              [](char c) {
-                                return std::ispunct(
-                                           static_cast<unsigned char>(c)) &&
-                                       c != '+';
-                              }),
-               result.end());
+  // Удаляем \r\n
+  result.erase(std::remove(result.begin(), result.end(), '\r'), result.end());
+  result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
+  // Заменяем пунктуацию на пробелы, кроме '+'
+  std::transform(result.begin(), result.end(), result.begin(), [](char c) {
+    if (std::ispunct(static_cast<unsigned char>(c)) && c != '+')
+      return ' ';
+    return c;
+  });
+  TrimAndCollapseSpaces(result);
+  return result;
+}
+
+std::string EPGManager::NormalizeAliasKey(const std::string &name) const {
+  std::string result = ToLower(name);
+  result = RemoveQualityNumericSuffix(result);
+  TrimAndCollapseSpaces(result);
+  return result;
+}
+
+EPGManager::MatchResult
+EPGManager::MatchByAlias(const std::string &playlistName) const {
+  MatchResult result;
+  std::string normPlaylist = NormalizeAliasKey(playlistName);
+
+  auto aliasIt = m_channelAliases.find(normPlaylist);
+  if (aliasIt == m_channelAliases.end())
+    return result;
+
+  std::string targetName = aliasIt->second;
+  std::string normTarget = NormalizeAliasKey(targetName);
+
+  auto indexIt = m_aliasIndex.find(normTarget);
+  if (indexIt != m_aliasIndex.end()) {
+    result.channelId = indexIt->second;
+    result.method = "alias";
+    result.score = 100;
+    result.confidence = "high";
+  }
   return result;
 }
