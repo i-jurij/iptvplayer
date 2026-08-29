@@ -61,6 +61,8 @@ class EPGManager : public wxEvtHandler {
 public:
   EPGManager(ConfigManager *configManager, PlaylistManager *playlistManager);
   ~EPGManager();
+  
+  wxString GetConfigDirectory() const;
 
   bool LoadFromFile(const std::string &filePath);
   void SetDbPath(const std::string &path);

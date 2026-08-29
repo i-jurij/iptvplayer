@@ -295,6 +295,12 @@ EPGManager::~EPGManager() {
   }
 }
 
+wxString EPGManager::GetConfigDirectory() const {
+  if (m_configManager)
+    return m_configManager->getConfigDirectory();
+  return wxString();
+}
+
 void EPGManager::EnsureConfigFile(const wxString &filename) {
   if (!m_configManager)
     return;

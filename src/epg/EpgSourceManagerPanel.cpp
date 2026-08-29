@@ -819,59 +819,108 @@ void EpgSourceManagerPanel::OnAboutMatch(wxCommandEvent &) {
         "4. Substring match (if one name contains the other)\n"
         "5. Token-sort (percentage of common words)\n"
         "6. Jaro-Winkler refinement for borderline cases\n\n"
+        "Adjustable parameters (visible below):\n"
+        "  • Fuzzy threshold (50–100) – influences Jaro-Winkler bonus\n"
+        "  • Substring min length – minimum length for substring match\n"
+        "  • Substring ratio – percentage threshold (not used directly, kept "
+        "for compatibility)\n"
+        "  • Min match score – required score (0–100) to accept a match\n\n"
         "Score thresholds:\n"
-        "  - 85+ : High confidence\n"
-        "  - 70+ : Medium confidence\n"
-        "  - 60+ : Low confidence\n\n"
-        "Adjust 'Min match score' to control strictness.\n"
-        "Other thresholds (token_high, jaro_high, etc.) can be tuned "
-        "in matching_rules.json.");
+        "  • 85+ : High confidence\n"
+        "  • 70+ : Medium confidence\n"
+        "  • 60+ : Low confidence\n\n"
+        "For advanced tuning, you can manually edit the configuration files\n"
+        "‘matching_rules.json’ located in the config directory.\n"
+        "The default settings are already optimised – it is strongly "
+        "recommended to use\n"
+        "manual mappings or aliases (in ‘channel_aliases.json’) for specific "
+        "corrections instead of modifying these files.");
   wxMessageBox(msg, _("About EPG Matching"), wxOK | wxICON_INFORMATION, this);
 }
 
 void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
-  wxDialog dlg(this, wxID_ANY, _("Edit Matching Rules"), wxDefaultPosition,
-               wxSize(600, 300), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
-  wxBoxSizer *topSizer = new wxBoxSizer(wxVERTICAL);
-
-  wxString resourceDir = wxStandardPaths::Get().GetResourcesDir();
-  if (resourceDir.IsEmpty()) {
-    resourceDir = wxPathOnly(wxStandardPaths::Get().GetExecutablePath());
+  if (!m_epgMgr) {
+    wxMessageBox(_("EPG Manager not available."), _("Error"),
+                 wxOK | wxICON_ERROR, this);
+    return;
   }
-  wxString rulesPath = resourceDir + "/matching_rules.json";
-  wxString aliasesPath = resourceDir + "/channel_aliases.json";
 
-  wxString info = _("You can edit matching rules in JSON files located in the "
-                    "resources folder.\n\n"
-                    "File: ") +
-                  rulesPath +
-                  _("\n"
-                    "File: ") +
-                  aliasesPath +
-                  _("\n\n"
-                    "After editing, click 'Apply (Match Now)' to re-match "
-                    "channels with new rules.\n\n"
-                    "If files are missing, default built-in rules are used.");
-  wxStaticText *text = new wxStaticText(&dlg, wxID_ANY, info);
-  text->Wrap(560);
-  topSizer->Add(text, 1, wxALL | wxEXPAND, 10);
+  wxString configDir = m_epgMgr->GetConfigDirectory();
+  if (configDir.IsEmpty()) {
+    wxMessageBox(_("Could not determine config directory."), _("Error"),
+                 wxOK | wxICON_ERROR, this);
+    return;
+  }
 
+  wxFileName rulesFile(configDir, "matching_rules.json");
+  wxFileName aliasesFile(configDir, "channel_aliases.json");
+
+  wxString rulesPath = rulesFile.GetFullPath();
+  wxString aliasesPath = aliasesFile.GetFullPath();
+
+  wxDialog dlg(this, wxID_ANY, _("Edit Matching Rules"), wxDefaultPosition,
+               wxSize(FromDIP(600), FromDIP(400)),
+               wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+
+  int screenHeight = wxSystemSettings::GetMetric(wxSYS_SCREEN_Y);
+  int maxHeight = static_cast<int>(screenHeight * 0.8);
+  dlg.SetMaxSize(wxSize(-1, maxHeight));
+
+  wxScrolledWindow *scrolled = new wxScrolledWindow(
+      &dlg, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
+  scrolled->SetScrollRate(0, 5);
+  wxBoxSizer *topSizer = new wxBoxSizer(wxVERTICAL);
+  scrolled->SetSizer(topSizer);
+
+  // Жирное оранжевое предупреждение о перезапуске
+  wxString warningText =
+      _("After editing, restart the application for changes to take effect.");
+  wxStaticText *warningTextCtrl =
+      new wxStaticText(scrolled, wxID_ANY, warningText);
+  wxFont warningFont = warningTextCtrl->GetFont();
+  warningFont.SetWeight(wxFONTWEIGHT_BOLD);
+  warningTextCtrl->SetFont(warningFont);
+  warningTextCtrl->SetForegroundColour(wxColour(255, 165, 0)); // оранжевый
+  topSizer->Add(warningTextCtrl, 0, wxEXPAND | wxALL, FromDIP(10));
+
+  // Основной текст
+  wxString info = wxString::Format(
+      _("You can fine-tune matching by editing the following JSON files in the "
+        "config directory:\n\n"
+        "  • %s\n"
+        "  • %s\n\n"
+        "These files contain advanced parameters (token_high, jaro_high, "
+        "stopwords, etc.).\n"
+        "The default values are already well-tuned. It is recommended to use "
+        "manual mappings or aliases\n"
+        "for specific channel corrections instead of modifying these files.\n\n"
+        "If the files are missing, built‑in defaults are used."),
+      rulesPath, aliasesPath);
+
+  wxStaticText *infoText = new wxStaticText(scrolled, wxID_ANY, info);
+  infoText->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+  infoText->Wrap(FromDIP(560));
+  topSizer->Add(infoText, 0, wxEXPAND | wxALL, FromDIP(10));
+
+  // Кнопки
   wxBoxSizer *btnSizer = new wxBoxSizer(wxHORIZONTAL);
-  wxButton *openFolderBtn = new wxButton(&dlg, wxID_ANY, _("Open Folder"));
+  wxButton *openFolderBtn =
+      new wxButton(scrolled, wxID_ANY, _("Open Config Folder"));
   wxButton *openRulesBtn =
-      new wxButton(&dlg, wxID_ANY, _("Open matching_rules.json"));
+      new wxButton(scrolled, wxID_ANY, _("Open matching_rules.json"));
   wxButton *openAliasesBtn =
-      new wxButton(&dlg, wxID_ANY, _("Open channel_aliases.json"));
-  wxButton *closeBtn = new wxButton(&dlg, wxID_OK, _("Close"));
+      new wxButton(scrolled, wxID_ANY, _("Open channel_aliases.json"));
+  wxButton *closeBtn = new wxButton(scrolled, wxID_OK, _("Close"));
 
-  btnSizer->Add(openFolderBtn, 0, wxRIGHT, 5);
-  btnSizer->Add(openRulesBtn, 0, wxRIGHT, 5);
-  btnSizer->Add(openAliasesBtn, 0, wxRIGHT, 5);
+  btnSizer->Add(openFolderBtn, 0, wxRIGHT, FromDIP(5));
+  btnSizer->Add(openRulesBtn, 0, wxRIGHT, FromDIP(5));
+  btnSizer->Add(openAliasesBtn, 0, wxRIGHT, FromDIP(5));
   btnSizer->Add(closeBtn, 0);
-  topSizer->Add(btnSizer, 0, wxALL | wxALIGN_CENTER, 10);
+  topSizer->Add(btnSizer, 0, wxALL | wxALIGN_CENTER, FromDIP(10));
 
-  openFolderBtn->Bind(wxEVT_BUTTON, [resourceDir](wxCommandEvent &) {
-    wxLaunchDefaultApplication(resourceDir);
+  openFolderBtn->Bind(wxEVT_BUTTON, [configDir](wxCommandEvent &) {
+    wxLaunchDefaultApplication(configDir);
   });
   openRulesBtn->Bind(wxEVT_BUTTON, [rulesPath](wxCommandEvent &) {
     wxLaunchDefaultApplication(rulesPath);
@@ -880,7 +929,17 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
     wxLaunchDefaultApplication(aliasesPath);
   });
 
-  dlg.SetSizerAndFit(topSizer);
+  wxBoxSizer *dlgSizer = new wxBoxSizer(wxVERTICAL);
+  dlgSizer->Add(scrolled, 1, wxEXPAND);
+  dlg.SetSizer(dlgSizer);
+
+  dlg.Fit();
+  wxSize currentSize = dlg.GetSize();
+  if (currentSize.GetHeight() > maxHeight) {
+    dlg.SetSize(wxSize(currentSize.GetWidth(), maxHeight));
+    scrolled->FitInside();
+  }
+
   dlg.CentreOnParent();
   dlg.ShowModal();
 }
