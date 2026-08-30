@@ -816,7 +816,7 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
   CleanupFinishedTasks();
   m_backgroundTasks.push_back(std::async(
       std::launch::async, [mgr, playlistName, chNameBg, tvgId, iconPath,
-                           svgPath, pngPath, markerPath]() {
+                           svgPath, pngPath, markerPath, playlist, ch]() {
         LOG_DEBUG("RemoveChannelFromPlaylist[bg]: start saving and cleanup");
 
         // Сохраняем плейлист
@@ -854,8 +854,12 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
         Application *app = static_cast<Application *>(wxTheApp);
         if (app) {
           if (app->GetEPGManager()) {
-            app->GetEPGManager()->RemoveChannelMapping(tvgId);
-            LOG_DEBUG("RemoveChannelFromPlaylist[bg]: EPG mapping removed");
+            EPGManager *epg = app->GetEPGManager();
+            std::string playlistId = playlist->getUniqueId();
+            if (!playlistId.empty()) {
+              epg->RemoveChannelMapping(playlistId, ch);
+              LOG_DEBUG("RemoveChannelFromPlaylist[bg]: EPG mappings removed");
+            }
           }
           app->getFavoritesManager().remove(chNameBg, playlistName);
           LOG_DEBUG("RemoveChannelFromPlaylist[bg]: removed from favorites");

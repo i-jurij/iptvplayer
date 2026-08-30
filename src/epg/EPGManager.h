@@ -103,7 +103,7 @@ public:
   void SetManualMapping(const std::string &playlistId, const std::string &tvgId,
                         const std::string &epgId,
                         const std::string &channelName = "");
-  void RemoveChannelMapping(const std::string &tvgId);
+  void RemoveChannelMapping(const std::string &playlistId, const Channel &ch);
   std::string GetEpgChannelIdForTvgId(const std::string &tvgId) const;
 
   bool LoadMappingForPlaylist(const std::string &playlistId,

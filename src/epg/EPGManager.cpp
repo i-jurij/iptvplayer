@@ -1718,24 +1718,29 @@ void EPGManager::SetManualMapping(const std::string &playlistId,
   }
 }
 
-void EPGManager::RemoveChannelMapping(const std::string &tvgId) {
-  if (m_currentPlaylistId.empty()) {
-    LOG_ERROR("No current playlist set, cannot remove manual mapping");
+void EPGManager::RemoveChannelMapping(const std::string &playlistId,
+                                      const Channel &ch) {
+  if (playlistId.empty()) {
+    LOG_WARN("EPGManager::RemoveChannelMapping: playlistId is empty");
     return;
   }
-  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-  if (!m_db || !m_db->IsOpen()) {
-    LOG_ERROR("Database not open, cannot remove manual mapping");
-    return;
+
+  std::string tvgId = ch.getTvgId();
+  std::string nameKey = "name:" + NormalizeName(ch.getName());
+
+  // Удаляем по tvg-id (если есть)
+  if (!tvgId.empty()) {
+    RemoveMappingEntry(playlistId, tvgId);
   }
-  if (m_db->DeleteManualMapping(m_currentPlaylistId, tvgId)) {
-    std::unique_lock lock(m_mappingMutex);
-    m_manualMapping.erase(tvgId);
-    LOG_DEBUG("Manual mapping removed: playlist '%s', tvgId '%s'",
-              m_currentPlaylistId.c_str(), tvgId.c_str());
-  } else {
-    LOG_ERROR("Failed to remove manual mapping (key not found)");
+
+  // Удаляем по имени (если ключ отличается от tvgId)
+  if (!nameKey.empty() && (tvgId.empty() || nameKey != tvgId)) {
+    RemoveMappingEntry(playlistId, nameKey);
   }
+
+  LOG_DEBUG("EPGManager::RemoveChannelMapping: removed mappings for channel "
+            "'%s' in playlist '%s'",
+            ch.getName().c_str(), playlistId.c_str());
 }
 
 std::string
