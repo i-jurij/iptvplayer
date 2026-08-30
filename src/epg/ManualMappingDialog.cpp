@@ -3,6 +3,7 @@
 #include "MainFrame.h"
 #include "epg/EPGManager.h"
 #include <algorithm>
+#include <cctype>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
@@ -15,15 +16,26 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
       m_playlistSortAsc(true), m_epgSortCol(-1), m_epgSortAsc(true),
       m_mappingSortCol(-1), m_mappingSortAsc(true), m_selectedMappingIndex(-1),
       m_preselectedTvgId(""), m_preselectedChannelName("") {
-
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  // ---- Верхняя часть: два списка ----
+  // ---- Верхняя часть: два списка с поиском ----
   wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
 
+  // Левый блок: Playlist Channels + поиск
   wxStaticBox *leftBox =
       new wxStaticBox(this, wxID_ANY, _("Playlist Channels"));
   wxStaticBoxSizer *leftSizer = new wxStaticBoxSizer(leftBox, wxVERTICAL);
+
+  // Строка поиска
+  wxBoxSizer *searchLeftSizer = new wxBoxSizer(wxHORIZONTAL);
+  searchLeftSizer->Add(new wxStaticText(leftBox, wxID_ANY, _("Search:")), 0,
+                       wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  m_playlistSearch =
+      new wxTextCtrl(leftBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                     wxDefaultSize, wxTE_PROCESS_ENTER);
+  searchLeftSizer->Add(m_playlistSearch, 1, wxEXPAND);
+  leftSizer->Add(searchLeftSizer, 0, wxEXPAND | wxALL, FromDIP(5));
+
   m_playlistList = new wxListCtrl(leftBox, wxID_ANY, wxDefaultPosition,
                                   wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
   m_playlistList->InsertColumn(0, _("Name"), wxLIST_FORMAT_LEFT, FromDIP(200));
@@ -32,8 +44,19 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
   leftSizer->Add(m_playlistList, 1, wxEXPAND | wxALL, FromDIP(5));
   topSizer->Add(leftSizer, 1, wxEXPAND | wxALL, FromDIP(5));
 
+  // Правый блок: EPG Channels + поиск
   wxStaticBox *rightBox = new wxStaticBox(this, wxID_ANY, _("EPG Channels"));
   wxStaticBoxSizer *rightSizer = new wxStaticBoxSizer(rightBox, wxVERTICAL);
+
+  wxBoxSizer *searchRightSizer = new wxBoxSizer(wxHORIZONTAL);
+  searchRightSizer->Add(new wxStaticText(rightBox, wxID_ANY, _("Search:")), 0,
+                        wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  m_epgSearch =
+      new wxTextCtrl(rightBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                     wxDefaultSize, wxTE_PROCESS_ENTER);
+  searchRightSizer->Add(m_epgSearch, 1, wxEXPAND);
+  rightSizer->Add(searchRightSizer, 0, wxEXPAND | wxALL, FromDIP(5));
+
   m_epgList = new wxListCtrl(rightBox, wxID_ANY, wxDefaultPosition,
                              wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
   m_epgList->InsertColumn(0, _("ID"), wxLIST_FORMAT_LEFT, FromDIP(150));
@@ -128,6 +151,11 @@ ManualMappingDialog::ManualMappingDialog(wxWindow *parent, EPGManager *epgMgr,
   m_mappingList->Bind(wxEVT_LIST_COL_CLICK,
                       &ManualMappingDialog::OnMappingColClick, this);
 
+  // Привязка событий поиска
+  m_playlistSearch->Bind(wxEVT_TEXT, &ManualMappingDialog::OnPlaylistSearch,
+                         this);
+  m_epgSearch->Bind(wxEVT_TEXT, &ManualMappingDialog::OnEpgSearch, this);
+
   // Изменение размера
   Bind(wxEVT_SIZE, [this](wxSizeEvent &evt) {
     AdjustMappingColumns();
@@ -159,6 +187,9 @@ void ManualMappingDialog::LoadPlaylistChannels() {
     item.name = ch.getName();
     m_playlistItems.push_back(item);
   }
+  // Сортируем согласно текущим настройкам сортировки (если есть)
+  if (m_playlistSortCol >= 0)
+    SortPlaylist();
   RefreshPlaylistList();
 }
 
@@ -166,6 +197,8 @@ void ManualMappingDialog::RefreshPlaylistList() {
   m_playlistList->DeleteAllItems();
   long idx = 0;
   for (const auto &item : m_playlistItems) {
+    if (!PlaylistMatchesFilter(item))
+      continue;
     wxString name = wxString::FromUTF8(item.name);
     wxString tvgId = wxString::FromUTF8(item.tvgId);
     long itemIndex = m_playlistList->InsertItem(idx, name);
@@ -173,6 +206,9 @@ void ManualMappingDialog::RefreshPlaylistList() {
     m_playlistList->SetItemData(itemIndex, idx);
     ++idx;
   }
+  // Восстанавливаем выделение, если выбранный элемент всё ещё видим
+  if (!m_selectedPlaylistTvgId.empty() || !m_selectedPlaylistName.empty())
+    HighlightPlaylistChannel(m_selectedPlaylistTvgId, m_selectedPlaylistName);
 }
 
 void ManualMappingDialog::LoadEpgChannels() {
@@ -186,6 +222,8 @@ void ManualMappingDialog::LoadEpgChannels() {
     item.name = pair.second;
     m_epgItems.push_back(item);
   }
+  if (m_epgSortCol >= 0)
+    SortEpg();
   RefreshEpgList();
 }
 
@@ -193,6 +231,8 @@ void ManualMappingDialog::RefreshEpgList() {
   m_epgList->DeleteAllItems();
   long idx = 0;
   for (const auto &item : m_epgItems) {
+    if (!EpgMatchesFilter(item))
+      continue;
     wxString id = wxString::FromUTF8(item.id);
     wxString name = wxString::FromUTF8(item.name);
     long itemIndex = m_epgList->InsertItem(idx, id);
@@ -200,6 +240,8 @@ void ManualMappingDialog::RefreshEpgList() {
     m_epgList->SetItemData(itemIndex, idx);
     ++idx;
   }
+  if (!m_selectedEpgId.empty())
+    HighlightEpgChannel(m_selectedEpgId);
 }
 
 void ManualMappingDialog::LoadMappings() {
@@ -230,7 +272,6 @@ void ManualMappingDialog::LoadMappings() {
     bool ignored = false;
     std::string usedKey;
 
-    // по tvgId
     if (!tvgId.empty()) {
       auto it = allMappings.find(tvgId);
       if (it != allMappings.end()) {
@@ -240,7 +281,6 @@ void ManualMappingDialog::LoadMappings() {
         usedKey = tvgId;
       }
     }
-    // по нормализованному имени
     if (epgId.empty() && !name.empty()) {
       std::string normKey = "name:" + m_epgMgr->NormalizeName(name);
       auto it = allMappings.find(normKey);
@@ -251,7 +291,6 @@ void ManualMappingDialog::LoadMappings() {
         usedKey = normKey;
       }
     }
-    // по сырому имени (обратная совместимость)
     if (epgId.empty() && !name.empty()) {
       std::string rawKey = "name:" + name;
       auto it = allMappings.find(rawKey);
@@ -276,6 +315,8 @@ void ManualMappingDialog::LoadMappings() {
     m_mappingItems.push_back(item);
   }
 
+  if (m_mappingSortCol >= 0)
+    SortMappings();
   RefreshMappingList();
   m_selectedMappingIndex = -1;
   m_selectedMappingKey.clear();
@@ -303,6 +344,30 @@ void ManualMappingDialog::RefreshMappingList() {
     ++idx;
   }
   AdjustMappingColumns();
+  // Восстанавливаем выделение, если ключ известен
+  if (!m_selectedMappingKey.empty())
+    HighlightMappingByKey(m_selectedMappingKey);
+}
+
+// ------------------- Фильтрация -------------------
+
+bool ManualMappingDialog::PlaylistMatchesFilter(
+    const PlaylistItem &item) const {
+  wxString filter = m_playlistSearch->GetValue().Lower();
+  if (filter.IsEmpty())
+    return true;
+  wxString name = wxString::FromUTF8(item.name).Lower();
+  wxString tvgId = wxString::FromUTF8(item.tvgId).Lower();
+  return name.Contains(filter) || tvgId.Contains(filter);
+}
+
+bool ManualMappingDialog::EpgMatchesFilter(const EpgItem &item) const {
+  wxString filter = m_epgSearch->GetValue().Lower();
+  if (filter.IsEmpty())
+    return true;
+  wxString id = wxString::FromUTF8(item.id).Lower();
+  wxString name = wxString::FromUTF8(item.name).Lower();
+  return id.Contains(filter) || name.Contains(filter);
 }
 
 // ------------------- Сортировка -------------------
@@ -313,13 +378,12 @@ void ManualMappingDialog::SortPlaylist() {
   std::sort(m_playlistItems.begin(), m_playlistItems.end(),
             [this](const PlaylistItem &a, const PlaylistItem &b) {
               int result = 0;
-              if (m_playlistSortCol == 0) // Name
+              if (m_playlistSortCol == 0)
                 result = a.name.compare(b.name);
-              else if (m_playlistSortCol == 1) // tvg-id
+              else if (m_playlistSortCol == 1)
                 result = a.tvgId.compare(b.tvgId);
               return m_playlistSortAsc ? (result < 0) : (result > 0);
             });
-  RefreshPlaylistList();
 }
 
 void ManualMappingDialog::SortEpg() {
@@ -328,13 +392,12 @@ void ManualMappingDialog::SortEpg() {
   std::sort(m_epgItems.begin(), m_epgItems.end(),
             [this](const EpgItem &a, const EpgItem &b) {
               int result = 0;
-              if (m_epgSortCol == 0) // ID
+              if (m_epgSortCol == 0)
                 result = a.id.compare(b.id);
-              else if (m_epgSortCol == 1) // Display Name
+              else if (m_epgSortCol == 1)
                 result = a.name.compare(b.name);
               return m_epgSortAsc ? (result < 0) : (result > 0);
             });
-  RefreshEpgList();
 }
 
 void ManualMappingDialog::SortMappings() {
@@ -362,9 +425,8 @@ void ManualMappingDialog::SortMappings() {
               default:
                 result = 0;
               }
-              return m_mappingSortAsc ? (result < 0) : (result > 0);
+              return m_playlistSortAsc ? (result < 0) : (result > 0);
             });
-  RefreshMappingList();
 }
 
 // ------------------- Выделение элементов -------------------
@@ -375,6 +437,7 @@ void ManualMappingDialog::HighlightPlaylistChannel(const std::string &tvgId,
   for (long i = 0; i < m_playlistList->GetItemCount(); ++i)
     m_playlistList->SetItemState(i, 0, wxLIST_STATE_SELECTED);
 
+  // Ищем по tvgId среди видимых
   if (!tvgId.empty()) {
     for (long i = 0; i < m_playlistList->GetItemCount(); ++i) {
       if (m_playlistList->GetItemText(i, 1) == tvgId) {
@@ -385,6 +448,7 @@ void ManualMappingDialog::HighlightPlaylistChannel(const std::string &tvgId,
       }
     }
   }
+  // Ищем по имени
   if (!name.empty()) {
     for (long i = 0; i < m_playlistList->GetItemCount(); ++i) {
       if (m_playlistList->GetItemText(i, 0) == name) {
@@ -395,21 +459,29 @@ void ManualMappingDialog::HighlightPlaylistChannel(const std::string &tvgId,
       }
     }
   }
+  // Если не найдено, сбрасываем выделение
+  m_selectedPlaylistTvgId.clear();
+  m_selectedPlaylistName.clear();
 }
 
 void ManualMappingDialog::HighlightEpgChannel(const std::string &epgId) {
   for (long i = 0; i < m_epgList->GetItemCount(); ++i)
     m_epgList->SetItemState(i, 0, wxLIST_STATE_SELECTED);
 
-  if (epgId.empty())
+  if (epgId.empty()) {
+    m_selectedEpgId.clear();
     return;
+  }
   for (long i = 0; i < m_epgList->GetItemCount(); ++i) {
     if (m_epgList->GetItemText(i, 0) == epgId) {
       m_epgList->SetItemState(i, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
       m_epgList->EnsureVisible(i);
-      break;
+      m_selectedEpgId = epgId;
+      return;
     }
   }
+  // Если не найдено, сбрасываем
+  m_selectedEpgId.clear();
 }
 
 void ManualMappingDialog::HighlightMappingByKey(const std::string &key) {
@@ -428,9 +500,11 @@ void ManualMappingDialog::HighlightMappingByKey(const std::string &key) {
       m_mappingList->EnsureVisible(i);
       m_selectedMappingIndex = i;
       m_selectedMappingKey = key;
-      break;
+      return;
     }
   }
+  // Если не найдено, сбрасываем
+  m_selectedMappingKey.clear();
 }
 
 void ManualMappingDialog::SelectPlaylistChannel(const std::string &tvgId,
@@ -474,6 +548,12 @@ void ManualMappingDialog::SelectPlaylistChannel(const std::string &tvgId,
     HighlightMappingByKey(key);
     if (isManual)
       HighlightEpgChannel(epgId);
+    else
+      m_selectedEpgId.clear();
+  } else {
+    m_selectedMappingKey.clear();
+    m_selectedMappingIndex = -1;
+    m_selectedEpgId.clear();
   }
 
   UpdateButtons();
@@ -490,12 +570,10 @@ void ManualMappingDialog::OnPlaylistColClick(wxListEvent &event) {
     m_playlistSortAsc = true;
   }
 
-  std::string tvgId = m_selectedPlaylistTvgId;
-  std::string name = m_selectedPlaylistName;
-
   SortPlaylist();
-  HighlightPlaylistChannel(tvgId, name);
-  SelectPlaylistChannel(tvgId, name);
+  RefreshPlaylistList();
+  // выделение восстановится в RefreshPlaylistList через
+  // HighlightPlaylistChannel
   UpdateButtons();
 }
 
@@ -508,9 +586,8 @@ void ManualMappingDialog::OnEpgColClick(wxListEvent &event) {
     m_epgSortAsc = true;
   }
 
-  std::string epgId = m_selectedEpgId;
   SortEpg();
-  HighlightEpgChannel(epgId);
+  RefreshEpgList();
   UpdateButtons();
 }
 
@@ -523,9 +600,20 @@ void ManualMappingDialog::OnMappingColClick(wxListEvent &event) {
     m_mappingSortAsc = true;
   }
 
-  std::string key = m_selectedMappingKey;
   SortMappings();
-  HighlightMappingByKey(key);
+  RefreshMappingList();
+  UpdateButtons();
+}
+
+// ------------------- Обработчики поиска -------------------
+
+void ManualMappingDialog::OnPlaylistSearch(wxCommandEvent &) {
+  RefreshPlaylistList();
+  UpdateButtons();
+}
+
+void ManualMappingDialog::OnEpgSearch(wxCommandEvent &) {
+  RefreshEpgList();
   UpdateButtons();
 }
 
@@ -731,7 +819,6 @@ void ManualMappingDialog::HighlightPreselected() {
   bool foundInPlaylist = false;
   std::string foundTvgId, foundName;
 
-  // Ищем по tvg-id
   if (!m_preselectedTvgId.empty()) {
     for (long i = 0; i < m_playlistList->GetItemCount(); ++i) {
       if (m_playlistList->GetItemText(i, 1) == m_preselectedTvgId) {
@@ -742,7 +829,6 @@ void ManualMappingDialog::HighlightPreselected() {
       }
     }
   }
-  // Ищем по имени
   if (!foundInPlaylist && !m_preselectedChannelName.empty()) {
     for (long i = 0; i < m_playlistList->GetItemCount(); ++i) {
       if (m_playlistList->GetItemText(i, 0) == m_preselectedChannelName) {

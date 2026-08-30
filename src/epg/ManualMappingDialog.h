@@ -7,6 +7,7 @@
 #include <wx/button.h>
 #include <wx/dialog.h>
 #include <wx/listctrl.h>
+#include <wx/textctrl.h>
 
 class EPGManager;
 class MainFrame;
@@ -62,12 +63,16 @@ private:
   wxButton *m_ignoreBtn;
   wxButton *m_unignoreBtn;
 
+  // --- Поля поиска ---
+  wxTextCtrl *m_playlistSearch;
+  wxTextCtrl *m_epgSearch;
+
   // --- Состояние выделения ---
   std::string m_selectedPlaylistTvgId;
   std::string m_selectedPlaylistName;
   std::string m_selectedEpgId;
   long m_selectedMappingIndex;
-  std::string m_selectedMappingKey; // ключ из скрытой колонки
+  std::string m_selectedMappingKey;
   std::string m_preselectedTvgId;
   std::string m_preselectedChannelName;
 
@@ -91,10 +96,9 @@ private:
   void HighlightMappingByKey(const std::string &key);
   void SelectPlaylistChannel(const std::string &tvgId, const std::string &name);
 
-  // --- Восстановление выделения после сортировки ---
-  void RestorePlaylistSelection();
-  void RestoreEpgSelection();
-  void RestoreMappingSelection();
+  // --- Вспомогательные ---
+  bool PlaylistMatchesFilter(const PlaylistItem &item) const;
+  bool EpgMatchesFilter(const EpgItem &item) const;
 
   // --- Обработчики событий ---
   void OnPlaylistSelected(wxListEvent &event);
@@ -108,6 +112,9 @@ private:
   void OnPlaylistColClick(wxListEvent &event);
   void OnEpgColClick(wxListEvent &event);
   void OnMappingColClick(wxListEvent &event);
+
+  void OnPlaylistSearch(wxCommandEvent &event);
+  void OnEpgSearch(wxCommandEvent &event);
 
   void UpdateButtons();
   void AdjustMappingColumns();
