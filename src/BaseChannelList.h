@@ -58,6 +58,8 @@ public:
 
   void ClearPendingLoads();
 
+  bool SelectChannel(const Channel &ch); // найдет и выделит строку
+
 protected:
   bool m_ignoreSelectionEvents = false;
   

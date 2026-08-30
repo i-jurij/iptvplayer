@@ -1,3 +1,217 @@
+## Пошаговый план (минимальные изменения)
+
+### 1. Добавить сохранение последнего выбранного канала в `MainFrame`
+
+**В `MainFrame.h`** добавить поля:
+
+```cpp
+private:
+    Channel m_lastSelectedChannel;
+    bool m_hasLastSelectedChannel = false;
+    Channel m_lastSelectedFavorite;
+    bool m_hasLastSelectedFavorite = false;
+```
+
+---
+
+### 2. Сохранять канал при выборе
+
+**В `MainFrame_ChannelEvents.cpp`** (метод `onChannelSelected`):
+
+```cpp
+void MainFrame::onChannelSelected(const Channel &ch, size_t, const wxRect &) {
+    m_lastSelectedChannel = ch;
+    m_hasLastSelectedChannel = true;
+    // ... остальной код
+}
+```
+
+**В `MainFrame_FavoritesEvents.cpp`** (метод `onFavoriteSelected`) – аналогично.
+
+---
+
+### 3. Добавить методы восстановления в `CardsBase` и `BaseChannelList`
+
+**CardsBase.h** (публичный метод):
+
+```cpp
+void SelectCard(int index); // установит фокус, прокрутит, перерисует
+```
+
+**CardsBase.cpp** (реализация):
+
+```cpp
+void CardsBase::SelectCard(int index) {
+    if (index < 0 || index >= (int)m_channels.size() || m_cols <= 0)
+        return;
+    int oldFocus = m_focusIndex;
+    m_focusIndex = index;
+    m_hoverIndex = index;
+    int row = index / m_cols;
+    EnsureRowVisible(row);
+    if (oldFocus >= 0 && oldFocus != index)
+        InvalidateCardClientRectByIndex(oldFocus);
+    InvalidateCardClientRectByIndex(index);
+    Refresh();
+}
+```
+
+**BaseChannelList.h** (публичный метод):
+
+```cpp
+bool SelectChannel(const Channel& ch); // найдет и выделит строку
+```
+
+**BaseChannelList.cpp**:
+
+```cpp
+bool BaseChannelList::SelectChannel(const Channel& ch) {
+    if (!m_model) return false;
+    int count = m_model->GetCount();
+    for (int i = 0; i < count; ++i) {
+        const Channel& c = m_model->GetChannel(i);
+        if (c.getName() == ch.getName() && c.getPlaylistName() == ch.getPlaylistName()) {
+            wxDataViewItem item = m_model->GetItem(i);
+            Select(item);
+            SetCurrentItem(item);
+            EnsureVisible(item);
+            return true;
+        }
+    }
+    return false;
+}
+```
+
+---
+
+### 4. Методы восстановления в `MainFrame`
+
+**В `MainFrame.h`** добавить объявления:
+
+```cpp
+void RestoreChannelSelection();
+void RestoreFavoriteSelection();
+```
+
+**В `MainFrame.cpp`** (или отдельном файле) реализация:
+
+```cpp
+void MainFrame::RestoreChannelSelection() {
+    if (!m_hasLastSelectedChannel) return;
+
+    bool restored = false;
+    if (m_channelViewBook) {
+        int sel = m_channelViewBook->GetSelection();
+        if (sel == 0 && m_channelList) {
+            restored = m_channelList->SelectChannel(m_lastSelectedChannel);
+        } else if (sel == 1 && m_channelCards) {
+            // нужно найти индекс канала в m_channelCards
+            const auto& channels = m_channelCards->GetChannels(); // добавить геттер в CardsBase
+            for (size_t i = 0; i < channels.size(); ++i) {
+                if (channels[i].getName() == m_lastSelectedChannel.getName() &&
+                    channels[i].getPlaylistName() == m_lastSelectedChannel.getPlaylistName()) {
+                    m_channelCards->SelectCard((int)i);
+                    restored = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (restored && m_epgChannels && m_epgChannels->IsActive()) {
+        m_epgChannels->SetChannel(m_lastSelectedChannel);
+    }
+}
+
+void MainFrame::RestoreFavoriteSelection() {
+    // аналогично для избранного
+    if (!m_hasLastSelectedFavorite) return;
+
+    bool restored = false;
+    if (m_favViewBook) {
+        int sel = m_favViewBook->GetSelection();
+        if (sel == 0 && m_favList) {
+            restored = m_favList->SelectChannel(m_lastSelectedFavorite);
+        } else if (sel == 1 && m_favCards) {
+            const auto& channels = m_favCards->GetChannels();
+            for (size_t i = 0; i < channels.size(); ++i) {
+                if (channels[i].getName() == m_lastSelectedFavorite.getName() &&
+                    channels[i].getPlaylistName() == m_lastSelectedFavorite.getPlaylistName()) {
+                    m_favCards->SelectCard((int)i);
+                    restored = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (restored && m_epgFavorites && m_epgFavorites->IsActive()) {
+        m_epgFavorites->SetChannel(m_lastSelectedFavorite);
+    }
+}
+```
+
+**Добавить геттер `GetChannels()` в `CardsBase.h`**:
+
+```cpp
+const std::vector<Channel>& GetChannels() const { return m_channels; }
+```
+
+---
+
+### 5. Сброс при смене данных
+
+**В `MainFrame_PlaylistLogic.cpp`** в начале `loadPlaylistChannels`:
+
+```cpp
+m_hasLastSelectedChannel = false;
+```
+
+**В `MainFrame_FavoritesUI.cpp`** в начале `refreshFavorites`:
+
+```cpp
+m_hasLastSelectedFavorite = false;
+```
+
+---
+
+### 6. Вызов восстановления при активации вкладок
+
+**В `MainFrame_ChannelsViewUI.cpp`** – `HandleChannelPageChanged`:
+
+```cpp
+void MainFrame::HandleChannelPageChanged(int sel) {
+    if (sel == m_channelsPageIdx) {
+        // ... существующий код
+        RestoreChannelSelection();  // <-- добавить
+    } else {
+        // ...
+    }
+}
+```
+
+**В `MainFrame_FavoritesUI.cpp`** – `HandleFavPageChanged`:
+
+```cpp
+void MainFrame::HandleFavPageChanged(int sel) {
+    if (sel == m_favoritesPageIdx) {
+        // ... существующий код
+        RestoreFavoriteSelection();  // <-- добавить
+    } else {
+        // ...
+    }
+}
+```
+
+---
+
+## Почему этого достаточно
+
+- **Сохранение канала** – происходит при каждом клике/выборе.
+- **Восстановление** – только при активации вкладки, без перезагрузки данных.
+- **EPG обновляется** – сразу после восстановления, если панель активна.
+- **Минимум нового кода** – используются уже существующие механизмы выделения (`m_focusIndex` в CardsBase и `Select` в списке).
+===========================================================================
 
 Логические моменты
 SetManualMapping: при установке ручного маппинга ты сначала удаляешь любую существующую запись 
@@ -12,8 +226,4 @@ LoadMappingForPlaylist: проверка хэша плейлиста и коли
 но если плейлист изменился минимально (например, порядок каналов), маппинг будет признан недействительным. 
 Это логически правильно, но может быть слишком строгим.
 ==========================================
-
-при возврате в каналы или избранное после стоп видео - 
-вернуться не к началу, а к текущему выранному каналу, 
-то есть не загружать панель заново, а восстановить состояние
 

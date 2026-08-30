@@ -1161,3 +1161,21 @@ void BaseChannelList::ClearPendingLoads() {
   m_inflightPerHost.clear();
   // Если есть другие очереди — очистить их
 }
+
+bool BaseChannelList::SelectChannel(const Channel &ch) {
+  if (!m_model)
+    return false;
+  int count = m_model->GetCount();
+  for (int i = 0; i < count; ++i) {
+    const Channel &c = m_model->GetChannel(i);
+    if (c.getName() == ch.getName() &&
+        c.getPlaylistName() == ch.getPlaylistName()) {
+      wxDataViewItem item = m_model->GetItem(i);
+      Select(item);
+      SetCurrentItem(item);
+      EnsureVisible(item);
+      return true;
+    }
+  }
+  return false;
+}

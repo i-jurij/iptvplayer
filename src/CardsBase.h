@@ -128,6 +128,9 @@ public:
   void WarmUpTiles();
   void StopWarmUp();
 
+  void SelectCard(int index); // установит фокус, прокрутит, перерисует
+  const std::vector<Channel> &GetChannels() const { return m_channels; }
+
 protected:
   void OnContextMenu(wxContextMenuEvent &evt);
   

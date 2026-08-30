@@ -180,3 +180,17 @@ void CardsBase::RefreshCards() {
   InitLRULimits();
   Refresh();
 }
+
+void CardsBase::SelectCard(int index) {
+  if (index < 0 || index >= (int)m_channels.size() || m_cols <= 0)
+    return;
+  int oldFocus = m_focusIndex;
+  m_focusIndex = index;
+  m_hoverIndex = index;
+  int row = index / m_cols;
+  EnsureRowVisible(row);
+  if (oldFocus >= 0 && oldFocus != index)
+    InvalidateCardClientRectByIndex(oldFocus);
+  InvalidateCardClientRectByIndex(index);
+  Refresh();
+}

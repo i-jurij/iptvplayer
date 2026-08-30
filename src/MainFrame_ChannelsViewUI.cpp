@@ -190,6 +190,7 @@ void MainFrame::HandleChannelPageChanged(int sel) {
     } else if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
       m_channelCards->SetFocusIgnoringChildren();
     }
+    RestoreChannelSelection();
   } else {
     if (m_epgChannels)
       m_epgChannels->SetActive(false);
@@ -401,5 +402,35 @@ void MainFrame::TeardownGridResources() {
 
     m_channelCards->ClearAllCaches(/*clearLRU=*/true,
                                    /*clearTextLayout=*/false);
+  }
+}
+
+void MainFrame::RestoreChannelSelection() {
+  if (!m_hasLastSelectedChannel)
+    return;
+
+  bool restored = false;
+  if (m_channelViewBook) {
+    int sel = m_channelViewBook->GetSelection();
+    if (sel == 0 && m_channelList) {
+      restored = m_channelList->SelectChannel(m_lastSelectedChannel);
+    } else if (sel == 1 && m_channelCards) {
+      // нужно найти индекс канала в m_channelCards
+      const auto &channels =
+          m_channelCards->GetChannels(); // добавить геттер в CardsBase
+      for (size_t i = 0; i < channels.size(); ++i) {
+        if (channels[i].getName() == m_lastSelectedChannel.getName() &&
+            channels[i].getPlaylistName() ==
+                m_lastSelectedChannel.getPlaylistName()) {
+          m_channelCards->SelectCard((int)i);
+          restored = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (restored && m_epgChannels && m_epgChannels->IsActive()) {
+    m_epgChannels->SetChannel(m_lastSelectedChannel);
   }
 }

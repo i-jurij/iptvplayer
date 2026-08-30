@@ -113,6 +113,14 @@ public:
   std::string GetCurrentPlaylistId() const;
 
 private:
+  void RestoreChannelSelection();
+  void RestoreFavoriteSelection();
+  
+  Channel m_lastSelectedChannel;
+  bool m_hasLastSelectedChannel = false;
+  Channel m_lastSelectedFavorite;
+  bool m_hasLastSelectedFavorite = false;
+
   wxTimer m_epgDebounceTimer;
   EPGPanel *m_epgPendingPanel = nullptr;
   Channel m_epgPendingChannel;

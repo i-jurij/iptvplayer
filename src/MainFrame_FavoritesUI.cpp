@@ -13,7 +13,6 @@
 #include <wx/string.h>
 #include <wx/toolbar.h>
 
-#include <set>
 
 void MainFrame::createFavoritesUI() {
   PROFILE_SCOPE("MainFrame::createFavoritesUI");
@@ -361,6 +360,7 @@ void MainFrame::HandleFavPageChanged(int sel) {
       if (m_favList)
         m_favList->SetFocusFromKbd();
     }
+    RestoreFavoriteSelection();
   } else {
     if (m_epgFavorites)
       m_epgFavorites->SetActive(false);
@@ -368,5 +368,33 @@ void MainFrame::HandleFavPageChanged(int sel) {
       m_favList->PauseLogoLoading();
     if (m_favCards)
       m_favCards->PauseLogoLoading();
+  }
+}
+
+void MainFrame::RestoreFavoriteSelection() {
+  if (!m_hasLastSelectedFavorite)
+    return;
+
+  bool restored = false;
+  if (m_favViewBook) {
+    int sel = m_favViewBook->GetSelection();
+    if (sel == 0 && m_favList) {
+      restored = m_favList->SelectChannel(m_lastSelectedFavorite);
+    } else if (sel == 1 && m_favCards) {
+      const auto &channels = m_favCards->GetChannels();
+      for (size_t i = 0; i < channels.size(); ++i) {
+        if (channels[i].getName() == m_lastSelectedFavorite.getName() &&
+            channels[i].getPlaylistName() ==
+                m_lastSelectedFavorite.getPlaylistName()) {
+          m_favCards->SelectCard((int)i);
+          restored = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (restored && m_epgFavorites && m_epgFavorites->IsActive()) {
+    m_epgFavorites->SetChannel(m_lastSelectedFavorite);
   }
 }

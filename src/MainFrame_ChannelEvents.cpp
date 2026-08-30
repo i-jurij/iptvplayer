@@ -5,8 +5,12 @@
 #include <wx/msgdlg.h>
 
 void MainFrame::onChannelSelected(const Channel &ch, size_t, const wxRect &) {
+  m_lastSelectedChannel = ch;
+  m_hasLastSelectedChannel = true;
+  
   if (!m_videoPanel)
     return;
+
   m_videoPanel->SetChannelSourceTab(m_channelsPageIdx);
   m_videoPanel->SetIsChannelPlaying(true);
   m_videoPanel->SetIsFavoritePlaying(false);

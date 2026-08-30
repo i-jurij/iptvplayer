@@ -123,6 +123,8 @@ void MainFrame::enablePlaylistButtons(bool enable) {
 
 void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
                                      const wxString &title) {
+  m_hasLastSelectedChannel = false;
+
   if (IsBeingDeleted())
     return;
 
@@ -217,6 +219,8 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
 
 void MainFrame::refreshFavorites() {
   PROFILE_SCOPE("MainFrame::refreshFavorites");
+  m_hasLastSelectedFavorite = false;
+  
   if (!m_application)
     return;
 
