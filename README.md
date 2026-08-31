@@ -1,231 +1,224 @@
 # IPTV Player — Build Instructions for Linux
 
-This project uses locally built dependencies:
+This project uses locally built static dependencies:
 
-- wxWidgets 3.3.2 (from the official source archive) with builtin libwebp
-- libcurl, Expat, rapidjson
+- wxWidgets 3.3.2 (with builtin libwebp)
+- wxSQLite3 5.0.1
 
-The project root is assumed to be:
+All dependencies are installed automatically via `setup-deps.sh`.
 
-    ${PROJECT_ROOT}/iptvplayer
+---
 
 ## 1. Requirements
 
-Install required packages (example for Debian/Ubuntu):
+Install required system packages (Debian/Ubuntu example):
 
     sudo apt update
-    sudo apt install -y build-essential cmake pkg-config libcurl4-openssl-dev libgtk-3-dev
+    sudo apt install -y build-essential cmake pkg-config libcurl4-openssl-dev libgtk-3-dev autoconf automake libtool
 
 You need:
 
-- A C++20‑capable compiler
-- CMake ≥ 3.20
+- A C++20‑capable compiler (GCC 10+ or Clang 12+)
+- CMake ≥ 3.16
+- `git` (for version information)
+- `autoconf`, `automake`, `libtool` (for wxSQLite3 build)
+- `wget` or `curl`
 
-## 2. Installing wxWidgets 3.3.2 (local build)
+Optional but recommended: `ninja` for faster builds (fallback to `make`).
 
-### 2.1. Download wxWidgets 3.3.2
+---
 
-Official archive:
+## 2. Installing Dependencies
 
-    https://github.com/wxWidgets/wxWidgets/releases/download/v3.3.2/wxWidgets-3.3.2.tar.bz2
+Dependencies (wxWidgets and wxSQLite3) are installed **automatically** by the `setup-deps.sh` script.
 
-Assume it is saved as:
+From the project root, simply run:
 
-    ~/Downloads/wxWidgets-3.3.2.tar.bz2
+    ./setup-deps.sh
 
-### 2.2. Extract into third_party/wx
+This will:
 
-    cd ${PROJECT_ROOT}/third_party
-    rm -rf wx
-    mkdir wx
-    cd wx
-    tar xf ~/Downloads/wxWidgets-3.3.2.tar.bz2 && echo "Extracted" || (echo "Extraction failed"; exit 1)
-    mv wxWidgets-3.3.2 src
-    mkdir build
-    mkdir install
-    cd build
+- Download wxWidgets 3.3.2 and build it statically with builtin libwebp.
+- Download wxSQLite3 5.0.1 and build it statically against the local wxWidgets.
 
-### 2.3. Configure wxWidgets
+All dependencies are installed into:
 
-    cmake ../src \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DwxBUILD_SHARED=OFF \
-      -DwxUSE_LIBWEBP=builtin \
-      -DCMAKE_INSTALL_PREFIX=../install
+    third_party/wx/install/
+    third_party/wxsqlite3/install/
 
-### 2.4. Build and install
+These paths are already configured in `CMakeLists.txt`, so no further setup is required.
 
-Building wxWidgets requires ~2.5 GB of disk space and up to 10 minutes of time.
+> **For developers:** The exact commands used by the script are available inside `setup-deps.sh` if you need to customise the build.
 
-    cmake --build . --target install -j8
-
-wxWidgets will be installed into:
-
-    ${PROJECT_ROOT}/third_party/wx/install
+---
 
 ## 3. Building iptvplayer
 
-### 3.1. Project configuration
+The recommended way is to use the helper script:
 
-The provided CMakeLists.txt already contains:
+    ./build-release.sh          # Release build
+    ./build-release.sh --type debug   # Debug build
 
-- wxWidgets lookup in ${PROJECT_ROOT}/third_party/wx/install with linking against static libwebp
+For a full list of options, see [Section 5.2](#52-build-releasesh--build-and-install).
 
-### 3.2. Build
+Alternatively, you can build manually (for development only):
 
-    cd ${PROJECT_ROOT}
-    rm -rf build
-    mkdir build
-    cd build
+    mkdir build && cd build
     cmake .. -DCMAKE_BUILD_TYPE=Debug
-    cmake --build . -j8
+    cmake --build . -j$(nproc)
 
-The resulting binary will be:
+Manual builds do **not** perform dependency checks or install icons correctly for system-wide use – use the scripts for reliable packaging.
 
-    ${PROJECT_ROOT}/build/iptvplayer
+---
 
 ## 4. Running
 
-    cd ${PROJECT_ROOT}/build
-    ./iptvplayer
+- **From build directory:** `./build/iptvplayer` – resources (JSON, icons) are copied during build.
+- **From install directory:** `cd install/bin && ./iptvplayer` – this is the portable version ready for distribution.
 
-## 5. For developers: IDE support
+The application loads icons from `DATADIR/iptvplayer/icons/` (system installation) or from `exeDir/icons/` (next to the binary for development). This ensures icons work both in development and after installation.
 
-After the build, the `compile_commands.json` file will be generated — it is needed for:
+---
 
-- VSCode (`C/C++` extension)
-- CLion
-- `clangd`, `ccls`
+## 5. Developer Automation Scripts
 
-It is automatically created thanks to:
+### 5.1. `setup-deps.sh` – Install Dependencies
 
-    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-## 6. Developer Automation Scripts
-
-To simplify setup and build process, the following helper scripts are provided:
-
-### 6.1. setup-deps.sh — Install Dependencies Automatically
-
-This script downloads and builds all required dependencies locally:
-
-- wxWidgets 3.3.2 (static build)
+Downloads and builds wxWidgets and wxSQLite3 statically into `third_party/`.
 
 **Usage:**
 
     ./setup-deps.sh
 
-⚠️ Requires: cmake, wget or curl, make, gcc/g++, ninja (optional).
+- If a dependency already exists, the script will ask whether to skip or rebuild.
+- Dependencies are installed into:
+  - `third_party/wx/install/`
+  - `third_party/wxsqlite3/install/`
 
-The dependencies will be installed into:
-
-    third_party/wx/install/
-
-These paths are already configured in CMakeLists.txt.
-
-### 6.2. build-release.sh — Build Release Version
-
-Builds the project in Release mode and installs it into `install/` directory.
-
-Usage:
-
-    ./build-release.sh
-
-To clean previous build:
-
-    ./build-release.sh clean
-
-After successful build, the portable app will be available at:
-
-    install/bin/iptvplayer
-
-✅ Includes icons and generates `compile_commands.json` for IDE support.
-
-### 6.3. VSCode Development Support
-
-For best experience with VSCode, install these extensions:
-
-- **clangd** (recommended)
-- Or: **C/C++ by Microsoft**
-
-Using clangd (Recommended):
-
-Install clangd:
-
-    sudo apt install clangd-16  # Ubuntu/Debian
-
-Install the clangd extension in VSCode.
-Open the project — it will automatically use `compile_commands.json`.
-No extra configuration needed!
-
-Using C/C++ Extension:
-
-If you prefer Microsoft's C/C++ extension, the file `.vscode/c_cpp_properties.json` is included and preconfigured.
-
-🔁 The `compile_commands.json` file is copied to the project root after each build for easy access.
-
-## 7. Summary of Commands
-
-| Task                    | Command |
-| :---------------------- | :------ |
-| Setup dependencies      | `./setup-deps.sh` |
-| Build debug version     | `cmake -S . -B build && cmake --build build` |
-| Build release version   | `./build-release.sh` |
-| Clean and rebuild       | `./build-release.sh clean` |
-| Run app                 | `cd install/bin && ./iptvplayer` |
+These paths are already configured in `CMakeLists.txt`.
 
 ---
 
-## App Settings
+### 5.2. `build-release.sh` – Build and Install
 
-Config file location: `~/.config/iptvplayer/config.json`
+Builds the project and installs it to a local directory (default: `install/`).
 
-The config file is created automatically on first run with default settings.
+**Usage:**
 
-## Directory structure
+    ./build-release.sh [OPTIONS]
 
-All user data is stored in the user's home directory:
+| Option | Description |
+| :----- | :---------- |
+| `--clean` | Remove previous build and install directories before building |
+| `--type release\|debug` | Build type (default: `release`) |
+| `--prefix PATH` | Installation directory (default: `../install` relative to project root) |
+| `--log` | Save build log to a timestamped file |
+| `-h, --help` | Show help |
+
+**Examples:**
+
+    # Release build with default settings
+    ./build-release.sh
+
+    # Debug build with clean
+    ./build-release.sh --clean --type debug
+
+    # Install to /opt/iptvplayer (requires sudo)
+    sudo ./build-release.sh --prefix /opt/iptvplayer
+
+    # Build with logging
+    ./build-release.sh --log
+
+**What it does:**
+
+1. Checks that dependencies are present (warns if not).
+2. Creates a build directory `build-release/` or `build-debug/`.
+3. Configures CMake with the chosen build type and install prefix.
+4. Builds the project (using `make` or `ninja` automatically).
+5. Installs the executable, icons, and resource files to the prefix.
+6. Copies `compile_commands.json` to the project root for IDE support.
+
+**After installation:** the application can be run from the installation directory, e.g.:
+
+    cd install/bin && ./iptvplayer
+
+---
+
+## 6. IDE Support
+
+After any build, `compile_commands.json` is generated and copied to the project root. This enables:
+
+- **VSCode** with `clangd` or Microsoft C/C++ extension
+- **CLion**
+- **ccls**
+
+Install `clangd` (recommended):
+
+    sudo apt install clangd-16   # Ubuntu/Debian
+
+Then install the clangd extension in VSCode – it will use `compile_commands.json` automatically.
+
+---
+
+## 7. Summary of Common Commands
+
+| Task | Command |
+| :--- | :--- |
+| Install dependencies | `./setup-deps.sh` |
+| Build release (default) | `./build-release.sh` |
+| Build debug | `./build-release.sh --type debug` |
+| Clean and rebuild | `./build-release.sh --clean` |
+| Build with logging | `./build-release.sh --log` |
+| Install to custom prefix | `./build-release.sh --prefix /your/path` |
+| Run the app | `cd install/bin && ./iptvplayer` |
+
+---
+
+## 8. Application Data Directories
 
 | Path | Purpose |
 | :--- | :--- |
-| `~/.config/iptvplayer/config.json` | Main application settings |
-| `~/.config/iptvplayer/playlists/*.json` | Playlist metadata (JSON) |
-| `~/.config/iptvplayer/favorites.json` | List of favorite channels |
+| `~/.config/iptvplayer/config.json` | Main settings (JSON) |
+| `~/.config/iptvplayer/playlists/*.json` | Playlist metadata |
+| `~/.config/iptvplayer/favorites.json` | Favorite channels |
 | `~/.cache/iptvplayer/icons/` | Cached channel logos (disk) |
-| `~/.cache/iptvplayer/epg/` | Cached EPG data (JSON) |
+| `~/.config/iptvplayer/epg.db` | Cached EPG data (SQLite) |
+
+The config file is created automatically on first run.
 
 ---
 
-## Features (for end users)
+## 9. Features
 
-- **Playlist management**: add local or remote M3U playlists; edit, update, remove.
-- **Channel view**: list or grid (cards), with sorting and search.
-- **Favorites**: mark channels as favorites, view separately.
-- **EPG (Electronic Program Guide)**:
-  - Configure multiple XMLTV sources in Settings → EPG.
+- **Playlist management:** add local/remote M3U playlists, edit, update, remove.
+- **Channel views:** list or grid (cards) with sorting and search.
+- **Favorites:** mark channels, view separately.
+- **EPG (Electronic Program Guide):**
+  - XMLTV sources configuration (Settings → EPG).
   - Auto‑update interval and cache expiration.
-  - View current program in channel list / tooltip.
-  - Dedicated **Program** tab with day navigation and program details.
-  - Quick jump to EPG from channel context menu.
-- **Video playback**: fullscreen, volume, mute, audio/subtitle tracks, speed control.
-- **Recording**: record current stream (method configurable) to a user‑defined directory.
-- **IPTV‑Org integration**: add playlists from the public IPTV‑Org repository, filtered by country, language, or category.
+  - Program tab with day navigation and details.
+  - Quick jump from channel context menu.
+- **Video playback:** fullscreen, volume, mute, audio/subtitle tracks, speed control.
+- **Recording:** record current stream to a user‑defined directory.
+- **IPTV‑Org integration:** add playlists from the public IPTV‑Org repository.
 
-## Keyboard shortcuts (quick reference)
+---
+
+## 10. Keyboard Shortcuts (Quick Reference)
 
 | Key | Action |
 | :--- | :--- |
 | `Space` | Play / Pause |
-| `Left` / `Right` | Seek backward / forward (5s) |
-| `Shift+Left/Right` | Seek backward / forward (30s) |
-| `Ctrl+Left/Right` | Seek backward / forward (1s) |
+| `Left` / `Right` | Seek –5s / +5s |
+| `Shift+Left/Right` | Seek –30s / +30s |
+| `Ctrl+Left/Right` | Seek –1s / +1s |
 | `Home` / `End` | Go to start / end |
-| `Up` / `Down` | Volume up / down (5 steps) |
-| `Ctrl+Up/Down` | Volume up / down (1 step) |
+| `Up` / `Down` | Volume +5 / –5 |
+| `Ctrl+Up/Down` | Volume +1 / –1 |
 | `m` / `M` | Toggle mute |
-| `[` / `]` | Decrease / increase playback speed (0.1) |
-| `{` / `}` | Decrease / increase playback speed (0.5) |
-| `Backspace` | Reset speed to 1.0 |
+| `[` / `]` | Speed –0.1 / +0.1 |
+| `{` / `}` | Speed –0.5 / +0.5 |
+| `Backspace` | Reset speed |
 | `+` / `_` | Next / previous audio track |
 | `v` / `V` | Toggle subtitles |
 | `j` / `J` | Next subtitle track |
@@ -238,12 +231,12 @@ Full documentation is available in the **About** dialog.
 
 ---
 
-## Additional notes
+## 11. Notes
 
-- The application uses **wxWidgets 3.3.2**; ensure you have the correct version.
-- For Windows and macOS, the same directory structure applies but paths differ (e.g., `%APPDATA%\iptvplayer\`, `~/Library/Application Support/iptvplayer/`).
-- EPG sources are managed in Settings → EPG; add at least one source for the EPG features to work.
+- The scripts are designed for Linux; Windows and macOS will have separate build instructions later.
+- The `.gitignore` file is already configured to ignore `build-*/`, `install/`, `third_party/`, and other generated files.
+- After a successful build, you can package the `install/` directory for distribution.
 
 ---
 
-**You're now ready to develop, use, and distribute iptvplayer!**
+**You are now ready to develop, use, and distribute iptvplayer!**
