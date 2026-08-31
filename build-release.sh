@@ -173,17 +173,6 @@ cmake --build . --config "$BUILD_TYPE" --target all -j"$JOBS"
 log "Установка в $INSTALL_DIR"
 cmake --build . --config "$BUILD_TYPE" --target install
 
-# Копирование иконок (fallback, если install не скопировал)
-ICONS_SRC="$SCRIPT_DIR/icons"
-ICONS_DST="$INSTALL_DIR/bin/icons"
-if [[ -d "$ICONS_SRC" && ! -d "$ICONS_DST" ]]; then
-    mkdir -p "$ICONS_DST"
-    cp -r "$ICONS_SRC"/* "$ICONS_DST/" 2>/dev/null || true
-    log "Иконки скопированы (fallback) в $ICONS_DST"
-elif [[ -d "$ICONS_SRC" ]]; then
-    log "Иконки уже установлены, пропускаем fallback"
-fi
-
 # Проверка исполняемого файла
 EXE_PATH="$INSTALL_DIR/bin/$PROJECT_NAME"
 if [[ ! -x "$EXE_PATH" ]]; then

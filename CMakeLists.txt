@@ -33,7 +33,6 @@ configure_file(
     ${CMAKE_BINARY_DIR}/version.h
     @ONLY
 )
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR})
 
 # ------------------------
 # Local wxWidgets install

@@ -46,11 +46,23 @@ inline wxBitmapBundle LoadSvgIcon(const wxString &name, wxWindow *win) {
   int size = win ? win->FromDIP(24) : 24;
   wxSize iconSize(size, size);
 
-  wxString exeDir =
-      wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
-  wxString path = exeDir + "/icons/" + name + ".svg";
+  wxString path;
 
-  //LOG_DEBUG("SvgIcon: loading %s", path);
+  // 1. Попытка загрузить из DATADIR (если определён)
+#ifdef DATADIR
+  wxString datadirPath =
+      wxString::FromUTF8(DATADIR) + "/iptvplayer/icons/" + name + ".svg";
+  if (wxFileExists(datadirPath)) {
+    path = datadirPath;
+  }
+#endif
+
+  // 2. Если не найден, пробуем относительно исполняемого файла (для отладки)
+  if (path.empty()) {
+    wxString exeDir =
+        wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
+    path = exeDir + "/icons/" + name + ".svg";
+  }
 
   if (!wxFileExists(path)) {
     LOG_WARN("SvgIcon: NOT FOUND %s", path);
@@ -63,7 +75,7 @@ inline wxBitmapBundle LoadSvgIcon(const wxString &name, wxWindow *win) {
     return wxBitmapBundle();
   }
 
-  // Dark theme → invert rendered bitmap
+  // Dark theme → invert
   if (wxSystemSettings::GetAppearance().IsDark()) {
     wxBitmap bmp = bundle.GetBitmap(iconSize);
     wxBitmap inverted = InvertBitmap(bmp);
