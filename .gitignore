@@ -4,8 +4,8 @@
 build/
 build-release/ 
 build-debug/ 
-build-*/              # build-release, build-debug и т.д.
-install/              # локальная установка (по умолчанию)
+build-*/
+install/
 
 # -------------------------------
 # IDE и редакторы
