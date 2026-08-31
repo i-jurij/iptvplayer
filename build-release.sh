@@ -180,6 +180,11 @@ cmake --build . --config "$BUILD_TYPE" --target all -j"$JOBS"
 log "Установка в $INSTALL_DIR"
 cmake --build . --config "$BUILD_TYPE" --target install
 
+if [[ "$BUILD_TYPE" == "Release" || "$BUILD_TYPE" == "MinSizeRel" ]]; then
+    log "Удаление отладочных символов (strip)..."
+    strip --strip-all "$INSTALL_DIR/bin/$PROJECT_NAME" 2>/dev/null || warn "strip не удался"
+fi
+
 # Проверка исполняемого файла
 EXE_PATH="$INSTALL_DIR/bin/$PROJECT_NAME"
 if [[ ! -x "$EXE_PATH" ]]; then

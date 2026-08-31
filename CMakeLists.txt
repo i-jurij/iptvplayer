@@ -288,4 +288,10 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE DATADIR=\"${DATADIR}\")
 # ------------------------
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic)
+
+    # Оптимизация размера для релизных сборок
+    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+        target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sections)
+        target_link_options(${PROJECT_NAME} PRIVATE -Wl,--gc-sections)
+    endif()
 endif()
