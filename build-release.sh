@@ -7,7 +7,7 @@
 # Назначение:
 #   - Собирает проект (Release или Debug) и устанавливает в локальную папку.
 #   - По умолчанию создаёт папку сборки build-release (или build-debug)
-#     и устанавливает в ../install (корень проекта/install).
+#     и устанавливает в ./install (корень проекта/install).
 #   - Проверяет наличие собранных зависимостей (wxWidgets, wxSQLite3)
 #     и предупреждает, если они отсутствуют.
 #
@@ -17,19 +17,19 @@
 # Опции:
 #   --clean         - удалить старые папки сборки и установки перед сборкой
 #   --type TYPE     - тип сборки: release (по умолчанию) или debug
-#   --prefix PATH   - каталог установки (по умолчанию ../install)
+#   --prefix PATH   - каталог установки (по умолчанию ./install)
 #   --log           - сохранить лог сборки в файл build_YYYYMMDD_HHMMSS.log
 #   -h, --help      - показать справку
 #
 # Примеры:
-#   ./build-release.sh                             # релизная сборка в ../install
+#   ./build-release.sh                             # релизная сборка в ./install
 #   ./build-release.sh --type debug                # отладочная сборка
 #   ./build-release.sh --clean --prefix ./my_build # очистка и установка в ./my_build
 #   ./build-release.sh --log                       # сборка с логированием
 #
 # Примечание:
 #   После успешной сборки готовый к запуску набор файлов находится в папке,
-#   указанной в --prefix (по умолчанию install/). Запускайте из неё:
+#   указанной в --prefix (по умолчанию ./install). Запускайте из неё:
 #     cd install/bin && ./iptvplayer
 # =============================================================================
 
@@ -39,7 +39,7 @@ set -euo pipefail
 PROJECT_NAME="iptvplayer"
 BUILD_TYPE="Release"          # по умолчанию
 DO_CLEAN=false
-PREFIX="../install"           # по умолчанию
+PREFIX="install"              # по умолчанию — папка в корне проекта
 JOBS=$(nproc)                 # количество потоков
 LOG_FILE=""                   # если задан, вывод дублируется в файл
 # -----------------------------------------
@@ -53,6 +53,9 @@ NC='\033[0m'
 log() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
 error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
+
+# Определяем корень проекта (там, где лежит этот скрипт)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Парсинг аргументов
 while [[ $# -gt 0 ]]; do
@@ -86,7 +89,7 @@ while [[ $# -gt 0 ]]; do
             echo "Использование: $0 [--clean] [--type release|debug] [--prefix PATH] [--log]"
             echo "  --clean       удалить старые сборки перед сборкой"
             echo "  --type        тип сборки (release или debug), по умолчанию release"
-            echo "  --prefix      каталог установки (по умолчанию ../install)"
+            echo "  --prefix      каталог установки (по умолчанию ./install)"
             echo "  --log         сохранить лог сборки в файл"
             exit 0
             ;;
@@ -111,6 +114,11 @@ if command -v ninja >/dev/null; then
     MAKE_CMD="ninja"
 fi
 log "Используется генератор: $MAKE_CMD"
+
+# Преобразуем PREFIX в абсолютный путь, если он относительный
+if [[ ! "$PREFIX" = /* ]]; then
+    PREFIX="$SCRIPT_DIR/$PREFIX"
+fi
 
 # Директории
 BUILD_DIR="build-${BUILD_TYPE,,}"   # build-release или build-debug
@@ -137,7 +145,6 @@ check_deps() {
     fi
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 check_deps
 
