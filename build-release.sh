@@ -1,106 +1,171 @@
 #!/bin/bash
 
-# build-release.sh - Скрипт для сборки релизной версии iptvplayer
-# Использование: ./build-release.sh [clean]
+# build-release.sh - Скрипт сборки iptvplayer
+# Использование: ./build-release.sh [--clean] [--type release|debug] [--prefix PATH] [--log]
 
 set -euo pipefail
+
+# -------- Настройки (можно менять) --------
+PROJECT_NAME="iptvplayer"
+BUILD_TYPE="Release"          # по умолчанию
+DO_CLEAN=false
+PREFIX="../install"           # по умолчанию
+JOBS=$(nproc)                 # количество потоков
+LOG_FILE=""                   # если задан, вывод дублируется в файл
+# -----------------------------------------
 
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-log() {
-    echo -e "${GREEN}[INFO]${NC} $1"
-}
+log() { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
+error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
-warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
+# Парсинг аргументов
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --clean)
+            DO_CLEAN=true
+            shift
+            ;;
+        --type)
+            if [[ -z "${2:-}" ]]; then error "Не указан тип сборки"; fi
+            case "$2" in
+                release|debug) BUILD_TYPE="$2" ;;
+                *) error "Неверный тип: $2. Допустимы: release, debug" ;;
+            esac
+            shift 2
+            ;;
+        --prefix)
+            if [[ -z "${2:-}" ]]; then error "Не указан путь для --prefix"; fi
+            PREFIX="$2"
+            shift 2
+            ;;
+        --log)
+            LOG_FILE="build_$(date +%Y%m%d_%H%M%S).log"
+            shift
+            ;;
+        clean)   # совместимость со старым синтаксисом
+            DO_CLEAN=true
+            shift
+            ;;
+        -h|--help)
+            echo "Использование: $0 [--clean] [--type release|debug] [--prefix PATH] [--log]"
+            echo "  --clean       удалить старые сборки перед сборкой"
+            echo "  --type        тип сборки (release или debug), по умолчанию release"
+            echo "  --prefix      каталог установки (по умолчанию ../install)"
+            echo "  --log         сохранить лог сборки в файл"
+            exit 0
+            ;;
+        *)
+            error "Неизвестный аргумент: $1"
+            ;;
+    esac
+done
 
-error() {
-    echo -e "${RED}[ERROR]${NC} $1" >&2
-    exit 1
-}
-
-# Проверка наличия cmake
-if ! command -v cmake &> /dev/null; then
-    error "cmake не установлен. Установите CMake (>= 3.20)."
+# Если LOG_FILE задан, перенаправляем весь вывод (stdout и stderr) через tee
+if [[ -n "$LOG_FILE" ]]; then
+    exec > >(tee -a "$LOG_FILE") 2>&1
+    log "Лог будет сохранён в $LOG_FILE"
 fi
 
-# Проверка наличия make или ninja
+# Проверка cmake
+command -v cmake >/dev/null || error "cmake не установлен (требуется >= 3.16)"
+
+# Автовыбор генератора
 MAKE_CMD="make"
-if command -v ninja &> /dev/null; then
+if command -v ninja >/dev/null; then
     MAKE_CMD="ninja"
 fi
-log "Используется: $MAKE_CMD"
+log "Используется генератор: $MAKE_CMD"
 
-# Имена директорий
-BUILD_DIR="build-release"
-INSTALL_DIR="install"
-PROJECT_NAME="iptvplayer"  # Явно задано — лучше читаемость
+# Директории
+BUILD_DIR="build-${BUILD_TYPE,,}"   # build-release или build-debug
+INSTALL_DIR="$PREFIX"
 
-# Очистка (если передан аргумент 'clean')
-if [[ "${1:-}" == "clean" ]]; then
-    log "Очистка предыдущей сборки..."
-    rm -rf "$BUILD_DIR"
-    rm -rf "$INSTALL_DIR"
-fi
+# Проверка наличия собранных зависимостей
+check_deps() {
+    local wx_lib="$SCRIPT_DIR/third_party/wx/install/lib/libwx_gtk3u_core-3.3.a"
+    local sqlite_lib="$SCRIPT_DIR/third_party/wxsqlite3/install/lib/libwxcode_gtk3u_wxsqlite3-3.3.a"
+    local missing=()
+    [[ ! -f "$wx_lib" ]] && missing+=("wxWidgets (не найден $wx_lib)")
+    [[ ! -f "$sqlite_lib" ]] && missing+=("wxSQLite3 (не найден $sqlite_lib)")
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        warn "Отсутствуют зависимости:"
+        printf '  - %s\n' "${missing[@]}"
+        echo "Запустите ./setup-deps.sh для установки зависимостей."
+        read -p "Продолжить сборку всё равно? [y/N]: " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            error "Сборка прервана из-за отсутствующих зависимостей."
+        fi
+    else
+        log "Все зависимости найдены."
+    fi
+}
 
-# Создание директории сборки
-if [[ -d "$BUILD_DIR" && ! -z "$(ls -A "$BUILD_DIR")" ]]; then
-    warn "Директория '$BUILD_DIR' уже существует и не пуста."
-    read -p "Удалить и пересоздать? [y/N]: " -n 1 -r
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+check_deps
+
+# Очистка
+if [[ "$DO_CLEAN" == true ]]; then
+    log "Очистка предыдущих сборок..."
+    rm -rf "$BUILD_DIR" "$INSTALL_DIR"
+elif [[ -d "$BUILD_DIR" && -n "$(ls -A "$BUILD_DIR" 2>/dev/null)" ]]; then
+    warn "Директория '$BUILD_DIR' уже существует."
+    read -p "Пересобрать с очисткой? [y/N]: " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         error "Сборка прервана пользователем."
     fi
-    rm -rf "$BUILD_DIR"
+    rm -rf "$BUILD_DIR" "$INSTALL_DIR"
 fi
 
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 # Конфигурация CMake
-log "Конфигурация CMake (Release)..."
+log "Конфигурация CMake (${BUILD_TYPE})..."
 cmake .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="../$INSTALL_DIR" \
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 # Сборка
-log "Сборка проекта..."
-cmake --build . --config Release --target all -j$(nproc)
+log "Сборка проекта (потоков: $JOBS)..."
+cmake --build . --config "$BUILD_TYPE" --target all -j"$JOBS"
 
 # Установка
-log "Установка в ../$INSTALL_DIR"
-cmake --build . --config Release --target install
+log "Установка в $INSTALL_DIR"
+cmake --build . --config "$BUILD_TYPE" --target install
 
-# Копирование иконок (на случай, если install не копирует)
-ICONS_SRC="../icons"
-ICONS_DST="../$INSTALL_DIR/bin/icons"
-
-if [[ -d "$ICONS_SRC" ]]; then
+# Копирование иконок (fallback, если install не скопировал)
+ICONS_SRC="$SCRIPT_DIR/icons"
+ICONS_DST="$INSTALL_DIR/bin/icons"
+if [[ -d "$ICONS_SRC" && ! -d "$ICONS_DST" ]]; then
     mkdir -p "$ICONS_DST"
     cp -r "$ICONS_SRC"/* "$ICONS_DST/" 2>/dev/null || true
-    log "Иконки скопированы в: $ICONS_DST"
-else
-    warn "Папка иконок не найдена: $ICONS_SRC"
+    log "Иконки скопированы (fallback) в $ICONS_DST"
+elif [[ -d "$ICONS_SRC" ]]; then
+    log "Иконки уже установлены, пропускаем fallback"
 fi
 
-# Проверка, что исполняемый файл создан
-EXE_PATH="../$INSTALL_DIR/bin/$PROJECT_NAME"
-if [[ -x "$EXE_PATH" ]]; then
-    log "✅ Сборка завершена! Приложение готово к запуску."
-else
+# Проверка исполняемого файла
+EXE_PATH="$INSTALL_DIR/bin/$PROJECT_NAME"
+if [[ ! -x "$EXE_PATH" ]]; then
     error "Исполняемый файл не найден: $EXE_PATH"
 fi
 
-echo
-echo -e "${GREEN}Запуск:${NC}"
-echo "  cd ../$INSTALL_DIR/bin"
-echo "  ./$PROJECT_NAME"
+log "✅ Сборка завершена! Приложение готово к запуску."
+echo -e "${GREEN}Запуск:${NC} cd $INSTALL_DIR/bin && ./$PROJECT_NAME"
 
-# Копируем compile_commands.json в корень (для удобства IDE)
-cp ./compile_commands.json ../ || true
+# Копируем compile_commands.json в корень (для IDE)
+cp ./compile_commands.json "$SCRIPT_DIR/" 2>/dev/null || true
+
+if [[ -n "$LOG_FILE" ]]; then
+    log "Полный лог сохранён в $LOG_FILE"
+fi

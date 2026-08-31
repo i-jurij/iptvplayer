@@ -5,16 +5,28 @@
 
 set -euo pipefail
 
+# Цвета
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
-log() { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
-error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
+log() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
 
-# Определение корня проекта
+warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+    exit 1
+}
+
+# ----------------------------------------------------------------------
+# Определяем корень проекта
+# ----------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 
@@ -24,10 +36,10 @@ fi
 
 log "Корень проекта: $PROJECT_ROOT"
 
-# Проверка утилит
-command -v cmake >/dev/null || error "cmake не установлен (требуется >= 3.16)"
-command -v git >/dev/null || warn "git не найден – версионирование будет отключено"
-command -v autoreconf >/dev/null || error "autoreconf не найден (установите autoconf, automake, libtool)"
+# Проверки утилит
+if ! command -v cmake &> /dev/null; then
+    error "cmake не установлен. Установите CMake (>= 3.20)."
+fi
 
 if ! command -v wget &> /dev/null && ! command -v curl &> /dev/null; then
     error "Установите wget или curl."
@@ -48,10 +60,15 @@ WXSQLITE3_DIR="$THIRD_PARTY_DIR/wxsqlite3"
 WX_VERSION="3.3.2"
 WXSQLITE3_VERSION="5.0.1"
 
+# ----------------------------------------------------------------------
+# Создаём third_party
+# ----------------------------------------------------------------------
 mkdir -p "$THIRD_PARTY_DIR"
 cd "$PROJECT_ROOT"
 
-# ----------------- wxWidgets -----------------
+# ----------------------------------------------------------------------
+# Сборка wxWidgets (статически)
+# ----------------------------------------------------------------------
 if [[ -d "$WX_DIR" ]]; then
     warn "Директория wx уже существует. Пропускаем сборку wxWidgets? [y/N]"
     read -n 1 -r
@@ -65,6 +82,7 @@ fi
 
 if [[ ! -d "$WX_DIR" ]]; then
     log "Сборка wxWidgets $WX_VERSION..."
+
     mkdir -p "$WX_DIR"
     cd "$WX_DIR"
 
@@ -95,7 +113,9 @@ if [[ ! -d "$WX_DIR" ]]; then
     cd "$PROJECT_ROOT"
 fi
 
-# ----------------- wxSQLite3 -----------------
+# ----------------------------------------------------------------------
+# Сборка wxSQLite3 (статически, без примеров)
+# ----------------------------------------------------------------------
 if [[ -d "$WXSQLITE3_DIR" ]]; then
     warn "Директория wxsqlite3 уже существует. Пропускаем сборку wxSQLite3? [y/N]"
     read -n 1 -r
@@ -109,6 +129,7 @@ fi
 
 if [[ ! -d "$WXSQLITE3_DIR" ]]; then
     log "Сборка wxSQLite3 $WXSQLITE3_VERSION..."
+
     mkdir -p "$WXSQLITE3_DIR"
     cd "$WXSQLITE3_DIR"
 
@@ -137,11 +158,13 @@ if [[ ! -d "$WXSQLITE3_DIR" ]]; then
     WX_ROOT_ABS="$WX_DIR/install"
     log "Путь к wxWidgets: $WX_ROOT_ABS"
 
+    # Создаём build рядом с src
     mkdir -p ../build
     cd ../build
 
+    # префикс указываем абсолютный, чтобы всё попало в WXSQLITE3_DIR/install
     export CXXFLAGS="-std=c++20"
-    ../src/configure \
+     ../src/configure \
         --prefix="$WXSQLITE3_DIR/install" \
         --with-wx-config="$WX_ROOT_ABS/bin/wx-config" \
         --disable-shared \
@@ -151,6 +174,7 @@ if [[ ! -d "$WXSQLITE3_DIR" ]]; then
         --without-ascon128 \
         --without-aegis
 
+    # Определяем имя цели библиотеки
     MAKEFILE="Makefile"
     if [[ ! -f "$MAKEFILE" ]]; then
         error "Makefile не найден в $(pwd)"
@@ -165,9 +189,14 @@ if [[ ! -d "$WXSQLITE3_DIR" ]]; then
     fi
     log "Цель библиотеки: $LIB_TARGET"
 
+    # Собираем только библиотеку
     make -j$(nproc) "$LIB_TARGET"
+
+    # Устанавливаем библиотеку и заголовки
     make install-exec
 
+    # Теперь копируем заголовки в правильное место (они уже будут скопированы в install/include/wx)
+    # Но проверим, если их нет — скопируем.
     if [[ ! -d "$WXSQLITE3_DIR/install/include/wx" ]]; then
         log "Копирование заголовков вручную..."
         mkdir -p "$WXSQLITE3_DIR/install/include/wx"
@@ -179,7 +208,10 @@ if [[ ! -d "$WXSQLITE3_DIR" ]]; then
 fi
 
 log "✅ Все зависимости установлены!"
-echo "Теперь можно собирать проект:"
+log "Теперь можно собирать проект:"
 echo "  ./build-release.sh"
 echo "  или"
 echo "  cd build && cmake .. && make"
+echo "  или"
+echo "  cd .. && rm -rf build && cmake -S . -B build && cmake --build build -j4 && cd build"
+echo

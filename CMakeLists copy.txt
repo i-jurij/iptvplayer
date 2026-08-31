@@ -1,39 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
-project(iptvplayer VERSION 1.0.0)   # базовая версия, будет дополнена из Git
+project(iptvplayer)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ------------------------
-# Генерация version.h из Git
-# ------------------------
-find_package(Git QUIET)
-if(GIT_FOUND)
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} describe --tags --dirty --always
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_DESCRIBE
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_COMMIT
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-else()
-    set(GIT_DESCRIBE "unknown")
-    set(GIT_COMMIT "unknown")
-endif()
-
-configure_file(
-    ${CMAKE_SOURCE_DIR}/version.h.in
-    ${CMAKE_BINARY_DIR}/version.h
-    @ONLY
-)
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR})
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 
 # ------------------------
 # Local wxWidgets install
@@ -58,25 +31,21 @@ if(_pos EQUAL -1)
 endif()
 
 # ------------------------
-# Local wxSQLite3 install (надёжный поиск с проверкой)
+# Local wxSQLite3 install
 # ------------------------
 set(LOCAL_WXSQLITE3_INSTALL "${CMAKE_SOURCE_DIR}/third_party/wxsqlite3/install" CACHE PATH "Local wxSQLite3 install dir")
+
+# Путь к заголовкам
 set(WXSQLITE3_INCLUDE_DIR "${LOCAL_WXSQLITE3_INSTALL}/include")
 
-# Поиск статической библиотеки – GLOB с проверкой единственности
-file(GLOB WXSQLITE3_LIBRARIES "${LOCAL_WXSQLITE3_INSTALL}/lib/libwxcode*.a")
-list(LENGTH WXSQLITE3_LIBRARIES _count)
-if(NOT _count EQUAL 1)
-    message(FATAL_ERROR 
-        "Ожидается ровно один файл библиотеки wxSQLite3, но найдено ${_count}:\n"
-        "  ${WXSQLITE3_LIBRARIES}\n"
-        "Удалите лишние или переустановите wxSQLite3."
-    )
+# Поиск статической библиотеки (имя может быть libwxcode_gtk3u_wxsqlite3-3.3.a)
+file(GLOB WXSQLITE3_LIBRARY "${LOCAL_WXSQLITE3_INSTALL}/lib/libwxcode*.a")
+if(NOT WXSQLITE3_LIBRARY)
+    message(FATAL_ERROR "wxSQLite3 library not found in ${LOCAL_WXSQLITE3_INSTALL}/lib")
 endif()
-set(WXSQLITE3_LIBRARY "${WXSQLITE3_LIBRARIES}")
 message(STATUS "wxSQLite3 library: ${WXSQLITE3_LIBRARY}")
 
-# Импортная цель
+# Создаём импортную цель для удобства
 add_library(wxsqlite3 STATIC IMPORTED)
 set_target_properties(wxsqlite3 PROPERTIES
     IMPORTED_LOCATION "${WXSQLITE3_LIBRARY}"
@@ -125,7 +94,7 @@ endif()
 find_package(ZLIB REQUIRED)
 
 # ------------------------
-# Player backend
+# Player backend (mpv logic, OpenGL — all in src/player)
 # ------------------------
 add_subdirectory(src/player)
 
@@ -205,7 +174,6 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${WXSQLITE3_INCLUDE_DIR}
-    ${CMAKE_BINARY_DIR}   # для version.h
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -222,50 +190,7 @@ else()
 endif()
 
 # ------------------------
-# Макрос для установки ресурсов
-# ------------------------
-function(install_resource FILE_NAME)
-    set(FULL_PATH "${CMAKE_SOURCE_DIR}/resources/${FILE_NAME}")
-    if(NOT EXISTS "${FULL_PATH}")
-        message(WARNING "Ресурсный файл не найден: ${FULL_PATH}")
-        return()
-    endif()
-
-    # Копирование в каталог сборки
-    add_custom_command(TARGET iptvplayer POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${FULL_PATH}"
-            "$<TARGET_FILE_DIR:iptvplayer>/${FILE_NAME}"
-        COMMENT "Copying ${FILE_NAME} to build directory"
-    )
-
-    # Установка в зависимости от платформы
-    if(WIN32)
-        install(FILES "${FULL_PATH}" DESTINATION .)
-    elseif(APPLE)
-        set(BUNDLE_RESOURCES_DIR "${CMAKE_BINARY_DIR}/iptvplayer.app/Contents/Resources")
-        add_custom_command(TARGET iptvplayer POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${FULL_PATH}"
-                "${BUNDLE_RESOURCES_DIR}/${FILE_NAME}"
-            COMMENT "Copying ${FILE_NAME} to macOS app bundle"
-        )
-        install(FILES "${FULL_PATH}"
-            DESTINATION "${CMAKE_INSTALL_PREFIX}/iptvplayer.app/Contents/Resources")
-    else()
-        install(FILES "${FULL_PATH}" DESTINATION share/iptvplayer)
-    endif()
-endfunction()
-
-# ------------------------
-# Установка ресурсов
-# ------------------------
-install_resource(epg_sources.json)
-install_resource(matching_rules.json)
-install_resource(channel_aliases.json)
-
-# ------------------------
-# Иконки
+# Icons
 # ------------------------
 set(ICONS_DIR ${CMAKE_SOURCE_DIR}/icons)
 
@@ -279,14 +204,102 @@ install(TARGETS iptvplayer DESTINATION bin)
 install(DIRECTORY ${ICONS_DIR}/ DESTINATION share/iptvplayer/icons)
 
 # ------------------------
-# DATADIR для JSON-файлов
+# Start EPG sources info HTML
 # ------------------------
+set(EPG_SOURCES_HTML ${CMAKE_SOURCE_DIR}/resources/epg_sources.json)
+
+# Копирование в каталог сборки (для отладки)
+add_custom_command(TARGET iptvplayer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${EPG_SOURCES_HTML}
+            $<TARGET_FILE_DIR:iptvplayer>/epg_sources.json
+    COMMENT "Copying epg_sources.json to build directory"
+)
+
+# Установка в системный каталог (Linux/macOS) или рядом с .exe (Windows)
+if(WIN32)
+    install(FILES ${EPG_SOURCES_HTML} DESTINATION .)
+elseif(APPLE)
+    # Для macOS: кладём внутрь Resources бандла
+    set( BUNDLE_RESOURCES_DIR "${CMAKE_BINARY_DIR}/iptvplayer.app/Contents/Resources" )
+    add_custom_command(TARGET iptvplayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${EPG_SOURCES_HTML}
+                ${BUNDLE_RESOURCES_DIR}/epg_sources.json
+        COMMENT "Copying epg_sources.json to macOS app bundle"
+    )
+    install(FILES ${EPG_SOURCES_HTML}
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/iptvplayer.app/Contents/Resources)
+else()
+    # Linux и другие Unix
+    install(FILES ${EPG_SOURCES_HTML} 
+            DESTINATION share/iptvplayer)
+endif()
+# --- END EPG sources ---
+
+# ------------------------
+# Matching rules JSON
+# ------------------------
+set(MATCHING_RULES_JSON ${CMAKE_SOURCE_DIR}/resources/matching_rules.json)
+
+add_custom_command(TARGET iptvplayer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${MATCHING_RULES_JSON}
+            $<TARGET_FILE_DIR:iptvplayer>/matching_rules.json
+    COMMENT "Copying matching_rules.json to build directory"
+)
+
+if(WIN32)
+    install(FILES ${MATCHING_RULES_JSON} DESTINATION .)
+elseif(APPLE)
+    set( BUNDLE_RESOURCES_DIR "${CMAKE_BINARY_DIR}/iptvplayer.app/Contents/Resources" )
+    add_custom_command(TARGET iptvplayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${MATCHING_RULES_JSON}
+                ${BUNDLE_RESOURCES_DIR}/matching_rules.json
+        COMMENT "Copying matching_rules.json to macOS app bundle"
+    )
+    install(FILES ${MATCHING_RULES_JSON}
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/iptvplayer.app/Contents/Resources)
+else()
+    install(FILES ${MATCHING_RULES_JSON} 
+            DESTINATION share/iptvplayer)
+endif()
+
+# ------------------------
+# Channel aliases JSON
+# ------------------------
+set(CHANNEL_ALIASES_JSON ${CMAKE_SOURCE_DIR}/resources/channel_aliases.json)
+
+add_custom_command(TARGET iptvplayer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CHANNEL_ALIASES_JSON}
+            $<TARGET_FILE_DIR:iptvplayer>/channel_aliases.json
+    COMMENT "Copying channel_aliases.json to build directory"
+)
+
+if(WIN32)
+    install(FILES ${CHANNEL_ALIASES_JSON} DESTINATION .)
+elseif(APPLE)
+    set( BUNDLE_RESOURCES_DIR "${CMAKE_BINARY_DIR}/iptvplayer.app/Contents/Resources" )
+    add_custom_command(TARGET iptvplayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CHANNEL_ALIASES_JSON}
+                ${BUNDLE_RESOURCES_DIR}/channel_aliases.json
+        COMMENT "Copying channel_aliases.json to macOS app bundle"
+    )
+    install(FILES ${CHANNEL_ALIASES_JSON}
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/iptvplayer.app/Contents/Resources)
+else()
+    install(FILES ${CHANNEL_ALIASES_JSON} 
+            DESTINATION share/iptvplayer)
+endif()
+
+# -----------------------------------------
+
 set(DATADIR "${CMAKE_INSTALL_PREFIX}/share")
 target_compile_definitions(${PROJECT_NAME} PRIVATE DATADIR=\"${DATADIR}\")
 
-# ------------------------
-# Компиляторные флаги
-# ------------------------
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic)
 endif()
