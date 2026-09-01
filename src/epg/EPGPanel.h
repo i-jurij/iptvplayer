@@ -39,6 +39,8 @@ public:
 private:
   MainFrame *m_mainFrame;
 
+  void SelectProgramRow(int row);
+  
   wxStaticText *m_headerLabel;
   wxButton *m_manualMapBtn;
   void UpdateHeader();

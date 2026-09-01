@@ -291,6 +291,17 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   AdjustProgramColumns();
 
+  int currentRow = -1;
+  for (size_t i = 0; i < m_currentPrograms.size(); ++i) {
+    if (m_currentPrograms[i].IsCurrent()) {
+      currentRow = (int)i;
+      break;
+    }
+  }
+  if (currentRow != -1) {
+    SelectProgramRow(currentRow);
+  }
+  
   UpdateHeader();
 }
 
@@ -484,6 +495,18 @@ void EPGPanel::OnManualMapping(wxCommandEvent &) {
   if (dlg.ShowModal() == wxID_OK) {
     LoadProgramsForChannel(m_currentChannelId, m_currentDate);
     UpdateHeader();
+  }
+}
+
+void EPGPanel::SelectProgramRow(int row) {
+  if (row < 0 || row >= m_programGrid->GetNumberRows())
+    return;
+  m_programGrid->SelectRow(row, false);
+  m_programGrid->MakeCellVisible(row, 0);
+  if (row < (int)m_currentPrograms.size()) {
+    const EpgProgram &prog = m_currentPrograms[row];
+    m_detailTitle->SetLabel(wxString::FromUTF8(prog.title));
+    m_detailDesc->SetValue(wxString::FromUTF8(prog.description));
   }
 }
 
