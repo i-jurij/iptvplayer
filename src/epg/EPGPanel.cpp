@@ -16,13 +16,14 @@
 #include <wx/sizer.h>
 #include <wx/string.h>
 
+#include <cstring>
 #include <ctime>
 
 // Статические переменные для сохранения состояния
 std::string EPGPanel::s_lastChannelId;
 std::string EPGPanel::s_lastChannelName;
 std::string EPGPanel::s_lastPlaylistName;
-time_t EPGPanel::s_lastDate = 0;
+time_t EPGPanel::s_lastDate;
 
 // ----------------------------------------------------------------------------
 // Конструктор / Деструктор
@@ -33,6 +34,9 @@ EPGPanel::EPGPanel(wxWindow *parent, MainFrame *mainFrame)
       m_epgManager(nullptr), m_isActive(false), m_hasError(false) {
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
+    if (s_lastDate == 0) {
+      s_lastDate = EpgTime::GetStartOfDay(EpgTime::GetCurrentUtcEpoch());
+    }
     m_epgManager = app->GetEPGManager();
   }
   SetupUI();
@@ -278,9 +282,11 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   int row = 0;
   for (const auto &prog : programs) {
-    wxDateTime start(prog.startTime);
-    wxDateTime stop(prog.stopTime);
-    wxString timeRange = start.Format("%H:%M") + " - " + stop.Format("%H:%M");
+    wxString startStr =
+        wxString::FromUTF8(EpgTime::FormatTimeShort(prog.startTime));
+    wxString stopStr =
+        wxString::FromUTF8(EpgTime::FormatTimeShort(prog.stopTime));
+    wxString timeRange = startStr + " - " + stopStr;
 
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(row, 0, timeRange);
@@ -332,12 +338,8 @@ void EPGPanel::OnToday(wxCommandEvent &) {
   }
 }
 
-// ----------------------------------------------------------------------------
-// Обновление даты
-// ----------------------------------------------------------------------------
 void EPGPanel::UpdateDateLabel() {
-  wxDateTime dt(m_currentDate);
-  m_dateLabel->SetLabel(dt.Format("%d %b %Y"));
+  m_dateLabel->SetLabel(FormatLocalTime(m_currentDate, "%d %b %Y"));
 }
 
 // ----------------------------------------------------------------------------

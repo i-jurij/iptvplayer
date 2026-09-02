@@ -70,16 +70,18 @@ inline bool EpgProgram::IsFuture() const {
 }
 
 inline wxDateTime::Tm EpgProgram::GetLocalStartTime() const {
-  wxDateTime dt(startTime);
+  wxDateTime dt(static_cast<time_t>(startTime), wxDateTime::UTC);
+  dt.MakeTimezone(wxDateTime::Local);
   return dt.GetTm();
 }
 
 inline wxDateTime::Tm EpgProgram::GetLocalStopTime() const {
-  wxDateTime dt(stopTime);
+  wxDateTime dt(static_cast<time_t>(stopTime), wxDateTime::UTC);
+  dt.MakeTimezone(wxDateTime::Local);
   return dt.GetTm();
 }
 
-// Вспомогательная функция: обрезает пробелы в начале и конце строки
+// Вспомогательные функции (TrimWhitespace, IsAllDigits, SafeStoi) 
 inline std::string TrimWhitespace(const std::string &str) {
   size_t first = str.find_first_not_of(" \t\n\r");
   if (first == std::string::npos)
@@ -88,7 +90,6 @@ inline std::string TrimWhitespace(const std::string &str) {
   return str.substr(first, last - first + 1);
 }
 
-// Вспомогательная функция: проверяет, состоит ли строка только из цифр
 inline bool IsAllDigits(const std::string &s) {
   if (s.empty())
     return false;
@@ -99,8 +100,6 @@ inline bool IsAllDigits(const std::string &s) {
   return true;
 }
 
-// Вспомогательная функция: безопасное преобразование строки в число
-// Возвращает true и записывает результат, если строка содержит только цифры.
 inline bool SafeStoi(const std::string &s, int &out) {
   if (!IsAllDigits(s))
     return false;
@@ -112,48 +111,43 @@ inline bool SafeStoi(const std::string &s, int &out) {
   return true;
 }
 
-// Таблица известных аббревиатур временных зон (смещение в секундах)
-inline int GetOffsetFromAbbrev(const std::string &abbrev) {
-  // Приводим к верхнему регистру
+inline int GetOffsetFromAbbrev(const std::string &abbrev, bool &known) {
+  known = true;
   std::string upper;
   upper.reserve(abbrev.size());
   for (char c : abbrev) {
     upper.push_back(toupper(static_cast<unsigned char>(c)));
   }
-  // Распространённые аббревиатуры
   if (upper == "UTC" || upper == "GMT")
     return 0;
-  if (upper == "CET" ||
-      upper == "WAT") // Central European Time, West Africa Time
+  if (upper == "CET" || upper == "WAT")
     return 3600;
-  if (upper == "CEST" ||
-      upper == "EET") // Central European Summer, Eastern European
+  if (upper == "CEST" || upper == "EET")
     return 7200;
-  if (upper == "EEST") // Eastern European Summer
+  if (upper == "EEST")
     return 10800;
-  if (upper == "EST") // Eastern Standard (North America)
+  if (upper == "EST")
     return -5 * 3600;
-  if (upper == "EDT") // Eastern Daylight
+  if (upper == "EDT")
     return -4 * 3600;
-  if (upper == "CST") // Central Standard (North America)
+  if (upper == "CST")
     return -6 * 3600;
-  if (upper == "CDT") // Central Daylight
+  if (upper == "CDT")
     return -5 * 3600;
-  if (upper == "MST") // Mountain Standard
+  if (upper == "MST")
     return -7 * 3600;
-  if (upper == "MDT") // Mountain Daylight
+  if (upper == "MDT")
     return -6 * 3600;
-  if (upper == "PST") // Pacific Standard
+  if (upper == "PST")
     return -8 * 3600;
-  if (upper == "PDT") // Pacific Daylight
+  if (upper == "PDT")
     return -7 * 3600;
-  if (upper == "MSK") // Moscow Standard
+  if (upper == "MSK")
     return 3 * 3600;
-  // Можно добавить другие при необходимости
-  return 0; // неизвестная зона — считаем UTC
+  known = false;
+  return 0;
 }
 
-// Парсинг XMLTV-времени
 inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   if (timeStr.length() < 8)
     return 0;
@@ -188,7 +182,7 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
              &hour, &minute, &second) != 6)
     return 0;
 
-  // ---- 3. Валидация даты и времени ----
+  // ---- 3. Валидация ----
   if (year < 1970 || year > 2100 || month < 1 || month > 12 || day < 1 ||
       hour > 23 || minute > 59 || second > 59)
     return 0;
@@ -202,24 +196,21 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   if (day > maxDay)
     return 0;
 
-  // ---- 4. Определение смещения временной зоны ----
+  // ---- 4. Парсинг смещения зоны ----
   int offsetSeconds = 0;
-  bool applyOffset = false; // нужно ли корректировать время
+  bool hasZone = false;
 
   if (!zonePart.empty()) {
-    // Зона указана
     if (zonePart[0] == 'Z' || zonePart[0] == 'z') {
-      // UTC — ничего не делаем, offset = 0
-      applyOffset = true; // можно не вычитать, но для единообразия
+      offsetSeconds = 0;
+      hasZone = true;
     } else if (zonePart[0] == '+' || zonePart[0] == '-') {
-      // Числовое смещение
       int sign = (zonePart[0] == '-') ? -1 : 1;
       std::string digits = zonePart.substr(1);
 
       int zoneHours = 0, zoneMinutes = 0, zoneSeconds = 0;
       bool valid = true;
 
-      // Формат ±HH:MM[:SS]
       if (digits.size() >= 5 && digits[2] == ':' &&
           IsAllDigits(digits.substr(0, 2)) &&
           IsAllDigits(digits.substr(3, 2))) {
@@ -227,26 +218,20 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
             !SafeStoi(digits.substr(3, 2), zoneMinutes)) {
           valid = false;
         }
-        // Проверка секунд, если есть
         if (digits.size() >= 8 && digits[5] == ':') {
           if (IsAllDigits(digits.substr(6, 2))) {
-            if (!SafeStoi(digits.substr(6, 2), zoneSeconds)) {
+            if (!SafeStoi(digits.substr(6, 2), zoneSeconds))
               valid = false;
-            }
           } else {
             valid = false;
           }
         }
-      }
-      // Формат ±HHMM (без двоеточия)
-      else if (digits.size() >= 4 && IsAllDigits(digits.substr(0, 4))) {
+      } else if (digits.size() >= 4 && IsAllDigits(digits.substr(0, 4))) {
         if (!SafeStoi(digits.substr(0, 2), zoneHours) ||
             !SafeStoi(digits.substr(2, 2), zoneMinutes)) {
           valid = false;
         }
-      }
-      // Формат ±HH (только часы)
-      else if (digits.size() >= 2 && IsAllDigits(digits.substr(0, 2))) {
+      } else if (digits.size() >= 2 && IsAllDigits(digits.substr(0, 2))) {
         if (!SafeStoi(digits.substr(0, 2), zoneHours)) {
           valid = false;
         }
@@ -255,7 +240,6 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
         valid = false;
       }
 
-      // Проверка диапазонов: часы 0–14, минуты 0–59, секунды 0–59
       if (valid) {
         if (zoneHours > 14 || zoneMinutes > 59 || zoneSeconds > 59) {
           valid = false;
@@ -267,53 +251,103 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
       if (valid) {
         offsetSeconds =
             (zoneHours * 3600 + zoneMinutes * 60 + zoneSeconds) * sign;
-        applyOffset = true;
+        hasZone = true;
       } else {
         LOG_ERROR("EpgTime::ParseXmltvTime: invalid numeric zone format '%s', "
                   "treating as UTC",
                   zonePart.c_str());
-        applyOffset = false; // не применять смещение
+        hasZone = false;
       }
     } else {
-      // Аббревиатура временной зоны
-      offsetSeconds = GetOffsetFromAbbrev(zonePart);
-      applyOffset = true; // применяем смещение (даже если 0)
+      // Аббревиатура
+      bool known = true;
+      offsetSeconds = GetOffsetFromAbbrev(zonePart, known);
+      if (!known) {
+        LOG_ERROR("EpgTime::ParseXmltvTime: unknown timezone abbreviation "
+                  "'%s', treating as UTC",
+                  zonePart.c_str());
+        hasZone = false;
+      } else {
+        hasZone = true;
+      }
     }
   }
 
-  // ---- 5. Создание wxDateTime ----
-  wxDateTime dt;
-  if (zonePart.empty()) {
-    // Зона не указана — интерпретируем как локальное время
-    dt = wxDateTime(day, static_cast<wxDateTime::Month>(month - 1), year, hour,
-                    minute, second);
-  } else {
-    // Зона указана — создаём как UTC, затем скорректируем
-    dt = wxDateTime(day, static_cast<wxDateTime::Month>(month - 1), year, hour,
-                    minute, second, wxDateTime::UTC);
+  // ---- 5. Если зона не указана, интерпретируем как локальное время ----
+  if (!hasZone) {
+    struct tm tm_local{};
+    tm_local.tm_year = year - 1900;
+    tm_local.tm_mon = month - 1;
+    tm_local.tm_mday = day;
+    tm_local.tm_hour = hour;
+    tm_local.tm_min = minute;
+    tm_local.tm_sec = second;
+    tm_local.tm_isdst = -1;
+    time_t local_ts = mktime(&tm_local);
+    if (local_ts == (time_t)-1)
+      return 0;
+    return local_ts; // локальное время системы
   }
 
-  if (!dt.IsValid())
+  // ---- 6. Зона указана — вычисляем UTC напрямую ----
+  struct tm tm_utc{};
+  tm_utc.tm_year = year - 1900;
+  tm_utc.tm_mon = month - 1;
+  tm_utc.tm_mday = day;
+  tm_utc.tm_hour = hour;
+  tm_utc.tm_min = minute;
+  tm_utc.tm_sec = second;
+  tm_utc.tm_isdst = -1; // не используется для UTC, но оставляем
+
+  time_t utc_ts;
+#if defined(HAVE_TIMEGM)
+  utc_ts = timegm(&tm_utc);
+#elif defined(_WIN32)
+  utc_ts = _mkgmtime(&tm_utc);
+#else
+  // Резервный итеративный метод (если timegm недоступен)
+  // Берём local_ts из mktime и корректируем до UTC
+  struct tm tm_local = tm_utc;
+  time_t local_ts = mktime(&tm_local);
+  if (local_ts == (time_t)-1)
     return 0;
-
-  // Применяем смещение, если нужно
-  if (!zonePart.empty() && applyOffset) {
-    dt -= wxTimeSpan(0, 0, offsetSeconds);
+  utc_ts = local_ts;
+  int iterations = 0;
+  while (iterations < 10) {
+    struct tm tm_check = *gmtime(&utc_ts);
+    int diff = (tm_check.tm_hour - tm_utc.tm_hour) * 3600 +
+               (tm_check.tm_min - tm_utc.tm_min) * 60 +
+               (tm_check.tm_sec - tm_utc.tm_sec);
+    if (diff == 0)
+      break;
+    utc_ts -= diff;
+    iterations++;
   }
+  if (iterations >= 10) {
+    LOG_ERROR(
+        "EpgTime::ParseXmltvTime: fallback UTC calculation did not converge");
+    return 0;
+  }
+#endif
 
-  return dt.GetTicks();
+  // ---- 7. Вычитаем смещение, чтобы получить UTC ----
+  time_t result = utc_ts - offsetSeconds;
+  return result;
 }
 
+// ========================================================================
+// GetStartOfDay / GetEndOfDay
+// ========================================================================
 inline time_t EpgTime::GetStartOfDay(time_t date) {
   if (date <= 0)
     return 0;
-  wxDateTime dt(date); // интерпретирует date как локальное время
+  wxDateTime dt(date);
   if (!dt.IsValid())
     return 0;
-  wxDateTime::Tm tm = dt.GetTm(); // локальные компоненты (день, месяц, год)
+  wxDateTime::Tm tm = dt.GetTm();
   wxDateTime startOfDay(tm.mday, static_cast<wxDateTime::Month>(tm.mon),
-                        tm.year, 0, 0, 0, 0); // локальное начало дня
-  return startOfDay.GetTicks(); // преобразует локальное начало дня в UTC-тики
+                        tm.year, 0, 0, 0, 0);
+  return startOfDay.GetTicks();
 }
 
 inline time_t EpgTime::GetEndOfDay(time_t date) {
@@ -328,6 +362,9 @@ inline time_t EpgTime::GetEndOfDay(time_t date) {
   return endOfDay.GetTicks();
 }
 
+// ========================================================================
+// Форматирование времени (UTC → локальное)
+// ========================================================================
 inline std::string EpgTime::FormatTime(time_t t) {
   return FormatLocalTime(t, "%d.%m.%Y %H:%M");
 }

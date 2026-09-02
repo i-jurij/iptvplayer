@@ -457,10 +457,22 @@ wxString formatTimestamp(std::time_t timestamp) {
 std::string FormatLocalTime(time_t t, const wxString &format) {
   if (t <= 0)
     return "";
-  wxDateTime dt(t); // интерпретирует t как локальное время
-  if (!dt.IsValid())
+
+  struct tm tm_local;
+#ifdef _WIN32
+  if (localtime_s(&tm_local, &t) != 0)
     return "";
-  return dt.Format(format).ToStdString();
+#else
+  if (localtime_r(&t, &tm_local) == nullptr)
+    return "";
+#endif
+
+  std::string fmt = format.ToUTF8().data();
+  char buffer[256];
+  size_t len = strftime(buffer, sizeof(buffer), fmt.c_str(), &tm_local);
+  if (len == 0)
+    return "";
+  return std::string(buffer, len);
 }
 
 // ============================================================================
