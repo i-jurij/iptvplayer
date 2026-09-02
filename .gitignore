@@ -6,6 +6,10 @@ build-release/
 build-debug/ 
 build-*/
 install/
+dist/
+pkg-*/
+*.AppDir/
+linuxdeploy*
 
 # -------------------------------
 # IDE и редакторы

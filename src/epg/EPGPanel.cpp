@@ -29,7 +29,7 @@ time_t EPGPanel::s_lastDate = 0;
 // ----------------------------------------------------------------------------
 EPGPanel::EPGPanel(wxWindow *parent, MainFrame *mainFrame)
     : wxPanel(parent, wxID_ANY), m_mainFrame(mainFrame),
-      m_currentDate(EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks())),
+      m_currentDate(EpgTime::GetStartOfDay(EpgTime::GetCurrentUtcEpoch())),
       m_epgManager(nullptr), m_isActive(false), m_hasError(false) {
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {

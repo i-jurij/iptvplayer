@@ -787,7 +787,7 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
           auto sources = m_epgMgr->GetSources();
           for (auto &src : sources) {
             if (src.url == url) {
-              src.lastUpdate = std::time(nullptr);
+              src.lastUpdate = EpgTime::GetCurrentUtcEpoch();
               break;
             }
           }

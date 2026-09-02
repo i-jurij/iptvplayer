@@ -577,7 +577,7 @@ bool EPGManager::OpenDatabase() {
   UpdateEpgNameCache();
 
   // Проверка необходимости автообновления
-  time_t now = std::time(nullptr);
+  time_t now = EpgTime::GetCurrentUtcEpoch();
   bool needUpdate = (m_lastUpdate == 0) ||
                     (now < m_lastUpdate) || // время переведено назад
                     ((now - m_lastUpdate) >= m_updateIntervalHours * 3600);
@@ -793,7 +793,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
 
   if (success) {
     // Сохраняем last_update (в той же транзакции)
-    m_lastUpdate = std::time(nullptr);
+    m_lastUpdate = EpgTime::GetCurrentUtcEpoch();
     bool saved = false;
     for (int attempt = 0; attempt < 2; ++attempt) {
       if (m_db->SaveGlobalMetadata("last_update",
@@ -835,7 +835,7 @@ void EPGManager::CleanExpiredPrograms() {
   std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
   if (!m_db || !m_db->IsOpen())
     return;
-  time_t now = std::time(nullptr);
+  time_t now = EpgTime::GetCurrentUtcEpoch();
   time_t threshold = now - m_daysToKeep * 24 * 3600;
   m_db->DeleteProgramsOlderThan(threshold);
 }
@@ -899,7 +899,7 @@ EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {
   if (!m_db || !m_db->IsOpen())
     return result;
 
-  time_t now = std::time(nullptr);
+  time_t now = EpgTime::GetCurrentUtcEpoch();
   return m_db->GetCurrentProgram(channelId, now);
 }
 

@@ -678,7 +678,7 @@ bool EPGDatabase::SavePlaylistMapping(
     meta.channelCount = channelCount;
     meta.channelHash = channelHash;
     meta.epgHashAtMatch = epgHashAtMatch;
-    meta.lastMatchTime = std::time(nullptr);
+    meta.lastMatchTime = EpgTime::GetCurrentUtcEpoch();
     if (!SavePlaylistMetadata(playlistId, meta)) {
       LOG_ERROR("SavePlaylistMapping: failed to save metadata for '%s'",
                 playlistId.c_str());

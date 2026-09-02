@@ -3,7 +3,7 @@
  * mapping.
  *
  * Time representation: all time_t values are stored as UTC seconds since epoch
- * (std::time(nullptr)). Transactions: insertion of channels/programs and saving
+ * Transactions: insertion of channels/programs and saving
  * of last_update are performed within a single transaction. Thread safety:
  * methods that modify the database are protected by mutexes. Asynchronous tasks
  * are managed via std::future and a cancellation flag.
