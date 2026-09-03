@@ -232,25 +232,9 @@ void MainFrame::refreshFavorites() {
     EPGManager *epg = app->GetEPGManager();
     if (epg && !favChannels.empty()) {
       const std::string favPlaylistId = "favorites";
-      bool loaded = epg->LoadMappingForPlaylist(favPlaylistId, favChannels);
-      if (!loaded) {
-        if (epg->IsLoaded()) {
-          auto allEpg = epg->GetAllEpgChannels();
-          if (!allEpg.empty()) {
-            LOG_DEBUG(
-                "refreshFavorites: starting MatchChannelsAsync for favorites");
-            epg->MatchChannelsAsync(favChannels, favPlaylistId, nullptr);
-          } else {
-            LOG_DEBUG("refreshFavorites: EPG loaded but no channels in cache, "
-                      "skipping match for favorites");
-          }
-        } else {
-          LOG_DEBUG("refreshFavorites: EPG not loaded yet, skipping match for "
-                    "favorites");
-        }
-      } else {
-        LOG_DEBUG("refreshFavorites: mapping loaded for favorites");
-      }
+      // Просто загружаем существующий маппинг, если есть
+      epg->LoadMappingForPlaylist(favPlaylistId, favChannels);
+      // Матчинг запускается только при открытии вкладки (см. HandleFavPageChanged)
     }
   }
   // --- Конец EPG для избранных ---

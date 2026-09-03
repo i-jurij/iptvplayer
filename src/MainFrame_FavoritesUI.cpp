@@ -342,6 +342,29 @@ void MainFrame::HandleFavPageChanged(int sel) {
     if (m_epgChannels)
       m_epgChannels->SetActive(false);
 
+    // --- Запуск матчинга для избранных (если маппинг ещё не загружен) ---
+    Application *app = static_cast<Application *>(wxTheApp);
+    if (app) {
+      EPGManager *epg = app->GetEPGManager();
+      if (epg) {
+        auto &fm = getApplication()->getFavoritesManager();
+        auto favChannels = fm.list();
+        if (!favChannels.empty()) {
+          const std::string favPlaylistId = "favorites";
+          // Проверяем, есть ли уже маппинг (загружаем его)
+          bool loaded = epg->LoadMappingForPlaylist(favPlaylistId, favChannels);
+          if (!loaded && epg->IsLoaded()) {
+            auto allEpg = epg->GetAllEpgChannels();
+            if (!allEpg.empty()) {
+              LOG_DEBUG("HandleFavPageChanged: starting MatchChannelsAsync for "
+                        "favorites");
+              epg->MatchChannelsAsync(favChannels, favPlaylistId, nullptr);
+            }
+          }
+        }
+      }
+    }
+    
     auto *cfg = getConfigManager();
     std::string mode = cfg->getSetting("favorites_view_mode", "grid");
     bool grid = (mode == "grid");
@@ -351,7 +374,7 @@ void MainFrame::HandleFavPageChanged(int sel) {
     } else if (!grid && m_favList) {
       m_favList->ResumeLogoLoading();
     }
-
+    
     m_favViewBook->ChangeSelection(grid ? 1 : 0);
     if (grid) {
       if (m_favCards)
