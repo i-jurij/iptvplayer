@@ -799,7 +799,13 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
             std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
             if (!playlistId.empty()) {
               m_epgMgr->ReMatchCurrentPlaylist();
+            } else {
+              m_epgMgr->UpdateProgress(EpgProgressStage::Done, 100,
+                                       std::string(_("Done").ToUTF8().data()));
             }
+          } else {
+            m_epgMgr->UpdateProgress(EpgProgressStage::Done, 100,
+                                     std::string(_("Done").ToUTF8().data()));
           }
         } else {
           wxMessageBox(_("Failed to update source: ") + wxString::FromUTF8(error),

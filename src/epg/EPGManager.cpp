@@ -819,8 +819,10 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
               sourceUrl.c_str(), newChannels.size());
 
     // Завершение
-    UpdateProgress(EpgProgressStage::Done, 100,
-                   std::string(_("Done").ToUTF8().data()));
+    UpdateProgress(
+        EpgProgressStage::Parsing, 100,
+        std::string(
+            _("Parsing complete, waiting for matching...").ToUTF8().data()));
   } else {
     m_db->RollbackTransaction();
     setLastError("Failed to insert data into database");
