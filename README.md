@@ -1,15 +1,4 @@
-# IPTV Player — Build Instructions for Linux
-
-This project uses locally built static dependencies:
-
-- wxWidgets 3.3.2 (with builtin libwebp)
-- wxSQLite3 5.0.1
-
-All dependencies are installed automatically via `setup-deps.sh`.
-
----
-
-## Screenshots
+# IPTV Player
 
 | Playlists | Channels | Favorites |
 |-----------|----------|-----------|
@@ -18,6 +7,8 @@ All dependencies are installed automatically via `setup-deps.sh`.
 | Video | Program |
 |-------|---------|
 | [<img src="screenshots/video.png" width="200">](screenshots/video.png) | [<img src="screenshots/program.png" width="200">](screenshots/program.png) |
+
+---
 
 ## 1. Requirements
 
@@ -40,7 +31,12 @@ Optional but recommended: `ninja` for faster builds (fallback to `make`).
 
 ## 2. Installing Dependencies
 
-Dependencies (wxWidgets and wxSQLite3) are installed **automatically** by the `setup-deps.sh` script.
+This project uses locally built static dependencies:
+
+- wxWidgets 3.3.2 (with builtin libwebp)
+- wxSQLite3 5.0.1
+
+Dependencies are installed **automatically** by the `setup-deps.sh` script.
 
 From the project root, simply run:
 
