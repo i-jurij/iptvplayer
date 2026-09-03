@@ -128,6 +128,23 @@ bool Application::OnInit() {
     MainFrame *mf = m_guiManager->getMainFrame();
     mf->Show(true);
 
+    // ---- Обработка файлов, переданных через командную строку (MIME) ----
+    if (argc > 1) {
+      wxArrayString files;
+      for (int i = 1; i < argc; ++i) {
+        wxString arg = wxString::FromUTF8(argv[i]);
+        if (!arg.IsEmpty() && wxFileExists(arg)) {
+          files.Add(arg);
+        }
+      }
+      if (!files.IsEmpty()) {
+        MainFrame *mf = m_guiManager->getMainFrame();
+        if (mf) {
+          wxTheApp->CallAfter([mf, files]() { mf->OpenFiles(files); });
+        }
+      }
+    }
+    
     // 6) Старт приложения
     if (!start()) {
       LOG_ERROR("Failed to initialize application", "Error",

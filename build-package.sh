@@ -121,11 +121,14 @@ prepare_staging() {
     cat > "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop" << EOF
 [Desktop Entry]
 Name=IPTV Player
-Exec=$PACKAGE_NAME
+Exec=$PACKAGE_NAME %F
 Icon=$PACKAGE_NAME
 Type=Application
-Categories=Network;Player;
+Categories=AudioVideo;Player;
 Comment=IPTV Playlist Player
+Terminal=false
+StartupNotify=true
+MimeType=video/mp4;video/x-matroska;video/avi;video/mpeg;video/quicktime;video/x-msvideo;video/x-flv;video/ogg;video/webm;application/x-mpegURL;audio/x-mpegurl;audio/x-scpls;application/xspf+xml;application/vnd.apple.mpegurl;
 EOF
 
     mkdir -p "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps"
@@ -153,8 +156,8 @@ Version: $version
 Section: network
 Priority: optional
 Architecture: amd64
-Maintainer: Your Name <your.email@example.com>
-Homepage: https://github.com/yourusername/$PACKAGE_NAME
+Maintainer: ijurij <mnisjil@duck.com>
+Homepage: https://github.com/i-jurij/$PACKAGE_NAME
 Description: IPTV Playlist Player
  A simple player for M3U playlists with GUI.
 EOF
@@ -210,7 +213,7 @@ Version:        $version
 Release:        $release
 Summary:        IPTV Playlist Player
 License:        MIT
-URL:            https://github.com/yourusername/$PACKAGE_NAME
+URL:            https://github.com/i-jurij/$PACKAGE_NAME
 Source0:        %{name}-%{version}.tar.gz
 BuildArch:      x86_64
 
@@ -250,7 +253,7 @@ if [ \$1 == 0 ]; then
 fi
 
 %changelog
-* $(LC_TIME=en_US.UTF-8 date +"%a %b %d %Y") Your Name <your.email@example.com> - $version-$release
+* $(LC_TIME=en_US.UTF-8 date +"%a %b %d %Y") ijurij <mnisjil@duck.com> - $version-$release
 - Initial build
 EOF
 

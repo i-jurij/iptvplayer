@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>iptvplayer.desktop</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>IPTV Player</name>
+  <summary>Watch IPTV streams and manage playlists</summary>
+  <description>
+    <p>
+      IPTV Player is a graphical application for watching IPTV streams.
+      It supports M3U playlists, EPG, favorites, video playback and more.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/I-Jurij/iptvplayer</url>
+  <url type="bugtracker">https://github.com/I-Jurij/iptvplayer/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/I-Jurij/iptvplayer/main/screenshots/main.png</image>
+      <caption>Main window</caption>
+    </screenshot>
+  </screenshots>
+  <provides>
+    <binary>iptvplayer</binary>
+  </provides>
+</component>

@@ -112,6 +112,8 @@ public:
   std::vector<Channel> GetCurrentChannels() const;
   std::string GetCurrentPlaylistId() const;
 
+  void OpenFiles(const wxArrayString &paths);
+
 private:
   void RestoreChannelSelection();
   void RestoreFavoriteSelection();

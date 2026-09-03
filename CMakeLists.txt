@@ -276,6 +276,26 @@ install_resource(matching_rules.json)
 install_resource(channel_aliases.json)
 
 # ------------------------
+# Копирование appdata.xml в AppDir (для AppImage)
+# ------------------------
+set(APPDATA_FILE ${CMAKE_SOURCE_DIR}/resources/iptvplayer.appdata.xml)
+if(EXISTS ${APPDATA_FILE})
+    add_custom_command(TARGET iptvplayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:iptvplayer>/../usr/share/metainfo
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${APPDATA_FILE}
+            $<TARGET_FILE_DIR:iptvplayer>/../usr/share/metainfo/iptvplayer.appdata.xml
+        COMMENT "Copying appdata.xml to AppDir/usr/share/metainfo/"
+    )
+
+    # Для системной установки (DEB/RPM)
+    install(FILES ${APPDATA_FILE}
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
+    )
+endif()
+
+# ------------------------
 # Иконки
 # ------------------------
 set(ICONS_DIR ${CMAKE_SOURCE_DIR}/icons)

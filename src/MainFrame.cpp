@@ -390,3 +390,10 @@ void MainFrame::PlayChannel(const Channel &ch) {
     }
   });
 }
+
+void MainFrame::OpenFiles(const wxArrayString &paths) {
+  if (!m_videoPanel || paths.IsEmpty())
+    return;
+  m_notebook->SetSelection(m_videoPageIdx);
+  m_videoPanel->HandleDroppedFiles(paths, 0);
+}
