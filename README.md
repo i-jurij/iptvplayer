@@ -9,6 +9,16 @@ All dependencies are installed automatically via `setup-deps.sh`.
 
 ---
 
+## Screenshots
+
+| Playlists | Channels | Favorites |
+|-----------|----------|-----------|
+| [<img src="screenshots/playlists.png" width="200">](screenshots/playlists.png) | [<img src="screenshots/channels.png" width="200">](screenshots/channels.png) | [<img src="screenshots/favs.png" width="200">](screenshots/favs.png) |
+
+| Video | Program |
+|-------|---------|
+| [<img src="screenshots/video.png" width="200">](screenshots/video.png) | [<img src="screenshots/program.png" width="200">](screenshots/program.png) |
+
 ## 1. Requirements
 
 Install required system packages (Debian/Ubuntu example):

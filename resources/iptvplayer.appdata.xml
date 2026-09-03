@@ -13,12 +13,28 @@
   </description>
   <url type="homepage">https://github.com/I-Jurij/iptvplayer</url>
   <url type="bugtracker">https://github.com/I-Jurij/iptvplayer/issues</url>
-  <screenshots>
+<screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/I-Jurij/iptvplayer/main/screenshots/main.png</image>
-      <caption>Main window</caption>
+        <image>https://raw.githubusercontent.com/I-Jurij/iptvplayer/main/screenshots/channels.png</image>
+        <caption>Channels view</caption>
     </screenshot>
-  </screenshots>
+    <screenshot>
+        <image>https://raw.githubusercontent.com/I-Jurij/iptvplayer/main/screenshots/playlists.png</image>
+        <caption>Playlists</caption>
+    </screenshot>
+    <screenshot>
+        <image>https://raw.githubusercontent.com/I-Jurij/iptvplayer/main/screenshots/favs.png</image>
+        <caption>Favorites</caption>
+    </screenshot>
+    <screenshot>
+        <image>https://raw.githubusercontent.com/I-Jurij/iptvplayer/main/screenshots/video.png</image>
+        <caption>Video player</caption>
+    </screenshot>
+    <screenshot>
+        <image>https://raw.githubusercontent.com/I-Jurij/iptvplayer/main/screenshots/program.png</image>
+        <caption>EPG Program</caption>
+    </screenshot>
+</screenshots>
   <provides>
     <binary>iptvplayer</binary>
   </provides>
