@@ -331,7 +331,7 @@ void EPGPanel::OnNextDay(wxCommandEvent &) {
 }
 
 void EPGPanel::OnToday(wxCommandEvent &) {
-  m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
+  m_currentDate = EpgTime::GetStartOfDay(EpgTime::GetCurrentUtcEpoch());
   UpdateDateLabel();
   if (!m_currentChannelId.empty() || !m_currentChannelName.empty()) {
     LoadProgramsForChannel(m_currentChannelId, m_currentDate);
@@ -442,7 +442,7 @@ void EPGPanel::RestoreState() {
   } else {
     // Сброс
     m_headerLabel->SetLabel("No channel selected");
-    m_currentDate = EpgTime::GetStartOfDay(wxDateTime::Now().GetTicks());
+    m_currentDate = EpgTime::GetStartOfDay(EpgTime::GetCurrentUtcEpoch());
     UpdateDateLabel();
     m_programGrid->ClearGrid();
     if (m_programGrid->GetNumberRows() > 0)

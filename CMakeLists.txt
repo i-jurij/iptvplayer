@@ -201,6 +201,18 @@ set(SOURCES
 # ------------------------
 add_executable(${PROJECT_NAME} ${SOURCES})
 
+# ------------------------
+# Проверка наличия timegm (для EPG парсинга)
+# ------------------------
+include(CheckSymbolExists)
+check_symbol_exists(timegm "time.h" HAVE_TIMEGM)
+if(HAVE_TIMEGM)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_TIMEGM)
+    message(STATUS "timegm found, using native implementation")
+else()
+    message(STATUS "timegm not found, using portable implementation")
+endif()
+
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${WXSQLITE3_INCLUDE_DIR}

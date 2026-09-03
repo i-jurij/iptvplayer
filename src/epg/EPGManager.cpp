@@ -875,7 +875,7 @@ EPGManager::GetProgramsForChannel(const std::string &tvgId,
 
   time_t startOfDay = EpgTime::GetStartOfDay(date);
   time_t endOfDay = EpgTime::GetEndOfDay(date);
-  if (startOfDay == 0 || endOfDay == 0)
+  if (startOfDay < 0 || endOfDay < 0)
     return result;
 
   return m_db->GetProgramsForChannel(channelId, startOfDay, endOfDay);

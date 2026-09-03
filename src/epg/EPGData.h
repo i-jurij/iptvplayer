@@ -4,12 +4,16 @@
 #include "LogControl.h"
 #include "Utils.h"
 
-#include <wx/datetime.h>
-
 #include <cctype>
+#include <chrono>
+#include <cstdint>
 #include <ctime>
+#include <limits>
 #include <string>
 #include <vector>
+
+// Константа для обозначения ошибки при парсинге времени
+constexpr time_t kTimeParseError = static_cast<time_t>(-1);
 
 struct EpgProgram {
   std::string channelId;
@@ -21,8 +25,6 @@ struct EpgProgram {
 
   bool IsCurrent() const;
   bool IsFuture() const;
-  wxDateTime::Tm GetLocalStartTime() const;
-  wxDateTime::Tm GetLocalStopTime() const;
 };
 
 struct EpgChannel {
@@ -45,13 +47,23 @@ struct MappingEntry {
 };
 
 namespace EpgTime {
+// ParseXmltvTime: parses XMLTV time string and returns UTC epoch (time_t).
+// On error returns static_cast<time_t>(-1).
 time_t ParseXmltvTime(const std::string &timeStr);
+
+// GetStartOfDay / GetEndOfDay: return UTC epoch of start/end of local day
+// for the given UTC date. On error returns static_cast<time_t>(-1).
 time_t GetStartOfDay(time_t date);
 time_t GetEndOfDay(time_t date);
+
+// Formatting helpers (use FormatLocalTime from Utils.cpp)
 std::string FormatTime(time_t t);
 std::string FormatTimeShort(time_t t);
+
+// Current UTC epoch using std::chrono
 inline time_t GetCurrentUtcEpoch() {
-  return static_cast<time_t>(wxDateTime::Now().GetTicks());
+  using namespace std::chrono;
+  return system_clock::to_time_t(system_clock::now());
 }
 } // namespace EpgTime
 
@@ -69,19 +81,10 @@ inline bool EpgProgram::IsFuture() const {
   return startTime > now;
 }
 
-inline wxDateTime::Tm EpgProgram::GetLocalStartTime() const {
-  wxDateTime dt(static_cast<time_t>(startTime), wxDateTime::UTC);
-  dt.MakeTimezone(wxDateTime::Local);
-  return dt.GetTm();
-}
+// ---------------------------------------------------------------------
+// Helper utilities (no wxWidgets dependency)
+// ---------------------------------------------------------------------
 
-inline wxDateTime::Tm EpgProgram::GetLocalStopTime() const {
-  wxDateTime dt(static_cast<time_t>(stopTime), wxDateTime::UTC);
-  dt.MakeTimezone(wxDateTime::Local);
-  return dt.GetTm();
-}
-
-// Вспомогательные функции (TrimWhitespace, IsAllDigits, SafeStoi) 
 inline std::string TrimWhitespace(const std::string &str) {
   size_t first = str.find_first_not_of(" \t\n\r");
   if (first == std::string::npos)
@@ -148,11 +151,74 @@ inline int GetOffsetFromAbbrev(const std::string &abbrev, bool &known) {
   return 0;
 }
 
+// ---------------------------------------------------------------------
+// Portable timegm implementation (Howard Hinnant style)
+// ---------------------------------------------------------------------
+
+static inline int64_t days_from_civil(int64_t y, unsigned m,
+                                      unsigned d) noexcept {
+  y -= m <= 2;
+  const int64_t era = (y >= 0 ? y : y - 399) / 400;
+  const unsigned yoe = static_cast<unsigned>(y - era * 400);
+  const unsigned doy = (153 * (m + (m > 2 ? -3u : 9u)) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + static_cast<int64_t>(doe) - 719468;
+}
+
+static inline bool safe_mul_add(int64_t a, int64_t b, int64_t c, int64_t &out) {
+  if (a == 0 || b == 0) {
+    out = c;
+    return true;
+  }
+  if (std::llabs(a) > std::numeric_limits<int64_t>::max() / std::llabs(b))
+    return false;
+  int64_t prod = a * b;
+  if ((prod > 0 && c > std::numeric_limits<int64_t>::max() - prod) ||
+      (prod < 0 && c < std::numeric_limits<int64_t>::min() - prod))
+    return false;
+  out = prod + c;
+  return true;
+}
+
+static inline time_t timegm_portable(const struct tm &tm) {
+  int64_t year = static_cast<int64_t>(tm.tm_year) + 1900;
+  unsigned month = static_cast<unsigned>(tm.tm_mon) + 1;
+  unsigned day = static_cast<unsigned>(tm.tm_mday);
+  int64_t days = days_from_civil(year, month, day);
+  int64_t secs = 0;
+  if (!safe_mul_add(days, 86400, 0, secs))
+    return kTimeParseError;
+  int64_t h = static_cast<int64_t>(tm.tm_hour) * 3600;
+  int64_t mm = static_cast<int64_t>(tm.tm_min) * 60;
+  if ((h > 0 && secs > std::numeric_limits<int64_t>::max() - h) ||
+      (h < 0 && secs < std::numeric_limits<int64_t>::min() - h))
+    return kTimeParseError;
+  secs += h;
+  if ((mm > 0 && secs > std::numeric_limits<int64_t>::max() - mm) ||
+      (mm < 0 && secs < std::numeric_limits<int64_t>::min() - mm))
+    return kTimeParseError;
+  secs += mm;
+  if ((tm.tm_sec > 0 &&
+       secs > std::numeric_limits<int64_t>::max() - tm.tm_sec) ||
+      (tm.tm_sec < 0 && secs < std::numeric_limits<int64_t>::min() - tm.tm_sec))
+    return kTimeParseError;
+  secs += tm.tm_sec;
+
+  if (secs < static_cast<int64_t>(std::numeric_limits<time_t>::min()) ||
+      secs > static_cast<int64_t>(std::numeric_limits<time_t>::max()))
+    return kTimeParseError;
+
+  return static_cast<time_t>(secs);
+}
+
+// ---------------------------------------------------------------------
+// Parsing XMLTV time
+// ---------------------------------------------------------------------
+
 inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   if (timeStr.length() < 8)
-    return 0;
+    return kTimeParseError;
 
-  // ---- 1. Разделение на дату и зону ----
   std::string datePart, zonePart;
   size_t spacePos = timeStr.find(' ');
   if (spacePos != std::string::npos) {
@@ -170,9 +236,8 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   }
 
   if (datePart.length() < 8)
-    return 0;
+    return kTimeParseError;
 
-  // ---- 2. Дополнение до 14 символов ----
   std::string padded = datePart;
   if (padded.length() < 14)
     padded += std::string(14 - padded.length(), '0');
@@ -180,12 +245,11 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   int year, month, day, hour, minute, second;
   if (sscanf(padded.c_str(), "%04d%02d%02d%02d%02d%02d", &year, &month, &day,
              &hour, &minute, &second) != 6)
-    return 0;
+    return kTimeParseError;
 
-  // ---- 3. Валидация ----
   if (year < 1970 || year > 2100 || month < 1 || month > 12 || day < 1 ||
       hour > 23 || minute > 59 || second > 59)
-    return 0;
+    return kTimeParseError;
 
   static const int daysInMonth[] = {31, 28, 31, 30, 31, 30,
                                     31, 31, 30, 31, 30, 31};
@@ -194,9 +258,8 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   if (month == 2 && leap)
     maxDay = 29;
   if (day > maxDay)
-    return 0;
+    return kTimeParseError;
 
-  // ---- 4. Парсинг смещения зоны ----
   int offsetSeconds = 0;
   bool hasZone = false;
 
@@ -210,7 +273,6 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
 
       int zoneHours = 0, zoneMinutes = 0, zoneSeconds = 0;
       bool valid = true;
-
       if (digits.size() >= 5 && digits[2] == ':' &&
           IsAllDigits(digits.substr(0, 2)) &&
           IsAllDigits(digits.substr(3, 2))) {
@@ -254,17 +316,16 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
         hasZone = true;
       } else {
         LOG_ERROR("EpgTime::ParseXmltvTime: invalid numeric zone format '%s', "
-                  "treating as UTC",
+                  "treating as no zone (local time)",
                   zonePart.c_str());
         hasZone = false;
       }
     } else {
-      // Аббревиатура
       bool known = true;
       offsetSeconds = GetOffsetFromAbbrev(zonePart, known);
       if (!known) {
         LOG_ERROR("EpgTime::ParseXmltvTime: unknown timezone abbreviation "
-                  "'%s', treating as UTC",
+                  "'%s', treating as no zone (local time)",
                   zonePart.c_str());
         hasZone = false;
       } else {
@@ -273,7 +334,7 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
     }
   }
 
-  // ---- 5. Если зона не указана, интерпретируем как локальное время ----
+  // If no timezone information, interpret as local time (system timezone)
   if (!hasZone) {
     struct tm tm_local{};
     tm_local.tm_year = year - 1900;
@@ -284,12 +345,12 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
     tm_local.tm_sec = second;
     tm_local.tm_isdst = -1;
     time_t local_ts = mktime(&tm_local);
-    if (local_ts == (time_t)-1)
-      return 0;
-    return local_ts; // локальное время системы
+    if (local_ts == static_cast<time_t>(-1))
+      return kTimeParseError;
+    return local_ts;
   }
 
-  // ---- 6. Зона указана — вычисляем UTC напрямую ----
+  // Timezone is specified: build UTC components and subtract offset.
   struct tm tm_utc{};
   tm_utc.tm_year = year - 1900;
   tm_utc.tm_mon = month - 1;
@@ -297,7 +358,7 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
   tm_utc.tm_hour = hour;
   tm_utc.tm_min = minute;
   tm_utc.tm_sec = second;
-  tm_utc.tm_isdst = -1; // не используется для UTC, но оставляем
+  tm_utc.tm_isdst = 0; // UTC: no DST
 
   time_t utc_ts;
 #if defined(HAVE_TIMEGM)
@@ -305,66 +366,82 @@ inline time_t EpgTime::ParseXmltvTime(const std::string &timeStr) {
 #elif defined(_WIN32)
   utc_ts = _mkgmtime(&tm_utc);
 #else
-  // Резервный итеративный метод (если timegm недоступен)
-  // Берём local_ts из mktime и корректируем до UTC
-  struct tm tm_local = tm_utc;
-  time_t local_ts = mktime(&tm_local);
-  if (local_ts == (time_t)-1)
-    return 0;
-  utc_ts = local_ts;
-  int iterations = 0;
-  while (iterations < 10) {
-    struct tm tm_check = *gmtime(&utc_ts);
-    int diff = (tm_check.tm_hour - tm_utc.tm_hour) * 3600 +
-               (tm_check.tm_min - tm_utc.tm_min) * 60 +
-               (tm_check.tm_sec - tm_utc.tm_sec);
-    if (diff == 0)
-      break;
-    utc_ts -= diff;
-    iterations++;
-  }
-  if (iterations >= 10) {
-    LOG_ERROR(
-        "EpgTime::ParseXmltvTime: fallback UTC calculation did not converge");
-    return 0;
-  }
+  utc_ts = timegm_portable(tm_utc);
 #endif
 
-  // ---- 7. Вычитаем смещение, чтобы получить UTC ----
+  if (utc_ts == static_cast<time_t>(-1))
+    return kTimeParseError;
+
+  // Correct UTC epoch: subtract the offset (because the given time is local
+  // time + offset)
   time_t result = utc_ts - offsetSeconds;
   return result;
 }
 
-// ========================================================================
+// ---------------------------------------------------------------------
 // GetStartOfDay / GetEndOfDay
-// ========================================================================
+// ---------------------------------------------------------------------
+
 inline time_t EpgTime::GetStartOfDay(time_t date) {
   if (date <= 0)
-    return 0;
-  wxDateTime dt(date);
-  if (!dt.IsValid())
-    return 0;
-  wxDateTime::Tm tm = dt.GetTm();
-  wxDateTime startOfDay(tm.mday, static_cast<wxDateTime::Month>(tm.mon),
-                        tm.year, 0, 0, 0, 0);
-  return startOfDay.GetTicks();
+    return kTimeParseError;
+
+  struct tm tm_local;
+#ifdef _WIN32
+  if (localtime_s(&tm_local, &date) != 0)
+    return kTimeParseError;
+#else
+  if (localtime_r(&date, &tm_local) == nullptr)
+    return kTimeParseError;
+#endif
+
+  struct tm tm_midnight = {};
+  tm_midnight.tm_year = tm_local.tm_year;
+  tm_midnight.tm_mon = tm_local.tm_mon;
+  tm_midnight.tm_mday = tm_local.tm_mday;
+  tm_midnight.tm_hour = 0;
+  tm_midnight.tm_min = 0;
+  tm_midnight.tm_sec = 0;
+  tm_midnight.tm_isdst = -1; // let system determine DST
+
+  time_t start = mktime(&tm_midnight);
+  if (start == static_cast<time_t>(-1))
+    return kTimeParseError;
+  return start;
 }
 
 inline time_t EpgTime::GetEndOfDay(time_t date) {
   if (date <= 0)
-    return 0;
-  wxDateTime dt(date);
-  if (!dt.IsValid())
-    return 0;
-  wxDateTime::Tm tm = dt.GetTm();
-  wxDateTime endOfDay(tm.mday, static_cast<wxDateTime::Month>(tm.mon), tm.year,
-                      23, 59, 59, 0);
-  return endOfDay.GetTicks();
+    return kTimeParseError;
+
+  struct tm tm_local;
+#ifdef _WIN32
+  if (localtime_s(&tm_local, &date) != 0)
+    return kTimeParseError;
+#else
+  if (localtime_r(&date, &tm_local) == nullptr)
+    return kTimeParseError;
+#endif
+
+  struct tm tm_end = {};
+  tm_end.tm_year = tm_local.tm_year;
+  tm_end.tm_mon = tm_local.tm_mon;
+  tm_end.tm_mday = tm_local.tm_mday;
+  tm_end.tm_hour = 23;
+  tm_end.tm_min = 59;
+  tm_end.tm_sec = 59;
+  tm_end.tm_isdst = -1;
+
+  time_t end = mktime(&tm_end);
+  if (end == static_cast<time_t>(-1))
+    return kTimeParseError;
+  return end;
 }
 
-// ========================================================================
-// Форматирование времени (UTC → локальное)
-// ========================================================================
+// ---------------------------------------------------------------------
+// Formatting (uses FormatLocalTime from Utils.cpp)
+// ---------------------------------------------------------------------
+
 inline std::string EpgTime::FormatTime(time_t t) {
   return FormatLocalTime(t, "%d.%m.%Y %H:%M");
 }

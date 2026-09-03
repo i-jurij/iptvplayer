@@ -105,13 +105,13 @@ void EPGParserExpat::OnStartElement(
     for (const auto &attr : attrs) {
       if (attr.first == "start") {
         m_currentProgram.startTime = EpgTime::ParseXmltvTime(attr.second);
-        if (m_currentProgram.startTime == 0) {
+        if (m_currentProgram.startTime < 0) {
           LOG_WARN("EPGParserExpat: Failed to parse 'start' time: %s",
                    attr.second.c_str());
         }
       } else if (attr.first == "stop") {
         m_currentProgram.stopTime = EpgTime::ParseXmltvTime(attr.second);
-        if (m_currentProgram.stopTime == 0) {
+        if (m_currentProgram.stopTime < 0) {
           LOG_WARN("EPGParserExpat: Failed to parse 'stop' time: %s",
                    attr.second.c_str());
         }
