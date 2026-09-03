@@ -1,13 +1,18 @@
 # IPTV Player
 
-| Playlists | Channels | Favorites |
-|-----------|----------|-----------|
-| [<img src="screenshots/playlists.png" width="200">](screenshots/playlists.png) | [<img src="screenshots/channels.png" width="200">](screenshots/channels.png) | [<img src="screenshots/favs.png" width="200">](screenshots/favs.png) |
+## Screenshots
 
-| Video | Program |
-|-------|---------|
-| [<img src="screenshots/video.png" width="200">](screenshots/video.png) | [<img src="screenshots/program.png" width="200">](screenshots/program.png) |
+| Playlists | Channels |
+|-----------|----------|
+| <a href="screenshots/playlists.png"><img src="screenshots/playlists.png" width="350" alt="Playlists"></a> | <a href="screenshots/channels.png"><img src="screenshots/channels.png" width="350" alt="Channels"></a> |
 
+| Favorites | Video |
+|-----------|-------|
+| <a href="screenshots/favorites.png"><img src="screenshots/favs.png" width="350" alt="Favorites"></a> | <a href="screenshots/video.png"><img src="screenshots/video.png" width="350" alt="Video player"></a> |
+
+| Program | |
+|---------|---|
+| <a href="screenshots/program.png"><img src="screenshots/program.png" width="350" alt="EPG Program"></a> | |
 ---
 
 ## 1. Requirements
