@@ -1,0 +1,153 @@
+name: Release from VERSION
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'VERSION'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout repository (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read VERSION
+        id: read_version
+        run: |
+          set -euo pipefail
+          if [[ ! -f VERSION ]]; then
+            echo "VERSION file missing" >&2
+            exit 1
+          fi
+          VERSION=$(head -n1 VERSION | tr -d '\n\r')
+          if [[ -z "$VERSION" ]]; then
+            echo "VERSION is empty" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Read VERSION=$VERSION"
+
+      - name: Ensure git history and tags present
+        run: |
+          set -euo pipefail
+          git fetch --prune --unshallow || true
+          git fetch --tags
+
+      - name: Ensure VERSION changed in this push
+        id: check_version_changed
+        run: |
+          set -euo pipefail
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+          echo "Range before..after: $BEFORE .. $AFTER"
+
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # first push / new branch: list files touched by this commit
+            CHANGED=$(git show --name-only --pretty="" "$AFTER" || true)
+          else
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" || true)
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          if echo "$CHANGED" | grep -qx "VERSION"; then
+            echo "version_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "version_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare git auth for pushing tags
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        run: |
+          set -euo pipefail
+          # set remote URL with token so subsequent git push uses it
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${REPO}.git"
+          git config user.name "CI Bot"
+          git config user.email "ci-bot@example.com"
+          echo "Prepared remote with token"
+
+      - name: Create annotated tag if missing
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        id: create_tag
+        env:
+          VERSION: ${{ steps.read_version.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          echo "Target tag: ${TAG}"
+
+          # ensure tags are up to date
+          git fetch --tags
+
+          # check remote tag
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            echo "Tag ${TAG} already exists on origin. Skipping creation."
+            echo "created=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # check local tag
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Local tag ${TAG} exists; pushing to origin."
+            git push origin "refs/tags/${TAG}"
+            echo "created=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # create annotated tag on current HEAD and push
+          git tag -a "${TAG}" -m "Release ${TAG} (created by CI)"
+          git push origin "refs/tags/${TAG}"
+          echo "created=true" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Tag ${TAG} created and pushed."
+
+      - name: Install build dependencies
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential fakeroot dpkg-dev rpm wget tar autoconf automake libtool
+
+      - name: Build third-party deps
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        run: |
+          if [[ -f setup-deps.sh ]]; then
+            chmod +x setup-deps.sh
+            ./setup-deps.sh
+          fi
+
+      - name: Build packages
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        run: |
+          chmod +x build-package.sh
+          ./build-package.sh --all
+
+      - name: Generate checksums
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        run: |
+          mkdir -p dist || true
+          sha256sum dist/* > dist/checksums.txt || true
+          cat dist/checksums.txt || true
+
+      - name: Create GitHub Release and upload artifacts
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ format('v{0}', steps.read_version.outputs.version) }}
+          name: Release v${{ steps.read_version.outputs.version }}
+          body: "Automated release for version v${{ steps.read_version.outputs.version }} (commit ${{ github.sha }})"
+          files: |
+            dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

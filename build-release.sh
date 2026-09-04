@@ -54,6 +54,28 @@ log() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
 error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
+# ---- Функция получения версий из VERSION и Git ----
+get_versions() {
+    if [ -f "VERSION" ]; then
+        VERSION=$(head -n1 VERSION | tr -d '\n\r')
+    else
+        VERSION="0.0.0"
+    fi
+
+    VERSION_DISPLAY="$VERSION"
+    VERSION_FILE="$VERSION"
+
+    if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+        SHORT=$(git rev-parse --short HEAD 2>/dev/null || true)
+        if [ -n "$SHORT" ]; then
+            VERSION_DISPLAY="${VERSION}+g${SHORT}"
+            VERSION_FILE="${VERSION}-${SHORT}"
+        fi
+    fi
+
+    printf '%s\n%s\n' "$VERSION_DISPLAY" "$VERSION_FILE"
+}
+
 # Определяем корень проекта (там, где лежит этот скрипт)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -165,12 +187,20 @@ fi
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
+# ---- Определение версии для передачи в CMake ----
+read VERSION_DISPLAY VERSION_FILE < <(get_versions)
+VERSION=$(echo "$VERSION_DISPLAY" | sed 's/+g.*//')
+log "Чистая версия: $VERSION"
+log "Версия для отображения: $VERSION_DISPLAY"
+log "Версия для имён файлов: $VERSION_FILE"
+
 # Конфигурация CMake
 log "Конфигурация CMake (${BUILD_TYPE})..."
 cmake .. \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DVERSION="$VERSION"
 
 # Сборка
 log "Сборка проекта (потоков: $JOBS)..."

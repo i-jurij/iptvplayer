@@ -16,11 +16,11 @@
 #   -h, --help    Показать эту справку
 #
 # Версия:
-#   Если не указана, определяется автоматически из git describe или 1.0.0
+#   Если не указана, определяется автоматически из VERSION файла, затем из git describe, иначе 1.0.0
 #
 # Примеры:
 #   ./build-package.sh 2.3.1 --deb          # собрать .deb с версией 2.3.1
-#   ./build-package.sh --all                # собрать все пакеты, версия из git
+#   ./build-package.sh --all                # собрать все пакеты, версия из VERSION или git
 #   ./build-package.sh --rebuild --deb      # пересобрать бинарник и .deb
 #   ./build-package.sh --clean --all        # очистить dist и собрать всё
 #   ./build-package.sh --clean-only         # только очистить dist
@@ -40,15 +40,26 @@ FORCE_REBUILD=false
 DO_CLEAN=false
 CLEAN_ONLY=false
 
-# === Определение версии ===
-get_version() {
-    if [ -n "$1" ]; then
-        echo "$1"
-    elif command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-        git describe --tags --always | sed 's/^v//'
+# ---- Функция получения версий из VERSION и Git ----
+get_versions() {
+    if [ -f "VERSION" ]; then
+        VERSION=$(head -n1 VERSION | tr -d '\n\r')
     else
-        echo "1.0.0"
+        VERSION="0.0.0"
     fi
+
+    VERSION_DISPLAY="$VERSION"
+    VERSION_FILE="$VERSION"
+
+    if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+        SHORT=$(git rev-parse --short HEAD 2>/dev/null || true)
+        if [ -n "$SHORT" ]; then
+            VERSION_DISPLAY="${VERSION}+g${SHORT}"
+            VERSION_FILE="${VERSION}-${SHORT}"
+        fi
+    fi
+
+    printf '%s\n%s\n' "$VERSION_DISPLAY" "$VERSION_FILE"
 }
 
 # === Проверка зависимостей ===
@@ -100,7 +111,8 @@ build_binary() {
         exit 1
     fi
 
-    ./build-release.sh --type release --prefix ./install
+    # Передаём чистую версию в билд-скрипт
+    ./build-release.sh --type release --prefix ./install --version "$VERSION"
     echo "[+] Бинарник собран."
 }
 
@@ -146,13 +158,13 @@ trap cleanup EXIT
 
 # === Сборка .deb ===
 build_deb() {
-    local version=$1
-    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${version}_amd64.deb"
+    # Имя файла используем VERSION_FILE, а метаданные — чистую VERSION
+    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION_FILE}_amd64.deb"
     echo "[+] Создание .deb..."
     mkdir -p "$STAGING_DIR/DEBIAN"
     cat > "$STAGING_DIR/DEBIAN/control" << EOF
 Package: $PACKAGE_NAME
-Version: $version
+Version: $VERSION
 Section: network
 Priority: optional
 Architecture: amd64
@@ -194,22 +206,21 @@ EOF
 
 # === Сборка .rpm ===
 build_rpm() {
-    local version=$1
     local release="1"
-    local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${version}-${release}.x86_64.rpm"
+    local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION_FILE}-${release}.x86_64.rpm"
     local SPEC_DIR="pkg-rpm"
 
     echo "[+] Создание .rpm..."
 
     mkdir -p "$SPEC_DIR/SOURCES"
-    cd "$STAGING_DIR" && tar -czf "../$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${version}.tar.gz" \
-        --transform="s,^,$PACKAGE_NAME-$version/," . && cd - > /dev/null
+    cd "$STAGING_DIR" && tar -czf "../$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+        --transform="s,^,$PACKAGE_NAME-$VERSION/," . && cd - > /dev/null
 
     cat > "$SPEC_DIR/${PACKAGE_NAME}.spec" << EOF
 %define debug_package %{nil}
 %define _topdir %(pwd)/$SPEC_DIR
 Name:           $PACKAGE_NAME
-Version:        $version
+Version:        $VERSION
 Release:        $release
 Summary:        IPTV Playlist Player
 License:        MIT
@@ -253,7 +264,7 @@ if [ \$1 == 0 ]; then
 fi
 
 %changelog
-* $(LC_TIME=en_US.UTF-8 date +"%a %b %d %Y") ijurij <mnisjil@duck.com> - $version-$release
+* $(LC_TIME=en_US.UTF-8 date +"%a %b %d %Y") ijurij <mnisjil@duck.com> - $VERSION-$release
 - Initial build
 EOF
 
@@ -264,8 +275,7 @@ EOF
 
 # === Создание AppImage ===
 build_appimage() {
-    local version=$1
-    local appimage_file="$OUTPUT_DIR/${PACKAGE_NAME}-linux-x64.AppImage"
+    local appimage_file="$OUTPUT_DIR/${PACKAGE_NAME}-linux-x64-${VERSION_FILE}.AppImage"
 
     echo "[+] Создание AppImage..."
 
@@ -342,7 +352,7 @@ show_help() {
 Сборка пакетов .deb, .rpm, .AppImage для iptvplayer.
 
 Аргументы:
-  VERSION         Версия пакета (по умолчанию определяется из git или 1.0.0)
+  VERSION         Версия пакета (по умолчанию определяется из VERSION или git)
 
 Опции:
   --deb           Собрать только .deb
@@ -356,7 +366,7 @@ show_help() {
 
 Примеры:
   ./build-package.sh 2.3.1 --deb          # собрать .deb с версией 2.3.1
-  ./build-package.sh --all                # собрать все пакеты, версия из git
+  ./build-package.sh --all                # собрать все пакеты, версия из VERSION
   ./build-package.sh --rebuild --deb      # пересобрать бинарник и .deb
   ./build-package.sh --clean --all        # очистить dist и собрать всё
   ./build-package.sh --clean-only         # только очистить dist
@@ -412,8 +422,24 @@ main() {
         BUILD_DEB=true; BUILD_RPM=true; BUILD_APPIMAGE=true
     fi
 
-    VERSION=$(get_version "$VERSION")
-    echo "=== Сборка пакетов для $PACKAGE_NAME:$VERSION ==="
+    # ---- Получение версий ----
+    if [ -n "$VERSION" ]; then
+        # Если передана явно, используем её как чистую версию
+        VERSION_DISPLAY="$VERSION"
+        VERSION_FILE="$VERSION"
+        if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+            SHORT=$(git rev-parse --short HEAD 2>/dev/null || true)
+            if [ -n "$SHORT" ]; then
+                VERSION_DISPLAY="${VERSION}+g${SHORT}"
+                VERSION_FILE="${VERSION}-${SHORT}"
+            fi
+        fi
+    else
+        read VERSION_DISPLAY VERSION_FILE < <(get_versions)
+        VERSION=$(echo "$VERSION_DISPLAY" | sed 's/+g.*//')
+    fi
+
+    echo "=== Сборка пакетов для $PACKAGE_NAME:$VERSION (файл: $VERSION_FILE) ==="
     echo ""
 
     check_deps
@@ -421,9 +447,9 @@ main() {
     build_binary
     prepare_staging
 
-    if [[ "$BUILD_DEB" == true ]]; then build_deb "$VERSION"; fi
-    if [[ "$BUILD_RPM" == true ]]; then build_rpm "$VERSION"; fi
-    if [[ "$BUILD_APPIMAGE" == true ]]; then build_appimage "$VERSION"; fi
+    if [[ "$BUILD_DEB" == true ]]; then build_deb; fi
+    if [[ "$BUILD_RPM" == true ]]; then build_rpm; fi
+    if [[ "$BUILD_APPIMAGE" == true ]]; then build_appimage; fi
 
     cleanup
 

@@ -1,38 +1,50 @@
 cmake_minimum_required(VERSION 3.16)
-project(iptvplayer VERSION 1.0.0)   # базовая версия, будет дополнена из Git
+
+
+# ---- Чтение версии из файла VERSION ----
+if(EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
+    file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" PROJECT_VERSION LIMIT_COUNT 1)
+    string(STRIP "${PROJECT_VERSION}" PROJECT_VERSION)
+else()
+    set(PROJECT_VERSION "0.0.0")
+endif()
+
+# ---- Получение Git-идентификатора (если доступен) ----
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                    OUTPUT_VARIABLE GIT_COMMIT
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET)
+    execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                    OUTPUT_VARIABLE GIT_DESCRIBE
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET)
+else()
+    set(GIT_COMMIT "")
+    set(GIT_DESCRIBE "")
+endif()
+
+# ---- Формируем полную версию для отображения и для имён файлов ----
+if(GIT_COMMIT)
+    set(PROJECT_VERSION_FULL "${PROJECT_VERSION}+g${GIT_COMMIT}")
+    set(PROJECT_VERSION_FILE "${PROJECT_VERSION}-${GIT_COMMIT}")
+else()
+    set(PROJECT_VERSION_FULL "${PROJECT_VERSION}")
+    set(PROJECT_VERSION_FILE "${PROJECT_VERSION}")
+endif()
+
+# ---- Устанавливаем проект и генерируем version.h ----
+project(iptvplayer VERSION ${PROJECT_VERSION})
+configure_file(${CMAKE_SOURCE_DIR}/version.h.in ${CMAKE_BINARY_DIR}/version.h @ONLY)
+
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# ------------------------
-# Генерация version.h из Git
-# ------------------------
-find_package(Git QUIET)
-if(GIT_FOUND)
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} describe --tags --dirty --always
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_DESCRIBE
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_COMMIT
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-else()
-    set(GIT_DESCRIBE "unknown")
-    set(GIT_COMMIT "unknown")
-endif()
-
-configure_file(
-    ${CMAKE_SOURCE_DIR}/version.h.in
-    ${CMAKE_BINARY_DIR}/version.h
-    @ONLY
-)
 
 # ------------------------
 # Local wxWidgets install

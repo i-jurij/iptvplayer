@@ -4,6 +4,7 @@
 #include "UpdateAllThread.h"
 #include "UpdateOneThread.h"
 #include "Utils.h"
+#include "version.h"
 
 #include <wx/msgdlg.h>
 
@@ -19,11 +20,19 @@ void MainFrame::onQuit(wxCommandEvent &WXUNUSED(event)) {
 }
 
 void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
-  showInfo(this,
-           "IPTV Player v1.0.0\n\n"
-           "Milestone 5: EPG Management\n\n"
-           "Author: I-Jurij",
-           "About IPTV Player");
+    wxString msg = wxString::Format(
+        _("IPTV Player %s\n"
+          "Commit: %s\n\n"
+          "A simple player for M3U playlists with EPG support.\n"
+          "Built with wxWidgets, MPV, and SQLite.\n\n"
+          "© 2026 I-Jurij\n"
+          "License: MIT\n"
+          "GitHub: https://github.com/i-jurij/iptvplayer\n\n"
+          "Author: I-Jurij"),
+        IPTVPLAYER_VERSION_FULL,
+        IPTVPLAYER_GIT_COMMIT[0] ? IPTVPLAYER_GIT_COMMIT : "unknown"
+    );
+    showInfo(this, msg, _("About IPTV Player"));
 }
 
 void MainFrame::onToggleFavoritesView(wxCommandEvent &) {
