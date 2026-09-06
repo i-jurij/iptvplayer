@@ -11,7 +11,6 @@
 #include <wx/filename.h>
 #include <wx/log.h>
 #include <wx/msgdlg.h>
-#include <wx/richtext/richtextctrl.h>
 #include <wx/statline.h>
 #include <wx/textdlg.h>
 #include <wx/tokenzr.h>

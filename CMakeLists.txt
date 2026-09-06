@@ -53,7 +53,7 @@ set(LOCAL_WX_INSTALL "${CMAKE_SOURCE_DIR}/third_party/wx/install" CACHE PATH "Lo
 list(PREPEND CMAKE_PREFIX_PATH "${LOCAL_WX_INSTALL}")
 
 find_package(wxWidgets CONFIG REQUIRED COMPONENTS
-    core base aui xrc xml net adv gl
+    core base aui adv gl
     HINTS "${LOCAL_WX_INSTALL}"
     NO_DEFAULT_PATH
 )
@@ -97,7 +97,7 @@ set_target_properties(wxsqlite3 PROPERTIES
 # ------------------------
 # Aggregate wx_all target
 # ------------------------
-set(_wx_components core base aui xrc xml net adv gl)
+set(_wx_components core base aui adv gl)
 add_library(wx_all INTERFACE)
 
 foreach(_comp IN LISTS _wx_components)
@@ -134,6 +134,8 @@ endif()
 # ZLIB (для gzip распаковки)
 # ------------------------
 find_package(ZLIB REQUIRED)
+
+find_package(EXPAT REQUIRED)
 
 # ------------------------
 # Player backend
@@ -236,6 +238,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     player_backend_mpv
     ZLIB::ZLIB
     wxsqlite3
+    EXPAT::EXPAT
 )
 
 if(_CURL_TARGET)
@@ -287,24 +290,37 @@ install_resource(epg_sources.json)
 install_resource(matching_rules.json)
 install_resource(channel_aliases.json)
 
-# ------------------------
-# Копирование appdata.xml в AppDir (для AppImage)
-# ------------------------
+# ---- Сохранение версий в install/ ----
+if(EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
+    # Чистая версия уже в PROJECT_VERSION
+    # Формируем файлы версий
+    set(VERSION_CONTENT "${PROJECT_VERSION}")
+    set(VERSION_FULL_CONTENT "${PROJECT_VERSION_FULL}")
+    set(VERSION_FILE_CONTENT "${PROJECT_VERSION_FILE}")
+
+    # Записываем в файлы внутри каталога сборки, а затем устанавливаем
+    file(WRITE "${CMAKE_BINARY_DIR}/VERSION" "${VERSION_CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/VERSION_FULL" "${VERSION_FULL_CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/VERSION_FILE" "${VERSION_FILE_CONTENT}")
+
+    # Устанавливаем их в install/
+    install(FILES
+        "${CMAKE_BINARY_DIR}/VERSION"
+        "${CMAKE_BINARY_DIR}/VERSION_FULL"
+        "${CMAKE_BINARY_DIR}/VERSION_FILE"
+        DESTINATION .
+    )
+endif()
+
+# ---- Установка appdata.xml в install/ (для DEB/RPM/AppImage) ----
 set(APPDATA_FILE ${CMAKE_SOURCE_DIR}/resources/iptvplayer.appdata.xml)
 if(EXISTS ${APPDATA_FILE})
-    add_custom_command(TARGET iptvplayer POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory
-            $<TARGET_FILE_DIR:iptvplayer>/../usr/share/metainfo
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${APPDATA_FILE}
-            $<TARGET_FILE_DIR:iptvplayer>/../usr/share/metainfo/iptvplayer.appdata.xml
-        COMMENT "Copying appdata.xml to AppDir/usr/share/metainfo/"
-    )
-
-    # Для системной установки (DEB/RPM)
-    install(FILES ${APPDATA_FILE}
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
-    )
+    # Гарантированно создаём каталог и копируем файл в install/share/metainfo
+    install(CODE "
+        message(STATUS \"Installing appdata.xml to ${CMAKE_INSTALL_PREFIX}/share/metainfo\")
+        file(MAKE_DIRECTORY \"${CMAKE_INSTALL_PREFIX}/share/metainfo\")
+        file(COPY \"${APPDATA_FILE}\" DESTINATION \"${CMAKE_INSTALL_PREFIX}/share/metainfo\")
+    ")
 endif()
 
 # ------------------------

@@ -56,8 +56,9 @@ error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
 # ---- Функция получения версий из VERSION и Git ----
 get_versions() {
-    if [ -f "VERSION" ]; then
-        VERSION=$(head -n1 VERSION | tr -d '\n\r')
+    local VERSION_FILE_PATH="$SCRIPT_DIR/VERSION"
+    if [ -f "$VERSION_FILE_PATH" ]; then
+        VERSION=$(head -n1 "$VERSION_FILE_PATH" | tr -d '\n\r')
     else
         VERSION="0.0.0"
     fi
@@ -143,7 +144,7 @@ if [[ ! "$PREFIX" = /* ]]; then
 fi
 
 # Директории
-BUILD_DIR="build-${BUILD_TYPE,,}"   # build-release или build-debug
+BUILD_DIR="$SCRIPT_DIR/build-${BUILD_TYPE,,}"   # build-release или build-debug
 INSTALL_DIR="$PREFIX"
 
 # Проверка наличия собранных зависимостей
@@ -156,7 +157,7 @@ check_deps() {
     if [[ ${#missing[@]} -gt 0 ]]; then
         warn "Отсутствуют зависимости:"
         printf '  - %s\n' "${missing[@]}"
-        echo "Запустите ./setup-deps.sh для установки зависимостей."
+        echo "Запустите $SCRIPT_DIR/setup-deps.sh для установки зависимостей."
         read -p "Продолжить сборку всё равно? [y/N]: " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -196,7 +197,7 @@ log "Версия для имён файлов: $VERSION_FILE"
 
 # Конфигурация CMake
 log "Конфигурация CMake (${BUILD_TYPE})..."
-cmake .. \
+cmake "$SCRIPT_DIR" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -225,7 +226,7 @@ log "✅ Сборка завершена! Приложение готово к �
 echo -e "${GREEN}Запуск:${NC} cd $INSTALL_DIR/bin && ./$PROJECT_NAME"
 
 # Копируем compile_commands.json в корень (для IDE)
-cp ./compile_commands.json "$SCRIPT_DIR/" 2>/dev/null || true
+cp "$BUILD_DIR/compile_commands.json" "$SCRIPT_DIR/" 2>/dev/null || true
 
 if [[ -n "$LOG_FILE" ]]; then
     log "Полный лог сохранён в $LOG_FILE"
