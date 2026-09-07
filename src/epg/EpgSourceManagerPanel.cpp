@@ -799,6 +799,7 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
             std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
             if (!playlistId.empty()) {
               m_epgMgr->ReMatchCurrentPlaylist();
+              m_epgMgr->MatchFavoritesAsync();
             } else {
               m_epgMgr->UpdateProgress(EpgProgressStage::Done, 100,
                                        std::string(_("Done").ToUTF8().data()));

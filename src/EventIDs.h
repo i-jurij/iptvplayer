@@ -2,6 +2,8 @@
 #ifndef EVENTIDS_H
 #define EVENTIDS_H
 
+#include <wx/event.h>
+
 // NOTE: explicit numeric ranges to avoid collisions with wxID_ANY and
 // wxID_HIGHEST. Adjust base values only if your project already uses these
 // numbers.
@@ -80,5 +82,7 @@ enum { ID_VP_BASE = 6000, ID_VP_TEMP_PLAYLIST_LIST = ID_VP_BASE + 1 };
 #define EPG_STATUS_LOADING 1
 #define EPG_STATUS_ERROR 2
 #define EPG_STATUS_NO_SOURCES 3
+
+wxDECLARE_EVENT(EVT_FAVORITES_MATCH_DONE, wxCommandEvent);
 
 #endif // EVENTIDS_H

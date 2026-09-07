@@ -19,10 +19,6 @@
 #include <wx/gauge.h>
 #include <wx/sizer.h>
 
-namespace {
-  constexpr int TITLE_FONT_SIZE = 12;
-} // namespace
-
 static wxGauge *makeGauge(wxWindow *parent) {
   return new wxGauge(parent, wxID_ANY, 100, wxDefaultPosition, wxDefaultSize,
                      wxGA_HORIZONTAL | wxGA_SMOOTH);

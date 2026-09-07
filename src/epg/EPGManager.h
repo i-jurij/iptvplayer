@@ -194,7 +194,12 @@ public:
 
   void UpdateAllSources(bool onlyAutoUpdate);
 
+  static constexpr const char* FAVORITES_PLAYLIST_ID = "favorites";
+  void MatchFavoritesAsync();
+
 private:
+  std::atomic<bool> m_favoritesMatchInProgress{false};
+
   void EnsureConfigFile(const wxString &filename);
 
   std::atomic<bool> m_autoUpdateInProgress{false};

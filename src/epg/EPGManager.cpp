@@ -3,7 +3,10 @@
 #include "../ConfigManager.h"
 #include "../LogControl.h"
 #include "../PlaylistManager.h"
+#include "Application.h"
 #include "EPGParserExpat.h"
+#include "EventIDs.h"
+#include "FavoritesManager.h"
 #include "HashUtils.h"
 #include "Utils.h"
 
@@ -2413,4 +2416,43 @@ EPGManager::MatchByAlias(const std::string &playlistName) const {
     result.confidence = "high";
   }
   return result;
+}
+
+void EPGManager::MatchFavoritesAsync() {
+    bool expected = false;
+    if (!m_favoritesMatchInProgress.compare_exchange_strong(expected, true)) {
+        LOG_DEBUG("MatchFavoritesAsync: already in progress, skipping");
+        return;
+    }
+
+    Application* app = static_cast<Application*>(wxTheApp);
+    if (!app) {
+        LOG_WARN("MatchFavoritesAsync: Application is null");
+        m_favoritesMatchInProgress = false;
+        return;
+    }
+
+    auto& favManager = app->getFavoritesManager();
+    auto favChannels = favManager.list();
+    if (favChannels.empty()) {
+        LOG_DEBUG("MatchFavoritesAsync: No favorites, skipping");
+        m_favoritesMatchInProgress = false;
+        return;
+    }
+
+    LOG_DEBUG("MatchFavoritesAsync: Starting match for %zu favorites", favChannels.size());
+
+    MatchChannelsAsync(favChannels, FAVORITES_PLAYLIST_ID, 
+        [this](int matched, int total, int progress, bool success) {
+            m_favoritesMatchInProgress = false;
+            LOG_DEBUG("MatchFavoritesAsync: completed, matched %d/%d, success=%d", 
+                      matched, total, success);
+            
+            // Отправляем событие в UI
+            wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
+            evt.SetInt(matched);
+            evt.SetExtraLong(total);
+            wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+        }
+    );
 }

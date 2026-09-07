@@ -34,6 +34,7 @@
 wxDEFINE_EVENT(EVT_UPDATE_ALL_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_ONE_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_PROGRESS, wxCommandEvent);
+wxDEFINE_EVENT(EVT_FAVORITES_MATCH_DONE, wxCommandEvent);
 
 MainFrame::MainFrame(Application *app)
     : wxFrame(nullptr, wxID_ANY, "IPTV Player", wxDefaultPosition,
@@ -232,6 +233,8 @@ MainFrame::MainFrame(Application *app)
       wxTheApp->CallAfter([this, info]() { OnEpgProgress(info); });
     });
   }
+
+  Bind(EVT_FAVORITES_MATCH_DONE, &MainFrame::OnFavoritesMatchDone, this);
 }
 
 MainFrame::~MainFrame() {
@@ -272,6 +275,20 @@ MainFrame::~MainFrame() {
   } catch (...) {
     wxMessageBox("MainFrame dtor unknown exception");
   }
+}
+
+void MainFrame::OnFavoritesMatchDone(wxCommandEvent& evt) {
+    int matched = evt.GetInt();
+    int total = evt.GetExtraLong();
+    LOG_DEBUG("Favorites match done: %d/%d", matched, total);
+
+    if (m_epgFavorites && m_epgFavorites->IsActive() && m_epgFavorites->HasChannel()) {
+        // Обновляем EPG для текущего канала в избранном
+        m_epgFavorites->LoadProgramsForChannel(
+            m_epgFavorites->GetCurrentChannelId(),
+            m_epgFavorites->GetCurrentDate()
+        );
+    }
 }
 
 std::vector<Channel> MainFrame::GetCurrentChannels() const {

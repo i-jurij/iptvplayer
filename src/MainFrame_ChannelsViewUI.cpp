@@ -172,6 +172,20 @@ void MainFrame::createChannelsView() {
 
 void MainFrame::HandleChannelPageChanged(int sel) {
   if (sel == m_channelsPageIdx) {
+    if (m_loadedPlaylistIndex >= 0) {
+      Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
+      if (pl) {
+        EPGManager *epg = getApplication()->GetEPGManager();
+        if (epg) {
+          std::string playlistId = pl->getUniqueId();
+          if (!playlistId.empty()) {
+            epg->LoadMappingForPlaylist(playlistId, pl->getChannels());
+            LOG_DEBUG("HandleChannelPageChanged: Loaded mapping for %s",
+                      playlistId.c_str());
+          }
+        }
+      }
+    }
     if (m_epgChannels)
       m_epgChannels->SetActive(true);
     if (m_epgFavorites)

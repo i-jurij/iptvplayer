@@ -10,6 +10,7 @@
 #include "epg/EpgSourceManagerPanel.h"
 
 #include <wx/aui/aui.h>
+#include <wx/event.h>
 #include <wx/frame.h>
 #include <wx/listctrl.h>
 #include <wx/notebook.h>
@@ -115,6 +116,8 @@ public:
   void OpenFiles(const wxArrayString &paths);
 
 private:
+  void OnFavoritesMatchDone(wxCommandEvent& evt);
+
   void RestoreChannelSelection();
   void RestoreFavoriteSelection();
   
