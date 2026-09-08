@@ -107,6 +107,9 @@ public:
   bool SaveGlobalMetadata(const std::string &key, const std::string &value);
   std::string LoadGlobalMetadata(const std::string &key);
 
+  bool InsertAutoMapping(const std::string &playlistId, const std::string &key,
+                         const std::string &channelId);
+
 private:
   Database m_db;
   bool m_isOpen = false;

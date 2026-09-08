@@ -1,5 +1,5 @@
 #include "EPGDatabase.h"
-#include "HashUtils.h"
+#include "../HashUtils.h"
 #include "LogControl.h"
 #include <wx/wxsqlite3.h>
 
@@ -961,6 +961,32 @@ bool EPGDatabase::IsIgnored(const std::string &playlistId,
     return false;
   } catch (wxSQLite3::Exception &e) {
     LOG_ERROR("EPGDatabase::IsIgnored exception: %s",
+              e.GetMessage().ToUTF8().data());
+    return false;
+  }
+}
+
+bool EPGDatabase::InsertAutoMapping(const std::string &playlistId,
+                                    const std::string &key,
+                                    const std::string &channelId) {
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  if (!m_isOpen)
+    return false;
+  try {
+    Statement stmt = m_db.PrepareStatement(
+        "INSERT OR REPLACE INTO playlist_mappings "
+        "(playlist_id, key, channel_id, is_manual, confidence) "
+        "VALUES (?, ?, ?, ?, ?)");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, wxString::FromUTF8(playlistId));
+    stmt.Bind(2, wxString::FromUTF8(key));
+    stmt.Bind(3, wxString::FromUTF8(channelId));
+    stmt.Bind(4, 0); // is_manual = 0
+    stmt.Bind(5, "");
+    stmt.ExecuteUpdate();
+    return true;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::InsertAutoMapping exception: %s",
               e.GetMessage().ToUTF8().data());
     return false;
   }

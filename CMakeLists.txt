@@ -198,6 +198,7 @@ set(SOURCES
     src/IconManager.cpp
     src/IconManager_Utils.cpp
     src/BackendFactory.cpp
+    src/HashUtils.cpp
     src/iptvorg/IPTVOrgMetadataManager.cpp
     src/iptvorg/AddIPTVPlaylistDialog.cpp
     src/epg/EPGManager.cpp
@@ -206,7 +207,6 @@ set(SOURCES
     src/epg/EpgSourceManagerPanel.cpp
     src/epg/AddEpgSourceDialog.cpp
     src/epg/EPGDatabase.cpp
-    src/epg/HashUtils.cpp
     src/epg/ManualMappingDialog.cpp
 )
 

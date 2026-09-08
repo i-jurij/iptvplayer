@@ -1,28 +1,36 @@
 #pragma once
 #include "Channel.h"
-#include <vector>
-#include <string>
 #include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 class FavoritesManager {
 public:
-    FavoritesManager(const std::string& storagePath);
+  FavoritesManager(const std::string &storagePath);
 
-    void add(const Channel& ch);
-    void remove(const std::string &name, const std::string &playlist);
-    bool isFavorite(const Channel &ch) const;
+  // Добавление/удаление по объекту Channel (использует его uniqueId)
+  void add(const Channel &ch);
+  void remove(const Channel &ch); // по uniqueId
+  void remove(const std::string &uniqueId);
+  bool isFavorite(const Channel &ch) const;
+  bool isFavorite(const std::string &uniqueId) const;
 
-    std::vector<Channel> list() const;
-    std::vector<std::string> listNames() const;
+  // Старые методы для совместимости (по имени+playlist)
+  void remove(const std::string &name, const std::string &playlist);
+  bool isFavoriteByName(const std::string &name,
+                        const std::string &playlist) const;
 
-    // NEW: удалить все избранные каналы плейлиста
-    void removeByPlaylist(const std::string& playlistName);
+  std::vector<Channel> list() const;
+  std::vector<std::string> listNames() const;
+  void removeByPlaylist(const std::string &playlistName);
+  void clear();
 
 private:
-    mutable std::mutex m_mutex;
-    std::vector<Channel> m_favorites;
-    std::string m_storagePath;
+  mutable std::mutex m_mutex;
+  std::unordered_map<std::string, Channel> m_favorites; // key = uniqueId
+  std::string m_storagePath;
 
-    void loadFromFile();
-    void saveToFile();
+  void loadFromFile();
+  void saveToFile();
 };

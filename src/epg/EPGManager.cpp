@@ -7,7 +7,7 @@
 #include "EPGParserExpat.h"
 #include "EventIDs.h"
 #include "FavoritesManager.h"
-#include "HashUtils.h"
+#include "../HashUtils.h"
 #include "Utils.h"
 
 #include <rapidjson/document.h>
@@ -228,6 +228,7 @@ EPGManager::EPGManager(ConfigManager *configManager,
   // 3. Загрузка правил и алиасов 
   LoadMatchingRules();  // читает matching_rules.json из конфиг-каталога
   LoadChannelAliases(); // читает channel_aliases.json из конфиг-каталога
+  RebuildAliasIndex();
 
   // 4. Открытие БД
   if (!m_dbPath.empty()) {
@@ -272,6 +273,10 @@ EPGManager::~EPGManager() {
       LOG_WARN(
           "Single refresh task did not finish in 5 seconds, proceeding anyway");
     }
+  }
+
+  if (m_incrementalRemapFuture.valid()) {
+    m_incrementalRemapFuture.wait();
   }
 
   if (m_startupUpdateTimer) {
@@ -1010,9 +1015,6 @@ void EPGManager::RebuildNormalizedCache() {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
     m_normalizedCache = std::move(newCache);
   }
-
-  // После обновления кэша перестраиваем индекс для алиасов
-  RebuildAliasIndex();
 }
 
 EPGManager::MatchResult
@@ -1043,35 +1045,44 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
             playlistNorm.quality.c_str(), playlistNorm.version.c_str());
 
   // ========================================================================
-  // ЭТАП 1: tvg‑id (точное совпадение после нормализации)
+  // ЭТАП 1: tvg‑id (улучшенная нормализация через NormalizeWithAttributes)
   // ========================================================================
   std::string tvgId = playlistChannel.getTvgId();
   if (!tvgId.empty()) {
-    std::string tvgIdNorm = tvgId;
-    std::transform(tvgIdNorm.begin(), tvgIdNorm.end(), tvgIdNorm.begin(),
-                   ::tolower);
-    tvgIdNorm.erase(std::remove(tvgIdNorm.begin(), tvgIdNorm.end(), ' '),
-                    tvgIdNorm.end());
-    tvgIdNorm.erase(std::remove(tvgIdNorm.begin(), tvgIdNorm.end(), '.'),
-                    tvgIdNorm.end());
-    tvgIdNorm.erase(std::remove(tvgIdNorm.begin(), tvgIdNorm.end(), '-'),
-                    tvgIdNorm.end());
-    tvgIdNorm.erase(std::remove(tvgIdNorm.begin(), tvgIdNorm.end(), '_'),
-                    tvgIdNorm.end());
-    LOG_DEBUG("FindBestMatch: tvgIdNorm='%s'", tvgIdNorm.c_str());
+    NormalizedChannel tvgNorm;
+    NormalizeWithAttributes(tvgId, tvgNorm);
+    LOG_DEBUG("FindBestMatch: tvgNorm.baseName='%s', region='%s'",
+              tvgNorm.baseName.c_str(), tvgNorm.region.c_str());
 
-    std::shared_lock lock(m_tvgIndexMutex);
-    auto it = m_tvgIdIndex.find(tvgIdNorm);
-    if (it != m_tvgIdIndex.end()) {
-      result.channelId = it->second;
-      result.method = "tvg-id";
-      result.score = 100;
-      result.confidence = "high";
-      LOG_DEBUG("FindBestMatch: TVG-ID MATCH -> epgId='%s'",
-                result.channelId.c_str());
-      return result;
-    } else {
-      LOG_DEBUG("FindBestMatch: tvgIdNorm NOT found in m_tvgIdIndex");
+    // Сначала ищем по полному baseName (как ключ)
+    {
+      std::shared_lock lock(m_tvgIndexMutex);
+      auto it = m_tvgIdIndex.find(tvgNorm.baseName);
+      if (it != m_tvgIdIndex.end()) {
+        result.channelId = it->second;
+        result.method = "tvg-id";
+        result.score = 100;
+        result.confidence = "high";
+        LOG_DEBUG("FindBestMatch: TVG-ID MATCH (baseName) -> epgId='%s'",
+                  result.channelId.c_str());
+        return result;
+      }
+    }
+
+    // Затем ищем по region-версии
+    if (!tvgNorm.region.empty()) {
+      std::shared_lock lock(m_tvgIndexMutex);
+      std::string regionKey = tvgNorm.baseName + "." + tvgNorm.region;
+      auto it = m_tvgIdIndex.find(regionKey);
+      if (it != m_tvgIdIndex.end()) {
+        result.channelId = it->second;
+        result.method = "tvg-id-region";
+        result.score = 100;
+        result.confidence = "high";
+        LOG_DEBUG("FindBestMatch: TVG-ID MATCH (region) -> epgId='%s'",
+                  result.channelId.c_str());
+        return result;
+      }
     }
   } else {
     LOG_DEBUG("FindBestMatch: no tvg-id present");
@@ -1391,7 +1402,6 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
                                         reportInterval, total, callback]() {
           std::unordered_map<std::string, std::string> localMapping;
           localMapping.reserve(batch.size());
-          int matched = 0;
 
           for (const auto &ch : batch) {
             if (m_cancelMatching) {
@@ -1411,7 +1421,6 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
               if (key.empty())
                 key = "name:" + NormalizeName(ch.getName());
               localMapping[key] = match.channelId;
-              matched++;
               totalMatched++;
             }
 
@@ -1523,6 +1532,14 @@ void EPGManager::ReMatchCurrentPlaylist() {
     LOG_DEBUG("EPGManager::ReMatchCurrentPlaylist: no current playlist");
     return;
   }
+
+  // Специальная обработка для избранного
+  if (m_currentPlaylistId == FAVORITES_PLAYLIST_ID) {
+    LOG_DEBUG("ReMatchCurrentPlaylist: rematching favorites");
+    MatchFavoritesAsync();
+    return;
+  }
+
   if (!m_playlistManager) {
     LOG_ERROR("EPGManager::ReMatchCurrentPlaylist: PlaylistManager is null");
     return;
@@ -1642,21 +1659,32 @@ bool EPGManager::LoadMappingForPlaylist(const std::string &playlistId,
     return false;
   }
 
-  if (channelCount != channels.size())
-    return false;
   std::string currentHash = ComputePlaylistHash(channels);
-  if (currentHash != channelHash)
-    return false;
+  bool hashMatch = (currentHash == channelHash);
+  bool countMatch = (channelCount == channels.size());
 
+  // Если хэш или количество не совпадают — загружаем маппинг как stale
+  if (!hashMatch || !countMatch) {
+    {
+      std::unique_lock lock(m_mappingMutex);
+      m_channelMapping = mapping;
+      m_manualMapping = manualMapping;
+      m_mappingStale = true;
+    }
+    // Запускаем инкрементальный ремаппинг в фоне
+    IncrementalRemap(channels, playlistId);
+    return true;
+  }
+
+  // Всё совпало — обычная загрузка
   {
     std::unique_lock lock(m_mappingMutex);
     m_channelMapping = mapping;
     m_manualMapping = manualMapping;
+    m_mappingStale = false;
   }
   m_currentPlaylistId = playlistId;
-
   RebuildTvgIdIndex();
-
   return true;
 }
 
@@ -2419,40 +2447,127 @@ EPGManager::MatchByAlias(const std::string &playlistName) const {
 }
 
 void EPGManager::MatchFavoritesAsync() {
-    bool expected = false;
-    if (!m_favoritesMatchInProgress.compare_exchange_strong(expected, true)) {
-        LOG_DEBUG("MatchFavoritesAsync: already in progress, skipping");
-        return;
-    }
+  bool expected = false;
+  if (!m_favoritesMatchInProgress.compare_exchange_strong(expected, true)) {
+    LOG_DEBUG("MatchFavoritesAsync: already in progress, skipping");
+    return;
+  }
 
-    Application* app = static_cast<Application*>(wxTheApp);
-    if (!app) {
-        LOG_WARN("MatchFavoritesAsync: Application is null");
-        m_favoritesMatchInProgress = false;
-        return;
-    }
+  Application *app = static_cast<Application *>(wxTheApp);
+  if (!app) {
+    LOG_WARN("MatchFavoritesAsync: Application is null");
+    m_favoritesMatchInProgress = false;
+    return;
+  }
 
-    auto& favManager = app->getFavoritesManager();
-    auto favChannels = favManager.list();
-    if (favChannels.empty()) {
-        LOG_DEBUG("MatchFavoritesAsync: No favorites, skipping");
-        m_favoritesMatchInProgress = false;
-        return;
-    }
+  auto &favManager = app->getFavoritesManager();
+  auto favChannels = favManager.list();
+  if (favChannels.empty()) {
+    LOG_DEBUG("MatchFavoritesAsync: No favorites, skipping");
+    m_favoritesMatchInProgress = false;
+    return;
+  }
 
-    LOG_DEBUG("MatchFavoritesAsync: Starting match for %zu favorites", favChannels.size());
+  LOG_DEBUG("MatchFavoritesAsync: Starting match for %zu favorites",
+            favChannels.size());
 
-    MatchChannelsAsync(favChannels, FAVORITES_PLAYLIST_ID, 
-        [this](int matched, int total, int progress, bool success) {
-            m_favoritesMatchInProgress = false;
-            LOG_DEBUG("MatchFavoritesAsync: completed, matched %d/%d, success=%d", 
-                      matched, total, success);
-            
-            // Отправляем событие в UI
-            wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
-            evt.SetInt(matched);
-            evt.SetExtraLong(total);
-            wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+  MatchChannelsAsync(
+      favChannels, FAVORITES_PLAYLIST_ID,
+      [this, favChannels](int matched, int total, int /*progress*/, bool success) {
+        // Фоллбэк по URL для каналов без маппинга
+        Application *app = static_cast<Application *>(wxTheApp);
+        if (app) {
+          auto &favManager = app->getFavoritesManager();
+          auto allFavs = favManager.list();
+          auto *mgr = m_playlistManager;
+          if (mgr) {
+            // Собираем все каналы из всех плейлистов
+            std::vector<Channel> allPlaylistChannels;
+            for (auto &pl : mgr->getPlaylists()) {
+              for (auto &ch : pl->getChannels()) {
+                allPlaylistChannels.push_back(ch);
+              }
+            }
+
+            std::string playlistId = FAVORITES_PLAYLIST_ID;
+            for (const auto &favCh : allFavs) {
+              // Проверяем, есть ли маппинг
+              std::string epgId;
+              bool isManual = false;
+              std::string key = favCh.getTvgId();
+              if (key.empty())
+                key = "name:" + NormalizeName(favCh.getName());
+              if (GetMappingEntry(playlistId, key, epgId, isManual))
+                continue; // уже есть
+
+              // Ищем по URL
+              for (const auto &plCh : allPlaylistChannels) {
+                if (plCh.getUrl() == favCh.getUrl()) {
+                  std::string tvgId = plCh.getTvgId();
+                  if (!tvgId.empty()) {
+                    // Добавляем автоматический маппинг
+                    AddAutoMapping(playlistId, tvgId, tvgId);
+                    LOG_DEBUG("MatchFavoritesAsync: fallback URL match for "
+                              "'%s' -> '%s'",
+                              favCh.getName().c_str(), tvgId.c_str());
+                    break;
+                  }
+                }
+              }
+            }
+          }
         }
-    );
+
+        m_favoritesMatchInProgress = false;
+        LOG_DEBUG("MatchFavoritesAsync: completed, matched %d/%d, success=%d",
+                  matched, total, success);
+
+        wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
+        evt.SetInt(matched);
+        evt.SetExtraLong(total);
+        wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+      });
+}
+void EPGManager::IncrementalRemap(const std::vector<Channel> &channels,
+                                  const std::string &playlistId) {
+  if (m_incrementalRemapFuture.valid()) {
+    m_incrementalRemapFuture.wait();
+  }
+  m_incrementalRemapFuture =
+      std::async(std::launch::async, [this, channels, playlistId]() {
+        std::vector<Channel> toMatch;
+        {
+          std::shared_lock lock(m_mappingMutex);
+          for (const auto &ch : channels) {
+            std::string key = ch.getTvgId();
+            if (key.empty())
+              key = "name:" + NormalizeName(ch.getName());
+            if (m_channelMapping.find(key) == m_channelMapping.end() &&
+                m_manualMapping.find(key) == m_manualMapping.end()) {
+              toMatch.push_back(ch);
+            }
+          }
+        }
+        if (!toMatch.empty()) {
+          LOG_DEBUG("IncrementalRemap: remapping %zu channels", toMatch.size());
+          MatchChannels(toMatch, playlistId, nullptr);
+        }
+        m_mappingStale = false;
+      });
+}
+
+void EPGManager::AddAutoMapping(const std::string &playlistId,
+                                const std::string &key,
+                                const std::string &epgId) {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return;
+  m_db->InsertAutoMapping(playlistId, key, epgId);
+  // также добавляем в локальный кэш как автоматический
+  {
+    std::unique_lock lock(m_mappingMutex);
+    m_channelMapping[key] = epgId;
+    // если существовал ручной – не трогаем
+  }
+  RebuildTvgIdIndex();
 }

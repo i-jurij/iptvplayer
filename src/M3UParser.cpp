@@ -110,7 +110,6 @@ Channel M3UParser::parseExtInfLine(const std::string &extinf,
   Channel channel;
   channel.setUrl(trim(url));
 
-  // безопасные атрибуты
   std::string tvgId = extractAttribute(extinf, "tvg-id");
   std::string tvgName = extractAttribute(extinf, "tvg-name");
   std::string tvgLogo = extractAttribute(extinf, "tvg-logo");
@@ -125,20 +124,21 @@ Channel M3UParser::parseExtInfLine(const std::string &extinf,
   if (!groupTitle.empty())
     channel.setGroupTitle(groupTitle);
 
-  // безопасный парсинг всех атрибутов
   try {
     channel.attributes() = extractAllAttributes(extinf);
   } catch (...) {
-    // игнорируем битые атрибуты
+    // игнорируем
   }
 
-  // имя канала
   size_t commaPos = extinf.find_last_of(',');
   if (commaPos != std::string::npos && commaPos + 1 < extinf.length()) {
     channel.setName(trim(extinf.substr(commaPos + 1)));
   } else {
     channel.setName("Unknown Channel");
   }
+
+  // Генерируем uniqueId
+  channel.ensureUniqueId();
 
   return channel;
 }

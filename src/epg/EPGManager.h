@@ -198,6 +198,13 @@ public:
   void MatchFavoritesAsync();
 
 private:
+  std::future<void> m_incrementalRemapFuture; // для инкрементального ремаппинга
+  void AddAutoMapping(const std::string &playlistId, const std::string &key,
+                      const std::string &epgId);
+  std::atomic<bool> m_mappingStale{false};
+  void IncrementalRemap(const std::vector<Channel> &channels,
+                        const std::string &playlistId);
+
   std::atomic<bool> m_favoritesMatchInProgress{false};
 
   void EnsureConfigFile(const wxString &filename);

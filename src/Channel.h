@@ -56,7 +56,12 @@ public:
     std::map<std::string, std::string>& attributes() { return m_attributes; }
     const std::map<std::string, std::string>& attributes() const { return m_attributes; }
 
-private:
+    std::string getUniqueId() const { return m_uniqueId; }
+    void setUniqueId(const std::string &id) { m_uniqueId = id; }
+    void ensureUniqueId(); 
+
+  private:
+    std::string m_uniqueId;
     std::string m_name;
     std::string m_url;
     std::string m_groupTitle;
