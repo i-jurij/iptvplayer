@@ -348,8 +348,8 @@ void MainFrame::HandleFavPageChanged(int sel) {
         auto &fm = getApplication()->getFavoritesManager();
         auto favChannels = fm.list();
         if (!favChannels.empty()) {
-          const std::string favPlaylistId = "favorites";
-          epg->LoadMappingForPlaylist(favPlaylistId, favChannels);
+          epg->LoadMappingForPlaylist(EPGManager::FAVORITES_PLAYLIST_ID,
+                                      favChannels);
           LOG_DEBUG("HandleFavPageChanged: loaded mapping for favorites");
         }
       }

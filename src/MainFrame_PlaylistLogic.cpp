@@ -176,7 +176,6 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
               LOG_DEBUG("loadPlaylistChannels: mapping not found, but EPG data "
                         "exists, starting MatchChannelsAsync");
               epg->MatchChannelsAsync(channels, playlistId, nullptr);
-              epg->MatchFavoritesAsync();
             } else {
               LOG_DEBUG("loadPlaylistChannels: EPG data loaded but no channels "
                         "in cache, skipping match");

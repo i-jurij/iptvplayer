@@ -195,9 +195,19 @@ public:
   void UpdateAllSources(bool onlyAutoUpdate);
 
   static constexpr const char* FAVORITES_PLAYLIST_ID = "favorites";
-  void MatchFavoritesAsync();
+  void MatchFavoritesAsync(bool force = false);
 
 private:
+  // Управление матчингом избранного
+  std::atomic<bool> m_cancelFavoritesMatching{false};
+  std::future<void> m_favoritesMatchFuture;
+  std::string m_lastFavoritesEpgHash;
+  mutable std::mutex m_favoritesHashMutex;
+
+  void LoadFavoritesEpgHashFromDB();
+  void SaveFavoritesEpgHashToDB(const std::string &hash);
+  bool IsFavoritesEpgHashChanged() const;
+
   std::future<void> m_incrementalRemapFuture; // для инкрементального ремаппинга
   void AddAutoMapping(const std::string &playlistId, const std::string &key,
                       const std::string &epgId);
