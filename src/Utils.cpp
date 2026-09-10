@@ -3,6 +3,7 @@
 #include <curl/curl.h>
 
 #include <wx/app.h>
+#include <wx/dcclient.h>
 #include <wx/dir.h>
 #include <wx/ffile.h>
 #include <wx/filefn.h>
@@ -27,6 +28,52 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+
+// Измеряет высоту текста с учётом переноса слов в заданной ширине
+int MeasureWrappedTextHeight(wxWindow *parent, const wxString &text,
+                             int wrapWidth, const wxFont &font) {
+  wxClientDC dc(parent);
+  dc.SetFont(font);
+  const int lineHeight = dc.GetCharHeight();
+
+  int totalHeight = 0;
+  wxStringTokenizer tok(text, "\n", wxTOKEN_RET_EMPTY_ALL);
+  while (tok.HasMoreTokens()) {
+    wxString para = tok.GetNextToken();
+    para.Replace("\r", "");
+
+    if (para.IsEmpty()) {
+      totalHeight += lineHeight;
+      continue;
+    }
+
+    while (!para.IsEmpty()) {
+      const int len = static_cast<int>(para.length());
+      int fitLen = 0;
+      for (int i = 1; i <= len; ++i) {
+        int w = 0, h = 0;
+        dc.GetTextExtent(para.Left(i), &w, &h);
+        if (w > wrapWidth)
+          break;
+        fitLen = i;
+      }
+      if (fitLen <= 0)
+        fitLen = 1;
+
+      // Пытаемся разорвать по последнему пробелу
+      if (fitLen < len) {
+        int lastSpace = para.Left(fitLen + 1).Find(' ', true);
+        if (lastSpace > 0)
+          fitLen = lastSpace;
+      }
+
+      para = para.Mid(fitLen);
+      para.Trim(false);
+      totalHeight += lineHeight;
+    }
+  }
+  return totalHeight;
+}
 
 bool IsNetworkUrl(const wxString &url) {
   if (url.IsEmpty())

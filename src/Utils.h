@@ -2,14 +2,20 @@
 
 #include "ConfigManager.h"
 #include <mpv/client.h>
+
 #include <wx/app.h>
 #include <wx/string.h>
 #include <wx/window.h>
+#include <wx/font.h>
 
 #include <cstddef>
 #include <ctime>
 #include <functional>
 #include <string>
+
+
+int MeasureWrappedTextHeight(wxWindow *parent, const wxString &text,
+                             int wrapWidth, const wxFont &font);
 
 struct UrlAvailabilityResult {
   bool available;          // true, если код 200

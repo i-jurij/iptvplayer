@@ -818,6 +818,16 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
 }
 
 void EpgSourceManagerPanel::OnAboutMatch(wxCommandEvent &) {
+  int screenW = wxSystemSettings::GetMetric(wxSYS_SCREEN_X);
+  int screenH = wxSystemSettings::GetMetric(wxSYS_SCREEN_Y);
+  int maxWidth = static_cast<int>(screenW * 0.8);
+  int maxHeight = static_cast<int>(screenH * 0.8);
+
+  wxDialog dlg(this, wxID_ANY, _("About EPG Matching"), wxDefaultPosition,
+               wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+
+  wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
+
   wxString msg =
       _("EPG Matching Algorithm\n\n"
         "1. Manual mappings (highest priority)\n"
@@ -850,7 +860,63 @@ void EpgSourceManagerPanel::OnAboutMatch(wxCommandEvent &) {
         "recommended to use\n"
         "manual mappings or aliases (in ‘channel_aliases.json’) for specific "
         "corrections instead of modifying these files.");
-  wxMessageBox(msg, _("About EPG Matching"), wxOK | wxICON_INFORMATION, this);
+
+  // Базовая ширина – 700 DIP, не больше 80% экрана
+  int desiredWidth = FromDIP(700);
+  if (desiredWidth > maxWidth)
+    desiredWidth = maxWidth;
+
+  const int textWidth = desiredWidth - FromDIP(30); // отступы 15+15
+
+  wxTextCtrl *textCtrl = new wxTextCtrl(
+      &dlg, wxID_ANY, msg, wxDefaultPosition, wxSize(textWidth, -1),
+      wxTE_MULTILINE | wxTE_READONLY | wxTE_WORDWRAP);
+  textCtrl->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+  textCtrl->SetWindowStyleFlag(textCtrl->GetWindowStyleFlag() & ~wxBORDER_MASK);
+  textCtrl->SetCanFocus(false);
+
+  // Реальная высота текста при данной ширине
+  int contentH =
+      MeasureWrappedTextHeight(&dlg, msg, textWidth, textCtrl->GetFont());
+  textCtrl->SetMinSize(wxSize(textWidth, contentH));
+
+  mainSizer->Add(textCtrl, 1, wxEXPAND | wxALL, FromDIP(15));
+
+  wxSizer *btnSizer = dlg.CreateButtonSizer(wxOK);
+  wxButton *okBtn = nullptr;
+  if (btnSizer) {
+    okBtn = wxDynamicCast(wxWindow::FindWindowById(wxID_OK, &dlg), wxButton);
+    if (okBtn)
+      okBtn->SetLabel(_("Close"));
+    mainSizer->Add(btnSizer, 0, wxALIGN_RIGHT | wxALL, FromDIP(10));
+  }
+
+  // Минимальная ширина по кнопке (чтобы кнопка не обрезалась)
+  int minByButtons = FromDIP(30) // внешние отступы
+                     + (okBtn ? okBtn->GetBestSize().GetWidth() : 0) +
+                     FromDIP(20);
+  if (desiredWidth < minByButtons)
+    desiredWidth = minByButtons;
+  if (desiredWidth > maxWidth)
+    desiredWidth = maxWidth;
+
+  // Применяем ширину и подбираем высоту
+  dlg.SetSizer(mainSizer);
+  dlg.SetSize(wxSize(desiredWidth, -1));
+  dlg.Layout();
+  dlg.Fit();
+
+  // Ограничение высоты 80% экрана (появится скролл в текстовом поле)
+  wxSize size = dlg.GetSize();
+  if (size.GetHeight() > maxHeight) {
+    size.SetHeight(maxHeight);
+    dlg.SetSize(size);
+    dlg.Layout();
+  }
+
+  dlg.CentreOnParent();
+  dlg.ShowModal();
 }
 
 void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
@@ -869,38 +935,22 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
 
   wxFileName rulesFile(configDir, "matching_rules.json");
   wxFileName aliasesFile(configDir, "channel_aliases.json");
-
   wxString rulesPath = rulesFile.GetFullPath();
   wxString aliasesPath = aliasesFile.GetFullPath();
 
+  int screenW = wxSystemSettings::GetMetric(wxSYS_SCREEN_X);
+  int screenH = wxSystemSettings::GetMetric(wxSYS_SCREEN_Y);
+  int maxWidth = static_cast<int>(screenW * 0.8);
+  int maxHeight = static_cast<int>(screenH * 0.8);
+
   wxDialog dlg(this, wxID_ANY, _("Edit Matching Rules"), wxDefaultPosition,
-               wxSize(FromDIP(600), FromDIP(400)),
-               wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+               wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
-  int screenHeight = wxSystemSettings::GetMetric(wxSYS_SCREEN_Y);
-  int maxHeight = static_cast<int>(screenHeight * 0.8);
-  dlg.SetMaxSize(wxSize(-1, maxHeight));
+  wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  wxScrolledWindow *scrolled = new wxScrolledWindow(
-      &dlg, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
-  scrolled->SetScrollRate(0, 5);
-  wxBoxSizer *topSizer = new wxBoxSizer(wxVERTICAL);
-  scrolled->SetSizer(topSizer);
-
-  // Жирное оранжевое предупреждение о перезапуске
-  wxString warningText =
-      _("After editing, restart the application for changes to take effect.");
-  wxStaticText *warningTextCtrl =
-      new wxStaticText(scrolled, wxID_ANY, warningText);
-  wxFont warningFont = warningTextCtrl->GetFont();
-  warningFont.SetWeight(wxFONTWEIGHT_BOLD);
-  warningTextCtrl->SetFont(warningFont);
-  warningTextCtrl->SetForegroundColour(wxColour(255, 165, 0)); // оранжевый
-  topSizer->Add(warningTextCtrl, 0, wxEXPAND | wxALL, FromDIP(10));
-
-  // Основной текст
   wxString info = wxString::Format(
-      _("You can fine-tune matching by editing the following JSON files in the "
+      _("After editing, restart the application for changes to take effect.\n\n"
+        "You can fine-tune matching by editing the following JSON files in the "
         "config directory:\n\n"
         "  • %s\n"
         "  • %s\n\n"
@@ -912,27 +962,58 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
         "If the files are missing, built‑in defaults are used."),
       rulesPath, aliasesPath);
 
-  wxStaticText *infoText = new wxStaticText(scrolled, wxID_ANY, info);
-  infoText->SetBackgroundColour(
-      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
-  infoText->Wrap(FromDIP(560));
-  topSizer->Add(infoText, 0, wxEXPAND | wxALL, FromDIP(10));
-
-  // Кнопки
-  wxBoxSizer *btnSizer = new wxBoxSizer(wxHORIZONTAL);
+  // Кнопки создаём заранее, чтобы знать их ширину
   wxButton *openFolderBtn =
-      new wxButton(scrolled, wxID_ANY, _("Open Config Folder"));
+      new wxButton(&dlg, wxID_ANY, _("Open Config Folder"));
   wxButton *openRulesBtn =
-      new wxButton(scrolled, wxID_ANY, _("Open matching_rules.json"));
+      new wxButton(&dlg, wxID_ANY, _("Open matching_rules.json"));
   wxButton *openAliasesBtn =
-      new wxButton(scrolled, wxID_ANY, _("Open channel_aliases.json"));
-  wxButton *closeBtn = new wxButton(scrolled, wxID_OK, _("Close"));
+      new wxButton(&dlg, wxID_ANY, _("Open channel_aliases.json"));
+  wxButton *closeBtn = new wxButton(&dlg, wxID_OK, _("Close"));
 
-  btnSizer->Add(openFolderBtn, 0, wxRIGHT, FromDIP(5));
-  btnSizer->Add(openRulesBtn, 0, wxRIGHT, FromDIP(5));
-  btnSizer->Add(openAliasesBtn, 0, wxRIGHT, FromDIP(5));
+  // Базовая ширина – 700 DIP, не больше 80% экрана
+  int desiredWidth = FromDIP(700);
+  if (desiredWidth > maxWidth)
+    desiredWidth = maxWidth;
+
+  // Минимальная ширина по ряду кнопок (4 кнопки + отступы + запас на скроллбар)
+  const int btnGap = FromDIP(5);
+  int minByButtons =
+      FromDIP(20) // внешние отступы sizer'а (10+10)
+      + openFolderBtn->GetBestSize().GetWidth() +
+      openRulesBtn->GetBestSize().GetWidth() +
+      openAliasesBtn->GetBestSize().GetWidth() +
+      closeBtn->GetBestSize().GetWidth() + btnGap * 3 +
+      FromDIP(20); // запас на возможный скроллбар текстового поля
+
+  if (desiredWidth < minByButtons)
+    desiredWidth = minByButtons;
+  if (desiredWidth > maxWidth)
+    desiredWidth = maxWidth;
+
+  const int textWidth = desiredWidth - FromDIP(20); // отступы 10+10
+
+  wxTextCtrl *textCtrl = new wxTextCtrl(
+      &dlg, wxID_ANY, info, wxDefaultPosition, wxSize(textWidth, -1),
+      wxTE_MULTILINE | wxTE_READONLY | wxTE_WORDWRAP);
+  textCtrl->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+  textCtrl->SetWindowStyleFlag(textCtrl->GetWindowStyleFlag() & ~wxBORDER_MASK);
+  textCtrl->SetCanFocus(false);
+
+  int contentH =
+      MeasureWrappedTextHeight(&dlg, info, textWidth, textCtrl->GetFont());
+  textCtrl->SetMinSize(wxSize(textWidth, contentH));
+
+  mainSizer->Add(textCtrl, 1, wxEXPAND | wxALL, FromDIP(10));
+
+  wxBoxSizer *btnSizer = new wxBoxSizer(wxHORIZONTAL);
+  btnSizer->Add(openFolderBtn, 0, wxRIGHT, btnGap);
+  btnSizer->Add(openRulesBtn, 0, wxRIGHT, btnGap);
+  btnSizer->Add(openAliasesBtn, 0, wxRIGHT, btnGap);
   btnSizer->Add(closeBtn, 0);
-  topSizer->Add(btnSizer, 0, wxALL | wxALIGN_CENTER, FromDIP(10));
+
+  mainSizer->Add(btnSizer, 0, wxALL | wxALIGN_CENTER, FromDIP(10));
 
   openFolderBtn->Bind(wxEVT_BUTTON, [configDir](wxCommandEvent &) {
     wxLaunchDefaultApplication(configDir);
@@ -944,15 +1025,16 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
     wxLaunchDefaultApplication(aliasesPath);
   });
 
-  wxBoxSizer *dlgSizer = new wxBoxSizer(wxVERTICAL);
-  dlgSizer->Add(scrolled, 1, wxEXPAND);
-  dlg.SetSizer(dlgSizer);
-
+  dlg.SetSizer(mainSizer);
+  dlg.SetSize(wxSize(desiredWidth, -1));
+  dlg.Layout();
   dlg.Fit();
-  wxSize currentSize = dlg.GetSize();
-  if (currentSize.GetHeight() > maxHeight) {
-    dlg.SetSize(wxSize(currentSize.GetWidth(), maxHeight));
-    scrolled->FitInside();
+
+  wxSize size = dlg.GetSize();
+  if (size.GetHeight() > maxHeight) {
+    size.SetHeight(maxHeight);
+    dlg.SetSize(size);
+    dlg.Layout();
   }
 
   dlg.CentreOnParent();
