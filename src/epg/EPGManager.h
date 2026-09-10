@@ -52,9 +52,11 @@ struct EpgProgressInfo {
   double downloadedBytes = 0.0;
   double totalBytes = 0.0;
   double speedBytesPerSec = 0.0;
-  int matched = 0;          // для Matching
-  int totalChannels = 0;    // для Matching
-  std::string errorMessage; // для Error (если понадобится)
+  int matched = 0;
+  int totalChannels = 0;
+  int favoritesMatched = 0;
+  int favoritesTotal = 0;
+  std::string errorMessage = "";
 };
 
 class EPGManager : public wxEvtHandler {
@@ -142,7 +144,10 @@ public:
     m_currentPlaylistId = playlistId;
   }
 
-  void CancelMatching() { m_cancelMatching = true; }
+  void CancelMatching() {
+    m_cancelMatching = true;
+    m_cancelFavoritesMatching = true;
+  }
 
   // ---- Getters for match thresholds (для UI) ----
   int GetFuzzyThreshold() const { return m_fuzzyThreshold; }
@@ -173,10 +178,7 @@ public:
   using ProgressCallback = std::function<void(const EpgProgressInfo &)>;
   void SetOnProgress(ProgressCallback callback);
   // Методы для управления прогрессом (будут использоваться внутри)
-  void UpdateProgress(EpgProgressStage stage, int percent = -1,
-                      const std::string &stageText = "", double downloaded = -1,
-                      double total = -1, double speed = -1, int matched = -1,
-                      int totalChannels = -1);
+  void UpdateProgress(const EpgProgressInfo &info);
   void RefreshSourceAsync(
       const std::string &url, const std::string &name,
       std::function<void(bool, const std::string &)> callback = nullptr);
@@ -269,6 +271,18 @@ private:
   void OnStartupUpdateTimer(wxTimerEvent &event);
 
   std::atomic<bool> m_cancelMatching{false};
+  // --- Трекинг параллельных матчингов (каналы + избранное) ---
+  std::atomic<int> m_activeMatchings{0};
+
+  struct MatchAggregate {
+    int processedCh = 0, totalCh = 0, matchedCh = 0;
+    int processedFav = 0, totalFav = 0, matchedFav = 0;
+  };
+  MatchAggregate m_matchAgg;
+  mutable std::mutex m_matchAggMutex;
+
+  void UpdateMatchProgress(bool isFavorites, int processed, int matched,
+                           int total, bool finished);
 
   std::future<void> m_matchFuture; // для MatchChannelsAsync
 

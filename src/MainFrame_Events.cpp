@@ -108,7 +108,19 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
       details += wxString::Format(" (%.1f MB / %.1f MB, %.1f KB/s)",
                                   downloadedMB, totalMB, speedKB);
     } else if (info.stage == EpgProgressStage::Matching) {
-      details += wxString::Format(" (%d/%d)", info.matched, info.totalChannels);
+      wxString parts;
+      if (info.totalChannels > 0) {
+        parts += wxString::Format("Channels %d/%d", info.matched,
+                                  info.totalChannels);
+      }
+      if (info.favoritesTotal > 0) {
+        if (!parts.IsEmpty())
+          parts += ", ";
+        parts += wxString::Format("Favorites %d/%d", info.favoritesMatched,
+                                  info.favoritesTotal);
+      }
+      if (!parts.IsEmpty())
+        details += " (" + parts + ")";
     } else if (info.percent >= 0) {
       details += wxString::Format(" (%d%%)", info.percent);
     }
@@ -125,10 +137,19 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
 
     // Статус-бар завершения
     if (info.stage == EpgProgressStage::Done) {
-      SetStatusText("EPG success", 0);
-      wxString msg = wxString::Format(_("EPG updated: %d/%d channels matched"),
-                                      info.matched, info.totalChannels);
-      SetStatusText(msg, 1);
+      SetStatusText("EPG Matching Done", 0);
+      wxString parts;
+      if (info.totalChannels > 0) {
+        parts += wxString::Format("Channels %d/%d", info.matched,
+                                  info.totalChannels);
+      }
+      if (info.favoritesTotal > 0) {
+        if (!parts.IsEmpty())
+          parts += ", ";
+        parts += wxString::Format("Favorites %d/%d", info.favoritesMatched,
+                                  info.favoritesTotal);
+      }
+      SetStatusText(parts, 1);
     } else if (info.stage == EpgProgressStage::Cancelled) {
       SetStatusText("EPG cansel", 0);
       SetStatusText("EPG update cancelled", 1);

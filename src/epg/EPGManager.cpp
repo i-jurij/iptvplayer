@@ -1,13 +1,13 @@
 #include "EPGManager.h"
 #include "../Channel.h"
 #include "../ConfigManager.h"
+#include "../HashUtils.h"
 #include "../LogControl.h"
 #include "../PlaylistManager.h"
 #include "Application.h"
 #include "EPGParserExpat.h"
 #include "EventIDs.h"
 #include "FavoritesManager.h"
-#include "../HashUtils.h"
 #include "Utils.h"
 
 #include <rapidjson/document.h>
@@ -37,172 +37,172 @@
 #include <unordered_set>
 
 namespace {
-  // Сжатие множественных пробелов и удаление ведущих/завершающих пробелов
-  static void TrimAndCollapseSpaces(std::string &s) {
-    s = std::regex_replace(s, std::regex("\\s+"), " ");
-    s = std::regex_replace(s, std::regex("^\\s+|\\s+$"), "");
+// Сжатие множественных пробелов и удаление ведущих/завершающих пробелов
+static void TrimAndCollapseSpaces(std::string &s) {
+  s = std::regex_replace(s, std::regex("\\s+"), " ");
+  s = std::regex_replace(s, std::regex("^\\s+|\\s+$"), "");
+}
+
+// Удаление суффикса качества (число+p/i в скобках) в конце строки
+static std::string RemoveQualityNumericSuffix(const std::string &s) {
+  static std::regex pattern(R"(\s*\(\s*\d+[pi]\s*\)\s*$)");
+  return std::regex_replace(s, pattern, "");
+}
+
+// --------------------------------------------------------------------------
+// Вспомогательные статические функции
+// --------------------------------------------------------------------------
+static bool IsValidXmltv(const std::string &data) {
+  if (data.empty())
+    return false;
+  std::string lower = data;
+  std::transform(
+      lower.begin(), lower.end(), lower.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+  if (lower.find("<!doctype html") != std::string::npos ||
+      lower.find("<html") != std::string::npos) {
+    LOG_ERROR("IsValidXmltv: Data appears to be HTML (not XMLTV)");
+    return false;
   }
+  return lower.find("<?xml") != std::string::npos ||
+         lower.find("<tv") != std::string::npos;
+}
 
-  // Удаление суффикса качества (число+p/i в скобках) в конце строки
-  static std::string RemoveQualityNumericSuffix(const std::string &s) {
-    static std::regex pattern(R"(\s*\(\s*\d+[pi]\s*\)\s*$)");
-    return std::regex_replace(s, pattern, "");
-  }
-
-  // --------------------------------------------------------------------------
-  // Вспомогательные статические функции
-  // --------------------------------------------------------------------------
-  static bool IsValidXmltv(const std::string &data) {
-    if (data.empty())
-      return false;
-    std::string lower = data;
-    std::transform(
-        lower.begin(), lower.end(), lower.begin(),
-        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-    if (lower.find("<!doctype html") != std::string::npos ||
-        lower.find("<html") != std::string::npos) {
-      LOG_ERROR("IsValidXmltv: Data appears to be HTML (not XMLTV)");
+static bool DecompressIfNeeded(std::string &data) {
+  // GZIP
+  if (data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1F &&
+      static_cast<unsigned char>(data[1]) == 0x8B) {
+    std::vector<unsigned char> inbuf(data.begin(), data.end());
+    z_stream zs;
+    memset(&zs, 0, sizeof(zs));
+    if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
+      LOG_ERROR("DecompressIfNeeded: inflateInit2 failed");
       return false;
     }
-    return lower.find("<?xml") != std::string::npos ||
-          lower.find("<tv") != std::string::npos;
+    zs.next_in = inbuf.data();
+    zs.avail_in = inbuf.size();
+
+    std::string out;
+    char buf[16384];
+    int ret;
+    do {
+      zs.next_out = reinterpret_cast<Bytef *>(buf);
+      zs.avail_out = sizeof(buf);
+      ret = inflate(&zs, Z_NO_FLUSH);
+      if (ret != Z_OK && ret != Z_STREAM_END) {
+        inflateEnd(&zs);
+        LOG_ERROR("DecompressIfNeeded: inflate error %d", ret);
+        return false;
+      }
+      out.append(buf, sizeof(buf) - zs.avail_out);
+    } while (ret != Z_STREAM_END);
+    inflateEnd(&zs);
+
+    if (out.size() > 1024 * 1024 * 1024) {
+      LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
+      return false;
+    }
+    if (out.empty()) {
+      LOG_ERROR("DecompressIfNeeded: decompressed GZIP data is empty");
+      return false;
+    }
+    if (!IsValidXmltv(out)) {
+      LOG_ERROR("DecompressIfNeeded: decompressed gzip is not valid XMLTV");
+      return false;
+    }
+    data.swap(out);
+    return true;
   }
 
-  static bool DecompressIfNeeded(std::string &data) {
-    // GZIP
-    if (data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1F &&
-        static_cast<unsigned char>(data[1]) == 0x8B) {
-      std::vector<unsigned char> inbuf(data.begin(), data.end());
-      z_stream zs;
-      memset(&zs, 0, sizeof(zs));
-      if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
-        LOG_ERROR("DecompressIfNeeded: inflateInit2 failed");
-        return false;
-      }
-      zs.next_in = inbuf.data();
-      zs.avail_in = inbuf.size();
-
-      std::string out;
-      char buf[16384];
-      int ret;
-      do {
-        zs.next_out = reinterpret_cast<Bytef *>(buf);
-        zs.avail_out = sizeof(buf);
-        ret = inflate(&zs, Z_NO_FLUSH);
-        if (ret != Z_OK && ret != Z_STREAM_END) {
-          inflateEnd(&zs);
-          LOG_ERROR("DecompressIfNeeded: inflate error %d", ret);
-          return false;
-        }
-        out.append(buf, sizeof(buf) - zs.avail_out);
-      } while (ret != Z_STREAM_END);
-      inflateEnd(&zs);
-
-      if (out.size() > 1024 * 1024 * 1024) {
-        LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
-        return false;
-      }
-      if (out.empty()) {
-        LOG_ERROR("DecompressIfNeeded: decompressed GZIP data is empty");
-        return false;
-      }
-      if (!IsValidXmltv(out)) {
-        LOG_ERROR("DecompressIfNeeded: decompressed gzip is not valid XMLTV");
-        return false;
-      }
-      data.swap(out);
-      return true;
+  // ZIP
+  if (data.size() >= 4 && static_cast<unsigned char>(data[0]) == 0x50 &&
+      static_cast<unsigned char>(data[1]) == 0x4B &&
+      static_cast<unsigned char>(data[2]) == 0x03 &&
+      static_cast<unsigned char>(data[3]) == 0x04) {
+    wxMemoryInputStream memIn(data.data(), data.size());
+    wxZipInputStream zipIn(memIn);
+    if (!zipIn.IsOk()) {
+      LOG_ERROR("DecompressIfNeeded: wxZipInputStream not OK");
+      return false;
     }
 
-    // ZIP
-    if (data.size() >= 4 && static_cast<unsigned char>(data[0]) == 0x50 &&
-        static_cast<unsigned char>(data[1]) == 0x4B &&
-        static_cast<unsigned char>(data[2]) == 0x03 &&
-        static_cast<unsigned char>(data[3]) == 0x04) {
-      wxMemoryInputStream memIn(data.data(), data.size());
-      wxZipInputStream zipIn(memIn);
-      if (!zipIn.IsOk()) {
-        LOG_ERROR("DecompressIfNeeded: wxZipInputStream not OK");
-        return false;
-      }
-
-      std::string extracted;
-      bool foundXml = false;
-      std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
-      while (entry) {
-        if (!entry->IsDir()) {
-          wxString name = entry->GetName();
-          bool isXml = name.EndsWith(".xml") || name.EndsWith(".XML") ||
-                      name.EndsWith(".xml.gz") || name.EndsWith(".XML.GZ");
-          if (isXml) {
-            wxMemoryOutputStream memOut;
-            zipIn.Read(memOut);
-            if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
-              LOG_ERROR("DecompressIfNeeded: error reading ZIP entry");
-              return false;
-            }
-            wxStreamBuffer *buf = memOut.GetOutputStreamBuffer();
-            if (buf) {
-              extracted.assign(static_cast<const char *>(buf->GetBufferStart()),
-                              buf->GetBufferSize());
-              foundXml = true;
-              break;
-            }
+    std::string extracted;
+    bool foundXml = false;
+    std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
+    while (entry) {
+      if (!entry->IsDir()) {
+        wxString name = entry->GetName();
+        bool isXml = name.EndsWith(".xml") || name.EndsWith(".XML") ||
+                     name.EndsWith(".xml.gz") || name.EndsWith(".XML.GZ");
+        if (isXml) {
+          wxMemoryOutputStream memOut;
+          zipIn.Read(memOut);
+          if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
+            LOG_ERROR("DecompressIfNeeded: error reading ZIP entry");
+            return false;
+          }
+          wxStreamBuffer *buf = memOut.GetOutputStreamBuffer();
+          if (buf) {
+            extracted.assign(static_cast<const char *>(buf->GetBufferStart()),
+                             buf->GetBufferSize());
+            foundXml = true;
+            break;
           }
         }
-        entry.reset(zipIn.GetNextEntry());
       }
+      entry.reset(zipIn.GetNextEntry());
+    }
 
-      if (!foundXml) {
-        wxMemoryInputStream memIn2(data.data(), data.size());
-        wxZipInputStream zipIn2(memIn2);
-        if (zipIn2.IsOk()) {
-          std::unique_ptr<wxZipEntry> entry2(zipIn2.GetNextEntry());
-          while (entry2) {
-            if (!entry2->IsDir()) {
-              wxMemoryOutputStream memOut2;
-              zipIn2.Read(memOut2);
-              if (zipIn2.GetLastError() == wxSTREAM_NO_ERROR) {
-                wxStreamBuffer *buf2 = memOut2.GetOutputStreamBuffer();
-                if (buf2) {
-                  extracted.assign(
-                      static_cast<const char *>(buf2->GetBufferStart()),
-                      buf2->GetBufferSize());
-                  if (IsValidXmltv(extracted)) {
-                    foundXml = true;
-                    break;
-                  }
+    if (!foundXml) {
+      wxMemoryInputStream memIn2(data.data(), data.size());
+      wxZipInputStream zipIn2(memIn2);
+      if (zipIn2.IsOk()) {
+        std::unique_ptr<wxZipEntry> entry2(zipIn2.GetNextEntry());
+        while (entry2) {
+          if (!entry2->IsDir()) {
+            wxMemoryOutputStream memOut2;
+            zipIn2.Read(memOut2);
+            if (zipIn2.GetLastError() == wxSTREAM_NO_ERROR) {
+              wxStreamBuffer *buf2 = memOut2.GetOutputStreamBuffer();
+              if (buf2) {
+                extracted.assign(
+                    static_cast<const char *>(buf2->GetBufferStart()),
+                    buf2->GetBufferSize());
+                if (IsValidXmltv(extracted)) {
+                  foundXml = true;
+                  break;
                 }
               }
             }
-            entry2.reset(zipIn2.GetNextEntry());
           }
+          entry2.reset(zipIn2.GetNextEntry());
         }
       }
-
-      if (!foundXml) {
-        LOG_ERROR("DecompressIfNeeded: ZIP archive does not contain XMLTV file");
-        return false;
-      }
-      if (extracted.empty()) {
-        LOG_ERROR("DecompressIfNeeded: ZIP archive contains no data");
-        return false;
-      }
-      if (extracted.size() > 1024 * 1024 * 1024) {
-        LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 1 GB");
-        return false;
-      }
-      data.swap(extracted);
-      return true;
     }
 
-    if (!IsValidXmltv(data)) {
-      LOG_ERROR("DecompressIfNeeded: data is not valid XMLTV (no <?xml or <tv)");
+    if (!foundXml) {
+      LOG_ERROR("DecompressIfNeeded: ZIP archive does not contain XMLTV file");
       return false;
     }
+    if (extracted.empty()) {
+      LOG_ERROR("DecompressIfNeeded: ZIP archive contains no data");
+      return false;
+    }
+    if (extracted.size() > 1024 * 1024 * 1024) {
+      LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 1 GB");
+      return false;
+    }
+    data.swap(extracted);
     return true;
   }
+
+  if (!IsValidXmltv(data)) {
+    LOG_ERROR("DecompressIfNeeded: data is not valid XMLTV (no <?xml or <tv)");
+    return false;
+  }
+  return true;
+}
 } // namespace
 
 // --------------------------------------------------------------------------
@@ -213,19 +213,20 @@ EPGManager::EPGManager(ConfigManager *configManager,
     : wxEvtHandler(), m_configManager(configManager),
       m_playlistManager(playlistManager) {
 
-  // 1. Копирование файлов настроек из ресурсов в конфиг-каталог при первом запуске
+  // 1. Копирование файлов настроек из ресурсов в конфиг-каталог при первом
+  // запуске
   EnsureConfigFile("matching_rules.json");
   EnsureConfigFile("channel_aliases.json");
 
   // 2. Загрузка основных настроек
-  LoadSourcesFromConfig(); 
+  LoadSourcesFromConfig();
   InitializeDefaultRegionalSuffixes();
 
   if (m_configManager) {
-    LoadMatchSettings(); 
+    LoadMatchSettings();
   }
 
-  // 3. Загрузка правил и алиасов 
+  // 3. Загрузка правил и алиасов
   LoadMatchingRules();  // читает matching_rules.json из конфиг-каталога
   LoadChannelAliases(); // читает channel_aliases.json из конфиг-каталога
   RebuildAliasIndex();
@@ -335,27 +336,53 @@ void EPGManager::AddOnProgress(ProgressCallback callback) {
   m_progressCallbacks.push_back(callback);
 }
 
-void EPGManager::UpdateProgress(EpgProgressStage stage, int percent,
-                                const std::string &stageText, double downloaded,
-                                double total, double speed, int matched,
-                                int totalChannels) {
+void EPGManager::UpdateProgress(const EpgProgressInfo &info) {
   if (m_progressCallbacks.empty())
     return;
-
-  EpgProgressInfo info;
-  info.stage = stage;
-  info.percent = percent;
-  info.stageText = stageText;
-  info.downloadedBytes = downloaded;
-  info.totalBytes = total;
-  info.speedBytesPerSec = speed;
-  info.matched = matched;
-  info.totalChannels = totalChannels;
-
   for (auto &cb : m_progressCallbacks) {
     if (cb)
       cb(info);
   }
+}
+
+void EPGManager::UpdateMatchProgress(bool isFavorites, int processed,
+                                     int matched, int total, bool finished) {
+  EpgProgressInfo info;
+  {
+    std::lock_guard<std::mutex> lock(m_matchAggMutex);
+    if (isFavorites) {
+      m_matchAgg.processedFav = processed;
+      m_matchAgg.totalFav = total;
+      m_matchAgg.matchedFav = matched;
+    } else {
+      m_matchAgg.processedCh = processed;
+      m_matchAgg.totalCh = total;
+      m_matchAgg.matchedCh = matched;
+    }
+
+    int sumProcessed = m_matchAgg.processedCh + m_matchAgg.processedFav;
+    int sumTotal = m_matchAgg.totalCh + m_matchAgg.totalFav;
+
+    info.percent = (sumTotal > 0) ? (sumProcessed * 100) / sumTotal : -1;
+    info.matched = m_matchAgg.matchedCh;
+    info.totalChannels = m_matchAgg.totalCh;
+    info.favoritesMatched = m_matchAgg.matchedFav;
+    info.favoritesTotal = m_matchAgg.totalFav;
+  }
+
+  if (finished) {
+    int remaining = m_activeMatchings.fetch_sub(1) - 1;
+    info.stage =
+        (remaining <= 0) ? EpgProgressStage::Done : EpgProgressStage::Matching;
+  } else {
+    info.stage = EpgProgressStage::Matching;
+  }
+
+  info.stageText = (info.stage == EpgProgressStage::Done)
+                       ? std::string(_("Done").ToUTF8().data())
+                       : std::string(_("Matching").ToUTF8().data());
+
+  UpdateProgress(info);
 }
 
 void EPGManager::StartProgressTimer() {
@@ -399,14 +426,14 @@ void EPGManager::OnProgressTimer(wxTimerEvent &) {
   std::string stageText = std::string(_("Downloading").ToUTF8().data());
   if (m_downloadProgress.abort.load()) {
     stageText = std::string(_("Cancelled").ToUTF8().data());
-    UpdateProgress(EpgProgressStage::Cancelled, percent, stageText, downloaded,
-                   total, speed);
+    UpdateProgress({EpgProgressStage::Cancelled, percent, stageText, downloaded,
+                   total, speed});
     StopProgressTimer();
     return;
   }
 
-  UpdateProgress(EpgProgressStage::Downloading, percent, stageText, downloaded,
-                 total, speed);
+  UpdateProgress({EpgProgressStage::Downloading, percent, stageText, downloaded,
+                 total, speed});
 }
 
 void EPGManager::SetFuzzyThreshold(int value) {
@@ -473,8 +500,9 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
     // Сброс флага (если был установлен)
     m_autoUpdateInProgress = false;
     // Уведомление UI о завершении (сбрасывает busy и гейдж)
-    UpdateProgress(EpgProgressStage::Done, 100,
-                   std::string(_("No EPG sources to update").ToUTF8().data()));
+    UpdateProgress(
+        {EpgProgressStage::Done, 100,
+         std::string(_("No EPG sources to update").ToUTF8().data())});
     return;
   }
 
@@ -500,6 +528,7 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
           if (done == total) {
             // Все обновления завершены
             m_autoUpdateInProgress = false; // сброс флага
+            bool startedMatching = false;
             if (anySuccess->load() && !m_currentPlaylistId.empty() &&
                 m_playlistManager) {
               Playlist *pl =
@@ -508,7 +537,12 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
                 MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId,
                                    nullptr);
                 MatchFavoritesAsync(false);
+                startedMatching = true;
               }
+            }
+            if (!startedMatching) {
+              UpdateProgress({EpgProgressStage::Done, 100,
+                              std::string(_("Done").ToUTF8().data())});
             }
           }
         });
@@ -625,9 +659,18 @@ bool EPGManager::LoadFromUrl(const std::string &url,
               check.contentLength);
   }
 
-  UpdateProgress(EpgProgressStage::Downloading, -1,
-                 std::string(_("Downloading").ToUTF8().data()), 0,
-                 check.contentLength > 0 ? check.contentLength : 0, 0, 0, 0);
+  {
+    EpgProgressInfo info;
+    info.stage = EpgProgressStage::Downloading;
+    info.percent = -1;
+    info.stageText = std::string(_("Downloading").ToUTF8().data());
+    info.downloadedBytes = 0;
+    info.totalBytes = check.contentLength > 0 ? check.contentLength : 0;
+    info.speedBytesPerSec = 0;
+    info.matched = 0;
+    info.totalChannels = 0;
+    UpdateProgress(info);
+  }
 
   StartProgressTimer();
 
@@ -649,14 +692,14 @@ bool EPGManager::LoadFromUrl(const std::string &url,
   StopProgressTimer();
 
   if (m_downloadProgress.abort.load()) {
-    UpdateProgress(EpgProgressStage::Cancelled, -1,
-                   std::string(_("Cancelled").ToUTF8().data()));
+    UpdateProgress({EpgProgressStage::Cancelled, -1,
+                    std::string(_("Cancelled").ToUTF8().data())});
     setLastError("Download cancelled");
     return false;
   }
 
-  UpdateProgress(EpgProgressStage::Extracting, -1,
-                 std::string(_("Extracting").ToUTF8().data()));
+  UpdateProgress({EpgProgressStage::Extracting, -1,
+                  std::string(_("Extracting").ToUTF8().data())});
 
   // ... дальше распаковка и парсинг
   if (xmlData.size() > 100 * 1024 * 1024) {
@@ -683,15 +726,15 @@ bool EPGManager::LoadFromUrl(const std::string &url,
 
 bool EPGManager::LoadFromFile(const std::string &filePath) {
   // Уведомление о начале
-  UpdateProgress(EpgProgressStage::Extracting, -1,
-                 std::string(_("Extracting").ToUTF8().data()));
+  UpdateProgress({EpgProgressStage::Extracting, -1,
+                  std::string(_("Extracting").ToUTF8().data())});
 
   std::ifstream file(filePath, std::ios::binary);
   if (!file.is_open()) {
     setLastError("Cannot open file: " + filePath);
     LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
-    UpdateProgress(EpgProgressStage::Error, 0,
-                   std::string(_("Error: Cannot open file").ToUTF8().data()));
+    UpdateProgress({EpgProgressStage::Error, 0,
+                    std::string(_("Error: Cannot open file").ToUTF8().data())});
     return false;
   }
   std::string content((std::istreambuf_iterator<char>(file)),
@@ -702,8 +745,8 @@ bool EPGManager::LoadFromFile(const std::string &filePath) {
     setLastError("Failed to decompress file: " + filePath);
     LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
     UpdateProgress(
-        EpgProgressStage::Error, 0,
-        std::string(_("Error: Decompression failed").ToUTF8().data()));
+        {EpgProgressStage::Error, 0,
+         std::string(_("Error: Decompression failed").ToUTF8().data())});
     return false;
   }
 
@@ -758,8 +801,8 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
   }
 
   // Начало парсинга
-  UpdateProgress(EpgProgressStage::Parsing, -1,
-                 std::string(_("Parsing").ToUTF8().data()));
+  UpdateProgress({EpgProgressStage::Parsing, -1,
+                  std::string(_("Parsing").ToUTF8().data())});
 
   EPGParserExpat parser;
   if (!parser.Parse(xmlData)) {
@@ -797,8 +840,8 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     // Обновляем прогресс каждые 10 каналов или после последнего
     if (processed % 10 == 0 || processed == total) {
       int percent = static_cast<int>((processed * 100) / total);
-      UpdateProgress(EpgProgressStage::Parsing, percent,
-                     std::string(_("Parsing").ToUTF8().data()));
+      UpdateProgress({EpgProgressStage::Parsing, percent,
+                      std::string(_("Parsing").ToUTF8().data())});
     }
   }
 
@@ -831,9 +874,9 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
 
     // Завершение
     UpdateProgress(
-        EpgProgressStage::Parsing, 100,
-        std::string(
-            _("Parsing complete, waiting for matching...").ToUTF8().data()));
+        {EpgProgressStage::Parsing, 100,
+         std::string(
+             _("Parsing complete, waiting for matching...").ToUTF8().data())});
   } else {
     m_db->RollbackTransaction();
     setLastError("Failed to insert data into database");
@@ -1331,17 +1374,27 @@ EPGManager::GetAllEpgChannels() const {
 void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
                                const std::string &playlistId,
                                MatchCallback callback) {
+  {
+    int prev = m_activeMatchings.fetch_add(1);
+    if (prev == 0) {
+      std::lock_guard<std::mutex> lock(m_matchAggMutex);
+      m_matchAgg = MatchAggregate{};
+    }
+  }
+
   // Проверка наличия источников EPG
   if (m_sources.empty()) {
     LOG_WARN("MatchChannels: no EPG sources, skipping");
     if (callback) {
       wxTheApp->CallAfter([callback]() { callback(0, 0, 0, false); });
     }
+    UpdateMatchProgress(false, 0, 0, 0, true);
     return;
   }
 
   if (m_cancelMatching.exchange(false)) {
     LOG_DEBUG("MatchChannels cancelled");
+    UpdateMatchProgress(false, 0, 0, 0, true);
     return;
   }
 
@@ -1349,11 +1402,10 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
 
   if (m_normalizedCache.empty()) {
     LOG_DEBUG("MatchChannels: normalized cache is empty, finishing early");
-    UpdateProgress(EpgProgressStage::Done, 100,
-                   std::string(_("No EPG channels in cache").ToUTF8().data()));
     if (callback) {
       wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
     }
+    UpdateMatchProgress(false, 0, 0, 0, true);
     return;
   }
 
@@ -1363,6 +1415,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
     if (callback) {
       wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
     }
+    UpdateMatchProgress(false, 0, 0, 0, true);
     return;
   }
 
@@ -1395,9 +1448,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   int reportInterval = std::max(1, std::min(50, total / 20));
 
   // Начало матчинга
-  UpdateProgress(EpgProgressStage::Matching, -1,
-                 std::string(_("Matching").ToUTF8().data()), -1, -1, -1, 0,
-                 total);
+  UpdateMatchProgress(false, 0, 0, total, false);
 
   for (const auto &batch : batches) {
     futures.push_back(
@@ -1409,8 +1460,8 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
           for (const auto &ch : batch) {
             if (m_cancelMatching) {
               wxTheApp->CallAfter([this]() {
-                UpdateProgress(EpgProgressStage::Cancelled, 0,
-                               std::string(_("Cancelled").ToUTF8().data()));
+                UpdateProgress({EpgProgressStage::Cancelled, 0,
+                               std::string(_("Cancelled").ToUTF8().data())});
               });
               break;
             }
@@ -1429,13 +1480,11 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
 
             int current = processed.fetch_add(1) + 1;
             if (current % reportInterval == 0 || current == total) {
-              int percent = (total > 0) ? (current * 100) / total : 0;
-              wxTheApp->CallAfter(
-                  [this, totalMatched = totalMatched.load(), total, percent]() {
-                    UpdateProgress(EpgProgressStage::Matching, percent,
-                                   std::string(_("Matching").ToUTF8().data()),
-                                   -1, -1, -1, totalMatched, total);
-                  });
+              int matchedSnapshot = totalMatched.load();
+              wxTheApp->CallAfter([this, current, matchedSnapshot, total]() {
+                UpdateMatchProgress(false, current, matchedSnapshot, total,
+                                    false);
+              });
               if (callback) {
                 wxTheApp->CallAfter([callback, current, total]() {
                   callback(0, total, current, true);
@@ -1491,9 +1540,8 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   }
 
   // Завершение матчинга
-  UpdateProgress(EpgProgressStage::Done, 100,
-                 std::string(_("Done").ToUTF8().data()), -1, -1, -1,
-                 static_cast<int>(matchedCount), total);
+  UpdateMatchProgress(false, total, static_cast<int>(matchedCount), total,
+                      true);
 }
 
 void EPGManager::MatchChannelsAsync(
@@ -2457,6 +2505,7 @@ EPGManager::MatchByAlias(const std::string &playlistName) const {
 }
 
 void EPGManager::MatchFavoritesAsync(bool force) {
+  m_cancelFavoritesMatching = false; // старт новой сессии
   // 1) Проверка/отмена предыдущего матчинга
   bool expected = false;
   if (!m_favoritesMatchInProgress.compare_exchange_strong(expected, true)) {
@@ -2494,6 +2543,15 @@ void EPGManager::MatchFavoritesAsync(bool force) {
     return;
   }
 
+  // Открываем сессию матчинга избранного
+  {
+    int prev = m_activeMatchings.fetch_add(1);
+    if (prev == 0) {
+      std::lock_guard<std::mutex> lock(m_matchAggMutex);
+      m_matchAgg = MatchAggregate{};
+    }
+  }
+
   // 3) Запуск асинхронной задачи
   m_favoritesMatchFuture = std::async(std::launch::async, [this, force]() {
     LOG_DEBUG("MatchFavoritesAsync: starting background task (force=%d)",
@@ -2503,6 +2561,7 @@ void EPGManager::MatchFavoritesAsync(bool force) {
     if (!app) {
       LOG_ERROR("MatchFavoritesAsync: Application is null");
       m_favoritesMatchInProgress = false;
+      UpdateMatchProgress(true, 0, 0, 0, true);
       return;
     }
 
@@ -2513,6 +2572,7 @@ void EPGManager::MatchFavoritesAsync(bool force) {
       m_lastFavoritesEpgHash = m_epgChannelsHash;
       SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
       m_favoritesMatchInProgress = false;
+      UpdateMatchProgress(true, 0, 0, 0, true);
       return;
     }
 
@@ -2547,10 +2607,23 @@ void EPGManager::MatchFavoritesAsync(bool force) {
 
     // Основной цикл по избранным каналам
     int matched = 0;
+    int processed = 0;
+    int totalFav = static_cast<int>(favChannels.size());
+    int step = std::max(1, totalFav / 5);
     std::string favoritesPlaylistId = FAVORITES_PLAYLIST_ID;
     for (const auto &favCh : favChannels) {
       if (m_cancelFavoritesMatching)
         break;
+
+      ++processed;
+      if (processed % 5 == 0 || processed % step == 0 ||
+          processed == totalFav) {
+        int matchedSnapshot = matched;
+        wxTheApp->CallAfter([this, processed, matchedSnapshot, totalFav]() {
+          UpdateMatchProgress(true, processed, matchedSnapshot, totalFav,
+                              false);
+        });
+      }
 
       std::string key = favCh.getTvgId();
       if (key.empty())
@@ -2615,6 +2688,8 @@ void EPGManager::MatchFavoritesAsync(bool force) {
     }
 
     m_favoritesMatchInProgress = false;
+
+    UpdateMatchProgress(true, processed, matched, totalFav, true);
 
     wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
     evt.SetInt(matched);

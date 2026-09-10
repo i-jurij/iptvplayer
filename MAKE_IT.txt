@@ -8,11 +8,6 @@
 
 добавит секрет на гитхаб
 починить сборку на гитхаб - зависимости и флаги сборки виксвиджетс (поправить скрипты)
-==========================================================================
-
-сделать рамку фокуса ри виде сеткой, потому что хауэр сбивает с толку - 
-непонятно почему программа для одного канала, а рамка над другим. 
-Сделать его такого цвета как хауэр, а хауэр более приглушенным.
 
 ===========================================================================
 добавить матчинг избранного в общий прогресс добавления/обновления источника и 
@@ -25,3 +20,766 @@
 а в конце (после окончания 
 самого долгого матчинга) показать общее количество совпадений, только отдельно для каналов,
 отдельно для избранного: 0 - EPG Matching Done, 1 - Channels 100/200, Favorites 10/20
+
+# Реализация
+
+## 1. `EPGManager.h`
+
+### 1.1. `EpgProgressInfo` — добавить два поля
+
+```cpp
+// Структура с информацией о прогрессе
+struct EpgProgressInfo {
+  EpgProgressStage stage = EpgProgressStage::None;
+  int percent = 0;       // 0-100, -1 если не известно
+  std::string stageText; // "Downloading", "Extracting" и т.д.
+  double downloadedBytes = 0.0;
+  double totalBytes = 0.0;
+  double speedBytesPerSec = 0.0;
+  int matched = 0;          // для Matching
+  int totalChannels = 0;    // для Matching
+  int favoritesMatched = 0; // для Matching (избранное)
+  int favoritesTotal = 0;   // для Matching (избранное)
+  std::string errorMessage; // для Error (если понадобится)
+};
+```
+
+### 1.2. Сигнатура `UpdateProgress`
+
+Было:
+```cpp
+  void UpdateProgress(EpgProgressStage stage, int percent = -1,
+                      const std::string &stageText = "", double downloaded = -1,
+                      double total = -1, double speed = -1, int matched = -1,
+                      int totalChannels = -1);
+```
+
+Станет:
+```cpp
+  void UpdateProgress(const EpgProgressInfo &info);
+```
+
+### 1.3. `CancelMatching()`
+
+Было:
+```cpp
+  void CancelMatching() { m_cancelMatching = true; }
+```
+
+Станет:
+```cpp
+  void CancelMatching() {
+    m_cancelMatching = true;
+    m_cancelFavoritesMatching = true;
+  }
+```
+
+### 1.4. Приватные поля и метод
+
+В `private:` рядом с `m_cancelMatching`:
+
+```cpp
+  // --- Трекинг параллельных матчингов (каналы + избранное) ---
+  std::atomic<int> m_activeMatchings{0};
+
+  struct MatchAggregate {
+    int processedCh = 0, totalCh = 0, matchedCh = 0;
+    int processedFav = 0, totalFav = 0, matchedFav = 0;
+  };
+  MatchAggregate m_matchAgg;
+  mutable std::mutex m_matchAggMutex;
+
+  void UpdateMatchProgress(bool isFavorites, int processed, int matched,
+                           int total, bool finished);
+```
+
+---
+
+## 2. `EPGManager.cpp`
+
+### 2.1. `UpdateProgress` — новое тело
+
+Было:
+```cpp
+void EPGManager::UpdateProgress(EpgProgressStage stage, int percent,
+                                const std::string &stageText, double downloaded,
+                                double total, double speed, int matched,
+                                int totalChannels) {
+  if (m_progressCallbacks.empty())
+    return;
+
+  EpgProgressInfo info;
+  info.stage = stage;
+  info.percent = percent;
+  info.stageText = stageText;
+  info.downloadedBytes = downloaded;
+  info.totalBytes = total;
+  info.speedBytesPerSec = speed;
+  info.matched = matched;
+  info.totalChannels = totalChannels;
+
+  for (auto &cb : m_progressCallbacks) {
+    if (cb)
+      cb(info);
+  }
+}
+```
+
+Станет:
+```cpp
+void EPGManager::UpdateProgress(const EpgProgressInfo &info) {
+  if (m_progressCallbacks.empty())
+    return;
+  for (auto &cb : m_progressCallbacks) {
+    if (cb)
+      cb(info);
+  }
+}
+```
+
+### 2.2. `UpdateMatchProgress` — новый метод
+
+Добавить рядом:
+
+```cpp
+void EPGManager::UpdateMatchProgress(bool isFavorites, int processed,
+                                     int matched, int total, bool finished) {
+  EpgProgressInfo info;
+  {
+    std::lock_guard<std::mutex> lock(m_matchAggMutex);
+    if (isFavorites) {
+      m_matchAgg.processedFav = processed;
+      m_matchAgg.totalFav     = total;
+      m_matchAgg.matchedFav   = matched;
+    } else {
+      m_matchAgg.processedCh  = processed;
+      m_matchAgg.totalCh      = total;
+      m_matchAgg.matchedCh    = matched;
+    }
+
+    int sumProcessed = m_matchAgg.processedCh + m_matchAgg.processedFav;
+    int sumTotal     = m_matchAgg.totalCh     + m_matchAgg.totalFav;
+
+    info.percent          = (sumTotal > 0) ? (sumProcessed * 100) / sumTotal : -1;
+    info.matched          = m_matchAgg.matchedCh;
+    info.totalChannels    = m_matchAgg.totalCh;
+    info.favoritesMatched = m_matchAgg.matchedFav;
+    info.favoritesTotal   = m_matchAgg.totalFav;
+  }
+
+  if (finished) {
+    int remaining = m_activeMatchings.fetch_sub(1) - 1;
+    info.stage = (remaining <= 0) ? EpgProgressStage::Done
+                                  : EpgProgressStage::Matching;
+  } else {
+    info.stage = EpgProgressStage::Matching;
+  }
+
+  info.stageText = (info.stage == EpgProgressStage::Done)
+                       ? std::string(_("Done").ToUTF8().data())
+                       : std::string(_("Matching").ToUTF8().data());
+
+  UpdateProgress(info);
+}
+```
+
+### 2.3. `MatchChannels` — открытие сессии
+
+В самом начале:
+
+```cpp
+void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
+                               const std::string &playlistId,
+                               MatchCallback callback) {
+  // NEW: старт сессии матчинга
+  {
+    int prev = m_activeMatchings.fetch_add(1);
+    if (prev == 0) {
+      std::lock_guard<std::mutex> lock(m_matchAggMutex);
+      m_matchAgg = MatchAggregate{};
+    }
+  }
+
+  // Проверка наличия источников EPG
+  if (m_sources.empty()) {
+```
+
+### 2.4. `MatchChannels` — ранние `return`
+
+**`m_sources.empty()`:**
+```cpp
+  if (m_sources.empty()) {
+    LOG_WARN("MatchChannels: no EPG sources, skipping");
+    if (callback) {
+      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, false); });
+    }
+    UpdateMatchProgress(false, 0, 0, 0, true);
+    return;
+  }
+```
+
+**`m_cancelMatching.exchange(false)`:**
+```cpp
+  if (m_cancelMatching.exchange(false)) {
+    LOG_DEBUG("MatchChannels cancelled");
+    UpdateMatchProgress(false, 0, 0, 0, true);
+    return;
+  }
+```
+
+**`m_normalizedCache.empty()`:**
+```cpp
+  if (m_normalizedCache.empty()) {
+    LOG_DEBUG("MatchChannels: normalized cache is empty, finishing early");
+    if (callback) {
+      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
+    }
+    UpdateMatchProgress(false, 0, 0, 0, true);
+    return;
+  }
+```
+
+**`total == 0`:**
+```cpp
+  int total = static_cast<int>(playlistChannels.size());
+  if (total == 0) {
+    LOG_DEBUG("MatchChannels: no channels to match");
+    if (callback) {
+      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
+    }
+    UpdateMatchProgress(false, 0, 0, 0, true);
+    return;
+  }
+```
+
+### 2.5. `MatchChannels` — старт
+
+Было:
+```cpp
+  // Начало матчинга
+  UpdateProgress(EpgProgressStage::Matching, -1,
+                 std::string(_("Matching").ToUTF8().data()), -1, -1, -1, 0,
+                 total);
+```
+
+Станет:
+```cpp
+  UpdateMatchProgress(false, 0, 0, total, false);
+```
+
+### 2.6. `MatchChannels` — тик
+
+Было:
+```cpp
+            int current = processed.fetch_add(1) + 1;
+            if (current % reportInterval == 0 || current == total) {
+              int percent = (total > 0) ? (current * 100) / total : 0;
+              wxTheApp->CallAfter(
+                  [this, totalMatched = totalMatched.load(), total, percent]() {
+                    UpdateProgress(EpgProgressStage::Matching, percent,
+                                   std::string(_("Matching").ToUTF8().data()),
+                                   -1, -1, -1, totalMatched, total);
+                  });
+              if (callback) {
+                wxTheApp->CallAfter([callback, current, total]() {
+                  callback(0, total, current, true);
+                });
+              }
+            }
+```
+
+Станет:
+```cpp
+            int current = processed.fetch_add(1) + 1;
+            if (current % reportInterval == 0 || current == total) {
+              int matchedSnapshot = totalMatched.load();
+              wxTheApp->CallAfter([this, current, matchedSnapshot, total]() {
+                UpdateMatchProgress(false, current, matchedSnapshot, total,
+                                    false);
+              });
+              if (callback) {
+                wxTheApp->CallAfter([callback, current, total]() {
+                  callback(0, total, current, true);
+                });
+              }
+            }
+```
+
+### 2.7. `MatchChannels` — финал
+
+Было:
+```cpp
+  // Завершение матчинга
+  UpdateProgress(EpgProgressStage::Done, 100,
+                 std::string(_("Done").ToUTF8().data()), -1, -1, -1,
+                 static_cast<int>(matchedCount), total);
+```
+
+Станет:
+```cpp
+  UpdateMatchProgress(false, total, static_cast<int>(matchedCount), total, true);
+```
+
+### 2.8. `MatchFavoritesAsync` — открытие сессии
+
+Перед `m_favoritesMatchFuture = std::async(...)`:
+
+```cpp
+  // Открываем сессию матчинга избранного
+  {
+    int prev = m_activeMatchings.fetch_add(1);
+    if (prev == 0) {
+      std::lock_guard<std::mutex> lock(m_matchAggMutex);
+      m_matchAgg = MatchAggregate{};
+    }
+  }
+
+  // 3) Запуск асинхронной задачи
+  m_favoritesMatchFuture = std::async(std::launch::async, [this, force]() {
+```
+
+### 2.9. `MatchFavoritesAsync` — нет `Application`
+
+```cpp
+    Application *app = static_cast<Application *>(wxTheApp);
+    if (!app) {
+      LOG_ERROR("MatchFavoritesAsync: Application is null");
+      m_favoritesMatchInProgress = false;
+      UpdateMatchProgress(true, 0, 0, 0, true);
+      return;
+    }
+```
+
+### 2.10. `MatchFavoritesAsync` — пустое избранное
+
+```cpp
+    auto favChannels = app->getFavoritesManager().list();
+    if (favChannels.empty()) {
+      LOG_DEBUG("MatchFavoritesAsync: no favorites, saving current hash");
+      std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
+      m_lastFavoritesEpgHash = m_epgChannelsHash;
+      SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
+      m_favoritesMatchInProgress = false;
+      UpdateMatchProgress(true, 0, 0, 0, true);
+      return;
+    }
+```
+
+### 2.11. `MatchFavoritesAsync` — тики в цикле
+
+Было:
+```cpp
+    // Основной цикл по избранным каналам
+    int matched = 0;
+    std::string favoritesPlaylistId = FAVORITES_PLAYLIST_ID;
+    for (const auto &favCh : favChannels) {
+      if (m_cancelFavoritesMatching)
+        break;
+
+      std::string key = favCh.getTvgId();
+```
+
+Станет:
+```cpp
+    // Основной цикл по избранным каналам
+    int matched = 0;
+    int processed = 0;
+    int totalFav = static_cast<int>(favChannels.size());
+    int step = std::max(1, totalFav / 5);
+    std::string favoritesPlaylistId = FAVORITES_PLAYLIST_ID;
+    for (const auto &favCh : favChannels) {
+      if (m_cancelFavoritesMatching)
+        break;
+
+      ++processed;
+      if (processed % 5 == 0 || processed % step == 0 ||
+          processed == totalFav) {
+        int matchedSnapshot = matched;
+        wxTheApp->CallAfter([this, processed, matchedSnapshot, totalFav]() {
+          UpdateMatchProgress(true, processed, matchedSnapshot, totalFav,
+                              false);
+        });
+      }
+
+      std::string key = favCh.getTvgId();
+```
+
+### 2.12. `MatchFavoritesAsync` — финал
+
+Было:
+```cpp
+    m_favoritesMatchInProgress = false;
+
+    wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
+    evt.SetInt(matched);
+    evt.SetExtraLong(static_cast<int>(favChannels.size()));
+    wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+```
+
+Станет:
+```cpp
+    m_favoritesMatchInProgress = false;
+
+    UpdateMatchProgress(true, processed, matched, totalFav, true);
+
+    wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
+    evt.SetInt(matched);
+    evt.SetExtraLong(static_cast<int>(favChannels.size()));
+    wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+```
+
+### 2.13. `LoadFromUrl` — старт загрузки
+
+Было:
+```cpp
+  UpdateProgress(EpgProgressStage::Downloading, -1,
+                 std::string(_("Downloading").ToUTF8().data()), 0,
+                 check.contentLength > 0 ? check.contentLength : 0, 0, 0, 0);
+```
+
+Станет:
+```cpp
+  {
+    EpgProgressInfo info;
+    info.stage            = EpgProgressStage::Downloading;
+    info.percent          = -1;
+    info.stageText        = std::string(_("Downloading").ToUTF8().data());
+    info.downloadedBytes  = 0;
+    info.totalBytes       = check.contentLength > 0 ? check.contentLength : 0;
+    info.speedBytesPerSec = 0;
+    info.matched          = 0;
+    info.totalChannels    = 0;
+    UpdateProgress(info);
+  }
+```
+
+### 2.14. `LoadFromUrl` — отмена
+
+Было:
+```cpp
+    UpdateProgress(EpgProgressStage::Cancelled, -1,
+                   std::string(_("Cancelled").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+    UpdateProgress({EpgProgressStage::Cancelled, -1,
+                    std::string(_("Cancelled").ToUTF8().data())});
+```
+
+### 2.15. `LoadFromUrl` — Extracting
+
+Было:
+```cpp
+  UpdateProgress(EpgProgressStage::Extracting, -1,
+                 std::string(_("Extracting").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+  UpdateProgress({EpgProgressStage::Extracting, -1,
+                  std::string(_("Extracting").ToUTF8().data())});
+```
+
+### 2.16. `LoadFromFile` — Extracting
+
+Было:
+```cpp
+  // Уведомление о начале
+  UpdateProgress(EpgProgressStage::Extracting, -1,
+                 std::string(_("Extracting").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+  // Уведомление о начале
+  UpdateProgress({EpgProgressStage::Extracting, -1,
+                  std::string(_("Extracting").ToUTF8().data())});
+```
+
+### 2.17. `LoadFromFile` — Error: Cannot open file
+
+Было:
+```cpp
+    UpdateProgress(EpgProgressStage::Error, 0,
+                   std::string(_("Error: Cannot open file").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+    UpdateProgress({EpgProgressStage::Error, 0,
+                    std::string(_("Error: Cannot open file").ToUTF8().data())});
+```
+
+### 2.18. `LoadFromFile` — Error: Decompression failed
+
+Было:
+```cpp
+    UpdateProgress(
+        EpgProgressStage::Error, 0,
+        std::string(_("Error: Decompression failed").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+    UpdateProgress({EpgProgressStage::Error, 0,
+                    std::string(_("Error: Decompression failed").ToUTF8().data())});
+```
+
+### 2.19. `ParseAndMerge` — старт
+
+Было:
+```cpp
+  // Начало парсинга
+  UpdateProgress(EpgProgressStage::Parsing, -1,
+                 std::string(_("Parsing").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+  // Начало парсинга
+  UpdateProgress({EpgProgressStage::Parsing, -1,
+                  std::string(_("Parsing").ToUTF8().data())});
+```
+
+### 2.20. `ParseAndMerge` — тик
+
+Было:
+```cpp
+      UpdateProgress(EpgProgressStage::Parsing, percent,
+                     std::string(_("Parsing").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+      UpdateProgress({EpgProgressStage::Parsing, percent,
+                      std::string(_("Parsing").ToUTF8().data())});
+```
+
+### 2.21. `ParseAndMerge` — финал парсинга
+
+Было:
+```cpp
+    UpdateProgress(
+        EpgProgressStage::Parsing, 100,
+        std::string(
+            _("Parsing complete, waiting for matching...").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+    UpdateProgress({EpgProgressStage::Parsing, 100,
+                    std::string(_("Parsing complete, waiting for matching...")
+                                    .ToUTF8().data())});
+```
+
+### 2.22. `UpdateAllSources` — пустой список
+
+Было:
+```cpp
+    // Уведомление UI о завершении (сбрасывает busy и гейдж)
+    UpdateProgress(EpgProgressStage::Done, 100,
+                   std::string(_("No EPG sources to update").ToUTF8().data()));
+```
+
+Станет:
+```cpp
+    // Уведомление UI о завершении (сбрасывает busy и гейдж)
+    UpdateProgress({EpgProgressStage::Done, 100,
+                    std::string(_("No EPG sources to update").ToUTF8().data())});
+```
+
+### 2.23. `UpdateAllSources` — финальный колбэк
+
+Было:
+```cpp
+        [this, completed, anySuccess, total](bool success,
+                                             const std::string &) {
+          if (success)
+            anySuccess->store(true);
+          int done = ++(*completed);
+          if (done == total) {
+            // Все обновления завершены
+            m_autoUpdateInProgress = false; // сброс флага
+            if (anySuccess->load() && !m_currentPlaylistId.empty() &&
+                m_playlistManager) {
+              Playlist *pl =
+                  m_playlistManager->findByUniqueId(m_currentPlaylistId);
+              if (pl && !pl->getChannels().empty()) {
+                MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId,
+                                   nullptr);
+                MatchFavoritesAsync(false);
+              }
+            }
+          }
+        });
+```
+
+Станет:
+```cpp
+        [this, completed, anySuccess, total](bool success,
+                                             const std::string &) {
+          if (success)
+            anySuccess->store(true);
+          int done = ++(*completed);
+          if (done == total) {
+            // Все обновления завершены
+            m_autoUpdateInProgress = false; // сброс флага
+            bool startedMatching = false;
+            if (anySuccess->load() && !m_currentPlaylistId.empty() &&
+                m_playlistManager) {
+              Playlist *pl =
+                  m_playlistManager->findByUniqueId(m_currentPlaylistId);
+              if (pl && !pl->getChannels().empty()) {
+                MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId,
+                                   nullptr);
+                MatchFavoritesAsync(false);
+                startedMatching = true;
+              }
+            }
+            if (!startedMatching) {
+              UpdateProgress({EpgProgressStage::Done, 100,
+                              std::string(_("Done").ToUTF8().data())});
+            }
+          }
+        });
+```
+
+---
+
+## 3. `EpgSourceManagerPanel.cpp`
+
+### 3.1. `RefreshSourceInternal` — ветка с `playlistId` пустым
+
+Было:
+```cpp
+            } else {
+              m_epgMgr->UpdateProgress(EpgProgressStage::Done, 100,
+                                       std::string(_("Done").ToUTF8().data()));
+            }
+```
+
+Станет:
+```cpp
+            } else {
+              m_epgMgr->UpdateProgress({EpgProgressStage::Done, 100,
+                                        std::string(_("Done").ToUTF8().data())});
+            }
+```
+
+### 3.2. `RefreshSourceInternal` — ветка `else` (`m_mainFrame == nullptr`)
+
+Было:
+```cpp
+          } else {
+            m_epgMgr->UpdateProgress(EpgProgressStage::Done, 100,
+                                     std::string(_("Done").ToUTF8().data()));
+          }
+```
+
+Станет:
+```cpp
+          } else {
+            m_epgMgr->UpdateProgress({EpgProgressStage::Done, 100,
+                                      std::string(_("Done").ToUTF8().data())});
+          }
+```
+
+---
+
+## 4. `MainFrame_Events.cpp`
+
+### 4.1. Ветка `Matching` в блоке `details`
+
+Было:
+```cpp
+    } else if (info.stage == EpgProgressStage::Matching) {
+      details += wxString::Format(" (%d/%d)", info.matched, info.totalChannels);
+    } else if (info.percent >= 0) {
+```
+
+Станет:
+```cpp
+    } else if (info.stage == EpgProgressStage::Matching) {
+      wxString parts;
+      if (info.totalChannels > 0) {
+        parts += wxString::Format("Channels %d/%d",
+                                  info.matched, info.totalChannels);
+      }
+      if (info.favoritesTotal > 0) {
+        if (!parts.IsEmpty()) parts += ", ";
+        parts += wxString::Format("Favorites %d/%d",
+                                  info.favoritesMatched, info.favoritesTotal);
+      }
+      if (!parts.IsEmpty()) details += " (" + parts + ")";
+    } else if (info.percent >= 0) {
+```
+
+### 4.2. Ветка `Done` в блоке завершения
+
+Было:
+```cpp
+    if (info.stage == EpgProgressStage::Done) {
+      SetStatusText("EPG success", 0);
+      wxString msg = wxString::Format(_("EPG updated: %d/%d channels matched"),
+                                      info.matched, info.totalChannels);
+      SetStatusText(msg, 1);
+    } else if (info.stage == EpgProgressStage::Cancelled) {
+```
+
+Станет:
+```cpp
+    if (info.stage == EpgProgressStage::Done) {
+      SetStatusText("EPG Matching Done", 0);
+      wxString parts;
+      if (info.totalChannels > 0) {
+        parts += wxString::Format("Channels %d/%d",
+                                  info.matched, info.totalChannels);
+      }
+      if (info.favoritesTotal > 0) {
+        if (!parts.IsEmpty()) parts += ", ";
+        parts += wxString::Format("Favorites %d/%d",
+                                  info.favoritesMatched, info.favoritesTotal);
+      }
+      SetStatusText(parts, 1);
+    } else if (info.stage == EpgProgressStage::Cancelled) {
+```
+
+---
+
+## 5. Что НЕ меняется
+
+- `EpgSourceManagerPanel.h` — без изменений.
+- `EpgSourceManagerPanel::OnProgressUpdate` — без изменений.
+- `EpgSourceManagerPanel::SetBusy` — без изменений.
+- `EpgSourceManagerPanel::EnableButtons` — без изменений.
+- `EVT_FAVORITES_MATCH_DONE` — не тронут.
+- `MatchCallback` — не тронут.
+- Все остальные стадии (`None`, `Downloading`, `Extracting`, `Parsing`, `Error`, `Cancelled`) — визуально не меняются.
+
+---
+
+## 6. Чек-лист после сборки
+
+1. `Match Now` с загруженным плейлистом → **один** `Done`, статус `EPG Matching Done` + `Channels X/Y, Favorites A/B`. Гейдж идёт по взвешенному проценту, индикатор активности не пропадает до конца.
+2. `Match Now` без плейлиста → **один** `Done`, `Favorites A/B` без `Channels`.
+3. `Add`/`Refresh Now` при загруженном плейлисте → `Downloading`→`Extracting`→`Parsing`→`Matching`(оба)→**один** `Done`.
+4. `Add`/`Refresh Now` без плейлиста → `Downloading`→…→`Parsing`→**один** `Done`.
+5. `Delete Cache + Update All` без плейлиста → busy сбрасывается (шаг 2.23).
+6. `Cancel` во время матчинга → busy сбрасывается, отменяются **оба** (шаг 1.3).
+7. Повторный `Match Now` во время работы → `m_activeMatchings` не течёт, `Done` приходит один раз.
+8. Плейлист без избранного / избранное без плейлиста → `Done` один раз.
+9. `Downloading`/`Parsing`/`Extracting` визуально не изменились.
+
+---
+
+## Резюме
+
+| Файл | Что правится | Объём |
+|---|---|---|
+| `EPGManager.h` | `EpgProgressInfo` +2 поля; `UpdateProgress` сигнатура; `CancelMatching` inline; приватные `m_activeMatchings`, `m_matchAgg`, `m_matchAggMutex`, `UpdateMatchProgress` | ~15 строк |
+| `EPGManager.cpp` | `UpdateProgress` тело; `UpdateMatchProgress`; `MatchChannels` (старт, 4 ранних return, старт-тик, финал); `MatchFavoritesAsync` (старт, 2 ранних return, тики, финал); `UpdateAllSources` (else-ветка); 10 call sites `UpdateProgress` | ~120 строк |
+| `EpgSourceManagerPanel.cpp` | 2 call sites `UpdateProgress` | ~4 строки |
+| `MainFrame_Events.cpp` | `OnEpgProgress` — `Matching` и `Done` | ~25 строк |
+
+Все правки точечные, поведение существующих сценариев не меняется, кроме целевого: busy и гейдж теперь не пропадают, пока хоть один из параллельных матчеров ещё работает.

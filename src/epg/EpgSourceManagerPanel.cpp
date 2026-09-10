@@ -801,12 +801,12 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
               m_epgMgr->ReMatchCurrentPlaylist();
               m_epgMgr->MatchFavoritesAsync();
             } else {
-              m_epgMgr->UpdateProgress(EpgProgressStage::Done, 100,
-                                       std::string(_("Done").ToUTF8().data()));
+              m_epgMgr->UpdateProgress({EpgProgressStage::Done, 100,
+                                       std::string(_("Done").ToUTF8().data())});
             }
           } else {
-            m_epgMgr->UpdateProgress(EpgProgressStage::Done, 100,
-                                     std::string(_("Done").ToUTF8().data()));
+            m_epgMgr->UpdateProgress({EpgProgressStage::Done, 100,
+                                     std::string(_("Done").ToUTF8().data())});
           }
         } else {
           wxMessageBox(_("Failed to update source: ") + wxString::FromUTF8(error),
