@@ -145,7 +145,7 @@ void CardsBase::SetChannelsBase(const std::vector<Channel> &channels) {
 
   int winId = this->GetId();
 
-  CallAfterSafeById(winId, [winId, this](wxWindow *w) {
+  CallAfterSafeById(winId, [winId](wxWindow *w) {
     auto *self = dynamic_cast<CardsBase *>(w);
     if (!self)
       return;
@@ -186,7 +186,6 @@ void CardsBase::SelectCard(int index) {
     return;
   int oldFocus = m_focusIndex;
   m_focusIndex = index;
-  m_hoverIndex = index;
   int row = index / m_cols;
   EnsureRowVisible(row);
   if (oldFocus >= 0 && oldFocus != index)

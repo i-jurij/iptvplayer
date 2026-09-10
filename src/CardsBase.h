@@ -166,6 +166,8 @@ protected:
   void DrawCardBase(wxDC &dc, size_t index, const wxRect &rect, bool hovered);
 
   // общая логика
+  void DrawCardFrame(wxDC &dc, int index, const wxColour &color,
+                     int thicknessDIP) const;
   void UpdateLayout();
   int HitTestIndex(const wxPoint &pos, bool &fav, wxRect *outRect) const;
 

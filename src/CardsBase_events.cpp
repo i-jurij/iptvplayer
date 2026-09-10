@@ -94,6 +94,15 @@ void CardsBase::OnMouseDown(wxMouseEvent &evt) {
   int idx = HitTestIndex(evt.GetPosition(), fav, &rect);
   if (idx < 0)
     return;
+
+  if (!fav && idx != m_focusIndex) {
+    int oldFocus = m_focusIndex;
+    m_focusIndex = idx;
+    if (oldFocus >= 0)
+      InvalidateCardClientRectByIndex(oldFocus);
+    InvalidateCardClientRectByIndex(idx);
+  }
+
   OnCardClick((size_t)idx, fav, rect);
   evt.Skip();
 }
@@ -299,23 +308,14 @@ void CardsBase::UpdateHoverAtPoint(const wxPoint &clientPos) {
     return;
 
   int oldHover = m_hoverIndex;
-  int oldFocus = m_focusIndex;
 
   m_hoverIndex = newHover;
   m_hoverFav = fav;
-
-  if (m_hoverIndex >= 0)
-    m_focusIndex = m_hoverIndex;
 
   if (oldHover >= 0)
     InvalidateCardClientRectByIndex(oldHover);
   if (m_hoverIndex >= 0)
     InvalidateCardClientRectByIndex(m_hoverIndex);
-
-  if (oldFocus >= 0 && oldFocus != m_hoverIndex)
-    InvalidateCardClientRectByIndex(oldFocus);
-  if (m_focusIndex >= 0)
-    InvalidateCardClientRectByIndex(m_focusIndex);
 }
 
 void CardsBase::OnKeyDown(wxKeyEvent &evt) {
@@ -329,17 +329,6 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
   if (m_focusIndex < 0)
     m_focusIndex = 0;
 
-  auto syncHoverToFocus = [&]() {
-    int oldHover = m_hoverIndex;
-    m_hoverIndex = m_focusIndex;
-    m_hoverFav = false;
-
-    if (oldHover >= 0 && oldHover != m_focusIndex)
-      InvalidateCardClientRectByIndex(oldHover);
-    if (m_hoverIndex >= 0)
-      InvalidateCardClientRectByIndex(m_hoverIndex);
-  };
-
   auto moveFocus = [&](int newIndex) {
     if (newIndex < 0 || newIndex >= (int)m_channels.size())
       return;
@@ -350,8 +339,6 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
     if (old >= 0 && old != newIndex)
       InvalidateCardClientRectByIndex(old, false);
     InvalidateCardClientRectByIndex(newIndex, false);
-
-    syncHoverToFocus();
   };
 
   auto ensureVisible = [&](int index) {
@@ -548,8 +535,6 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
     OnCardClick(static_cast<size_t>(idx), true, rect);
 
     m_focusIndex = idx;
-    m_hoverIndex = idx;
-    m_hoverFav = false;
 
     if (oldFocus >= 0 && oldFocus != m_focusIndex)
       InvalidateCardClientRectByIndex(oldFocus, false);
@@ -581,8 +566,6 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
         return;
 
       m_focusIndex = idx;
-      m_hoverIndex = idx;
-      m_hoverFav = false;
 
       if (oldFocus >= 0 && oldFocus != m_focusIndex)
         InvalidateCardClientRectByIndex(oldFocus, false);

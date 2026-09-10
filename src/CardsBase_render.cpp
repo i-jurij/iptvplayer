@@ -84,6 +84,29 @@ void CardsBase::UpdateLayout() {
   }
 }
 
+void CardsBase::DrawCardFrame(wxDC &dc, int index, const wxColour &color,
+                              int thicknessDIP) const {
+  if (index < 0 || index >= (int)m_channels.size() || m_cols <= 0)
+    return;
+
+  const int row = index / m_cols;
+  const int col = index % m_cols;
+  const int x = m_gridOffsetX + col * m_colW;
+  const int y = row * m_rowH;
+
+  const int thickness = FromDIP(thicknessDIP);
+
+  wxPen pen(color, thickness);
+  pen.SetCap(wxCAP_BUTT);
+  pen.SetJoin(wxJOIN_MITER);
+  dc.SetPen(pen);
+  dc.SetBrush(*wxTRANSPARENT_BRUSH);
+
+  const int half = thickness / 2;
+  dc.DrawRectangle(x + half, y + half, m_cardW - thickness,
+                   m_cardH - thickness);
+}
+
 wxBitmap CardsBase::GetScaledStar(const wxBitmap &star, int size) {
   if (!star.IsOk())
     return wxBitmap();
@@ -271,25 +294,12 @@ void CardsBase::OnPaint(wxPaintEvent &) {
     }
   }
 
-  if (m_focusIndex >= 0 && m_focusIndex < (int)m_channels.size()) {
-    int row = m_focusIndex / m_cols;
-    int col = m_focusIndex % m_cols;
+  if (m_hoverIndex >= 0) {
+    DrawCardFrame(dc, m_hoverIndex, wxColour(140, 140, 140), 2);
+  }
 
-    int x = m_gridOffsetX + col * m_colW;
-    int y = row * m_rowH;
-
-    wxColour borderColor(140, 140, 140);
-    int thickness = FromDIP(3);
-
-    wxPen pen(borderColor, thickness);
-    pen.SetCap(wxCAP_BUTT);
-    pen.SetJoin(wxJOIN_MITER);
-    dc.SetPen(pen);
-    dc.SetBrush(*wxTRANSPARENT_BRUSH);
-
-    int half = thickness / 2;
-    wxRect r(x + half, y + half, m_cardW - thickness, m_cardH - thickness);
-    dc.DrawRectangle(r.x, r.y, r.width, r.height);
+  if (m_focusIndex >= 0) {
+    DrawCardFrame(dc, m_focusIndex, wxColour(140, 140, 140), 3);
   }
 
   static wxLongLong lastWarm = 0;
