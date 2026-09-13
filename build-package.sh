@@ -131,6 +131,31 @@ detect_arch() {
     echo "[i] Архитектура: $machine → deb=$DEB_ARCH, rpm=$RPM_ARCH, appimage=$APPIMAGE_ARCH"
 }
 
+# === Определение дистрибутива ===
+# В CI DISTRO выставляет workflow из matrix.distro (например, ubuntu-26.04).
+# Локально пытаемся определить по /etc/os-release.
+detect_distro() {
+    if [ -n "${DISTRO:-}" ]; then
+        echo "[i] DISTRO задан извне: $DISTRO"
+        return 0
+    fi
+
+    if [ -r /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        local id="${ID:-unknown}"
+        local ver="${VERSION_ID:-}"
+        if [ -n "$ver" ]; then
+            DISTRO="${id}-${ver}"
+        else
+            DISTRO="$id"
+        fi
+    else
+        DISTRO="unknown"
+    fi
+    echo "[i] DISTRO определён локально: $DISTRO"
+}
+
 # ---- Чтение версий из install/ ----
 read_versions_from_install() {
     local INSTALL_DIR="$SCRIPT_DIR/install"
@@ -364,9 +389,10 @@ EOF
 }
 
 # === Сборка .deb ===
+# === Сборка .deb ===
 build_deb() {
-    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION_FILE}_${DEB_ARCH}.deb"
-    echo "[+] Создание .deb (архитектура: $DEB_ARCH)..."
+    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION_FILE}_${DISTRO}_${DEB_ARCH}.deb"
+    echo "[+] Создание .deb (архитектура: $DEB_ARCH, дистрибутив: $DISTRO)..."
     mkdir -p "$STAGING_DIR/DEBIAN"
 
     # Определяем зависимости через dpkg-shlibdeps
@@ -425,12 +451,13 @@ EOF
 }
 
 # === Сборка .rpm ===
+# === Сборка .rpm ===
 build_rpm() {
     local release="1"
-    local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION_FILE}-${release}.${RPM_ARCH}.rpm"
+    local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION_FILE}-${release}.${DISTRO}.${RPM_ARCH}.rpm"
     local SPEC_DIR="$SCRIPT_DIR/pkg-rpm"
 
-    echo "[+] Создание .rpm (архитектура: $RPM_ARCH)..."
+    echo "[+] Создание .rpm (архитектура: $RPM_ARCH, дистрибутив: $DISTRO)..."
 
     mkdir -p "$SPEC_DIR/SOURCES"
     cd "$STAGING_DIR" && tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
@@ -771,6 +798,7 @@ EOF
 }
 
 # === Главная функция ===
+# === Главная функция ===
 main() {
     local BUILD_DEB=false
     local BUILD_RPM=false
@@ -811,14 +839,13 @@ main() {
     # ---- Подготовка каталогов ----
     check_deps "$BUILD_DEB" "$BUILD_RPM" "$BUILD_APPIMAGE"
     detect_arch
+    detect_distro
     setup_dirs
 
     # ---- Сборка бинарника (если требуется) ----
     build_binary
 
     # ---- Чтение версий из install/ ----
-    # Получаем три значения: VERSION_FULL, VERSION_FILE, VERSION
-    # (каждый read читает одну строку)
     { read -r VERSION_DISPLAY; read -r VERSION_FILE; read -r VERSION; } \
         < <(read_versions_from_install)
 
@@ -831,7 +858,7 @@ main() {
         exit 1
     fi
 
-    echo "=== Сборка пакетов для $PACKAGE_NAME:$VERSION (файл: $VERSION_FILE, arch: $DEB_ARCH/$RPM_ARCH/$APPIMAGE_ARCH) ==="
+    echo "=== Сборка пакетов для $PACKAGE_NAME:$VERSION (файл: $VERSION_FILE, arch: $DEB_ARCH/$RPM_ARCH/$APPIMAGE_ARCH, distro: $DISTRO) ==="
     echo ""
 
     # ---- Подготовка staging и сборка пакетов ----

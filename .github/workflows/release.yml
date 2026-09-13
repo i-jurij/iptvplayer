@@ -231,9 +231,9 @@ jobs:
             container: rockylinux/rockylinux:10
             package_type: rpm
 
-          # --- AppImage (Ubuntu 24.04 — старее glibc, шире совместимость) ---
-          - distro: ubuntu-22.04-appimage
-            container: ubuntu:22.04
+          # --- AppImage (тот же glibc, что в build-binary) ---
+          - distro: ubuntu-24.04-appimage
+            container: ubuntu:24.04
             package_type: appimage
 
     container:
@@ -248,6 +248,7 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       TZ: UTC
+      DISTRO: ${{ matrix.distro }}
 
     steps:
       - name: Checkout repository
@@ -279,6 +280,21 @@ jobs:
             xz-utils
           if [[ "${{ matrix.package_type }}" == "deb" ]]; then
             apt-get install -y --no-install-recommends debsigs
+          fi
+          if [[ "${{ matrix.package_type }}" == "appimage" ]]; then
+            # Runtime-зависимости, которые linuxdeploy должен найти
+            # и забандлить. libgtk-3-0 и libmpv2 тянут за собой весь
+            # свой стек (jpeg/png/tiff/webp/freetype/fontconfig/pango/
+            # cairo/gdk-pixbuf/x11/xcb/wayland + ffmpeg-стек).
+            # Без них linuxdeploy падает на "Could not find dependency".
+            apt-get install -y --no-install-recommends \
+              libgtk-3-0 \
+              libmpv2 \
+              libgl1 \
+              libegl1 \
+              libcurl4 \
+              libexpat1 \
+              zlib1g
           fi
 
       - name: Install system dependencies (RPM)
@@ -425,25 +441,26 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: packages-*
-          path: dist
+          path: .
           merge-multiple: true
 
       - name: Check artifacts present
         id: check_artifacts
         run: |
           set -euo pipefail
+          echo "=== dist/ после download-artifact ==="
+          ls -la dist/ || echo "dist/ отсутствует"
+          echo "====================================="
+
           shopt -s nullglob
           packages=(dist/*.deb dist/*.rpm dist/*.AppImage)
+          echo "Найдено пакетов: ${#packages[@]}"
+          for p in "${packages[@]}"; do echo "  $p"; done
+
           if (( ${#packages[@]} > 0 )); then
-            echo "::notice::Найдены пакеты для публикации:"
-            printf '  %s\n' "${packages[@]}"
             echo "have_artifacts=true" >> $GITHUB_OUTPUT
           else
-            echo "::warning::Пакетов нет (все матрицы упали?) — релиз не создаём."
-            if [ -d dist ]; then
-              echo "Что лежит в dist/:"
-              ls -la dist/ || true
-            fi
+            echo "::warning::Пакетов нет — релиз не создаём."
             echo "have_artifacts=false" >> $GITHUB_OUTPUT
           fi
 
