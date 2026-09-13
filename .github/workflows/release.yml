@@ -111,7 +111,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: third_party
-          key: ${{ runner.os }}-third_party-${{ hashFiles('setup-deps.sh') }}
+          # runner.arch различает X64 / ARM64 / ARM — без него
+          # кэши x86_64 и ARM будут перетирать друг друга.
+          key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
 
       # ---- Установка системных пакетов и third_party ----
       - name: Install all dependencies
@@ -139,15 +141,18 @@ jobs:
         if: steps.check_version_changed.outputs.version_changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CURRENT_KEY: ${{ runner.os }}-third_party-${{ hashFiles('setup-deps.sh') }}
+          CURRENT_KEY: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
+          KEY_PREFIX: ${{ runner.os }}-${{ runner.arch }}-third_party-
         run: |
           set -euo pipefail
           if ! command -v gh >/dev/null 2>&1; then
             echo "::warning::gh CLI не найден — пропускаем очистку старых кэшей."
             exit 0
           fi
+          # gh cache list: $1=ID, $2=KEY, $3=SIZE, $4=CREATED, $5=LAST ACCESSED
           OLD_KEYS=$(gh cache list --repo "$REPO" --limit 100 \
-            | awk -v cur="$CURRENT_KEY" '$1 != cur && $1 ~ /^'"${{ runner.os }}"'-third_party-/ {print $1}')
+            | awk -v cur="$CURRENT_KEY" -v prefix="$KEY_PREFIX" \
+                  '$2 != cur && index($2, prefix) == 1 {print $2}')
           if [[ -z "$OLD_KEYS" ]]; then
             echo "Нет старых кэшей third_party для удаления."
             exit 0
@@ -155,9 +160,10 @@ jobs:
           echo "Удаляем старые кэши:"
           echo "$OLD_KEYS"
           set +e
-          for key in $OLD_KEYS; do
+          while IFS= read -r key; do
+            [ -z "$key" ] && continue
             gh cache delete "$key" --repo "$REPO" || true
-          done
+          done <<< "$OLD_KEYS"
           echo "Готово."
 
       # ---- Импорт GPG-ключа ДО сборки ----
@@ -165,7 +171,6 @@ jobs:
         if: steps.check_version_changed.outputs.version_changed == 'true'
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
           if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
@@ -178,19 +183,28 @@ jobs:
 
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
 
+          # ВАЖНО: ключ ДОЛЖЕН быть без пароля — passphrase не поддерживается.
+          # Если понадобится — вернуть GPG_PASSPHRASE и добавить
+          # --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" на импорт,
+          # а также подставить passphrase в wrapper ниже вместо ''.
           echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
-          echo "pinentry-mode loopback"   >> "$GNUPGHOME/gpg.conf"
-          echo "batch"                    >> "$GNUPGHOME/gpg.conf"
-          echo "no-tty"                   >> "$GNUPGHOME/gpg.conf"
+          echo "pinentry-mode loopback" >> "$GNUPGHOME/gpg.conf"
 
-          if [ -n "${GPG_PASSPHRASE:-}" ]; then
-            printf '%s' "$GPG_PASSPHRASE" > "$GNUPGHOME/.gpg-pass"
-            chmod 600 "$GNUPGHOME/.gpg-pass"
-            echo "GPG_PASSPHRASE_FILE=$GNUPGHOME/.gpg-pass" >> "$GITHUB_ENV"
-            echo "passphrase-file $GNUPGHOME/.gpg-pass" >> "$GNUPGHOME/gpg.conf"
-          fi
+          # Пустой passphrase-файл: ключ без пароля
+          : > "$GNUPGHOME/.passphrase"
+          chmod 600 "$GNUPGHOME/.passphrase"
+          echo "passphrase-file $GNUPGHOME/.passphrase" >> "$GNUPGHOME/gpg.conf"
 
-          gpg-connect-agent reloadagent /bye || true
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg-connect-agent /bye 2>/dev/null || true
+
+          REAL_GPG="$(command -v gpg)"
+          WRAPPER_DIR="$(mktemp -d)"
+          cat > "$WRAPPER_DIR/gpg" <<WRAPPER
+          #!/bin/bash
+          exec "$REAL_GPG" --batch --pinentry-mode loopback --passphrase '' "\$@"
+          WRAPPER
+          chmod +x "$WRAPPER_DIR/gpg"
 
           GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
           if [ -z "$GPG_KEY_ID" ]; then
@@ -198,9 +212,11 @@ jobs:
             exit 1
           fi
 
-          echo "GNUPGHOME=$GNUPGHOME"   >> $GITHUB_ENV
-          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
-          echo "::notice::GPG key imported, ID: $GPG_KEY_ID (GNUPGHOME=$GNUPGHOME)"
+          echo "GNUPGHOME=$GNUPGHOME"             >> $GITHUB_ENV
+          echo "GPG_KEY_ID=$GPG_KEY_ID"           >> $GITHUB_ENV
+          echo "GPG_WRAPPER_DIR=$WRAPPER_DIR"     >> $GITHUB_ENV
+          echo "PATH=$WRAPPER_DIR:$PATH"          >> $GITHUB_ENV
+          echo "::notice::GPG key imported, ID: $GPG_KEY_ID (GNUPGHOME=$GNUPGHOME, wrapper=$WRAPPER_DIR)"
 
       # ---- Сборка пакетов ----
       - name: Build packages
