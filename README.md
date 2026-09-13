@@ -18,7 +18,7 @@
 
 <a href="screenshots/video.png"><img src="screenshots/video.png" width="720" alt="Video player"></a>
 
-### EPG Program
+### EPG Program Settings
 
 <a href="screenshots/program.png"><img src="screenshots/program.png" width="720" alt="EPG Program"></a>
 ---

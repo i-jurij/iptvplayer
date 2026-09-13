@@ -312,15 +312,25 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
     )
 endif()
 
-# ---- Установка appdata.xml в install/ (для DEB/RPM/AppImage) ----
-set(APPDATA_FILE ${CMAKE_SOURCE_DIR}/resources/iptvplayer.appdata.xml)
-if(EXISTS ${APPDATA_FILE})
-    # Гарантированно создаём каталог и копируем файл в install/share/metainfo
+# ---- Установка AppStream-метаданных в install/ (для DEB/RPM/AppImage) ----
+# Имя файла хранится в корневом файле METAINFO_NAME — единый источник
+# для CMake и build-package.sh.
+if(EXISTS "${CMAKE_SOURCE_DIR}/METAINFO_NAME")
+    file(STRINGS "${CMAKE_SOURCE_DIR}/METAINFO_NAME" METAINFO_NAME LIMIT_COUNT 1)
+    string(STRIP "${METAINFO_NAME}" METAINFO_NAME)
+else()
+    message(FATAL_ERROR "Файл METAINFO_NAME не найден в ${CMAKE_SOURCE_DIR}")
+endif()
+
+set(METAINFO_FILE "${CMAKE_SOURCE_DIR}/resources/${METAINFO_NAME}")
+if(EXISTS "${METAINFO_FILE}")
     install(CODE "
-        message(STATUS \"Installing appdata.xml to ${CMAKE_INSTALL_PREFIX}/share/metainfo\")
+        message(STATUS \"Installing ${METAINFO_NAME} to ${CMAKE_INSTALL_PREFIX}/share/metainfo\")
         file(MAKE_DIRECTORY \"${CMAKE_INSTALL_PREFIX}/share/metainfo\")
-        file(COPY \"${APPDATA_FILE}\" DESTINATION \"${CMAKE_INSTALL_PREFIX}/share/metainfo\")
+        file(COPY \"${METAINFO_FILE}\" DESTINATION \"${CMAKE_INSTALL_PREFIX}/share/metainfo\")
     ")
+else()
+    message(WARNING "AppStream-метаданные не найдены: ${METAINFO_FILE}")
 endif()
 
 # ------------------------
@@ -353,5 +363,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
         target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sections)
         target_link_options(${PROJECT_NAME} PRIVATE -Wl,--gc-sections)
+
+        # LTO — межмодульная оптимизация, выкидывает мёртвый код на этапе линковки
+        include(CheckIPOSupported)
+        check_ipo_supported(RESULT IPO_OK OUTPUT IPO_MSG)
+        if(IPO_OK)
+            set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+            message(STATUS "LTO включён для ${PROJECT_NAME}")
+        else()
+            message(WARNING "LTO не поддерживается: ${IPO_MSG}")
+        endif()
     endif()
 endif()

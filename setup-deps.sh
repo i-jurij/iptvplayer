@@ -10,19 +10,22 @@
 #   - Поддерживает интерактивный и неинтерактивный (CI) режимы.
 #
 # Использование:
-#   ./setup-deps.sh [--yes] [--skip-system]
+#   ./setup-deps.sh [--yes] [--skip-system] [--rebuild-deps]
 #
 # Опции:
 #   --yes            Автоматически соглашаться на все запросы (неинтерактивный).
 #   --skip-system    Не устанавливать системные пакеты (только сборка third_party).
+#   --rebuild-deps   Удалить third_party/wx и third_party/wxsqlite3 перед сборкой
+#                    (принудительная пересборка без смены версии).
 #
 # Переменные окружения:
 #   SETUP_DEPS_SKIP_SYSTEM=1   эквивалентно --skip-system
 #
 # Примеры:
-#   ./setup-deps.sh                     # интерактивный режим
-#   ./setup-deps.sh --yes               # неинтерактивный (для CI)
-#   ./setup-deps.sh --skip-system       # только сборка third_party
+#   ./setup-deps.sh                              # интерактивный режим
+#   ./setup-deps.sh --yes                        # неинтерактивный (для CI)
+#   ./setup-deps.sh --skip-system                # только сборка third_party
+#   ./setup-deps.sh --yes --rebuild-deps         # принудительная пересборка third_party
 # =============================================================================
 
 set -euo pipefail
@@ -51,11 +54,13 @@ log "Корень проекта: $PROJECT_ROOT"
 # ---- Обработка аргументов ----
 NON_INTERACTIVE=false
 SKIP_SYSTEM=false
+FORCE_DEPS_REBUILD=false
 
 for arg in "$@"; do
     case "$arg" in
         --yes|-y) NON_INTERACTIVE=true ;;
         --skip-system) SKIP_SYSTEM=true ;;
+        --rebuild-deps) FORCE_DEPS_REBUILD=true ;;
         *) error "Неизвестный аргумент: $arg" ;;
     esac
 done
@@ -291,6 +296,11 @@ fi
 # =============================================================================
 
 section "СБОРКА WXWIDGETS И WXSQLITE3"
+
+if [[ "$FORCE_DEPS_REBUILD" == true ]]; then
+    log "--rebuild-deps: удаляем third_party/wx и third_party/wxsqlite3 перед сборкой."
+    rm -rf "$THIRD_PARTY_DIR/wx" "$THIRD_PARTY_DIR/wxsqlite3"
+fi
 
 # Проверяем наличие критических инструментов после установки пакетов
 command -v cmake >/dev/null || error "cmake не установлен (требуется >= 3.16)"

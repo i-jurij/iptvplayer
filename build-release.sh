@@ -15,19 +15,24 @@
 #   ./build-release.sh [опции]
 #
 # Опции:
-#   --clean         - удалить старые папки сборки и установки перед сборкой
-#   --type TYPE     - тип сборки: release (по умолчанию) или debug
-#   --prefix PATH   - каталог установки (по умолчанию ./install)
-#   --log           - сохранить лог сборки в файл build_YYYYMMDD_HHMMSS.log
-#   -h, --help      - показать справку
+#   --clean         удалить старые папки сборки и установки перед сборкой
+#   --type TYPE     тип сборки: release (по умолчанию) или debug
+#   --prefix PATH   каталог установки (по умолчанию ./install)
+#   --log           сохранить лог сборки в файл build_YYYYMMDD_HHMMSS.log
+#   --yes, -y       неинтерактивный режим (авто-ответы, для CI)
+#   -h, --help      показать справку
 #
 # Примеры:
 #   ./build-release.sh                             # релизная сборка в ./install
 #   ./build-release.sh --type debug                # отладочная сборка
 #   ./build-release.sh --clean --prefix ./my_build # очистка и установка в ./my_build
 #   ./build-release.sh --log                       # сборка с логированием
+#   ./build-release.sh --yes --prefix ./install    # неинтерактивная сборка (CI)
 #
 # Примечание:
+#   Версия определяется в CMakeLists.txt: чистая версия читается из корневого
+#   файла VERSION, git-хеш добавляется автоматически. Результат попадает в
+#   version.h (для приложения) и в install/VERSION{,_FULL,_FILE} (для упаковки).
 #   После успешной сборки готовый к запуску набор файлов находится в папке,
 #   указанной в --prefix (по умолчанию ./install). Запускайте из неё:
 #     cd install/bin && ./iptvplayer
@@ -44,6 +49,13 @@ JOBS=$(nproc)                 # количество потоков
 LOG_FILE=""                   # если задан, вывод дублируется в файл
 # -----------------------------------------
 
+# -------- Неинтерактивный режим --------
+# Авто-детект: CI env vars или отсутствие TTY.
+NON_INTERACTIVE=false
+if [[ -n "${CI:-}" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ ! -t 0 ]]; then
+    NON_INTERACTIVE=true
+fi
+
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -54,27 +66,47 @@ log() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
 error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
-# ---- Функция получения версий из VERSION и Git ----
-get_versions() {
-    local VERSION_FILE_PATH="$SCRIPT_DIR/VERSION"
-    if [ -f "$VERSION_FILE_PATH" ]; then
-        VERSION=$(head -n1 "$VERSION_FILE_PATH" | tr -d '\n\r')
-    else
-        VERSION="0.0.0"
+# Спросить пользователя. Возвращает 0 для "да", 1 для "нет".
+# $1 — вопрос
+# $2 — default в интерактивном режиме ("y"/"n")
+# $3 — default в неинтерактивном режиме (по умолчанию совпадает с $2)
+ask() {
+    local prompt="$1"
+    local di="${2:-n}"
+    local dni="${3:-$di}"
+    if [[ "$NON_INTERACTIVE" == true ]]; then
+        log "Неинтерактивный режим: '${prompt}' → ${dni} (авто)"
+        [[ "$dni" == "y" ]]
+        return
     fi
+    local reply=""
+    read -p "$prompt " -n 1 -r reply || true
+    echo
+    [[ -z "$reply" ]] && reply="$di"
+    [[ "$reply" =~ ^[Yy]$ ]]
+}
 
-    VERSION_DISPLAY="$VERSION"
-    VERSION_FILE="$VERSION"
+show_help() {
+    cat << EOF
+Использование: $0 [ОПЦИИ]
 
-    if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-        SHORT=$(git rev-parse --short HEAD 2>/dev/null || true)
-        if [ -n "$SHORT" ]; then
-            VERSION_DISPLAY="${VERSION}+g${SHORT}"
-            VERSION_FILE="${VERSION}-${SHORT}"
-        fi
-    fi
+Сборка и установка iptvplayer.
 
-    printf '%s\n%s\n' "$VERSION_DISPLAY" "$VERSION_FILE"
+Опции:
+  --clean         удалить старые папки сборки и установки перед сборкой
+  --type TYPE     тип сборки: release (по умолчанию) или debug
+  --prefix PATH   каталог установки (по умолчанию ./install)
+  --log           сохранить лог сборки в файл build_YYYYMMDD_HHMMSS.log
+  --yes, -y       неинтерактивный режим (авто-ответы, для CI)
+  -h, --help      показать эту справку
+
+Примеры:
+  $0
+  $0 --type debug
+  $0 --clean --prefix ./my_build
+  $0 --log
+  $0 --yes --prefix ./install
+EOF
 }
 
 # Определяем корень проекта (там, где лежит этот скрипт)
@@ -104,16 +136,16 @@ while [[ $# -gt 0 ]]; do
             LOG_FILE="build_$(date +%Y%m%d_%H%M%S).log"
             shift
             ;;
+        --yes|-y)
+            NON_INTERACTIVE=true
+            shift
+            ;;
         clean)   # совместимость со старым синтаксисом
             DO_CLEAN=true
             shift
             ;;
         -h|--help)
-            echo "Использование: $0 [--clean] [--type release|debug] [--prefix PATH] [--log]"
-            echo "  --clean       удалить старые сборки перед сборкой"
-            echo "  --type        тип сборки (release или debug), по умолчанию release"
-            echo "  --prefix      каталог установки (по умолчанию ./install)"
-            echo "  --log         сохранить лог сборки в файл"
+            show_help
             exit 0
             ;;
         *)
@@ -158,10 +190,8 @@ check_deps() {
         warn "Отсутствуют зависимости:"
         printf '  - %s\n' "${missing[@]}"
         echo "Запустите $SCRIPT_DIR/setup-deps.sh для установки зависимостей."
-        read -p "Продолжить сборку всё равно? [y/N]: " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            error "Сборка прервана из-за отсутствующих зависимостей."
+        if ! ask "Продолжить сборку всё равно? [y/N]:" n; then
+            error "Сборка прервана из-за отсутствующих зависимостей. Запустите $SCRIPT_DIR/setup-deps.sh."
         fi
     else
         log "Все зависимости найдены."
@@ -176,32 +206,27 @@ if [[ "$DO_CLEAN" == true ]]; then
     log "Очистка предыдущих сборок..."
     rm -rf "$BUILD_DIR" "$INSTALL_DIR"
 elif [[ -d "$BUILD_DIR" && -n "$(ls -A "$BUILD_DIR" 2>/dev/null)" ]]; then
-    warn "Директория '$BUILD_DIR' уже существует."
-    read -p "Пересобрать с очисткой? [y/N]: " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        error "Сборка прервана пользователем."
+    if [[ "$NON_INTERACTIVE" == true ]]; then
+        log "Неинтерактивный режим: директория '$BUILD_DIR' существует, выполняем чистую пересборку."
+        rm -rf "$BUILD_DIR" "$INSTALL_DIR"
+    else
+        warn "Директория '$BUILD_DIR' уже существует."
+        if ! ask "Пересобрать с очисткой? [y/N]:" n; then
+            error "Сборка прервана пользователем."
+        fi
+        rm -rf "$BUILD_DIR" "$INSTALL_DIR"
     fi
-    rm -rf "$BUILD_DIR" "$INSTALL_DIR"
 fi
 
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
-
-# ---- Определение версии для передачи в CMake ----
-read VERSION_DISPLAY VERSION_FILE < <(get_versions)
-VERSION=$(echo "$VERSION_DISPLAY" | sed 's/+g.*//')
-log "Чистая версия: $VERSION"
-log "Версия для отображения: $VERSION_DISPLAY"
-log "Версия для имён файлов: $VERSION_FILE"
 
 # Конфигурация CMake
 log "Конфигурация CMake (${BUILD_TYPE})..."
 cmake "$SCRIPT_DIR" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -DVERSION="$VERSION"
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 # Сборка
 log "Сборка проекта (потоков: $JOBS)..."
@@ -213,7 +238,10 @@ cmake --build . --config "$BUILD_TYPE" --target install
 
 if [[ "$BUILD_TYPE" == "Release" || "$BUILD_TYPE" == "MinSizeRel" ]]; then
     log "Удаление отладочных символов (strip)..."
-    strip --strip-all "$INSTALL_DIR/bin/$PROJECT_NAME" 2>/dev/null || warn "strip не удался"
+    #--strip-all агрессивнее --strip-unneeded
+    strip --strip-all \
+      -R .comment -R .note -R .note.ABI-tag \
+      "$INSTALL_DIR/bin/$PROJECT_NAME" 2>/dev/null || warn "strip не удался"
 fi
 
 # Проверка исполняемого файла

@@ -3,7 +3,7 @@
 # build-package.sh – Сборка пакетов .deb, .rpm, .AppImage
 #
 # Использование:
-#   ./build-package.sh [VERSION] [ОПЦИИ]
+#   ./build-package.sh [ОПЦИИ]
 #
 # Опции:
 #   --deb         Собрать только .deb
@@ -13,19 +13,21 @@
 #   --rebuild     Принудительно пересобрать бинарник (даже если уже есть)
 #   --clean       Очистить каталог dist/ перед сборкой
 #   --clean-only  Только очистить dist/ и завершить работу
+#   --yes, -y     Неинтерактивный режим (авто-ответы, для CI)
 #   -h, --help    Показать эту справку
 #
 # Версия:
-#   Если не указана, определяется из корневого VERSION файла.
+#   Определяется CMake при сборке бинарника (из корневого VERSION + git-хеш).
 #   После сборки бинарника версия для пакетов читается из install/.
 #
 # Примеры:
-#   ./build-package.sh 2.3.1 --deb          # собрать .deb с версией 2.3.1
+#   ./build-package.sh --deb                # собрать .deb
 #   ./build-package.sh --all                # собрать все пакеты
 #   ./build-package.sh --rebuild --deb      # пересобрать бинарник и .deb
 #   ./build-package.sh --clean --all        # очистить dist и собрать всё
 #   ./build-package.sh --clean-only         # только очистить dist
 #   ./build-package.sh -h                   # показать эту справку
+#   ./build-package.sh --yes --all          # неинтерактивная сборка (CI)
 # =============================================
 
 set -e
@@ -36,6 +38,18 @@ cd "$SCRIPT_DIR"
 
 # === Настройки ===
 PACKAGE_NAME="iptvplayer"
+
+# AppStream-метаданные: имя файла хранится в корневом METAINFO_NAME
+if [ ! -f "$SCRIPT_DIR/METAINFO_NAME" ]; then
+    echo "[!] Файл $SCRIPT_DIR/METAINFO_NAME не найден."
+    exit 1
+fi
+METAINFO_NAME="$(tr -d '\n\r' < "$SCRIPT_DIR/METAINFO_NAME" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+if [ -z "$METAINFO_NAME" ]; then
+    echo "[!] Файл $SCRIPT_DIR/METAINFO_NAME пуст."
+    exit 1
+fi
+
 BUILD_RELEASE_SCRIPT="$SCRIPT_DIR/build-release.sh"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
 STAGING_DIR="$SCRIPT_DIR/pkg-staging"
@@ -44,6 +58,32 @@ ICON_NAME="program.svg"
 FORCE_REBUILD=false
 DO_CLEAN=false
 CLEAN_ONLY=false
+
+# === Неинтерактивный режим ===
+NON_INTERACTIVE=false
+if [[ -n "${CI:-}" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ ! -t 0 ]]; then
+    NON_INTERACTIVE=true
+fi
+
+# Спросить пользователя. Возвращает 0 для "да", 1 для "нет".
+# $1 — вопрос
+# $2 — default в интерактивном режиме ("y"/"n")
+# $3 — default в неинтерактивном режиме (по умолчанию совпадает с $2)
+ask() {
+    local prompt="$1"
+    local di="${2:-n}"
+    local dni="${3:-$di}"
+    if [[ "$NON_INTERACTIVE" == true ]]; then
+        echo "[i] Неинтерактивный режим: '${prompt}' → ${dni} (авто)"
+        [[ "$dni" == "y" ]]
+        return
+    fi
+    local reply=""
+    read -p "$prompt " -n 1 -r reply || true
+    echo
+    [[ -z "$reply" ]] && reply="$di"
+    [[ "$reply" =~ ^[Yy]$ ]]
+}
 
 # ---- Чтение версий из install/ ----
 read_versions_from_install() {
@@ -67,23 +107,8 @@ read_versions_from_install() {
         exit 1
     fi
 
-    # Возвращаем три значения: чистую, полную и для имён файлов
+    # Возвращаем три значения: полную, для имён файлов, чистую
     printf '%s\n%s\n%s\n' "$VERSION_FULL" "$VERSION_FILE" "$VERSION"
-}
-
-# ---- Определение версии для сборки бинарника (из корневого VERSION или аргумента) ----
-get_build_version() {
-    local VERSION=""
-    if [ -n "$1" ]; then
-        VERSION="$1"
-    elif [ -f "$SCRIPT_DIR/VERSION" ]; then
-        VERSION=$(head -n1 "$SCRIPT_DIR/VERSION" | tr -d '\n\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    fi
-    if [ -z "$VERSION" ]; then
-        echo "0.0.0"
-    else
-        echo "$VERSION"
-    fi
 }
 
 # === Проверка зависимостей ===
@@ -117,19 +142,15 @@ setup_dirs() {
 
 # === Сборка бинарника ===
 build_binary() {
-    local BUILD_VERSION="$1"  # чистая версия для сборки
     local BIN_PATH="$SCRIPT_DIR/install/bin/$PACKAGE_NAME"
 
     if [ -f "$BIN_PATH" ] && [ "$FORCE_REBUILD" = false ]; then
         echo "[+] Бинарник уже собран: $BIN_PATH"
-        read -p "Использовать существующий? (Y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Nn]$ ]]; then
-            FORCE_REBUILD=true
-        else
+        if ask "Использовать существующий? [Y/n]:" y; then
             echo "[+] Используем существующий бинарник."
             return 0
         fi
+        FORCE_REBUILD=true
     fi
 
     echo "[+] Сборка через $BUILD_RELEASE_SCRIPT..."
@@ -138,8 +159,8 @@ build_binary() {
         exit 1
     fi
 
-    # Передаём чистую версию в билд-скрипт
-    "$BUILD_RELEASE_SCRIPT" --type release --prefix "$SCRIPT_DIR/install" --version "$BUILD_VERSION"
+    # --yes: build-release.sh — вложенный скрипт, все решения уже приняты здесь.
+    "$BUILD_RELEASE_SCRIPT" --type release --prefix "$SCRIPT_DIR/install" --yes
     echo "[+] Бинарник собран."
 }
 
@@ -174,13 +195,13 @@ EOF
     mkdir -p "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps"
     cp "$SCRIPT_DIR/install/share/$PACKAGE_NAME/icons/$ICON_NAME" "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg" 2>/dev/null || true
 
-    # Копирование AppStream metadata (appdata.xml)
-    if [ -f "$SCRIPT_DIR/install/share/metainfo/iptvplayer.appdata.xml" ]; then
+    # Копирование AppStream metadata (metainfo.xml)
+    if [ -f "$SCRIPT_DIR/install/share/metainfo/$METAINFO_NAME" ]; then
         mkdir -p "$STAGING_DIR/usr/share/metainfo"
-        cp "$SCRIPT_DIR/install/share/metainfo/iptvplayer.appdata.xml" "$STAGING_DIR/usr/share/metainfo/"
+        cp "$SCRIPT_DIR/install/share/metainfo/$METAINFO_NAME" "$STAGING_DIR/usr/share/metainfo/"
         echo "[+] AppStream metadata скопирован."
     else
-        echo "[!] iptvplayer.appdata.xml не найден в $SCRIPT_DIR/install/share/metainfo/"
+        echo "[!] $METAINFO_NAME не найден в $SCRIPT_DIR/install/share/metainfo/"
     fi
 }
 
@@ -238,6 +259,8 @@ EOF
 
     fakeroot dpkg-deb --build "$STAGING_DIR" "$deb_file"
     echo "[✓] .deb создан: $deb_file"
+
+    rm -rf "$STAGING_DIR/DEBIAN"
 }
 
 # === Сборка .rpm ===
@@ -283,6 +306,7 @@ tar -xzf %{SOURCE0} -C \$RPM_BUILD_ROOT --strip-components=1
 /usr/share/$PACKAGE_NAME/*
 /usr/share/applications/$PACKAGE_NAME.desktop
 /usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg
+/usr/share/metainfo/$METAINFO_NAME
 
 %post
 if [ -x /usr/bin/update-icon-caches ]; then
@@ -319,9 +343,15 @@ build_appimage() {
     mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/scalable/apps"
     cp "$STAGING_DIR/usr/bin/$PACKAGE_NAME" "$APPDIR/usr/bin/"
     cp -r "$STAGING_DIR/usr/share/$PACKAGE_NAME" "$APPDIR/usr/share/"
-    cp "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop" "$APPDIR/"
+    cp "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop" "$APPDIR/usr/share/applications/"
     cp "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg" "$APPDIR/$PACKAGE_NAME.svg"
     cp "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
+    
+    # AppStream metadata — linuxdeploy сам подхватит из usr/share/metainfo/
+    if [ -f "$STAGING_DIR/usr/share/metainfo/$METAINFO_NAME" ]; then
+        mkdir -p "$APPDIR/usr/share/metainfo"
+        cp "$STAGING_DIR/usr/share/metainfo/$METAINFO_NAME" "$APPDIR/usr/share/metainfo/"
+    fi
 
     local LINUXDEPLOY="$SCRIPT_DIR/linuxdeploy-x86_64.AppImage"
     local GTK_PLUGIN="$SCRIPT_DIR/linuxdeploy-plugin-gtk.sh"
@@ -341,7 +371,11 @@ build_appimage() {
     fi
 
     echo "[+] Запуск linuxdeploy с GTK-плагином..."
-    if ARCH=x86_64 "$LINUXDEPLOY" --appdir="$APPDIR" --plugin gtk --output=appimage; then
+    if ARCH=x86_64 "$LINUXDEPLOY" --appdir="$APPDIR" \
+    --plugin gtk \
+    --desktop-file="$APPDIR/usr/share/applications/iptvplayer.desktop" \
+    --appstream="$APPDIR/usr/share/metainfo/io.github.i_jurij.iptvplayer.metainfo.xml" \
+    --output=appimage; then
         echo "[✓] linuxdeploy завершился успешно."
     else
         echo "[!] Ошибка при создании AppImage."
@@ -376,35 +410,93 @@ build_appimage() {
     fi
 }
 
-# ---- Подпись и контрольные суммы ----
+# ---- Подпись пакетов и контрольные суммы ----
 sign_files() {
     local dist_dir="$OUTPUT_DIR"
     local checksum_file="$dist_dir/checksums.txt"
     local signature_file="$checksum_file.asc"
 
-    echo "[+] Генерация checksums.txt..."
-    (cd "$dist_dir" && sha256sum * > checksums.txt 2>/dev/null) || true
-
-    if command -v gpg >/dev/null 2>&1 && [ -n "$GPG_KEY_ID" ]; then
-        echo "[+] Подпись checksums.txt с помощью GPG (ключ: $GPG_KEY_ID)..."
-        gpg --batch --yes --detach-sign --armor --local-user "$GPG_KEY_ID" \
-            --output "$signature_file" "$checksum_file"
-        echo "[✓] Подпись создана: $signature_file"
-    else
-        echo "[!] GPG ключ не найден или не задан. Пропускаем подпись."
+    if ! command -v gpg >/dev/null 2>&1 || [ -z "${GPG_KEY_ID:-}" ]; then
+        echo "[!] GPG ключ не найден или не задан. Пропускаем подпись пакетов и checksums."
+        return
     fi
+
+    echo "[+] Подпись пакетов (ключ: $GPG_KEY_ID)..."
+
+    # --- Подпись .deb через debsigs ---
+    if command -v debsigs >/dev/null 2>&1; then
+        for file in "$dist_dir"/*.deb; do
+            [ -f "$file" ] || continue
+            echo "    debsigs: $(basename "$file")"
+            debsigs --sign=origin --default-key="$GPG_KEY_ID" "$file"
+        done
+    else
+        echo "[!] debsigs не установлен — .deb не подписан."
+        echo "    Установите: sudo apt install debsigs"
+    fi
+
+    # --- Подпись .rpm ---
+    if command -v rpm >/dev/null 2>&1; then
+        if [ -f "$HOME/.rpmmacros" ] && grep -q "^%_gpg_name" "$HOME/.rpmmacros"; then
+            sed -i "s|^%_gpg_name.*|%_gpg_name $GPG_KEY_ID|" "$HOME/.rpmmacros"
+            echo "[+] Обновлён ~/.rpmmacros: %_gpg_name $GPG_KEY_ID"
+        else
+            echo "[+] Настройка ~/.rpmmacros (ключ: $GPG_KEY_ID)..."
+            cat >> "$HOME/.rpmmacros" << EOF
+%_signature gpg
+%_gpg_name $GPG_KEY_ID
+EOF
+        fi
+
+        for file in "$dist_dir"/*.rpm; do
+            [ -f "$file" ] || continue
+            echo "    rpm --addsign: $(basename "$file")"
+            rpm --addsign "$file"
+        done
+    else
+        echo "[!] rpm не установлен — .rpm не подписан."
+    fi
+
+    # --- Подпись AppImage (отсоединённая) ---
+    for file in "$dist_dir"/*.AppImage; do
+        [ -f "$file" ] || continue
+        echo "    gpg --detach-sign: $(basename "$file")"
+        gpg --batch --yes --detach-sign --armor \
+            --local-user "$GPG_KEY_ID" --output "$file.asc" "$file"
+    done
+
+    # --- Генерация checksums.txt ПОСЛЕ подписи ---
+    echo "[+] Генерация checksums.txt..."
+    rm -f "$checksum_file" "$signature_file"
+
+    (
+        cd "$dist_dir" || exit 1
+        shopt -s nullglob
+        files=()
+        for f in *; do
+            case "$f" in
+                checksums.txt|checksums.txt.asc) continue ;;
+            esac
+            files+=("$f")
+        done
+        if (( ${#files[@]} > 0 )); then
+            sha256sum "${files[@]}"
+        fi
+    ) > "$checksum_file" || true
+
+    # --- Подпись checksums.txt ---
+    echo "[+] Подпись checksums.txt..."
+    gpg --batch --yes --detach-sign --armor --local-user "$GPG_KEY_ID" \
+        --output "$signature_file" "$checksum_file"
+    echo "[✓] Подпись checksums.txt создана: $signature_file"
 }
 
 # === Вывод справки ===
 show_help() {
     cat << EOF
-Использование: ./build-package.sh [VERSION] [ОПЦИИ]
+Использование: ./build-package.sh [ОПЦИИ]
 
 Сборка пакетов .deb, .rpm, .AppImage для iptvplayer.
-
-Аргументы:
-  VERSION         Версия для сборки бинарника (если требуется пересборка).
-                  По умолчанию берётся из корневого VERSION файла.
 
 Опции:
   --deb           Собрать только .deb
@@ -414,19 +506,22 @@ show_help() {
   --rebuild       Принудительно пересобрать бинарник (даже если уже есть)
   --clean         Очистить каталог dist/ перед сборкой
   --clean-only    Только очистить dist/ и завершить работу
+  --yes, -y       Неинтерактивный режим (авто-ответы, для CI)
   -h, --help      Показать эту справку
 
 Примеры:
-  ./build-package.sh 2.3.1 --deb          # собрать .deb с версией 2.3.1
+  ./build-package.sh --deb                # собрать .deb
   ./build-package.sh --all                # собрать все пакеты
   ./build-package.sh --rebuild --deb      # пересобрать бинарник и .deb
   ./build-package.sh --clean --all        # очистить dist и собрать всё
   ./build-package.sh --clean-only         # только очистить dist
   ./build-package.sh -h                   # показать эту справку
+  ./build-package.sh --yes --all          # неинтерактивная сборка (CI)
 
 Примечания:
   - Если не указан тип пакета, собираются все три.
-  - Версия для пакетов берётся из install/ после сборки бинарника.
+  - Версия определяется CMake при сборке бинарника (VERSION + git-хеш)
+    и затем читается из install/.
   - Все артефакты сохраняются в каталог dist/.
   - Временные файлы удаляются автоматически после сборки.
   - Для сборки требуются: cmake, git, fakeroot, dpkg-deb, rpmbuild, wget, tar.
@@ -435,7 +530,6 @@ EOF
 
 # === Главная функция ===
 main() {
-    local VERSION_ARG=""
     local BUILD_DEB=false
     local BUILD_RPM=false
     local BUILD_APPIMAGE=false
@@ -449,15 +543,12 @@ main() {
             --rebuild) FORCE_REBUILD=true ;;
             --clean) DO_CLEAN=true ;;
             --clean-only) DO_CLEAN=true; CLEAN_ONLY=true ;;
+            --yes|-y) NON_INTERACTIVE=true ;;
             -h|--help) show_help; exit 0 ;;
             *)
-                if [[ -z "$VERSION_ARG" ]]; then
-                    VERSION_ARG="$1"
-                else
-                    echo "Неизвестный аргумент: $1"
-                    show_help
-                    exit 1
-                fi
+                echo "Неизвестный аргумент: $1"
+                show_help
+                exit 1
                 ;;
         esac
         shift
@@ -475,20 +566,27 @@ main() {
         BUILD_DEB=true; BUILD_RPM=true; BUILD_APPIMAGE=true
     fi
 
-    # ---- Определяем версию для сборки бинарника (если нужно) ----
-    local BUILD_VERSION=$(get_build_version "$VERSION_ARG")
-    echo "Версия для сборки: $BUILD_VERSION"
-
     # ---- Подготовка каталогов ----
     check_deps
     setup_dirs
 
     # ---- Сборка бинарника (если требуется) ----
-    build_binary "$BUILD_VERSION"
+    build_binary
 
     # ---- Чтение версий из install/ ----
     # Получаем три значения: VERSION_FULL, VERSION_FILE, VERSION
-    read VERSION_DISPLAY VERSION_FILE VERSION < <(read_versions_from_install)
+    # (каждый read читает одну строку)
+    { read -r VERSION_DISPLAY; read -r VERSION_FILE; read -r VERSION; } \
+        < <(read_versions_from_install)
+
+    if [[ -z "$VERSION_DISPLAY" || -z "$VERSION_FILE" || -z "$VERSION" ]]; then
+        echo "[ERROR] Не удалось прочитать версии из install/." >&2
+        echo "  VERSION_DISPLAY='$VERSION_DISPLAY'" >&2
+        echo "  VERSION_FILE='$VERSION_FILE'" >&2
+        echo "  VERSION='$VERSION'" >&2
+        echo "Проверьте install/VERSION, install/VERSION_FULL, install/VERSION_FILE." >&2
+        exit 1
+    fi
 
     echo "=== Сборка пакетов для $PACKAGE_NAME:$VERSION (файл: $VERSION_FILE) ==="
     echo ""

@@ -138,3 +138,20 @@ target_link_libraries(player_backend_mpv
         ${MPV_STATIC_LIB}
         ${_MPV_SYS_LIBS}
 )
+
+# ------------------------
+# LTO для целей плеера (опционально)
+# ------------------------
+include(CheckIPOSupported)
+check_ipo_supported(RESULT IPO_OK OUTPUT IPO_MSG)
+
+if(IPO_OK)
+    foreach(_tgt player_core player_backend_mpv)
+        if(TARGET ${_tgt})
+            set_property(TARGET ${_tgt} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+            message(STATUS "LTO включён для ${_tgt}")
+        endif()
+    endforeach()
+else()
+    message(WARNING "LTO не поддерживается: ${IPO_MSG}")
+endif()
