@@ -18,8 +18,14 @@ permissions:
   actions: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  # =========================================================================
+  # 1. Сборка бинарника (один раз)
+  # =========================================================================
+  build-binary:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read_version.outputs.version }}
+      version_changed: ${{ steps.check_version_changed.outputs.version_changed }}
     env:
       REPO: ${{ github.repository }}
     steps:
@@ -111,8 +117,6 @@ jobs:
         uses: actions/cache@v4
         with:
           path: third_party
-          # runner.arch различает X64 / ARM64 / ARM — без него
-          # кэши x86_64 и ARM будут перетирать друг друга.
           key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
 
       # ---- Установка системных пакетов и third_party ----
@@ -126,17 +130,6 @@ jobs:
             ./setup-deps.sh --yes
           fi
 
-      - name: Install packaging tools
-        if: steps.check_version_changed.outputs.version_changed == 'true'
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y debsigs rpm gnupg pinentry-curses dpkg-dev
-          command -v rpmbuild       || { echo "::error::rpmbuild not found";       exit 1; }
-          command -v gpg            || { echo "::error::gpg not found";            exit 1; }
-          command -v debsigs        || { echo "::error::debsigs not found";        exit 1; }
-          command -v dpkg-shlibdeps || { echo "::error::dpkg-shlibdeps not found"; exit 1; }
-
       - name: Delete old third_party cache
         if: steps.check_version_changed.outputs.version_changed == 'true'
         env:
@@ -149,7 +142,6 @@ jobs:
             echo "::warning::gh CLI не найден — пропускаем очистку старых кэшей."
             exit 0
           fi
-          # gh cache list: $1=ID, $2=KEY, $3=SIZE, $4=CREATED, $5=LAST ACCESSED
           OLD_KEYS=$(gh cache list --repo "$REPO" --limit 100 \
             | awk -v cur="$CURRENT_KEY" -v prefix="$KEY_PREFIX" \
                   '$2 != cur && index($2, prefix) == 1 {print $2}')
@@ -166,15 +158,118 @@ jobs:
           done <<< "$OLD_KEYS"
           echo "Готово."
 
-      # ---- Импорт GPG-ключа ДО сборки ----
-      - name: Import GPG key
+      # ---- Сборка бинарника ----
+      - name: Build binary
         if: steps.check_version_changed.outputs.version_changed == 'true'
+        run: |
+          chmod +x build-release.sh
+          ./build-release.sh --type release --prefix "$PWD/install" --yes
+
+      # ---- Загрузка install/ как артефакта ----
+      - name: Upload install artifact
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: install
+          path: install/
+          retention-days: 1
+          if-no-files-found: error
+
+  # =========================================================================
+  # 2. Матрица упаковки по дистрибутивам
+  # =========================================================================
+  package:
+    needs: build-binary
+    if: needs.build-binary.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --- DEB-based ---
+          - distro: ubuntu-26.04
+            container: ubuntu:26.04
+            package_type: deb
+          - distro: debian-13
+            container: debian:13
+            package_type: deb
+
+          # --- RPM-based ---
+          - distro: fedora-44
+            container: fedora:44
+            package_type: rpm
+          - distro: rocky-10
+            container: rockylinux:10
+            package_type: rpm
+
+          # --- AppImage ---
+          - distro: ubuntu-26.04-appimage
+            container: ubuntu:26.04
+            package_type: appimage
+
+    container:
+      image: ${{ matrix.container }}
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download install artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: install
+          path: install
+
+      # ---- Системные зависимости ----
+      - name: Install system dependencies (DEB)
+        if: matrix.package_type == 'deb' || matrix.package_type == 'appimage'
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            ca-certificates \
+            cmake \
+            dpkg-dev \
+            file \
+            gnupg \
+            rpm \
+            tar \
+            wget \
+            xz-utils
+          if [[ "${{ matrix.package_type }}" == "deb" ]]; then
+            apt-get install -y --no-install-recommends debsigs
+          fi
+
+      - name: Install system dependencies (RPM)
+        if: matrix.package_type == 'rpm'
+        run: |
+          set -euo pipefail
+          dnf install -y --setopt=install_weak_deps=False \
+            ca-certificates \
+            cmake \
+            gnupg2 \
+            rpm-build \
+            rpm-sign \
+            tar \
+            wget \
+            xz
+
+      # ---- Импорт GPG-ключа (в каждом контейнере свой GNUPGHOME) ----
+      - name: Import GPG key
+        id: import_gpg
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
-            echo "::warning::No GPG private key found in secrets, skipping signing."
+            echo "::warning::No GPG private key found in secrets, signing will be skipped."
+            echo "can_sign=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -184,9 +279,6 @@ jobs:
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
 
           # ВАЖНО: ключ ДОЛЖЕН быть без пароля — passphrase не поддерживается.
-          # Если понадобится — вернуть GPG_PASSPHRASE и добавить
-          # --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" на импорт,
-          # а также подставить passphrase в wrapper ниже вместо ''.
           echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
           echo "pinentry-mode loopback" >> "$GNUPGHOME/gpg.conf"
 
@@ -198,6 +290,7 @@ jobs:
           gpgconf --kill gpg-agent 2>/dev/null || true
           gpg-connect-agent /bye 2>/dev/null || true
 
+          # Wrapper, чтобы debsigs и rpm --addsign подхватили loopback
           REAL_GPG="$(command -v gpg)"
           WRAPPER_DIR="$(mktemp -d)"
           cat > "$WRAPPER_DIR/gpg" <<WRAPPER
@@ -216,47 +309,147 @@ jobs:
           echo "GPG_KEY_ID=$GPG_KEY_ID"           >> $GITHUB_ENV
           echo "GPG_WRAPPER_DIR=$WRAPPER_DIR"     >> $GITHUB_ENV
           echo "PATH=$WRAPPER_DIR:$PATH"          >> $GITHUB_ENV
-          echo "::notice::GPG key imported, ID: $GPG_KEY_ID (GNUPGHOME=$GNUPGHOME, wrapper=$WRAPPER_DIR)"
+          echo "can_sign=true"                    >> $GITHUB_OUTPUT
+          echo "::notice::GPG key imported, ID: $GPG_KEY_ID"
 
-      # ---- Сборка пакетов ----
-      - name: Build packages
-        if: steps.check_version_changed.outputs.version_changed == 'true'
-        run: |
-          chmod +x build-package.sh
-          ./build-package.sh --all
-
-      # ---- Публичный ключ в dist/ ----
-      - name: Export public key
-        if: always() && steps.check_version_changed.outputs.version_changed == 'true'
+      # ---- Проверка инструментов ----
+      - name: Check tools
         run: |
           set -euo pipefail
-          if [ -z "${GPG_KEY_ID:-}" ]; then
-            echo "GPG_KEY_ID not set — skipping public key export"
-            exit 0
-          fi
+          echo "=== tool versions ==="
+          for t in gpg dpkg-deb dpkg-shlibdeps rpmbuild rpm debsigs zsyncmake; do
+            if command -v "$t" >/dev/null 2>&1; then
+              printf '%-16s %s\n' "$t" "$(command -v "$t")"
+            else
+              printf '%-16s MISSING\n' "$t"
+            fi
+          done
+          echo "======================"
+
+      # ---- Сборка пакета с логированием ----
+      - name: Build package
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          chmod +x build-package.sh
+          case "${{ matrix.package_type }}" in
+            deb)
+              ./build-package.sh --deb --yes 2>&1 | tee logs/build-package.log
+              ;;
+            rpm)
+              ./build-package.sh --rpm --yes 2>&1 | tee logs/build-package.log
+              ;;
+            appimage)
+              ./build-package.sh --appimage --yes 2>&1 | tee logs/build-package.log
+              ;;
+          esac
+
+      # ---- Экспорт публичного ключа в dist/ (для пользователей) ----
+      - name: Export public key
+        if: always() && steps.import_gpg.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
           mkdir -p dist
           gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
           echo "Public key exported to dist/public-key.asc"
 
-      # ---- Очистка приватного ключа ----
+      # ---- Загрузка артефактов пакета ----
+      - name: Upload package artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.distro }}
+          path: |
+            dist/*
+            logs/build-package.log
+          retention-days: 1
+          if-no-files-found: warn
+
+      # ---- Очистка GNUPGHOME ----
       - name: Cleanup GNUPGHOME
         if: always()
         run: |
           if [ -n "${GNUPGHOME:-}" ]; then
             rm -rf "$GNUPGHOME" || true
-            echo "GNUPGHOME removed: $GNUPGHOME"
           fi
           rm -f "$HOME/.rpmmacros" || true
 
-      # ---- Публикация релиза ----
-      - name: Create GitHub Release and upload artifacts
-        if: steps.check_version_changed.outputs.version_changed == 'true'
+  # =========================================================================
+  # 3. Публикация релиза
+  # =========================================================================
+  release:
+    needs: [build-binary, package]
+    if: |
+      always() &&
+      needs.build-binary.result == 'success' &&
+      needs.build-binary.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all package artifacts
+        # continue-on-error: если часть матриц упала, их артефактов нет —
+        # это не повод ронять релиз.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+
+      - name: Check artifacts present
+        id: check_artifacts
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Ищем именно ПАКЕТЫ, а не логи — иначе при полном провале матрицы
+          # в dist/ окажутся только build-package.log, и релиз создастся с мусором.
+          packages=(dist/*.deb dist/*.rpm dist/*.AppImage)
+          if (( ${#packages[@]} > 0 )); then
+            echo "::notice::Найдены пакеты для публикации:"
+            printf '  %s\n' "${packages[@]}"
+            echo "have_artifacts=true" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Пакетов нет (все матрицы упали?) — релиз не создаём."
+            if [ -d dist ]; then
+              echo "Что лежит в dist/:"
+              ls -la dist/ || true
+            fi
+            echo "have_artifacts=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Warn on partial matrix
+        if: needs.package.result != 'success'
+        run: |
+          echo "::warning::Матрица package завершилась с '${{ needs.package.result }}'. Релиз будет частичным — часть дистрибутивов не собралась."
+
+      - name: Compose release body
+        id: body
+        run: |
+          set -euo pipefail
+          BODY="Automated release for version v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
+          if [[ "${{ needs.package.result }}" != "success" ]]; then
+            BODY="$BODY"$'\n\n'"⚠️ Часть матрицы упала (result: ${{ needs.package.result }}) — артефакты содержат только успешно собранные дистрибутивы. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.check_artifacts.outputs.have_artifacts == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ format('v{0}', steps.read_version.outputs.version) }}
-          name: Release v${{ steps.read_version.outputs.version }}
-          body: "Automated release for version v${{ steps.read_version.outputs.version }} (commit ${{ github.sha }})"
+          tag_name: ${{ format('v{0}', needs.build-binary.outputs.version) }}
+          name: Release v${{ needs.build-binary.outputs.version }}
+          body: ${{ steps.body.outputs.body }}
+          # Явные расширения — чтобы логи и прочий мусор из dist/ не попали в релиз.
           files: |
-            dist/*
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
+            dist/*.zsync
+            dist/*.asc
+            dist/checksums.txt
+            dist/public-key.asc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

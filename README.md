@@ -1,5 +1,18 @@
 # IPTV Player
 
+> **Поддерживаемые дистрибутивы (автоматическая сборка при обновлении VERSION)**
+>
+> | Дистрибутив | Контейнер | Тип пакета |
+> |-------------|-----------|------------|
+> | Ubuntu 26.04 LTS | `ubuntu:26.04` | `.deb` |
+> | Debian 13 (Trixie) | `debian:13` | `.deb` |
+> | Fedora 44 | `fedora:44` | `.rpm` |
+> | Rocky Linux 10 | `rockylinux:10` | `.rpm` |
+> | Ubuntu 26.04 (AppImage) | `ubuntu:26.04` | `.AppImage` |
+>
+> Пакеты собираются в матрице GitHub Actions и публикуются в разделе **[Releases](https://github.com/i-jurij/iptvplayer/releases)**.
+> Для локальной сборки используйте `./build-package.sh --all`.
+
 ## Screenshots
 
 ### Playlists

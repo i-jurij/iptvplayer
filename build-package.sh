@@ -158,23 +158,51 @@ read_versions_from_install() {
 }
 
 # === Проверка зависимостей ===
+# Проверяет только те инструменты, которые реально нужны для
+# запрошенных типов пакетов. Иначе RPM-контейнеры падают на
+# отсутствии dpkg-*, а DEB — на отсутствии rpmbuild.
 check_deps() {
+    local need_deb=$1
+    local need_rpm=$2
+    local need_appimage=$3
+
     local required=()
     local optional=()
 
-    # Обязательные для сборки пакетов
-    for tool in cmake git fakeroot dpkg-deb dpkg-shlibdeps rpmbuild rpm wget tar gpg; do
-        if ! command -v "$tool" >/dev/null 2>&1; then
-            required+=("$tool")
-        fi
+    # --- Общие ---
+    for tool in gpg; do
+        command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
     done
 
-    # Опциональные — нужны только для подписи / дополнительных артефактов
-    for tool in debsigs zsyncmake; do
-        if ! command -v "$tool" >/dev/null 2>&1; then
-            optional+=("$tool")
-        fi
-    done
+    # --- .deb ---
+    if [[ "$need_deb" == true ]]; then
+        for tool in dpkg-deb dpkg-shlibdeps; do
+            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
+        done
+    fi
+
+    # --- .rpm ---
+    if [[ "$need_rpm" == true ]]; then
+        for tool in rpmbuild rpm tar; do
+            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
+        done
+    fi
+
+    # --- AppImage ---
+    if [[ "$need_appimage" == true ]]; then
+        # linuxdeploy скачивается через wget
+        for tool in wget; do
+            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
+        done
+    fi
+
+    # --- Опциональные (только для релевантных типов) ---
+    if [[ "$need_deb" == true ]] && ! command -v debsigs >/dev/null 2>&1; then
+        optional+=("debsigs")
+    fi
+    if [[ "$need_appimage" == true ]] && ! command -v zsyncmake >/dev/null 2>&1; then
+        optional+=("zsyncmake")
+    fi
 
     if [ ${#required[@]} -ne 0 ]; then
         echo "[!] Не хватает обязательных инструментов: ${required[*]}"
@@ -415,14 +443,16 @@ rm -rf \$RPM_BUILD_ROOT
 mkdir -p \$RPM_BUILD_ROOT
 tar -xzf %{SOURCE0} -C \$RPM_BUILD_ROOT --strip-components=1
 
+# Макросы вместо жёстких путей — чтобы rpmbuild подхватил ELF-зависимости
+# через AutoReqProv (Requires: libmpv, libcurl, gtk3, ...).
 %files
-/usr/bin/$PACKAGE_NAME
-/usr/share/$PACKAGE_NAME/*
-/usr/share/applications/$PACKAGE_NAME.desktop
-/usr/share/icons/hicolor/scalable/apps/$ICON_NAME
-/usr/share/metainfo/$METAINFO_NAME
-/usr/share/doc/$PACKAGE_NAME/copyright
-/usr/share/licenses/$PACKAGE_NAME/LICENSE
+%{_bindir}/$PACKAGE_NAME
+%{_datadir}/$PACKAGE_NAME/
+%{_datadir}/applications/$PACKAGE_NAME.desktop
+%{_datadir}/icons/hicolor/scalable/apps/$ICON_NAME
+%{_datadir}/metainfo/$METAINFO_NAME
+%{_datadir}/doc/$PACKAGE_NAME/copyright
+%{_datadir}/licenses/$PACKAGE_NAME/LICENSE
 
 %post
 if [ -x /usr/bin/update-icon-caches ]; then
@@ -431,9 +461,9 @@ fi
 
 %preun
 if [ \$1 = 0 ]; then
-    rm -f "/usr/share/applications/$PACKAGE_NAME.desktop"
-    rm -f "/usr/share/icons/hicolor/scalable/apps/$ICON_NAME"
-    rm -f "/usr/bin/$PACKAGE_NAME"
+    rm -f "%{_datadir}/applications/$PACKAGE_NAME.desktop"
+    rm -f "%{_datadir}/icons/hicolor/scalable/apps/$ICON_NAME"
+    rm -f "%{_bindir}/$PACKAGE_NAME"
     if [ -x /usr/bin/update-icon-caches ]; then
         /usr/bin/update-icon-caches /usr/share/icons/hicolor || true
     fi
@@ -697,7 +727,7 @@ show_help() {
     и затем читается из install/.
   - Все артефакты сохраняются в каталог dist/.
   - Временные файлы удаляются автоматически после сборки.
-  - Для сборки требуются: cmake, git, fakeroot, dpkg-deb, dpkg-shlibdeps,
+  - Для сборки требуются: cmake, git, dpkg-deb, dpkg-shlibdeps,
     rpmbuild, wget, tar.
 EOF
 }
@@ -741,7 +771,7 @@ main() {
     fi
 
     # ---- Подготовка каталогов ----
-    check_deps
+    check_deps "$BUILD_DEB" "$BUILD_RPM" "$BUILD_APPIMAGE"
     detect_arch
     setup_dirs
 
