@@ -165,6 +165,35 @@ jobs:
           chmod +x build-release.sh
           ./build-release.sh --type release --prefix "$PWD/install" --yes
 
+      # ---- Вычисление Depends для .deb (в build-binary, где есть все runtime-либы) ----
+      - name: Compute .deb dependencies
+        if: steps.check_version_changed.outputs.version_changed == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends dpkg-dev >/dev/null
+
+          TMP="$(mktemp -d)"
+          mkdir -p "$TMP/debian"
+          cat > "$TMP/debian/control" <<'EOF'
+          Source: iptvplayer
+          Package: iptvplayer
+          Architecture: any
+          EOF
+
+          BIN="$PWD/install/bin/iptvplayer"
+          DEPS=$(cd "$TMP" && dpkg-shlibdeps -O "$BIN" 2>/dev/null \
+            | sed -n 's/^shlibs:Depends=//p' | tr -d '\n\r' || true)
+          rm -rf "$TMP"
+
+          if [ -z "$DEPS" ]; then
+            echo "::warning::dpkg-shlibdeps не смог определить Depends — .deb будет без поля Depends"
+          else
+            echo "[+] Computed .deb Depends: $DEPS"
+          fi
+
+          echo "$DEPS" > "$PWD/install/DEB_DEPENDS"
+
       # ---- Загрузка install/ как артефакта ----
       - name: Upload install artifact
         if: steps.check_version_changed.outputs.version_changed == 'true'
@@ -199,16 +228,22 @@ jobs:
             container: fedora:44
             package_type: rpm
           - distro: rocky-10
-            container: rockylinux:10
+            container: rockylinux/rockylinux:10
             package_type: rpm
 
-          # --- AppImage ---
-          - distro: ubuntu-26.04-appimage
-            container: ubuntu:26.04
+          # --- AppImage (Ubuntu 24.04 — старее glibc, шире совместимость) ---
+          - distro: ubuntu-22.04-appimage
+            container: ubuntu:22.04
             package_type: appimage
 
     container:
       image: ${{ matrix.container }}
+
+    # ВАЖНО: GitHub для container-джобов по умолчанию использует sh,
+    # а не bash. Без этого `[[ … ]]` в наших скриптах молча падает.
+    defaults:
+      run:
+        shell: bash
 
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -386,8 +421,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all package artifacts
-        # continue-on-error: если часть матриц упала, их артефактов нет —
-        # это не повод ронять релиз.
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
@@ -400,8 +433,6 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          # Ищем именно ПАКЕТЫ, а не логи — иначе при полном провале матрицы
-          # в dist/ окажутся только build-package.log, и релиз создастся с мусором.
           packages=(dist/*.deb dist/*.rpm dist/*.AppImage)
           if (( ${#packages[@]} > 0 )); then
             echo "::notice::Найдены пакеты для публикации:"
@@ -442,7 +473,6 @@ jobs:
           tag_name: ${{ format('v{0}', needs.build-binary.outputs.version) }}
           name: Release v${{ needs.build-binary.outputs.version }}
           body: ${{ steps.body.outputs.body }}
-          # Явные расширения — чтобы логи и прочий мусор из dist/ не попали в релиз.
           files: |
             dist/*.deb
             dist/*.rpm

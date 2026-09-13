@@ -321,14 +321,28 @@ cleanup() {
 trap cleanup EXIT
 
 # === Автоопределение зависимостей .deb через dpkg-shlibdeps ===
-# Возвращает строку для поля Depends: (без префикса "shlibs:Depends=").
-# Требует пакет dpkg-dev.
+# Если есть закешированный результат из build-binary (файл install/DEB_DEPENDS),
+# используем его. Это надёжнее, чем dpkg-shlibdeps в чужом контейнере, где
+# нет runtime-библиотек (libmpv, libcurl, gtk3 и т.п.).
 detect_deb_depends() {
     local bin_path="$1"
+    local cached="$SCRIPT_DIR/install/DEB_DEPENDS"
+
+    if [ -f "$cached" ]; then
+        local cached_deps
+        cached_deps=$(tr -d '\n\r' < "$cached" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        if [ -n "$cached_deps" ]; then
+            echo "[i] Использую кэш Depends из $cached" >&2
+            echo "[i] Depends: $cached_deps" >&2
+            echo "$cached_deps"
+            return 0
+        fi
+    fi
+
+    # Fallback — dpkg-shlibdeps (требует установленных runtime-libs).
     local tmp_dir
     tmp_dir=$(mktemp -d)
 
-    # dpkg-shlibdeps требует наличие debian/control в рабочей директории.
     mkdir -p "$tmp_dir/debian"
     cat > "$tmp_dir/debian/control" << EOF
 Source: $PACKAGE_NAME
@@ -337,10 +351,15 @@ Architecture: any
 EOF
 
     local output
-    output=$(cd "$tmp_dir" && dpkg-shlibdeps -O "$bin_path" 2>/dev/null) || true
+    # stderr НЕ подавляем — если что-то не так, увидим причину в логе.
+    output=$(cd "$tmp_dir" && dpkg-shlibdeps -O "$bin_path" 2>&1) || true
     rm -rf "$tmp_dir"
 
-    # Извлекаем значение после "shlibs:Depends=" и убираем переносы строк
+    if ! echo "$output" | grep -q '^shlibs:Depends='; then
+        echo "[!] dpkg-shlibdeps не смог определить зависимости:" >&2
+        echo "$output" >&2
+    fi
+
     echo "$output" | sed -n 's/^shlibs:Depends=//p' | tr -d '\n\r'
 }
 
@@ -527,7 +546,10 @@ build_appimage() {
     fi
 
     echo "[+] Запуск linuxdeploy с GTK-плагином..."
-    if ARCH="$APPIMAGE_ARCH" "$LINUXDEPLOY" --appdir="$APPDIR" \
+    # APPIMAGE_EXTRACT_AND_RUN: linuxdeploy сам является AppImage.
+    # В Docker нет /dev/fuse, поэтому монтирование падает. Эта переменная
+    # заставляет AppImage-рантайм распаковаться в /tmp и запуститься напрямую.
+    if APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$APPIMAGE_ARCH" "$LINUXDEPLOY" --appdir="$APPDIR" \
     --plugin gtk \
     --desktop-file="$APPDIR/usr/share/applications/$PACKAGE_NAME.desktop" \
     --output=appimage; then
@@ -535,13 +557,11 @@ build_appimage() {
     else
         echo "[!] Ошибка при создании AppImage."
         echo "Для отладки запустите вручную:"
-        echo "    ARCH=$APPIMAGE_ARCH $LINUXDEPLOY --appdir=$APPDIR --plugin gtk --output=appimage"
+        echo "    APPIMAGE_EXTRACT_AND_RUN=1 ARCH=$APPIMAGE_ARCH $LINUXDEPLOY --appdir=$APPDIR --plugin gtk --output=appimage"
         exit 1
     fi
 
     # ---- Ищем созданный AppImage (исключая linuxdeploy) ----
-    # linuxdeploy генерирует имя из Name= в .desktop (пробелы → подчёркивания),
-    # поэтому конкретное имя заранее неизвестно. Полагаемся на find.
     local found_appimage=""
     found_appimage=$(find "$SCRIPT_DIR" -maxdepth 1 -name "*-${APPIMAGE_ARCH}.AppImage" ! -name "linuxdeploy*" -print -quit)
 
@@ -626,15 +646,34 @@ sign_files() {
 
         # --- Подпись .rpm ---
         if command -v rpm >/dev/null 2>&1; then
-            if [ -f "$HOME/.rpmmacros" ] && grep -q "^%_gpg_name" "$HOME/.rpmmacros"; then
+            # %_gpg_name и %_signature нужны всегда — и локально, и в CI.
+            touch "$HOME/.rpmmacros"
+
+            if grep -q "^%_gpg_name" "$HOME/.rpmmacros"; then
                 sed -i "s|^%_gpg_name.*|%_gpg_name $GPG_KEY_ID|" "$HOME/.rpmmacros"
-                echo "[+] Обновлён ~/.rpmmacros: %_gpg_name $GPG_KEY_ID"
             else
-                echo "[+] Настройка ~/.rpmmacros (ключ: $GPG_KEY_ID)..."
-                cat >> "$HOME/.rpmmacros" << EOF
-%_signature gpg
-%_gpg_name $GPG_KEY_ID
+                echo "%_gpg_name $GPG_KEY_ID" >> "$HOME/.rpmmacros"
+            fi
+
+            if ! grep -q "^%_signature" "$HOME/.rpmmacros"; then
+                echo "%_signature gpg" >> "$HOME/.rpmmacros"
+            fi
+
+            # В CI RPM вызывает gpg с --passphrase-fd 3 и без TTY → падает
+            # на беспарольном ключе. Переопределяем команду. Локально НЕ
+            # трогаем — у пользователя свой gpg-agent и, возможно, ключ
+            # с паролем.
+            if [ -n "${GPG_WRAPPER_DIR:-}" ]; then
+                if ! grep -q "^%__gpg_sign_cmd" "$HOME/.rpmmacros"; then
+                    cat >> "$HOME/.rpmmacros" <<'EOF'
+%__gpg gpg
+%__gpg_check_password_cmd /bin/true
+%__gpg_sign_cmd %{__gpg} --batch --pinentry-mode loopback --passphrase '' -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}
 EOF
+                fi
+                echo "[+] ~/.rpmmacros: включён CI-override подписи (ключ: $GPG_KEY_ID)"
+            else
+                echo "[+] ~/.rpmmacros: локальный режим, override не добавляется (ключ: $GPG_KEY_ID)"
             fi
 
             for file in "$dist_dir"/*.rpm; do
@@ -664,7 +703,6 @@ EOF
     fi
 
     # ---------- Генерация checksums.txt (ВСЕГДА) ----------
-    # Идёт после подписи, чтобы .asc-файлы попали в контрольные суммы.
     echo "[+] Генерация checksums.txt..."
     rm -f "$checksum_file" "$signature_file"
 
