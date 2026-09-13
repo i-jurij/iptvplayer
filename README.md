@@ -4,6 +4,8 @@
 > They are not yet ready for general use across distributions. This applies
 > especially to `setup-deps.sh` — the system package list and build dependency
 > versions may be inaccurate even on Debian 13. Use at your own risk.
+> deb package from release build for Ubuntu 24.04. deb for debian 13 you can  
+> donload from 
 
 ## Screenshots
 

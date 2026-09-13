@@ -127,8 +127,13 @@ jobs:
       - name: Install packaging tools
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y debsigs rpm
+          sudo apt-get install -y debsigs rpm gnupg pinentry-curses dpkg-dev
+          command -v rpmbuild       || { echo "::error::rpmbuild not found";       exit 1; }
+          command -v gpg            || { echo "::error::gpg not found";            exit 1; }
+          command -v debsigs        || { echo "::error::debsigs not found";        exit 1; }
+          command -v dpkg-shlibdeps || { echo "::error::dpkg-shlibdeps not found"; exit 1; }
 
       - name: Delete old third_party cache
         if: steps.check_version_changed.outputs.version_changed == 'true'
@@ -137,6 +142,10 @@ jobs:
           CURRENT_KEY: ${{ runner.os }}-third_party-${{ hashFiles('setup-deps.sh') }}
         run: |
           set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::warning::gh CLI не найден — пропускаем очистку старых кэшей."
+            exit 0
+          fi
           OLD_KEYS=$(gh cache list --repo "$REPO" --limit 100 \
             | awk -v cur="$CURRENT_KEY" '$1 != cur && $1 ~ /^'"${{ runner.os }}"'-third_party-/ {print $1}')
           if [[ -z "$OLD_KEYS" ]]; then
@@ -151,40 +160,74 @@ jobs:
           done
           echo "Готово."
 
-      # ---- Импорт GPG-ключа ДО сборки, чтобы build-package.sh мог подписывать ----
+      # ---- Импорт GPG-ключа ДО сборки ----
       - name: Import GPG key
         if: steps.check_version_changed.outputs.version_changed == 'true'
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          if [ -z "$GPG_PRIVATE_KEY" ]; then
+          set -euo pipefail
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
             echo "::warning::No GPG private key found in secrets, skipping signing."
             exit 0
           fi
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
-          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
-          gpg-connect-agent reloadagent /bye || true
-          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | grep '^sec' | head -1 | cut -d: -f5)
-          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
-          echo "::notice::GPG key imported, ID: $GPG_KEY_ID"
 
-      # ---- Сборка пакетов (включает подпись пакетов и checksums.txt) ----
+          export GNUPGHOME="$(mktemp -d)"
+          chmod 700 "$GNUPGHOME"
+
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+          echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
+          echo "pinentry-mode loopback"   >> "$GNUPGHOME/gpg.conf"
+
+          if [ -n "${GPG_PASSPHRASE:-}" ]; then
+            printf '%s' "$GPG_PASSPHRASE" > "$GNUPGHOME/.gpg-pass"
+            chmod 600 "$GNUPGHOME/.gpg-pass"
+            echo "GPG_PASSPHRASE_FILE=$GNUPGHOME/.gpg-pass" >> "$GITHUB_ENV"
+          fi
+
+          gpg-connect-agent reloadagent /bye || true
+
+          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
+          if [ -z "$GPG_KEY_ID" ]; then
+            echo "::error::GPG key imported but no secret key found."
+            exit 1
+          fi
+
+          echo "GNUPGHOME=$GNUPGHOME"   >> $GITHUB_ENV
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
+          echo "::notice::GPG key imported, ID: $GPG_KEY_ID (GNUPGHOME=$GNUPGHOME)"
+
+      # ---- Сборка пакетов ----
       - name: Build packages
         if: steps.check_version_changed.outputs.version_changed == 'true'
-        env:
-          GPG_KEY_ID: ${{ env.GPG_KEY_ID }}
         run: |
           chmod +x build-package.sh
           ./build-package.sh --all
 
-      # ---- Публичный ключ в dist/ для пользователей ----
+      # ---- Публичный ключ в dist/ ----
       - name: Export public key
-        if: steps.check_version_changed.outputs.version_changed == 'true' && env.GPG_KEY_ID != ''
+        if: always() && steps.check_version_changed.outputs.version_changed == 'true'
         run: |
+          set -euo pipefail
+          if [ -z "${GPG_KEY_ID:-}" ]; then
+            echo "GPG_KEY_ID not set — skipping public key export"
+            exit 0
+          fi
+          mkdir -p dist
           gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
           echo "Public key exported to dist/public-key.asc"
+
+      # ---- Очистка приватного ключа ----
+      - name: Cleanup GNUPGHOME
+        if: always()
+        run: |
+          if [ -n "${GNUPGHOME:-}" ]; then
+            rm -rf "$GNUPGHOME" || true
+            echo "GNUPGHOME removed: $GNUPGHOME"
+          fi
+          rm -f "$HOME/.rpmmacros" || true
 
       # ---- Публикация релиза ----
       - name: Create GitHub Release and upload artifacts

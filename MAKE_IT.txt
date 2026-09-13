@@ -1,20 +1,19 @@
-Member:
-X.Y.Z = major.minor.patch
-major - breaking change
-minor - backward compatible functionality update
-patch - backward compatible fix 
-==============================================================================
 
-    LICENSE в корне — текст лицензии.
-    MIT в About (MainFrame::OnAbout()) — жёстко.
-    <project_license>MIT</project_license> в метаинфо (resources) — жёстко.
-    License: MIT в RPM-спеке (build-package.sh) — жёстко.
-===============================================================================
-
-переписать скрипт сборки зависимостей, чтобы можно было собрать в любой системе линукс -
-сделано, не тестировалось - check on github (Ubuntu latest)
-
-добавить секрет на гитхаб
 починить сборку на гитхаб - зависимости и флаги сборки виксвиджетс (поправить скрипты)
 
 ===========================================================================
+make it
+Матрица: Ubuntu latest и Debian 13
+yaml
+strategy:
+  fail-fast: false
+  matrix:
+    include:
+      - container: ubuntu:24.04
+        suffix: ubuntu2404
+      - container: debian:trixie
+        suffix: debian13
+===============================================================================
+код напрямую использует 5 библиотек: wxWidgets (статически), curl, mpv, expat, zlib. 
+Нужно будет собрать их статически
+===============================================================================

@@ -112,13 +112,12 @@ read_versions_from_install() {
 }
 
 # === Проверка зависимостей ===
-# === Проверка зависимостей ===
 check_deps() {
     local required=()
     local optional=()
 
     # Обязательные для сборки пакетов
-    for tool in cmake git fakeroot dpkg-deb rpmbuild rpm wget tar gpg; do
+    for tool in cmake git fakeroot dpkg-deb dpkg-shlibdeps rpmbuild rpm wget tar gpg; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             required+=("$tool")
         fi
@@ -247,17 +246,56 @@ cleanup() {
 # Удаляем временные каталоги при любом завершении скрипта
 trap cleanup EXIT
 
+# === Автоопределение зависимостей .deb через dpkg-shlibdeps ===
+# Возвращает строку для поля Depends: (без префикса "shlibs:Depends=").
+# Требует пакет dpkg-dev.
+detect_deb_depends() {
+    local bin_path="$1"
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    # dpkg-shlibdeps требует наличие debian/control в рабочей директории.
+    # Создаём минимальный control во временной папке.
+    mkdir -p "$tmp_dir/debian"
+    cat > "$tmp_dir/debian/control" << EOF
+Source: $PACKAGE_NAME
+Package: $PACKAGE_NAME
+Architecture: any
+EOF
+
+    local output=""
+    output=$(cd "$tmp_dir" && dpkg-shlibdeps -O "$bin_path" 2>/dev/null) || true
+    rm -rf "$tmp_dir"
+
+    # Извлекаем значение после "shlibs:Depends=" и убираем переносы строк
+    echo "$output" | sed -n 's/^shlibs:Depends=//p' | tr -d '\n\r'
+}
+
 # === Сборка .deb ===
 build_deb() {
     local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION_FILE}_amd64.deb"
     echo "[+] Создание .deb..."
     mkdir -p "$STAGING_DIR/DEBIAN"
+
+    # Определяем зависимости через dpkg-shlibdeps
+    echo "[+] Определение зависимостей .deb..."
+    local depends
+    depends=$(detect_deb_depends "$STAGING_DIR/usr/bin/$PACKAGE_NAME")
+
+    if [ -z "$depends" ]; then
+        echo "[!] Не удалось определить зависимости .deb."
+        echo "    Убедитесь, что установлен dpkg-dev: sudo apt install dpkg-dev"
+        exit 1
+    fi
+    echo "[+] Depends: $depends"
+
     cat > "$STAGING_DIR/DEBIAN/control" << EOF
 Package: $PACKAGE_NAME
 Version: $VERSION
 Section: network
 Priority: optional
 Architecture: amd64
+Depends: $depends
 Maintainer: ijurij <mnisjil@duck.com>
 Homepage: https://github.com/i-jurij/$PACKAGE_NAME
 Description: IPTV Playlist Player
@@ -561,7 +599,8 @@ show_help() {
     и затем читается из install/.
   - Все артефакты сохраняются в каталог dist/.
   - Временные файлы удаляются автоматически после сборки.
-  - Для сборки требуются: cmake, git, fakeroot, dpkg-deb, rpmbuild, wget, tar.
+  - Для сборки требуются: cmake, git, fakeroot, dpkg-deb, dpkg-shlibdeps,
+    rpmbuild, wget, tar.
 EOF
 }
 
