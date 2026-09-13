@@ -272,6 +272,7 @@ EOF
 }
 
 # === Сборка .deb ===
+# === Сборка .deb ===
 build_deb() {
     local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION_FILE}_amd64.deb"
     echo "[+] Создание .deb..."
@@ -328,7 +329,7 @@ EOF
     fakeroot chmod -R 755 "$STAGING_DIR/usr"
     fakeroot chmod 755 "$STAGING_DIR/DEBIAN"
 
-    fakeroot dpkg-deb --build "$STAGING_DIR" "$deb_file"
+    fakeroot dpkg-deb -Zxz --build "$STAGING_DIR" "$deb_file"
     echo "[✓] .deb создан: $deb_file"
 
     rm -rf "$STAGING_DIR/DEBIAN"
@@ -484,6 +485,7 @@ build_appimage() {
 }
 
 # ---- Подпись пакетов и контрольные суммы ----
+# ---- Подпись пакетов и контрольные суммы ----
 sign_files() {
     local dist_dir="$OUTPUT_DIR"
     local checksum_basename="checksums.txt"
@@ -499,15 +501,37 @@ sign_files() {
     echo "[+] Подпись пакетов (ключ: $GPG_KEY_ID)..."
 
     # --- Подпись .deb через debsigs ---
+    # ВАЖНО: debsigs вызывается внутри if, чтобы ненулевой код возврата
+    # (например, из-за несовместимости с zstd-сжатым control.tar
+    # в старых версиях debsigs) не приводил к выходу из скрипта из-за `set -e`.
     if command -v debsigs >/dev/null 2>&1; then
+        local deb_found=false
         for file in "$dist_dir"/*.deb; do
             [ -f "$file" ] || continue
+            deb_found=true
             echo "    debsigs: $(basename "$file")"
-            debsigs --sign=origin --default-key="$GPG_KEY_ID" "$file"
+            if debsigs --sign=origin --default-key="$GPG_KEY_ID" "$file"; then
+                echo "    ✓ Подписан: $(basename "$file")"
+            else
+                echo "    ⚠ debsigs не смог подписать $(basename "$file") — создаём отсоединённую подпись .deb.asc"
+                gpg --batch --yes --no-tty --detach-sign --armor \
+                    --local-user "$GPG_KEY_ID" --output "$file.asc" "$file" \
+                    || echo "    ⚠ Не удалось создать даже отсоединённую подпись"
+            fi
         done
+        if [ "$deb_found" = false ]; then
+            echo "[!] .deb файлы не найдены в $dist_dir"
+        fi
     else
         echo "[!] debsigs не установлен — .deb не подписан."
         echo "    Установите: sudo apt install debsigs"
+        # Fallback: detached signatures, если deb'ы есть
+        for file in "$dist_dir"/*.deb; do
+            [ -f "$file" ] || continue
+            gpg --batch --yes --no-tty --detach-sign --armor \
+                --local-user "$GPG_KEY_ID" --output "$file.asc" "$file" \
+                || echo "    ⚠ Не удалось подписать $(basename "$file")"
+        done
     fi
 
     # --- Подпись .rpm ---
@@ -536,7 +560,7 @@ EOF
     for file in "$dist_dir"/*.AppImage; do
         [ -f "$file" ] || continue
         echo "    gpg --detach-sign: $(basename "$file")"
-        gpg --batch --yes --detach-sign --armor \
+        gpg --batch --yes --no-tty --detach-sign --armor \
             --local-user "$GPG_KEY_ID" --output "$file.asc" "$file"
     done
 
@@ -561,7 +585,7 @@ EOF
 
     # --- Подпись checksums.txt ---
     echo "[+] Подпись checksums.txt..."
-    gpg --batch --yes --detach-sign --armor --local-user "$GPG_KEY_ID" \
+    gpg --batch --yes --no-tty --detach-sign --armor --local-user "$GPG_KEY_ID" \
         --output "$signature_file" "$checksum_file"
     echo "[✓] Подпись checksums.txt создана: $signature_file"
 }

@@ -180,11 +180,14 @@ jobs:
 
           echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
           echo "pinentry-mode loopback"   >> "$GNUPGHOME/gpg.conf"
+          echo "batch"                    >> "$GNUPGHOME/gpg.conf"
+          echo "no-tty"                   >> "$GNUPGHOME/gpg.conf"
 
           if [ -n "${GPG_PASSPHRASE:-}" ]; then
             printf '%s' "$GPG_PASSPHRASE" > "$GNUPGHOME/.gpg-pass"
             chmod 600 "$GNUPGHOME/.gpg-pass"
             echo "GPG_PASSPHRASE_FILE=$GNUPGHOME/.gpg-pass" >> "$GITHUB_ENV"
+            echo "passphrase-file $GNUPGHOME/.gpg-pass" >> "$GNUPGHOME/gpg.conf"
           fi
 
           gpg-connect-agent reloadagent /bye || true
