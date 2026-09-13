@@ -5,7 +5,11 @@ minor - backward compatible functionality update
 patch - backward compatible fix 
 ==============================================================================
 
-check build, setup-deps, build-release, build-package (run build-package and rebuild all)
+    LICENSE в корне — текст лицензии.
+    MIT в About (MainFrame::OnAbout()) — жёстко.
+    <project_license>MIT</project_license> в метаинфо (resources) — жёстко.
+    License: MIT в RPM-спеке (build-package.sh) — жёстко.
+===============================================================================
 
 переписать скрипт сборки зависимостей, чтобы можно было собрать в любой системе линукс -
 сделано, не тестировалось - check on github (Ubuntu latest)

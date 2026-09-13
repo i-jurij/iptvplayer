@@ -333,6 +333,16 @@ else()
     message(WARNING "AppStream-метаданные не найдены: ${METAINFO_FILE}")
 endif()
 
+# ---- Установка файла лицензии ----
+if(EXISTS "${CMAKE_SOURCE_DIR}/LICENSE")
+    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+            DESTINATION share/doc/${PROJECT_NAME}
+            RENAME copyright)
+    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+            DESTINATION share/licenses/${PROJECT_NAME}
+            RENAME LICENSE)
+endif()
+
 # ------------------------
 # Иконки
 # ------------------------

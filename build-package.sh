@@ -38,6 +38,7 @@ cd "$SCRIPT_DIR"
 
 # === Настройки ===
 PACKAGE_NAME="iptvplayer"
+ICON_NAME="${PACKAGE_NAME}.svg"
 
 # AppStream-метаданные: имя файла хранится в корневом METAINFO_NAME
 if [ ! -f "$SCRIPT_DIR/METAINFO_NAME" ]; then
@@ -54,7 +55,6 @@ BUILD_RELEASE_SCRIPT="$SCRIPT_DIR/build-release.sh"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
 STAGING_DIR="$SCRIPT_DIR/pkg-staging"
 APPDIR="$SCRIPT_DIR/${PACKAGE_NAME}.AppDir"
-ICON_NAME="program.svg"
 FORCE_REBUILD=false
 DO_CLEAN=false
 CLEAN_ONLY=false
@@ -112,18 +112,39 @@ read_versions_from_install() {
 }
 
 # === Проверка зависимостей ===
+# === Проверка зависимостей ===
 check_deps() {
-    local missing=()
-    for tool in cmake git fakeroot dpkg-deb rpmbuild wget tar; do
+    local required=()
+    local optional=()
+
+    # Обязательные для сборки пакетов
+    for tool in cmake git fakeroot dpkg-deb rpmbuild rpm wget tar gpg; do
         if ! command -v "$tool" >/dev/null 2>&1; then
-            missing+=("$tool")
+            required+=("$tool")
         fi
     done
 
-    if [ ${#missing[@]} -ne 0 ]; then
-        echo "[!] Не хватает: ${missing[*]}"
+    # Опциональные — нужны только для подписи / дополнительных артефактов
+    for tool in debsigs zsyncmake; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            optional+=("$tool")
+        fi
+    done
+
+    if [ ${#required[@]} -ne 0 ]; then
+        echo "[!] Не хватает обязательных инструментов: ${required[*]}"
         echo "Установите их вручную или через пакетный менеджер."
         exit 1
+    fi
+
+    if [ ${#optional[@]} -ne 0 ]; then
+        echo "[i] Опциональные инструменты не найдены: ${optional[*]}"
+        for tool in "${optional[@]}"; do
+            case "$tool" in
+                debsigs)   echo "    → .deb не будет подписан (sudo apt install debsigs)" ;;
+                zsyncmake) echo "    → .zsync не будет сгенерирован (sudo apt install zsync)" ;;
+            esac
+        done
     fi
 }
 
@@ -183,7 +204,7 @@ prepare_staging() {
 [Desktop Entry]
 Name=IPTV Player
 Exec=$PACKAGE_NAME %F
-Icon=$PACKAGE_NAME
+Icon=${ICON_NAME%.svg}
 Type=Application
 Categories=AudioVideo;
 Comment=IPTV Playlist Player
@@ -193,7 +214,7 @@ MimeType=video/mp4;video/x-matroska;video/avi;video/mpeg;video/quicktime;video/x
 EOF
 
     mkdir -p "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps"
-    cp "$SCRIPT_DIR/install/share/$PACKAGE_NAME/icons/$ICON_NAME" "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg" 2>/dev/null || true
+    cp "$SCRIPT_DIR/install/share/$PACKAGE_NAME/icons/$ICON_NAME" "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME" 2>/dev/null || true
 
     # Копирование AppStream metadata (metainfo.xml)
     if [ -f "$SCRIPT_DIR/install/share/metainfo/$METAINFO_NAME" ]; then
@@ -202,6 +223,18 @@ EOF
         echo "[+] AppStream metadata скопирован."
     else
         echo "[!] $METAINFO_NAME не найден в $SCRIPT_DIR/install/share/metainfo/"
+    fi
+
+    # Лицензия — в стандартные места для .deb и .rpm
+    if [ -d "$SCRIPT_DIR/install/share/doc/$PACKAGE_NAME" ]; then
+        mkdir -p "$STAGING_DIR/usr/share/doc/$PACKAGE_NAME"
+        cp -r "$SCRIPT_DIR/install/share/doc/$PACKAGE_NAME/"* \
+              "$STAGING_DIR/usr/share/doc/$PACKAGE_NAME/" 2>/dev/null || true
+    fi
+    if [ -d "$SCRIPT_DIR/install/share/licenses/$PACKAGE_NAME" ]; then
+        mkdir -p "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME"
+        cp -r "$SCRIPT_DIR/install/share/licenses/$PACKAGE_NAME/"* \
+              "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME/" 2>/dev/null || true
     fi
 }
 
@@ -240,12 +273,12 @@ fi
 EOF
     chmod 755 "$STAGING_DIR/DEBIAN/postinst"
 
-    cat > "$STAGING_DIR/DEBIAN/prerm" << 'EOF'
+    cat > "$STAGING_DIR/DEBIAN/prerm" << EOF
 #!/bin/bash
 set -e
-if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-    rm -f /usr/share/applications/iptvplayer.desktop
-    rm -f /usr/share/icons/hicolor/scalable/apps/iptvplayer.svg
+if [ \$1 = "remove" ] || [ \$1 = "purge" ]; then
+    rm -f "/usr/share/applications/$PACKAGE_NAME.desktop"
+    rm -f "/usr/share/icons/hicolor/scalable/apps/$ICON_NAME"
     if [ -x /usr/bin/update-icon-caches ]; then
         /usr/bin/update-icon-caches /usr/share/icons/hicolor || true
     fi
@@ -305,8 +338,10 @@ tar -xzf %{SOURCE0} -C \$RPM_BUILD_ROOT --strip-components=1
 /usr/bin/$PACKAGE_NAME
 /usr/share/$PACKAGE_NAME/*
 /usr/share/applications/$PACKAGE_NAME.desktop
-/usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg
+/usr/share/icons/hicolor/scalable/apps/$ICON_NAME
 /usr/share/metainfo/$METAINFO_NAME
+/usr/share/doc/$PACKAGE_NAME/copyright
+/usr/share/licenses/$PACKAGE_NAME/LICENSE
 
 %post
 if [ -x /usr/bin/update-icon-caches ]; then
@@ -314,10 +349,10 @@ if [ -x /usr/bin/update-icon-caches ]; then
 fi
 
 %preun
-if [ \$1 == 0 ]; then
-    rm -f /usr/share/applications/$PACKAGE_NAME.desktop
-    rm -f /usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg
-    rm -f /usr/bin/$PACKAGE_NAME
+if [ \$1 = 0 ]; then
+    rm -f "/usr/share/applications/$PACKAGE_NAME.desktop"
+    rm -f "/usr/share/icons/hicolor/scalable/apps/$ICON_NAME"
+    rm -f "/usr/bin/$PACKAGE_NAME"
     if [ -x /usr/bin/update-icon-caches ]; then
         /usr/bin/update-icon-caches /usr/share/icons/hicolor || true
     fi
@@ -343,9 +378,10 @@ build_appimage() {
     mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/scalable/apps"
     cp "$STAGING_DIR/usr/bin/$PACKAGE_NAME" "$APPDIR/usr/bin/"
     cp -r "$STAGING_DIR/usr/share/$PACKAGE_NAME" "$APPDIR/usr/share/"
-    cp "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop" "$APPDIR/usr/share/applications/"
-    cp "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg" "$APPDIR/$PACKAGE_NAME.svg"
-    cp "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$PACKAGE_NAME.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
+    cp "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop" "$APPDIR/usr/share/applications/"    
+    cp "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME" "$APPDIR/$ICON_NAME"
+    cp "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
+
     
     # AppStream metadata — linuxdeploy сам подхватит из usr/share/metainfo/
     if [ -f "$STAGING_DIR/usr/share/metainfo/$METAINFO_NAME" ]; then
@@ -373,8 +409,7 @@ build_appimage() {
     echo "[+] Запуск linuxdeploy с GTK-плагином..."
     if ARCH=x86_64 "$LINUXDEPLOY" --appdir="$APPDIR" \
     --plugin gtk \
-    --desktop-file="$APPDIR/usr/share/applications/iptvplayer.desktop" \
-    --appstream="$APPDIR/usr/share/metainfo/io.github.i_jurij.iptvplayer.metainfo.xml" \
+    --desktop-file="$APPDIR/usr/share/applications/$PACKAGE_NAME.desktop" \
     --output=appimage; then
         echo "[✓] linuxdeploy завершился успешно."
     else
@@ -413,8 +448,10 @@ build_appimage() {
 # ---- Подпись пакетов и контрольные суммы ----
 sign_files() {
     local dist_dir="$OUTPUT_DIR"
-    local checksum_file="$dist_dir/checksums.txt"
-    local signature_file="$checksum_file.asc"
+    local checksum_basename="checksums.txt"
+    local signature_basename="${checksum_basename}.asc"
+    local checksum_file="$dist_dir/$checksum_basename"
+    local signature_file="$dist_dir/$signature_basename"
 
     if ! command -v gpg >/dev/null 2>&1 || [ -z "${GPG_KEY_ID:-}" ]; then
         echo "[!] GPG ключ не найден или не задан. Пропускаем подпись пакетов и checksums."
@@ -475,7 +512,7 @@ EOF
         files=()
         for f in *; do
             case "$f" in
-                checksums.txt|checksums.txt.asc) continue ;;
+                "$checksum_basename"|"$signature_basename") continue ;;
             esac
             files+=("$f")
         done
