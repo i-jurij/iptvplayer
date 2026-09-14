@@ -251,7 +251,7 @@ jobs:
           rm -f "$HOME/.rpmmacros" || true
 
   # =========================================================================
-  # 3. AppImage (окружение = линковка бинарника: setup-deps из кэша)
+  # 3. AppImage
   # =========================================================================
   package-appimage:
     needs: build-binary
@@ -271,8 +271,6 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x setup-deps.sh
-          # setup-deps поставит apt-пакеты (libmpv-dev, libgtk-3-dev, ...)
-          # и подтвердит, что wx/wxSQLite3 уже в кэше.
           ./setup-deps.sh --yes
 
       - uses: actions/download-artifact@v4
@@ -343,7 +341,7 @@ jobs:
           [ -n "${GNUPGHOME:-}" ] && rm -rf "$GNUPGHOME" || true
 
   # =========================================================================
-  # 4. Smoke-test: .deb/.rpm в целевых дистрибутивах
+  # 4. Smoke-test .deb/.rpm
   # =========================================================================
   smoke-test-deb-rpm:
     needs: package-deb-rpm
@@ -370,14 +368,12 @@ jobs:
       - name: Install and ldd
         run: |
           set -euo pipefail
-
           if [ "${{ matrix.type }}" = "deb" ]; then
             apt-get update -qq
             apt-get install -y ./dist/*.deb
           else
             dnf install -y ./dist/*.rpm
           fi
-
           echo "=== ldd /usr/bin/iptvplayer ==="
           if ldd /usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
             echo "::error::Не найдены библиотеки:"
@@ -386,33 +382,8 @@ jobs:
           fi
           echo "OK: все NEEDED-библиотеки разрешены"
 
-      - name: Try to run (best effort)
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          if [ "${{ matrix.type }}" = "deb" ]; then
-            apt-get install -y xvfb >/dev/null 2>&1 || true
-          else
-            dnf install -y xorg-x11-server-Xvfb >/dev/null 2>&1 || true
-          fi
-
-          RUNNER=""
-          command -v xvfb-run >/dev/null 2>&1 && RUNNER="xvfb-run -a"
-
-          for flag in --version --help -h; do
-            echo "--- iptvplayer $flag ---"
-            if timeout 8 $RUNNER iptvplayer $flag 2>&1 | head -20; then
-              echo "OK"; exit 0
-            fi
-          done
-
-          echo "--- direct launch (timeout 8) ---"
-          timeout 8 $RUNNER iptvplayer 2>&1 | head -20 || true
-          echo "::warning::CLI-проверка не удалась — визуальная проверка невозможна"
-          exit 0
-
   # =========================================================================
-  # 5. Smoke-test AppImage: целевые + Arch (rolling)
+  # 5. Smoke-test AppImage (без Xvfb — только extract + ldd)
   # =========================================================================
   smoke-test-appimage:
     needs: package-appimage
@@ -467,7 +438,7 @@ jobs:
             exit 1
           fi
           echo "OK: все NEEDED-библиотеки разрешены"
-          
+
   # =========================================================================
   # 6. Публикация релиза
   # =========================================================================
@@ -509,16 +480,16 @@ jobs:
           BODY="Automated release for v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
 
           if [ "${{ needs.smoke-test-deb-rpm.result }}" != "success" ]; then
-            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test .deb/.rpm не прошёл** — часть пакетов может не работать на целевых дистрибутивах. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test .deb/.rpm не прошёл** — часть пакетов может не работать. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
           if [ "${{ needs.smoke-test-appimage.result }}" != "success" ]; then
-            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test AppImage не прошёл** — AppImage может не запуститься на части систем. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test AppImage не прошёл** — AppImage может не запуститься. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
           if [ "${{ needs.package-appimage.result }}" != "success" ]; then
             BODY="$BODY"$'\n\n'"⚠️ **AppImage не собрался.** См. лог."
           fi
 
-            BODY="$BODY"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\` (нужен RPM Fusion)"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"
+          BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc >= 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"
 
           {
             echo "body<<EOF"
