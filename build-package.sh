@@ -389,12 +389,10 @@ EOF
 }
 
 # === Сборка .deb ===
-# === Сборка .deb ===
 build_deb() {
-    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION_FILE}_${DISTRO}_${DEB_ARCH}.deb"
-    echo "[+] Создание .deb (архитектура: $DEB_ARCH, дистрибутив: $DISTRO)..."
+    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION}_${DEB_ARCH}.deb"
+    echo "[+] Создание .deb (архитектура: $DEB_ARCH)..."
     mkdir -p "$STAGING_DIR/DEBIAN"
-
     # Определяем зависимости через dpkg-shlibdeps
     echo "[+] Определение зависимостей .deb..."
     local depends
@@ -451,13 +449,12 @@ EOF
 }
 
 # === Сборка .rpm ===
-# === Сборка .rpm ===
 build_rpm() {
     local release="1"
-    local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION_FILE}-${release}.${DISTRO}.${RPM_ARCH}.rpm"
+    local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}-${release}.${RPM_ARCH}.rpm"
     local SPEC_DIR="$SCRIPT_DIR/pkg-rpm"
 
-    echo "[+] Создание .rpm (архитектура: $RPM_ARCH, дистрибутив: $DISTRO)..."
+    echo "[+] Создание .rpm (архитектура: $RPM_ARCH)..."
 
     mkdir -p "$SPEC_DIR/SOURCES"
     cd "$STAGING_DIR" && tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
@@ -576,7 +573,7 @@ build_appimage() {
     # APPIMAGE_EXTRACT_AND_RUN: linuxdeploy сам является AppImage.
     # В Docker нет /dev/fuse, поэтому монтирование падает. Эта переменная
     # заставляет AppImage-рантайм распаковаться в /tmp и запуститься напрямую.
-    if APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$APPIMAGE_ARCH" "$LINUXDEPLOY" --appdir="$APPDIR" \
+    if APPIMAGE_EXTRACT_AND_RUN=1 DEPLOY_GTK_VERSION=3 ARCH="$APPIMAGE_ARCH" "$LINUXDEPLOY" --appdir="$APPDIR" \
     --plugin gtk \
     --desktop-file="$APPDIR/usr/share/applications/$PACKAGE_NAME.desktop" \
     --output=appimage; then
@@ -584,7 +581,7 @@ build_appimage() {
     else
         echo "[!] Ошибка при создании AppImage."
         echo "Для отладки запустите вручную:"
-        echo "    APPIMAGE_EXTRACT_AND_RUN=1 ARCH=$APPIMAGE_ARCH $LINUXDEPLOY --appdir=$APPDIR --plugin gtk --output=appimage"
+        echo "    APPIMAGE_EXTRACT_AND_RUN=1 DEPLOY_GTK_VERSION=3 ARCH=$APPIMAGE_ARCH $LINUXDEPLOY --appdir=$APPDIR --plugin gtk --output=appimage"
         exit 1
     fi
 

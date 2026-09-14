@@ -365,7 +365,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: packages-deb-rpm
-          path: dist
+          path: .
 
       - name: Install and ldd
         run: |
@@ -437,7 +437,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: packages-appimage
-          path: dist
+          path: .
 
       - name: Install runtime tools
         run: |
@@ -542,7 +542,7 @@ jobs:
             BODY="$BODY"$'\n\n'"⚠️ **AppImage не собрался.** См. лог."
           fi
 
-          BODY="$BODY"$'\n\n'"---"$'\n\n'"**Установка:**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Остальные (Arch, openSUSE, Gentoo и т.д.): \`AppImage\`"
+            BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- glibc >= 2.39: \`AppImage\`"
 
           {
             echo "body<<EOF"
