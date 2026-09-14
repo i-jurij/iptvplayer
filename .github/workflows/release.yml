@@ -170,7 +170,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          
+
       - uses: actions/cache@v4
         with:
           path: third_party
@@ -254,19 +254,20 @@ jobs:
           [ -n "${GNUPGHOME:-}" ] && rm -rf "$GNUPGHOME" || true
 
   # =========================================================================
-  # 3. Smoke-test bundled .deb/.rpm
+  # 3. Smoke-test: пакет + AppImage в десктопном окружении
   # =========================================================================
-  smoke-test-packages:
+  smoke-test:
     needs: package
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { container: 'ubuntu:26.04',             type: deb }
-          - { container: 'debian:13',                type: deb }
-          - { container: 'fedora:44',                type: rpm }
-          - { container: 'rockylinux/rockylinux:10', type: rpm }
+          - { container: 'ubuntu:26.04',             family: 'deb' }
+          - { container: 'debian:13',                family: 'deb' }
+          - { container: 'fedora:44',                family: 'rpm' }
+          - { container: 'rockylinux/rockylinux:10', family: 'rpm' }
+          - { container: 'archlinux:latest',         family: 'arch' }
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -278,15 +279,40 @@ jobs:
           name: packages
           path: .
 
-      - name: Install and ldd
+      - name: Install minimal desktop stack
         run: |
           set -euo pipefail
-          if [ "${{ matrix.type }}" = "deb" ]; then
+          if command -v apt-get >/dev/null; then
             apt-get update -qq
-            apt-get install -y ./dist/*.deb
-          else
-            dnf install -y ./dist/*.rpm
+            apt-get install -y --no-install-recommends \
+              ca-certificates file xz-utils xvfb xfce4
+          elif command -v dnf >/dev/null; then
+            dnf install -y ca-certificates file xz xorg-x11-server-Xvfb
+            dnf group install -y "Xfce Desktop" || dnf group install -y xfce-desktop || true
+          elif command -v pacman >/dev/null; then
+            pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb xfce4
           fi
+
+      - name: Install package (deb / rpm / arch)
+        run: |
+          set -euo pipefail
+          echo "=== Install package ==="
+          case "${{ matrix.family }}" in
+            deb)
+              apt-get install -y ./dist/*.deb
+              ;;
+            rpm)
+              dnf install -y ./dist/*.rpm
+              ;;
+            arch)
+              echo "[i] Arch: нативный .pkg.tar.zst в артефактах нет, пропускаем установку пакета"
+              ;;
+          esac
+
+      - name: Static check — package
+        if: matrix.family != 'arch'
+        run: |
+          set -euo pipefail
           echo "=== ldd /opt/iptvplayer/usr/bin/iptvplayer ==="
           if ldd /opt/iptvplayer/usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
             ldd /opt/iptvplayer/usr/bin/iptvplayer | grep "not found"
@@ -294,63 +320,69 @@ jobs:
           fi
           echo "OK"
 
-  # =========================================================================
-  # 4. Smoke-test AppImage
-  # =========================================================================
-  smoke-test-appimage:
-    needs: package
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { container: 'ubuntu:26.04',             label: 'target' }
-          - { container: 'debian:13',                label: 'target' }
-          - { container: 'fedora:44',                label: 'target' }
-          - { container: 'rockylinux/rockylinux:10', label: 'target' }
-          - { container: 'archlinux:latest',         label: 'rolling' }
-    container:
-      image: ${{ matrix.container }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: packages
-          path: .
-
-      - name: Install minimal tools
+      - name: Dynamic check — package
+        if: matrix.family != 'arch'
         run: |
           set -euo pipefail
-          if command -v apt-get >/dev/null; then
-            apt-get update -qq
-            apt-get install -y --no-install-recommends ca-certificates file xz-utils
-          elif command -v dnf >/dev/null; then
-            dnf install -y ca-certificates file xz
-          elif command -v pacman >/dev/null; then
-            pacman -Sy --noconfirm ca-certificates file xz
+          echo "=== Run package binary under Xvfb ==="
+          Xvfb :99 -screen 0 1440x900x24 &
+          XVFB_PID=$!
+          export DISPLAY=:99
+          sleep 2
+          /opt/iptvplayer/usr/bin/iptvplayer &
+          APP_PID=$!
+          sleep 15
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "::error::package binary crashed during startup"
+            kill "$XVFB_PID" 2>/dev/null || true
+            exit 1
           fi
+          kill "$APP_PID" 2>/dev/null || true
+          kill "$XVFB_PID" 2>/dev/null || true
+          echo "OK"
 
-      - name: Extract and check ldd
+      - name: Extract AppImage and static check
         run: |
           set -euo pipefail
           APPIMAGE=$(ls dist/*.AppImage | head -1)
           chmod +x "$APPIMAGE"
           "$APPIMAGE" --appimage-extract >/dev/null
-          BIN="squashfs-root/AppRun"
-          [ -f "$BIN" ] || BIN="squashfs-root/usr/bin/iptvplayer"
+          BIN="squashfs-root/usr/bin/iptvplayer"
+          [ -f "$BIN" ] || BIN="squashfs-root/AppRun"
+          echo "=== ldd $BIN ==="
           if ldd "$BIN" 2>&1 | grep -q "not found"; then
             ldd "$BIN" | grep "not found"
             exit 1
           fi
           echo "OK"
 
+      - name: Dynamic check — AppImage
+        run: |
+          set -euo pipefail
+          echo "=== Run AppImage under Xvfb ==="
+          APPIMAGE=$(ls dist/*.AppImage | head -1)
+          chmod +x "$APPIMAGE"
+          Xvfb :99 -screen 0 1440x900x24 &
+          XVFB_PID=$!
+          export DISPLAY=:99
+          sleep 2
+          "$APPIMAGE" &
+          APP_PID=$!
+          sleep 15
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "::error::AppImage crashed during startup"
+            kill "$XVFB_PID" 2>/dev/null || true
+            exit 1
+          fi
+          kill "$APP_PID" 2>/dev/null || true
+          kill "$XVFB_PID" 2>/dev/null || true
+          echo "OK"
+
   # =========================================================================
-  # 5. Публикация
+  # 4. Публикация
   # =========================================================================
   release:
-    needs: [build-binary, package, smoke-test-packages, smoke-test-appimage]
+    needs: [build-binary, package, smoke-test]
     if: |
       always() &&
       needs.build-binary.result == 'success' &&
@@ -382,11 +414,8 @@ jobs:
         run: |
           set -euo pipefail
           BODY="Automated release for v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
-          if [ "${{ needs.smoke-test-packages.result }}" != "success" ]; then
-            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test .deb/.rpm не прошёл.** См. https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          fi
-          if [ "${{ needs.smoke-test-appimage.result }}" != "success" ]; then
-            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test AppImage не прошёл.** См. https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "${{ needs.smoke-test.result }}" != "success" ]; then
+            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test не прошёл.** См. https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
           BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc >= 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"
           {
