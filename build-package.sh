@@ -147,12 +147,16 @@ read_versions_from_install() {
     VERSION=$(tr -d '\n\r' < "$VERSION_FILE_PATH" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
     VERSION_FULL=$(tr -d '\n\r' < "$VERSION_FULL_PATH" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
     VERSION_FILE=$(tr -d '\n\r' < "$VERSION_FILE_NAME_PATH" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    [ -z "$VERSION" ] || [ -z "$VERSION_FULL" ] || [ -z "$VERSION_FILE" ] && return 1
+    if [ -z "$VERSION" ] || [ -z "$VERSION_FULL" ] || [ -z "$VERSION_FILE" ]; then
+        return 1
+    fi
     printf '%s\n%s\n%s\n' "$VERSION_FULL" "$VERSION_FILE" "$VERSION"
 }
 
 # === Проверка зависимостей ===
 check_deps() {
+    local pkgmgr="$1"
+    shift
     local need_native_deb=$1
     local need_native_rpm=$2
     local need_native_arch=$3
@@ -167,27 +171,25 @@ check_deps() {
         command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
     done
 
-    if [[ "$need_native_deb" == true || "$need_bundle_deb" == true ]]; then
-        for tool in dpkg-deb; do
-            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
-        done
+    if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]] || [[ "$need_bundle_deb" == true ]]; }; then
+        command -v dpkg-deb >/dev/null 2>&1 || required+=("dpkg-deb")
     fi
-    if [[ "$need_native_deb" == true ]]; then
+    if [[ "$need_native_deb" == true && "$pkgmgr" == deb ]]; then
         command -v dpkg-shlibdeps >/dev/null 2>&1 || required+=("dpkg-shlibdeps")
     fi
-    if [[ "$need_native_rpm" == true || "$need_bundle_rpm" == true ]]; then
+    if { [[ "$need_native_rpm" == true && "$pkgmgr" == rpm ]] || [[ "$need_bundle_rpm" == true ]]; }; then
         for tool in rpmbuild rpm; do
             command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
         done
     fi
-    if [[ "$need_native_arch" == true ]]; then
+    if [[ "$need_native_arch" == true && "$pkgmgr" == arch ]]; then
         command -v makepkg >/dev/null 2>&1 || required+=("makepkg")
     fi
     if [[ "$need_appimage" == true || "$need_bundle_deb" == true || "$need_bundle_rpm" == true ]]; then
         command -v wget >/dev/null 2>&1 || required+=("wget")
     fi
 
-    if [[ "$need_native_deb" == true || "$need_bundle_deb" == true ]] && ! command -v debsigs >/dev/null 2>&1; then
+    if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]] || [[ "$need_bundle_deb" == true ]]; } && ! command -v debsigs >/dev/null 2>&1; then
         optional+=("debsigs")
     fi
     if [[ "$need_appimage" == true ]] && ! command -v zsyncmake >/dev/null 2>&1; then
@@ -233,16 +235,24 @@ build_binary() {
         FORCE_REBUILD=true
     fi
     echo "[+] Сборка через $BUILD_RELEASE_SCRIPT..."
-    [ ! -f "$BUILD_RELEASE_SCRIPT" ] && { echo "[!] $BUILD_RELEASE_SCRIPT не найден."; exit 1; }
-    "$BUILD_RELEASE_SCRIPT" --type release --prefix "$SCRIPT_DIR/install" --yes
+    if [ ! -f "$BUILD_RELEASE_SCRIPT" ]; then
+        echo "[!] $BUILD_RELEASE_SCRIPT не найден." >&2
+        return 1
+    fi
+    if ! "$BUILD_RELEASE_SCRIPT" --type release --prefix "$SCRIPT_DIR/install" --yes; then
+        echo "[!] $BUILD_RELEASE_SCRIPT завершился с ошибкой" >&2
+        return 1
+    fi
     echo "[+] Бинарник собран."
+    return 0
 }
 
 # === Подготовка STAGING_DIR для нативных пакетов ===
 prepare_staging() {
     local BIN_PATH="$SCRIPT_DIR/install/bin/$PACKAGE_NAME"
     if [ ! -d "$SCRIPT_DIR/install/bin" ] || [ ! -f "$BIN_PATH" ]; then
-        echo "[!] Бинарник не найден."; exit 1
+        echo "[!] Бинарник не найден: $BIN_PATH" >&2
+        return 1
     fi
 
     mkdir -p "$STAGING_DIR/usr/bin"
@@ -281,6 +291,7 @@ EOF
         mkdir -p "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME"
         cp -r "$SCRIPT_DIR/install/share/licenses/$PACKAGE_NAME/"* "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME/" 2>/dev/null || true
     fi
+    return 0
 }
 
 # === Очистка ===
@@ -307,7 +318,10 @@ populate_appdir() {
 
     # Готовим staging, если его нет
     if [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]; then
-        prepare_staging
+        if ! prepare_staging; then
+            echo "[!] populate_appdir: не удалось подготовить staging" >&2
+            return 1
+        fi
     fi
 
     cp "$STAGING_DIR/usr/bin/$PACKAGE_NAME" "$APPDIR/usr/bin/"
@@ -326,16 +340,22 @@ populate_appdir() {
 
     if [ ! -f "$LINUXDEPLOY" ]; then
         echo "[+] Скачивание linuxdeploy ($APPIMAGE_ARCH)..."
-        wget -q --show-progress \
+        if ! wget -q --show-progress \
             "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${APPIMAGE_ARCH}.AppImage" \
-            -O "$LINUXDEPLOY"
+            -O "$LINUXDEPLOY"; then
+            echo "[!] не удалось скачать linuxdeploy" >&2
+            return 1
+        fi
         chmod +x "$LINUXDEPLOY"
     fi
     if [ ! -f "$GTK_PLUGIN" ]; then
         echo "[+] Скачивание GTK-плагина (скрипт)..."
-        wget -q --show-progress \
+        if ! wget -q --show-progress \
             "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" \
-            -O "$GTK_PLUGIN"
+            -O "$GTK_PLUGIN"; then
+            echo "[!] не удалось скачать GTK-плагин" >&2
+            return 1
+        fi
         chmod +x "$GTK_PLUGIN"
     fi
 
@@ -345,14 +365,15 @@ populate_appdir() {
         --plugin gtk \
         --desktop-file="$APPDIR/usr/share/applications/$PACKAGE_NAME.desktop"; then
         echo "[✓] AppDir наполнен."
-    else
-        echo "[!] Ошибка linuxdeploy."
-        exit 1
+        return 0
     fi
+
+    echo "[!] Ошибка linuxdeploy." >&2
+    return 1
 }
 
 # =============================================================================
-#                              APPI MAGE
+#                              APPIMAGE
 # =============================================================================
 build_appimage() {
     local appimage_file="$OUTPUT_DIR/${PACKAGE_NAME}-linux-${APPIMAGE_ARCH}-${VERSION_FILE}.AppImage"
@@ -361,7 +382,9 @@ build_appimage() {
 
     # Наполнить AppDir, если ещё не наполнен
     if [ ! -d "$APPDIR/usr/lib" ]; then
-        populate_appdir || return 1
+        if ! populate_appdir; then
+            return 1
+        fi
     fi
 
     local LINUXDEPLOY="$SCRIPT_DIR/linuxdeploy-${APPIMAGE_ARCH}.AppImage"
@@ -372,7 +395,8 @@ build_appimage() {
         --output=appimage; then
         echo "[✓] AppImage собран."
     else
-        echo "[!] Ошибка упаковки AppImage."; exit 1
+        echo "[!] Ошибка упаковки AppImage." >&2
+        return 1
     fi
 
     local found
@@ -381,12 +405,16 @@ build_appimage() {
         mv "$found" "$appimage_file"
         echo "[✓] AppImage: $appimage_file"
     else
-        echo "[!] AppImage не найден."; exit 1
+        echo "[!] AppImage не найден." >&2
+        return 1
     fi
 
     if command -v zsyncmake >/dev/null; then
-        zsyncmake "$appimage_file" -o "$(basename "$appimage_file" .AppImage).zsync"
+        if ! zsyncmake "$appimage_file" -o "$OUTPUT_DIR/$(basename "$appimage_file" .AppImage).zsync"; then
+            echo "[!] zsyncmake упал — .zsync не сгенерирован" >&2
+        fi
     fi
+    return 0
 }
 
 # =============================================================================
@@ -395,7 +423,9 @@ build_appimage() {
 build_bundled_stage() {
     # Наполнить AppDir, если ещё не наполнен
     if [ ! -d "$APPDIR/usr/lib" ]; then
-        populate_appdir || return 1
+        if ! populate_appdir; then
+            return 1
+        fi
     fi
 
     rm -rf "$STAGING_DIR"
@@ -435,13 +465,16 @@ EOF
         mkdir -p "$STAGING_DIR/usr/share/metainfo"
         cp "$APPDIR/usr/share/metainfo/$METAINFO_NAME" "$STAGING_DIR/usr/share/metainfo/"
     fi
+    return 0
 }
 
 # ---- Bundled .deb ----
 build_deb_bundled() {
     local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION}_${DEB_ARCH}.deb"
     echo "[+] Создание bundled .deb..."
-    build_bundled_stage || return 1
+    if ! build_bundled_stage; then
+        return 1
+    fi
 
     mkdir -p "$STAGING_DIR/DEBIAN"
     cat > "$STAGING_DIR/DEBIAN/control" << EOF
@@ -484,9 +517,13 @@ EOF
 
     chmod -R 755 "$STAGING_DIR/usr" 2>/dev/null || true
     chmod 755 "$STAGING_DIR/DEBIAN"
-    dpkg-deb -Zxz --build --root-owner-group "$STAGING_DIR" "$deb_file"
+    if ! dpkg-deb -Zxz --build --root-owner-group "$STAGING_DIR" "$deb_file"; then
+        echo "[!] bundled .deb: dpkg-deb упал" >&2
+        return 1
+    fi
     echo "[✓] Bundled .deb: $deb_file"
     rm -rf "$STAGING_DIR/DEBIAN"
+    return 0
 }
 
 # ---- Bundled .rpm ----
@@ -495,12 +532,19 @@ build_rpm_bundled() {
     local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}-${release}.${RPM_ARCH}.rpm"
     local SPEC_DIR="$SCRIPT_DIR/pkg-rpm"
     echo "[+] Создание bundled .rpm..."
-    build_bundled_stage || return 1
+
+    if ! build_bundled_stage; then
+        echo "[!] bundled .rpm: не удалось подготовить staging" >&2
+        return 1
+    fi
 
     mkdir -p "$SPEC_DIR/SOURCES"
-    tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+    if ! tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
         --transform="s,^,$PACKAGE_NAME-$VERSION/," \
-        -C "$STAGING_DIR" .
+        -C "$STAGING_DIR" .; then
+        echo "[!] bundled .rpm: не удалось создать архив" >&2
+        return 1
+    fi
 
     cat > "$SPEC_DIR/${PACKAGE_NAME}.spec" << EOF
 %define debug_package %{nil}
@@ -566,10 +610,19 @@ fi
 - Initial build
 EOF
 
-    rpmbuild -bb --define "_topdir $SPEC_DIR" "$SPEC_DIR/${PACKAGE_NAME}.spec"
-    mv "$SPEC_DIR/RPMS/"*/*.rpm "$rpm_file" 2>/dev/null \
-        || mv "$SPEC_DIR/RPMS/${RPM_ARCH}/"*.rpm "$rpm_file"
+    if ! rpmbuild -bb --define "_topdir $SPEC_DIR" "$SPEC_DIR/${PACKAGE_NAME}.spec"; then
+        echo "[!] bundled .rpm: rpmbuild упал (см. вывод выше)" >&2
+        return 1
+    fi
+
+    if ! { mv "$SPEC_DIR/RPMS/"*/*.rpm "$rpm_file" 2>/dev/null \
+        || mv "$SPEC_DIR/RPMS/${RPM_ARCH}/"*.rpm "$rpm_file"; }; then
+        echo "[!] bundled .rpm: не найден собранный .rpm" >&2
+        return 1
+    fi
+
     echo "[✓] Bundled .rpm: $rpm_file"
+    return 0
 }
 
 # =============================================================================
@@ -596,14 +649,22 @@ EOF
 }
 
 build_deb_native() {
-    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION}_native_${DEB_ARCH}.deb"
+    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION}_${DISTRO}_${DEB_ARCH}.deb"
     echo "[+] Создание нативного .deb..."
-    [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ] && prepare_staging
+    if [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]; then
+        if ! prepare_staging; then
+            echo "[!] build_deb_native: не удалось подготовить staging" >&2
+            return 1
+        fi
+    fi
     mkdir -p "$STAGING_DIR/DEBIAN"
 
     local depends
     depends=$(detect_deb_depends "$STAGING_DIR/usr/bin/$PACKAGE_NAME")
-    [ -z "$depends" ] && { echo "[!] не удалось определить Depends"; exit 1; }
+    if [ -z "$depends" ]; then
+        echo "[!] не удалось определить Depends" >&2
+        return 1
+    fi
     echo "[+] Depends: $depends"
 
     cat > "$STAGING_DIR/DEBIAN/control" << EOF
@@ -640,17 +701,26 @@ EOF
 
     chmod -R 755 "$STAGING_DIR/usr"
     chmod 755 "$STAGING_DIR/DEBIAN"
-    dpkg-deb -Zxz --build --root-owner-group "$STAGING_DIR" "$deb_file"
+    if ! dpkg-deb -Zxz --build --root-owner-group "$STAGING_DIR" "$deb_file"; then
+        echo "[!] нативный .deb: dpkg-deb упал" >&2
+        return 1
+    fi
     echo "[✓] Нативный .deb: $deb_file"
     rm -rf "$STAGING_DIR/DEBIAN"
+    return 0
 }
 
 build_rpm_native() {
     local release="1"
-    local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}-${release}.${RPM_ARCH}.rpm"
+    local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}-${release}.${DISTRO}.${RPM_ARCH}.rpm"
     local SPEC_DIR="$SCRIPT_DIR/pkg-rpm"
     echo "[+] Создание нативного .rpm..."
-    [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ] && prepare_staging
+    if [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]; then
+        if ! prepare_staging; then
+            echo "[!] build_rpm_native: не удалось подготовить staging" >&2
+            return 1
+        fi
+    fi
 
     mkdir -p "$SPEC_DIR/SOURCES"
     cd "$STAGING_DIR" && tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
@@ -701,10 +771,17 @@ fi
 - Initial build
 EOF
 
-    rpmbuild -bb --define "_topdir $SPEC_DIR" "$SPEC_DIR/${PACKAGE_NAME}.spec"
-    mv "$SPEC_DIR/RPMS/"*/*.rpm "$rpm_file" 2>/dev/null \
-        || mv "$SPEC_DIR/RPMS/${RPM_ARCH}/"*.rpm "$rpm_file"
+    if ! rpmbuild -bb --define "_topdir $SPEC_DIR" "$SPEC_DIR/${PACKAGE_NAME}.spec"; then
+        echo "[!] нативный .rpm: rpmbuild упал" >&2
+        return 1
+    fi
+    if ! { mv "$SPEC_DIR/RPMS/"*/*.rpm "$rpm_file" 2>/dev/null \
+        || mv "$SPEC_DIR/RPMS/${RPM_ARCH}/"*.rpm "$rpm_file"; }; then
+        echo "[!] нативный .rpm: не найден собранный .rpm" >&2
+        return 1
+    fi
     echo "[✓] Нативный .rpm: $rpm_file"
+    return 0
 }
 
 build_pkg_arch() {
@@ -715,10 +792,15 @@ build_pkg_arch() {
         return 1
     fi
 
-    local pkg_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}-1-${APPIMAGE_ARCH}.pkg.tar.zst"
+    local pkg_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}-1-${DISTRO}-${APPIMAGE_ARCH}.pkg.tar.zst"
     echo "[+] Создание нативного .pkg.tar.zst через makepkg..."
 
-    [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ] && prepare_staging
+    if [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]; then
+        if ! prepare_staging; then
+            echo "[!] build_pkg_arch: не удалось подготовить staging" >&2
+            return 1
+        fi
+    fi
 
     local workdir; workdir="$(mktemp -d)"
     cd "$workdir"
@@ -738,7 +820,10 @@ package() {
 }
 EOF
 
-    makepkg -f --nodeps --nocheck
+    if ! makepkg -f --nodeps --nocheck; then
+        echo "[!] makepkg упал (см. вывод выше)" >&2
+        cd "$SCRIPT_DIR"; rm -rf "$workdir"; return 1
+    fi
 
     local built
     built=$(find "$workdir" -maxdepth 1 -name "*.pkg.tar.zst" -print -quit)
@@ -746,12 +831,13 @@ EOF
         mv "$built" "$pkg_file"
         echo "[✓] Нативный .pkg.tar.zst: $pkg_file"
     else
-        echo "[!] makepkg не создал пакет"
+        echo "[!] makepkg не создал пакет" >&2
         cd "$SCRIPT_DIR"; rm -rf "$workdir"; return 1
     fi
 
     cd "$SCRIPT_DIR"
     rm -rf "$workdir"
+    return 0
 }
 
 # =============================================================================
@@ -792,25 +878,21 @@ sign_files() {
             done
         fi
 
-        # .rpm через rpm --addsign
+        # .rpm через rpm --addsign (без правки ~/.rpmmacros)
         if command -v rpm >/dev/null 2>&1; then
-            touch "$HOME/.rpmmacros"
-            grep -q "^%_gpg_name" "$HOME/.rpmmacros" \
-              && sed -i "s|^%_gpg_name.*|%_gpg_name $GPG_KEY_ID|" "$HOME/.rpmmacros" \
-              || echo "%_gpg_name $GPG_KEY_ID" >> "$HOME/.rpmmacros"
-            grep -q "^%_signature" "$HOME/.rpmmacros" || echo "%_signature gpg" >> "$HOME/.rpmmacros"
-
-            if [ -n "${GPG_WRAPPER_DIR:-}" ]; then
-                grep -q "^%__gpg_sign_cmd" "$HOME/.rpmmacros" || cat >> "$HOME/.rpmmacros" <<'EOF'
-%__gpg gpg
-%__gpg_check_password_cmd /bin/true
-%__gpg_sign_cmd %{__gpg} --batch --pinentry-mode loopback --passphrase '' -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}
-EOF
-            fi
+            local real_gpg; real_gpg="$(command -v gpg)"
+            local sign_cmd
+            sign_cmd='%{__gpg} --batch --pinentry-mode loopback --passphrase "" -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
 
             for file in "$dist_dir"/*.rpm; do
                 [ -f "$file" ] || continue
-                rpm --addsign "$file" 2>/dev/null \
+                rpm --addsign \
+                    --define "_gpg_name $GPG_KEY_ID" \
+                    --define "_signature gpg" \
+                    --define "__gpg $real_gpg" \
+                    --define "__gpg_check_password_cmd /bin/true" \
+                    --define "__gpg_sign_cmd $sign_cmd" \
+                    "$file" 2>/dev/null \
                   || gpg --yes --detach-sign --armor --local-user "$GPG_KEY_ID" --output "$file.asc" "$file" || true
             done
         fi
@@ -885,12 +967,12 @@ show_menu() {
 
     local options=()
     case "$pkgmgr" in
-        deb) options+=("Нативный .deb (системные библиотеки)") ;;
-        rpm) options+=("Нативный .rpm (системные библиотеки)") ;;
+        deb)  options+=("Нативный .deb (системные библиотеки)") ;;
+        rpm)  options+=("Нативный .rpm (системные библиотеки)") ;;
         arch) options+=("Нативный .pkg.tar.zst (системные библиотеки)") ;;
     esac
     options+=("AppImage (bundled, работает везде)")
-    options+=("Всё возможное на этой системе")
+    options+=("Родной пакет для этой системы + AppImage")
 
     local i=1
     for opt in "${options[@]}"; do
@@ -911,13 +993,15 @@ show_menu() {
             esac
             ;;
         2)
-            case "$pkgmgr" in
-                deb|rpm|arch) BUILD_APPIMAGE=true ;;
-                *)            BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_APPIMAGE=true ;;
-            esac
+            BUILD_APPIMAGE=true
             ;;
         3)
-            BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_APPIMAGE=true
+            case "$pkgmgr" in
+                deb)  BUILD_NATIVE_DEB=true ;;
+                rpm)  BUILD_NATIVE_RPM=true ;;
+                arch) BUILD_NATIVE_ARCH=true ;;
+            esac
+            BUILD_APPIMAGE=true
             ;;
         0) exit 0 ;;
         *) echo "Неверный выбор"; exit 1 ;;
@@ -987,49 +1071,81 @@ main() {
     fi
 
     # Bundled требует AppDir — если запрошены bundle и AppImage, populate один раз
-    check_deps "$BUILD_NATIVE_DEB" "$BUILD_NATIVE_RPM" "$BUILD_NATIVE_ARCH" \
+    check_deps "$pkgmgr" \
+               "$BUILD_NATIVE_DEB" "$BUILD_NATIVE_RPM" "$BUILD_NATIVE_ARCH" \
                "$BUILD_BUNDLE_DEB" "$BUILD_BUNDLE_RPM" "$BUILD_APPIMAGE"
     setup_dirs
-    build_binary
+
+    if ! build_binary; then
+        echo "[!] Бинарник не собран — выходим." >&2
+        exit 1
+    fi
 
     { read -r VERSION_DISPLAY; read -r VERSION_FILE; read -r VERSION; } \
         < <(read_versions_from_install)
-    [ -z "$VERSION_DISPLAY" ] || [ -z "$VERSION_FILE" ] || [ -z "$VERSION" ] && {
-        echo "[ERROR] Не удалось прочитать версии."; exit 1
-    }
+    if [ -z "$VERSION_DISPLAY" ] || [ -z "$VERSION_FILE" ] || [ -z "$VERSION" ]; then
+        echo "[ERROR] Не удалось прочитать версии." >&2
+        exit 1
+    fi
 
     echo "=== $PACKAGE_NAME:$VERSION (файл: $VERSION_FILE, arch: $DEB_ARCH/$RPM_ARCH/$APPIMAGE_ARCH, distro: $DISTRO) ==="
 
+    local FAILED=()
+
     if [[ "$BUILD_NATIVE_DEB" == true ]]; then
         if [[ "$pkgmgr" == "deb" ]]; then
-            prepare_staging; build_deb_native
+            if ! prepare_staging; then
+                FAILED+=("native-deb")
+            elif ! build_deb_native; then
+                FAILED+=("native-deb")
+            fi
         else
             echo "[!] --native-deb недоступен на $DISTRO — пропускаем."
         fi
     fi
     if [[ "$BUILD_NATIVE_RPM" == true ]]; then
         if [[ "$pkgmgr" == "rpm" ]]; then
-            prepare_staging; build_rpm_native
+            if ! prepare_staging; then
+                FAILED+=("native-rpm")
+            elif ! build_rpm_native; then
+                FAILED+=("native-rpm")
+            fi
         else
             echo "[!] --native-rpm недоступен на $DISTRO — пропускаем."
         fi
     fi
     if [[ "$BUILD_NATIVE_ARCH" == true ]]; then
         if [[ "$pkgmgr" == "arch" ]]; then
-            prepare_staging; build_pkg_arch
+            if ! prepare_staging; then
+                FAILED+=("native-arch")
+            elif ! build_pkg_arch; then
+                FAILED+=("native-arch")
+            fi
         else
             echo "[!] --native-arch недоступен на $DISTRO — пропускаем."
         fi
     fi
 
-    if [[ "$BUILD_BUNDLE_DEB" == true ]]; then build_deb_bundled; fi
-    if [[ "$BUILD_BUNDLE_RPM" == true ]]; then build_rpm_bundled; fi
-    if [[ "$BUILD_APPIMAGE" == true ]]; then build_appimage; fi
+    if [[ "$BUILD_BUNDLE_DEB" == true ]]; then
+        if ! build_deb_bundled; then FAILED+=("bundle-deb"); fi
+    fi
+    if [[ "$BUILD_BUNDLE_RPM" == true ]]; then
+        if ! build_rpm_bundled; then FAILED+=("bundle-rpm"); fi
+    fi
+    if [[ "$BUILD_APPIMAGE" == true ]]; then
+        if ! build_appimage; then FAILED+=("appimage"); fi
+    fi
 
     sign_files
-    #cleanup
 
     echo ""
+    if (( ${#FAILED[@]} > 0 )); then
+        echo "[!] Не собраны: ${FAILED[*]}" >&2
+        echo "[i] Что удалось собрать в '$OUTPUT_DIR':"
+        ls -la "$OUTPUT_DIR/"
+        exit 1
+    fi
+
     echo "🎉 Готово! Артефакты в '$OUTPUT_DIR':"
     ls -la "$OUTPUT_DIR/"
 }
