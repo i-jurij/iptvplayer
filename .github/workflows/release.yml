@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   # =========================================================================
-  # 1. Сборка бинарника (один раз)
+  # 1. Сборка бинарника (один раз, Ubuntu 24.04 — glibc 2.39)
   # =========================================================================
   build-binary:
     runs-on: ubuntu-24.04
@@ -29,8 +29,7 @@ jobs:
     env:
       REPO: ${{ github.repository }}
     steps:
-      - name: Checkout repository (full)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -38,32 +37,23 @@ jobs:
         id: read_version
         run: |
           set -euo pipefail
-          if [[ ! -f VERSION ]]; then
-            echo "VERSION file missing" >&2
-            exit 1
-          fi
+          if [[ ! -f VERSION ]]; then echo "VERSION missing" >&2; exit 1; fi
           VERSION=$(head -n1 VERSION | tr -d '\n\r')
-          if [[ -z "$VERSION" ]]; then
-            echo "VERSION is empty" >&2
-            exit 1
-          fi
+          [[ -z "$VERSION" ]] && { echo "VERSION empty" >&2; exit 1; }
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Read VERSION=$VERSION"
 
-      - name: Ensure git history and tags present
+      - name: Ensure git history and tags
         run: |
           set -euo pipefail
           git fetch --prune --unshallow || true
           git fetch --tags
 
-      - name: Ensure VERSION changed in this push
+      - name: Ensure VERSION changed
         id: check_version_changed
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "::notice::Manual dispatch — forcing version_changed=true"
-            echo "version_changed=true" >> $GITHUB_OUTPUT
-            exit 0
+            echo "version_changed=true" >> $GITHUB_OUTPUT; exit 0
           fi
           BEFORE="${{ github.event.before }}"
           AFTER="${{ github.sha }}"
@@ -72,14 +62,13 @@ jobs:
           else
             CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" || true)
           fi
-          echo "$CHANGED"
           if echo "$CHANGED" | grep -qx "VERSION"; then
             echo "version_changed=true" >> $GITHUB_OUTPUT
           else
             echo "version_changed=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Prepare git auth for pushing tags
+      - name: Prepare git auth for tags
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
           set -euo pipefail
@@ -87,9 +76,8 @@ jobs:
           git config user.name "CI Bot"
           git config user.email "ci-bot@example.com"
 
-      - name: Create annotated tag if missing
+      - name: Create tag if missing
         if: steps.check_version_changed.outputs.version_changed == 'true'
-        id: create_tag
         env:
           VERSION: ${{ steps.read_version.outputs.version }}
         run: |
@@ -97,29 +85,18 @@ jobs:
           TAG="v${VERSION}"
           git fetch --tags
           if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
-            echo "Tag ${TAG} exists on origin. Skipping."
-            echo "created=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          if git rev-parse "${TAG}" >/dev/null 2>&1; then
-            git push origin "refs/tags/${TAG}"
-            echo "created=false" >> $GITHUB_OUTPUT
-            exit 0
+            echo "Tag exists"; exit 0
           fi
           git tag -a "${TAG}" -m "Release ${TAG} (CI)"
           git push origin "refs/tags/${TAG}"
-          echo "created=true" >> $GITHUB_OUTPUT
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
-      # ---- Кэширование third_party ----
-      - name: Cache third_party dependencies
+      - name: Cache third_party
         if: steps.check_version_changed.outputs.version_changed == 'true'
         uses: actions/cache@v4
         with:
           path: third_party
           key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
 
-      # ---- Установка системных пакетов и third_party ----
       - name: Install all dependencies
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
@@ -138,34 +115,23 @@ jobs:
           KEY_PREFIX: ${{ runner.os }}-${{ runner.arch }}-third_party-
         run: |
           set -euo pipefail
-          if ! command -v gh >/dev/null 2>&1; then
-            echo "::warning::gh CLI не найден — пропускаем очистку старых кэшей."
-            exit 0
-          fi
+          command -v gh >/dev/null 2>&1 || { echo "gh missing"; exit 0; }
           OLD_KEYS=$(gh cache list --repo "$REPO" --limit 100 \
             | awk -v cur="$CURRENT_KEY" -v prefix="$KEY_PREFIX" \
                   '$2 != cur && index($2, prefix) == 1 {print $2}')
-          if [[ -z "$OLD_KEYS" ]]; then
-            echo "Нет старых кэшей third_party для удаления."
-            exit 0
-          fi
-          echo "Удаляем старые кэши:"
-          echo "$OLD_KEYS"
-          set +e
+          [[ -z "$OLD_KEYS" ]] && { echo "No old caches"; exit 0; }
           while IFS= read -r key; do
             [ -z "$key" ] && continue
             gh cache delete "$key" --repo "$REPO" || true
           done <<< "$OLD_KEYS"
-          echo "Готово."
 
-      # ---- Сборка бинарника ----
       - name: Build binary
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
           chmod +x build-release.sh
           ./build-release.sh --type release --prefix "$PWD/install" --yes
 
-      # ---- Вычисление Depends для .deb (в build-binary, где есть все runtime-либы) ----
+      # ---- Compute .deb Depends в окружении, где есть runtime-либы ----
       - name: Compute .deb dependencies
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
@@ -185,16 +151,10 @@ jobs:
           DEPS=$(cd "$TMP" && dpkg-shlibdeps -O "$BIN" 2>/dev/null \
             | sed -n 's/^shlibs:Depends=//p' | tr -d '\n\r' || true)
           rm -rf "$TMP"
-
-          if [ -z "$DEPS" ]; then
-            echo "::warning::dpkg-shlibdeps не смог определить Depends — .deb будет без поля Depends"
-          else
-            echo "[+] Computed .deb Depends: $DEPS"
-          fi
-
+          [[ -z "$DEPS" ]] && echo "::warning::dpkg-shlibdeps пустой"
+          echo "[+] Depends: $DEPS"
           echo "$DEPS" > "$PWD/install/DEB_DEPENDS"
 
-      # ---- Загрузка install/ как артефакта ----
       - name: Upload install artifact
         if: steps.check_version_changed.outputs.version_changed == 'true'
         uses: actions/upload-artifact@v4
@@ -205,113 +165,29 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # 2. Матрица упаковки по дистрибутивам
+  # 2. Пакеты .deb и .rpm (лёгкий job, без setup-deps)
   # =========================================================================
-  package:
+  package-deb-rpm:
     needs: build-binary
     if: needs.build-binary.outputs.version_changed == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # --- DEB-based ---
-          - distro: ubuntu-26.04
-            container: ubuntu:26.04
-            package_type: deb
-          - distro: debian-13
-            container: debian:13
-            package_type: deb
-
-          # --- RPM-based ---
-          - distro: fedora-44
-            container: fedora:44
-            package_type: rpm
-          - distro: rocky-10
-            container: rockylinux/rockylinux:10
-            package_type: rpm
-
-          # --- AppImage (тот же glibc, что в build-binary) ---
-          - distro: ubuntu-24.04-appimage
-            container: ubuntu:24.04
-            package_type: appimage
-
-    container:
-      image: ${{ matrix.container }}
-
-    # ВАЖНО: GitHub для container-джобов по умолчанию использует sh,
-    # а не bash. Без этого `[[ … ]]` в наших скриптах молча падает.
-    defaults:
-      run:
-        shell: bash
-
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      TZ: UTC
-      DISTRO: ${{ matrix.distro }}
-
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download install artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: install
           path: install
 
-      # ---- Системные зависимости ----
-      - name: Install system dependencies (DEB)
-        if: matrix.package_type == 'deb' || matrix.package_type == 'appimage'
+      - name: Install packaging tools
         run: |
           set -euo pipefail
-          apt-get update -qq
-          apt-get install -y --no-install-recommends \
-            ca-certificates \
-            cmake \
-            dpkg-dev \
-            file \
-            gnupg \
-            rpm \
-            tar \
-            wget \
-            xz-utils
-          if [[ "${{ matrix.package_type }}" == "deb" ]]; then
-            apt-get install -y --no-install-recommends debsigs
-          fi
-          if [[ "${{ matrix.package_type }}" == "appimage" ]]; then
-            # Runtime-зависимости, которые linuxdeploy должен найти
-            # и забандлить. libgtk-3-0 и libmpv2 тянут за собой весь
-            # свой стек (jpeg/png/tiff/webp/freetype/fontconfig/pango/
-            # cairo/gdk-pixbuf/x11/xcb/wayland + ffmpeg-стек).
-            # Без них linuxdeploy падает на "Could not find dependency".
-            apt-get install -y --no-install-recommends \
-              libgtk-3-0 \
-              libmpv2 \
-              libgl1 \
-              libegl1 \
-              libcurl4 \
-              libexpat1 \
-              zlib1g
-          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            dpkg-dev rpm gnupg debsigs file tar wget xz-utils
 
-      - name: Install system dependencies (RPM)
-        if: matrix.package_type == 'rpm'
-        run: |
-          set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False \
-            ca-certificates \
-            cmake \
-            gnupg2 \
-            rpm-build \
-            rpm-sign \
-            tar \
-            wget \
-            xz
-
-      # ---- Импорт GPG-ключа (в каждом контейнере свой GNUPGHOME) ----
       - name: Import GPG key
         id: import_gpg
         env:
@@ -319,29 +195,17 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
-            echo "::warning::No GPG private key found in secrets, signing will be skipped."
             echo "can_sign=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-
-          export GNUPGHOME="$(mktemp -d)"
-          chmod 700 "$GNUPGHOME"
-
+          export GNUPGHOME="$(mktemp -d)"; chmod 700 "$GNUPGHOME"
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-
-          # ВАЖНО: ключ ДОЛЖЕН быть без пароля — passphrase не поддерживается.
           echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
           echo "pinentry-mode loopback" >> "$GNUPGHOME/gpg.conf"
-
-          # Пустой passphrase-файл: ключ без пароля
-          : > "$GNUPGHOME/.passphrase"
-          chmod 600 "$GNUPGHOME/.passphrase"
+          : > "$GNUPGHOME/.passphrase"; chmod 600 "$GNUPGHOME/.passphrase"
           echo "passphrase-file $GNUPGHOME/.passphrase" >> "$GNUPGHOME/gpg.conf"
-
           gpgconf --kill gpg-agent 2>/dev/null || true
           gpg-connect-agent /bye 2>/dev/null || true
-
-          # Wrapper, чтобы debsigs и rpm --addsign подхватили loopback
           REAL_GPG="$(command -v gpg)"
           WRAPPER_DIR="$(mktemp -d)"
           cat > "$WRAPPER_DIR/gpg" <<WRAPPER
@@ -349,87 +213,215 @@ jobs:
           exec "$REAL_GPG" --batch --pinentry-mode loopback --passphrase '' "\$@"
           WRAPPER
           chmod +x "$WRAPPER_DIR/gpg"
-
           GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
-          if [ -z "$GPG_KEY_ID" ]; then
-            echo "::error::GPG key imported but no secret key found."
-            exit 1
-          fi
+          [ -z "$GPG_KEY_ID" ] && { echo "::error::no secret key"; exit 1; }
+          echo "GNUPGHOME=$GNUPGHOME"           >> $GITHUB_ENV
+          echo "GPG_KEY_ID=$GPG_KEY_ID"         >> $GITHUB_ENV
+          echo "GPG_WRAPPER_DIR=$WRAPPER_DIR"   >> $GITHUB_ENV
+          echo "PATH=$WRAPPER_DIR:$PATH"        >> $GITHUB_ENV
+          echo "can_sign=true"                  >> $GITHUB_OUTPUT
 
-          echo "GNUPGHOME=$GNUPGHOME"             >> $GITHUB_ENV
-          echo "GPG_KEY_ID=$GPG_KEY_ID"           >> $GITHUB_ENV
-          echo "GPG_WRAPPER_DIR=$WRAPPER_DIR"     >> $GITHUB_ENV
-          echo "PATH=$WRAPPER_DIR:$PATH"          >> $GITHUB_ENV
-          echo "can_sign=true"                    >> $GITHUB_OUTPUT
-          echo "::notice::GPG key imported, ID: $GPG_KEY_ID"
-
-      # ---- Проверка инструментов ----
-      - name: Check tools
-        run: |
-          set -euo pipefail
-          echo "=== tool versions ==="
-          for t in gpg dpkg-deb dpkg-shlibdeps rpmbuild rpm debsigs zsyncmake; do
-            if command -v "$t" >/dev/null 2>&1; then
-              printf '%-16s %s\n' "$t" "$(command -v "$t")"
-            else
-              printf '%-16s MISSING\n' "$t"
-            fi
-          done
-          echo "======================"
-
-      # ---- Сборка пакета с логированием ----
-      - name: Build package
+      - name: Build .deb and .rpm
         run: |
           set -euo pipefail
           mkdir -p logs
           chmod +x build-package.sh
-          case "${{ matrix.package_type }}" in
-            deb)
-              ./build-package.sh --deb --yes 2>&1 | tee logs/build-package.log
-              ;;
-            rpm)
-              ./build-package.sh --rpm --yes 2>&1 | tee logs/build-package.log
-              ;;
-            appimage)
-              ./build-package.sh --appimage --yes 2>&1 | tee logs/build-package.log
-              ;;
-          esac
+          ./build-package.sh --deb --rpm --yes 2>&1 | tee logs/build-package.log
 
-      # ---- Экспорт публичного ключа в dist/ (для пользователей) ----
       - name: Export public key
         if: always() && steps.import_gpg.outputs.can_sign == 'true'
         run: |
           set -euo pipefail
           mkdir -p dist
           gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
-          echo "Public key exported to dist/public-key.asc"
 
-      # ---- Загрузка артефактов пакета ----
-      - name: Upload package artifacts
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: packages-${{ matrix.distro }}
+          name: packages-deb-rpm
           path: |
             dist/*
             logs/build-package.log
           retention-days: 1
           if-no-files-found: warn
 
-      # ---- Очистка GNUPGHOME ----
       - name: Cleanup GNUPGHOME
         if: always()
         run: |
-          if [ -n "${GNUPGHOME:-}" ]; then
-            rm -rf "$GNUPGHOME" || true
-          fi
+          [ -n "${GNUPGHOME:-}" ] && rm -rf "$GNUPGHOME" || true
           rm -f "$HOME/.rpmmacros" || true
 
   # =========================================================================
-  # 3. Публикация релиза
+  # 3. AppImage (окружение = линковка бинарника: setup-deps из кэша)
+  # =========================================================================
+  package-appimage:
+    needs: build-binary
+    if: needs.build-binary.outputs.version_changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v4
+        with:
+          path: third_party
+          key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
+
+      - name: Install runtime deps for AppImage
+        run: |
+          set -euo pipefail
+          chmod +x setup-deps.sh
+          # setup-deps поставит apt-пакеты (libmpv-dev, libgtk-3-dev, ...)
+          # и подтвердит, что wx/wxSQLite3 уже в кэше.
+          ./setup-deps.sh --yes
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: install
+          path: install
+
+      - name: Import GPG key
+        id: import_gpg
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "can_sign=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          export GNUPGHOME="$(mktemp -d)"; chmod 700 "$GNUPGHOME"
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
+          echo "pinentry-mode loopback" >> "$GNUPGHOME/gpg.conf"
+          : > "$GNUPGHOME/.passphrase"; chmod 600 "$GNUPGHOME/.passphrase"
+          echo "passphrase-file $GNUPGHOME/.passphrase" >> "$GNUPGHOME/gpg.conf"
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg-connect-agent /bye 2>/dev/null || true
+          REAL_GPG="$(command -v gpg)"
+          WRAPPER_DIR="$(mktemp -d)"
+          cat > "$WRAPPER_DIR/gpg" <<WRAPPER
+          #!/bin/bash
+          exec "$REAL_GPG" --batch --pinentry-mode loopback --passphrase '' "\$@"
+          WRAPPER
+          chmod +x "$WRAPPER_DIR/gpg"
+          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
+          [ -z "$GPG_KEY_ID" ] && { echo "::error::no secret key"; exit 1; }
+          echo "GNUPGHOME=$GNUPGHOME"           >> $GITHUB_ENV
+          echo "GPG_KEY_ID=$GPG_KEY_ID"         >> $GITHUB_ENV
+          echo "GPG_WRAPPER_DIR=$WRAPPER_DIR"   >> $GITHUB_ENV
+          echo "PATH=$WRAPPER_DIR:$PATH"        >> $GITHUB_ENV
+          echo "can_sign=true"                  >> $GITHUB_OUTPUT
+
+      - name: Build AppImage
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          chmod +x build-package.sh
+          ./build-package.sh --appimage --yes 2>&1 | tee logs/build-package.log
+
+      - name: Export public key
+        if: always() && steps.import_gpg.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packages-appimage
+          path: |
+            dist/*
+            logs/build-package.log
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Cleanup GNUPGHOME
+        if: always()
+        run: |
+          [ -n "${GNUPGHOME:-}" ] && rm -rf "$GNUPGHOME" || true
+
+  # =========================================================================
+  # 4. Smoke-test: установка и ldd в свежих контейнерах целевых дистрибутивов
+  # =========================================================================
+  smoke-test:
+    needs: package-deb-rpm
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { container: 'ubuntu:26.04',          type: deb }
+          - { container: 'debian:13',             type: deb }
+          - { container: 'fedora:44',             type: rpm }
+          - { container: 'rockylinux/rockylinux:10', type: rpm }
+    container:
+      image: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-deb-rpm
+          path: dist
+
+      - name: Install .deb/.rpm and check ldd
+        run: |
+          set -euo pipefail
+
+          if [ "${{ matrix.type }}" = "deb" ]; then
+            apt-get update -qq
+            # apt сам разрешит Depends: — если не сможет, упадёт.
+            apt-get install -y ./dist/*.deb
+          else
+            dnf install -y ./dist/*.rpm
+          fi
+
+          # Проверяем, что все NEEDED-библиотеки разрешены
+          echo "=== ldd ==="
+          if ldd /usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
+            echo "::error::Не найдены библиотеки:"
+            ldd /usr/bin/iptvplayer | grep "not found"
+            exit 1
+          fi
+          echo "=== OK: все библиотеки разрешены ==="
+
+      - name: Try to run (best effort)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.type }}" = "deb" ]; then
+            apt-get install -y xvfb >/dev/null 2>&1 || true
+          else
+            dnf install -y xorg-x11-server-Xvfb >/dev/null 2>&1 || true
+          fi
+
+          RUNNER=""
+          command -v xvfb-run >/dev/null 2>&1 && RUNNER="xvfb-run -a"
+
+          # Пробуем разные CLI-флаги, что-то может сработать
+          for flag in --version --help -h; do
+            echo "--- iptvplayer $flag ---"
+            if timeout 8 $RUNNER iptvplayer $flag 2>&1 | head -20; then
+              echo "OK"
+              exit 0
+            fi
+          done
+
+          # Если ни один флаг не сработал — просто пробуем запустить и убить
+          echo "--- direct launch (timeout 8) ---"
+          timeout 8 $RUNNER iptvplayer 2>&1 | head -20 || true
+          echo "::warning::Не удалось однозначно проверить запуск — смотрите лог"
+          exit 0
+
+  # =========================================================================
+  # 5. Публикация релиза
   # =========================================================================
   release:
-    needs: [build-binary, package]
+    needs: [build-binary, package-deb-rpm, package-appimage, smoke-test]
     if: |
       always() &&
       needs.build-binary.result == 'success' &&
@@ -444,39 +436,36 @@ jobs:
           path: .
           merge-multiple: true
 
-      - name: Check artifacts present
+      - name: Check artifacts
         id: check_artifacts
         run: |
           set -euo pipefail
-          echo "=== dist/ после download-artifact ==="
-          ls -la dist/ || echo "dist/ отсутствует"
-          echo "====================================="
-
+          echo "=== dist/ ==="; ls -la dist/ || true
           shopt -s nullglob
-          packages=(dist/*.deb dist/*.rpm dist/*.AppImage)
-          echo "Найдено пакетов: ${#packages[@]}"
-          for p in "${packages[@]}"; do echo "  $p"; done
-
-          if (( ${#packages[@]} > 0 )); then
+          pkgs=(dist/*.deb dist/*.rpm dist/*.AppImage)
+          if (( ${#pkgs[@]} > 0 )); then
+            printf '  %s\n' "${pkgs[@]}"
             echo "have_artifacts=true" >> $GITHUB_OUTPUT
           else
-            echo "::warning::Пакетов нет — релиз не создаём."
+            echo "::warning::Пакетов нет — релиз не создаём"
             echo "have_artifacts=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Warn on partial matrix
-        if: needs.package.result != 'success'
-        run: |
-          echo "::warning::Матрица package завершилась с '${{ needs.package.result }}'. Релиз будет частичным — часть дистрибутивов не собралась."
 
       - name: Compose release body
         id: body
         run: |
           set -euo pipefail
-          BODY="Automated release for version v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
-          if [[ "${{ needs.package.result }}" != "success" ]]; then
-            BODY="$BODY"$'\n\n'"⚠️ Часть матрицы упала (result: ${{ needs.package.result }}) — артефакты содержат только успешно собранные дистрибутивы. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BODY="Automated release for v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
+
+          if [ "${{ needs.smoke-test.result }}" != "success" ]; then
+            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test не прошёл.** Часть пакетов может не работать на целевых дистрибутивах. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
+          if [ "${{ needs.package-appimage.result }}" != "success" ]; then
+            BODY="$BODY"$'\n\n'"⚠️ **AppImage не собрался.** См. лог."
+          fi
+
+          BODY="$BODY"$'\n\n'"---"$'\n\n'"**Установка:**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Остальные (Arch, openSUSE, Gentoo и т.д.): \`AppImage\`"
+
           {
             echo "body<<EOF"
             echo "$BODY"

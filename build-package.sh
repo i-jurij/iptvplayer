@@ -798,7 +798,6 @@ EOF
 }
 
 # === Главная функция ===
-# === Главная функция ===
 main() {
     local BUILD_DEB=false
     local BUILD_RPM=false
