@@ -421,12 +421,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Целевые (совпадают с deb/rpm smoke)
           - { container: 'ubuntu:26.04',             label: 'target' }
           - { container: 'debian:13',                label: 'target' }
           - { container: 'fedora:44',                label: 'target' }
           - { container: 'rockylinux/rockylinux:10', label: 'target' }
-          # Rolling — где .deb/.rpm бессмысленны, AppImage должен работать
           - { container: 'archlinux:latest',         label: 'rolling' }
     container:
       image: ${{ matrix.container }}
@@ -439,20 +437,17 @@ jobs:
           name: packages-appimage
           path: .
 
-      - name: Install runtime tools
+      - name: Install minimal tools
         run: |
           set -euo pipefail
           if command -v apt-get >/dev/null; then
             apt-get update -qq
             apt-get install -y --no-install-recommends \
-              ca-certificates file xz-utils xvfb libgtk-3-0 \
-              libfuse2 2>/dev/null \
-            || apt-get install -y --no-install-recommends \
-              ca-certificates file xz-utils xvfb libgtk-3-0 libfuse2t64
+              ca-certificates file xz-utils
           elif command -v dnf >/dev/null; then
-            dnf install -y ca-certificates file xz xorg-x11-server-Xvfb gtk3 fuse fuse-libs
+            dnf install -y ca-certificates file xz
           elif command -v pacman >/dev/null; then
-            pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb gtk3 fuse2
+            pacman -Sy --noconfirm ca-certificates file xz
           fi
 
       - name: Extract and check ldd
@@ -461,7 +456,6 @@ jobs:
           APPIMAGE=$(ls dist/*.AppImage | head -1)
           chmod +x "$APPIMAGE"
 
-          # Извлекаем (в контейнере нет FUSE)
           "$APPIMAGE" --appimage-extract >/dev/null
           BIN="squashfs-root/AppRun"
           [ -f "$BIN" ] || BIN="squashfs-root/usr/bin/iptvplayer"
@@ -473,25 +467,7 @@ jobs:
             exit 1
           fi
           echo "OK: все NEEDED-библиотеки разрешены"
-
-      - name: Run AppImage (best effort)
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          APPIMAGE=$(ls dist/*.AppImage | head -1)
-          chmod +x "$APPIMAGE"
-
-          for flag in --version --help -h; do
-            echo "--- $flag ---"
-            if timeout 10 xvfb-run -a ./"$APPIMAGE" --appimage-extract-and-run $flag 2>&1 | head -20; then
-              echo "OK"; exit 0
-            fi
-          done
-
-          timeout 10 xvfb-run -a ./"$APPIMAGE" --appimage-extract-and-run 2>&1 | head -20 || true
-          echo "::warning::AppImage не ответил на CLI-флаги"
-          exit 0
-
+          
   # =========================================================================
   # 6. Публикация релиза
   # =========================================================================
@@ -542,7 +518,7 @@ jobs:
             BODY="$BODY"$'\n\n'"⚠️ **AppImage не собрался.** См. лог."
           fi
 
-            BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- glibc >= 2.39: \`AppImage\`"
+            BODY="$BODY"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\` (нужен RPM Fusion)"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"
 
           {
             echo "body<<EOF"
