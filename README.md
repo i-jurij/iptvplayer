@@ -1,14 +1,9 @@
 # IPTV Player
 
-> **Бинарник собран на Ubuntu 24.04 (glibc 2.39).**
->
-> | Формат | Для каких систем |
-> |--------|------------------|
-> | `.deb` | Ubuntu 24.04+, Debian 13+ |
-> | `.rpm` | Fedora 44+, Rocky Linux 10+ |
-> | `.AppImage` | glibc ≥ 2.39 |
->
-> Для локальной сборки используйте `./build-package.sh --all`. Смотрите логи :)
+> **Binary built on Ubuntu 24.04 (glibc 2.39).**  
+> For local builds, use ./build-package.sh --help.
+> It can build a minimal-size package for your system.  
+> Tested only on Debian 13.
 
 ## Screenshots
 
