@@ -499,6 +499,7 @@ build_rpm_bundled() {
 
     mkdir -p "$SPEC_DIR/SOURCES"
     tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+        --transform="s,^,$PACKAGE_NAME-$VERSION/," \
         -C "$STAGING_DIR" .
 
     cat > "$SPEC_DIR/${PACKAGE_NAME}.spec" << EOF
@@ -531,9 +532,9 @@ Self-contained build with all libraries in $BUNDLE_PREFIX.
 # already built
 
 %install
-rm -rf \$RPM_BUILD_ROOT
-mkdir -p \$RPM_BUILD_ROOT
-tar -xzf %{SOURCE0} -C \$RPM_BUILD_ROOT --strip-components=0
+rm -rf $RPM_BUILD_ROOT
+mkdir -p $RPM_BUILD_ROOT
+tar -xzf %{_sourcedir}/%{SOURCE0} -C $RPM_BUILD_ROOT --strip-components=1
 
 %files
 ${BUNDLE_PREFIX}/
