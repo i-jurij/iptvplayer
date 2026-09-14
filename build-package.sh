@@ -436,6 +436,10 @@ build_bundled_stage() {
 
     # Весь AppDir целиком — в /opt/iptvplayer
     cp -a "$APPDIR" "$STAGING_DIR${BUNDLE_PREFIX}"
+    # Восстанавливаем executable-биты (AppRun, AppRun.wrapped, .so, бинарники в usr/bin)
+    chmod -R u+rwX,go+rX "$STAGING_DIR${BUNDLE_PREFIX}"
+    chmod +x "$STAGING_DIR${BUNDLE_PREFIX}/AppRun" 2>/dev/null || true
+    chmod +x "$STAGING_DIR${BUNDLE_PREFIX}/AppRun.wrapped" 2>/dev/null || true
 
     # Wrapper в /usr/bin
     cat > "$STAGING_DIR/usr/bin/$PACKAGE_NAME" <<EOF
