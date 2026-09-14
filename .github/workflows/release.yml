@@ -131,7 +131,6 @@ jobs:
           chmod +x build-release.sh
           ./build-release.sh --type release --prefix "$PWD/install" --yes
 
-      # ---- Compute .deb Depends в окружении, где есть runtime-либы ----
       - name: Compute .deb dependencies
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
@@ -165,7 +164,7 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # 2. Пакеты .deb и .rpm (лёгкий job, без setup-deps)
+  # 2. Пакеты .deb и .rpm
   # =========================================================================
   package-deb-rpm:
     needs: build-binary
@@ -344,18 +343,18 @@ jobs:
           [ -n "${GNUPGHOME:-}" ] && rm -rf "$GNUPGHOME" || true
 
   # =========================================================================
-  # 4. Smoke-test: установка и ldd в свежих контейнерах целевых дистрибутивов
+  # 4. Smoke-test: .deb/.rpm в целевых дистрибутивах
   # =========================================================================
-  smoke-test:
+  smoke-test-deb-rpm:
     needs: package-deb-rpm
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { container: 'ubuntu:26.04',          type: deb }
-          - { container: 'debian:13',             type: deb }
-          - { container: 'fedora:44',             type: rpm }
+          - { container: 'ubuntu:26.04',             type: deb }
+          - { container: 'debian:13',                type: deb }
+          - { container: 'fedora:44',                type: rpm }
           - { container: 'rockylinux/rockylinux:10', type: rpm }
     container:
       image: ${{ matrix.container }}
@@ -368,26 +367,24 @@ jobs:
           name: packages-deb-rpm
           path: dist
 
-      - name: Install .deb/.rpm and check ldd
+      - name: Install and ldd
         run: |
           set -euo pipefail
 
           if [ "${{ matrix.type }}" = "deb" ]; then
             apt-get update -qq
-            # apt сам разрешит Depends: — если не сможет, упадёт.
             apt-get install -y ./dist/*.deb
           else
             dnf install -y ./dist/*.rpm
           fi
 
-          # Проверяем, что все NEEDED-библиотеки разрешены
-          echo "=== ldd ==="
+          echo "=== ldd /usr/bin/iptvplayer ==="
           if ldd /usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
             echo "::error::Не найдены библиотеки:"
             ldd /usr/bin/iptvplayer | grep "not found"
             exit 1
           fi
-          echo "=== OK: все библиотеки разрешены ==="
+          echo "OK: все NEEDED-библиотеки разрешены"
 
       - name: Try to run (best effort)
         continue-on-error: true
@@ -402,26 +399,104 @@ jobs:
           RUNNER=""
           command -v xvfb-run >/dev/null 2>&1 && RUNNER="xvfb-run -a"
 
-          # Пробуем разные CLI-флаги, что-то может сработать
           for flag in --version --help -h; do
             echo "--- iptvplayer $flag ---"
             if timeout 8 $RUNNER iptvplayer $flag 2>&1 | head -20; then
-              echo "OK"
-              exit 0
+              echo "OK"; exit 0
             fi
           done
 
-          # Если ни один флаг не сработал — просто пробуем запустить и убить
           echo "--- direct launch (timeout 8) ---"
           timeout 8 $RUNNER iptvplayer 2>&1 | head -20 || true
-          echo "::warning::Не удалось однозначно проверить запуск — смотрите лог"
+          echo "::warning::CLI-проверка не удалась — визуальная проверка невозможна"
           exit 0
 
   # =========================================================================
-  # 5. Публикация релиза
+  # 5. Smoke-test AppImage: целевые + Arch (rolling)
+  # =========================================================================
+  smoke-test-appimage:
+    needs: package-appimage
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Целевые (совпадают с deb/rpm smoke)
+          - { container: 'ubuntu:26.04',             label: 'target' }
+          - { container: 'debian:13',                label: 'target' }
+          - { container: 'fedora:44',                label: 'target' }
+          - { container: 'rockylinux/rockylinux:10', label: 'target' }
+          # Rolling — где .deb/.rpm бессмысленны, AppImage должен работать
+          - { container: 'archlinux:latest',         label: 'rolling' }
+    container:
+      image: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-appimage
+          path: dist
+
+      - name: Install runtime tools
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null; then
+            apt-get update -qq
+            apt-get install -y --no-install-recommends \
+              ca-certificates file xz-utils xvfb libgtk-3-0 \
+              libfuse2 2>/dev/null \
+            || apt-get install -y --no-install-recommends \
+              ca-certificates file xz-utils xvfb libgtk-3-0 libfuse2t64
+          elif command -v dnf >/dev/null; then
+            dnf install -y ca-certificates file xz xorg-x11-server-Xvfb gtk3 fuse fuse-libs
+          elif command -v pacman >/dev/null; then
+            pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb gtk3 fuse2
+          fi
+
+      - name: Extract and check ldd
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(ls dist/*.AppImage | head -1)
+          chmod +x "$APPIMAGE"
+
+          # Извлекаем (в контейнере нет FUSE)
+          "$APPIMAGE" --appimage-extract >/dev/null
+          BIN="squashfs-root/AppRun"
+          [ -f "$BIN" ] || BIN="squashfs-root/usr/bin/iptvplayer"
+
+          echo "=== ldd $BIN ==="
+          if ldd "$BIN" 2>&1 | grep -q "not found"; then
+            echo "::error::AppImage не дотянул библиотеки:"
+            ldd "$BIN" | grep "not found"
+            exit 1
+          fi
+          echo "OK: все NEEDED-библиотеки разрешены"
+
+      - name: Run AppImage (best effort)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(ls dist/*.AppImage | head -1)
+          chmod +x "$APPIMAGE"
+
+          for flag in --version --help -h; do
+            echo "--- $flag ---"
+            if timeout 10 xvfb-run -a ./"$APPIMAGE" --appimage-extract-and-run $flag 2>&1 | head -20; then
+              echo "OK"; exit 0
+            fi
+          done
+
+          timeout 10 xvfb-run -a ./"$APPIMAGE" --appimage-extract-and-run 2>&1 | head -20 || true
+          echo "::warning::AppImage не ответил на CLI-флаги"
+          exit 0
+
+  # =========================================================================
+  # 6. Публикация релиза
   # =========================================================================
   release:
-    needs: [build-binary, package-deb-rpm, package-appimage, smoke-test]
+    needs: [build-binary, package-deb-rpm, package-appimage, smoke-test-deb-rpm, smoke-test-appimage]
     if: |
       always() &&
       needs.build-binary.result == 'success' &&
@@ -457,8 +532,11 @@ jobs:
           set -euo pipefail
           BODY="Automated release for v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
 
-          if [ "${{ needs.smoke-test.result }}" != "success" ]; then
-            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test не прошёл.** Часть пакетов может не работать на целевых дистрибутивах. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "${{ needs.smoke-test-deb-rpm.result }}" != "success" ]; then
+            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test .deb/.rpm не прошёл** — часть пакетов может не работать на целевых дистрибутивах. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          if [ "${{ needs.smoke-test-appimage.result }}" != "success" ]; then
+            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test AppImage не прошёл** — AppImage может не запуститься на части систем. См. workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
           if [ "${{ needs.package-appimage.result }}" != "success" ]; then
             BODY="$BODY"$'\n\n'"⚠️ **AppImage не собрался.** См. лог."
