@@ -81,7 +81,7 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: packages
-          path: .
+          path: dist
 
       - name: Install minimal desktop stack
         run: |
