@@ -372,9 +372,6 @@ populate_appdir() {
         return 1
     fi
 
-    # linuxdeploy иногда теряет exec-бит на AppRun.wrapped
-    chmod +x "$APPDIR/AppRun" 2>/dev/null || true
-    chmod +x "$APPDIR/AppRun.wrapped" 2>/dev/null || true
     chmod +x "$APPDIR/usr/bin/$PACKAGE_NAME" 2>/dev/null || true
 
     # Fallback-библиотеки: автоматически собираем все NEEDED из бинарника
@@ -420,42 +417,46 @@ populate_appdir() {
     done <<< "$needed"
     echo "[i] Fallback-библиотек скопировано: $fb_count"
 
-    # Заменяем AppRun на свой: preflight + fallback LD_LIBRARY_PATH
-    if [ -f "$APPDIR/AppRun" ] && [ ! -f "$APPDIR/AppRun.linuxdeploy" ]; then
-        mv "$APPDIR/AppRun" "$APPDIR/AppRun.linuxdeploy"
-    fi
+    rm -f "$APPDIR/AppRun" "$APPDIR/AppRun.wrapped" "$APPDIR/AppRun.linuxdeploy"
 
     cat > "$APPDIR/AppRun" <<'APPRUN'
 #!/bin/bash
 HERE="$(dirname "$(readlink -f "$0")")"
 export APPDIR="${APPDIR:-$HERE}"
 
+# GTK-hook от linuxdeploy (source'им вручную, вместо AppRun.linuxdeploy)
+if [ -f "$APPDIR/apprun-hooks/linuxdeploy-plugin-gtk.sh" ]; then
+    source "$APPDIR/apprun-hooks/linuxdeploy-plugin-gtk.sh"
+fi
+
 # Fallback: в LD_LIBRARY_PATH идут ТОЛЬКО те либы, которых нет в системе.
 # Системные всегда в приоритете, даже если fallback их содержит.
 if [ -d "$APPDIR/usr/lib/fallback" ]; then
     FB_TMP=$(mktemp -d -t iptvplayer-fb.XXXXXX) || FB_TMP=""
-    fb_needed=0
-    for lib in "$APPDIR/usr/lib/fallback"/*.so*; do
-        [ -e "$lib" ] || continue
-        libname=$(basename "$lib")
-        if ! ldconfig -p 2>/dev/null | grep -q "$libname"; then
-            ln -sf "$lib" "$FB_TMP/$libname"
-            fb_needed=1
+    if [ -n "$FB_TMP" ]; then
+        fb_needed=0
+        for lib in "$APPDIR/usr/lib/fallback"/*.so*; do
+            [ -e "$lib" ] || continue
+            libname=$(basename "$lib")
+            if ! ldconfig -p 2>/dev/null | grep -q "$libname"; then
+                ln -sf "$lib" "$FB_TMP/$libname"
+                fb_needed=1
+            fi
+        done
+        if [ "$fb_needed" = 1 ]; then
+            export LD_LIBRARY_PATH="$FB_TMP:${LD_LIBRARY_PATH:-}"
+            trap 'rm -rf "$FB_TMP"' EXIT
+        else
+            rm -rf "$FB_TMP"
         fi
-    done
-    if [ "$fb_needed" = 1 ] && [ -n "$FB_TMP" ]; then
-        export LD_LIBRARY_PATH="$FB_TMP:${LD_LIBRARY_PATH:-}"
-        # чистим при выходе
-        trap 'rm -rf "$FB_TMP"' EXIT
-    else
-        rmdir "$FB_TMP" 2>/dev/null || rm -rf "$FB_TMP"
     fi
 fi
 
 # Preflight: проверяем, что все NEEDED разрешимы
 BIN="$APPDIR/usr/bin/iptvplayer"
 if [ -x "$BIN" ]; then
-    missing=$(ldd "$BIN" 2>&1 | awk '/not found/ {print $1}' | sort -u)
+    missing=$(LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/usr/lib/fallback:${LD_LIBRARY_PATH:-}" \
+              ldd "$BIN" 2>&1 | awk '/not found/ {print $1}' | sort -u)
     if [ -n "$missing" ]; then
         echo "iptvplayer: не удалось запустить — отсутствуют системные библиотеки:" >&2
         echo "$missing" | while read -r lib; do
@@ -467,8 +468,7 @@ if [ -x "$BIN" ]; then
     fi
 fi
 
-"$APPDIR/AppRun.linuxdeploy" "$@"
-exit $?
+exec "$APPDIR/usr/bin/iptvplayer" "$@"
 APPRUN
     chmod +x "$APPDIR/AppRun"
 
@@ -562,10 +562,9 @@ build_bundled_stage() {
 
     # Весь AppDir целиком — в /opt/iptvplayer
     cp -a "$APPDIR" "$STAGING_DIR${BUNDLE_PREFIX}"
-    # Восстанавливаем executable-биты (AppRun, AppRun.wrapped, .so, бинарники в usr/bin)
     chmod -R u+rwX,go+rX "$STAGING_DIR${BUNDLE_PREFIX}"
     chmod +x "$STAGING_DIR${BUNDLE_PREFIX}/AppRun" 2>/dev/null || true
-    chmod +x "$STAGING_DIR${BUNDLE_PREFIX}/AppRun.wrapped" 2>/dev/null || true
+    chmod +x "$STAGING_DIR${BUNDLE_PREFIX}/usr/bin/$PACKAGE_NAME" 2>/dev/null || true
 
     # Wrapper в /usr/bin
     cat > "$STAGING_DIR/usr/bin/$PACKAGE_NAME" <<EOF
@@ -609,8 +608,10 @@ build_deb_bundled() {
     mkdir -p "$STAGING_DIR/DEBIAN"
 
     local bundled_bin="$STAGING_DIR${BUNDLE_PREFIX}/usr/bin/$PACKAGE_NAME"
+    local bundled_lib="$STAGING_DIR${BUNDLE_PREFIX}/usr/lib"
+    local bundled_fb="$STAGING_DIR${BUNDLE_PREFIX}/usr/lib/fallback"
     local depends
-    depends=$(detect_deb_depends "$bundled_bin")
+    depends=$(detect_deb_depends "$bundled_bin" "$bundled_lib" "$bundled_fb")
     if [ -z "$depends" ]; then
         echo "[!] bundled .deb: не удалось определить Depends" >&2
         return 1
@@ -690,7 +691,7 @@ build_rpm_bundled() {
 %define debug_package %{nil}
 %define _topdir $SPEC_DIR
 %define _binary_payload w2.xzdio
-%global __requires_exclude_from ^/opt/iptvplayer/.*$
+%global __requires_exclude_from ^/opt/iptvplayer/usr/lib/.*$
 Name:           $PACKAGE_NAME
 Version:        $VERSION
 Release:        $release
@@ -764,11 +765,22 @@ EOF
 # =============================================================================
 detect_deb_depends() {
     local bin_path="$1"
-    local cached="$SCRIPT_DIR/install/DEB_DEPENDS"
-    if [ -f "$cached" ]; then
-        local d; d=$(tr -d '\n\r' < "$cached")
-        [ -n "$d" ] && { echo "$d"; return 0; }
+    local bundle_lib="${2:-}"
+    local bundle_fb="${3:-}"
+
+    # Кэш имеет смысл только для native-варианта (без -l):
+    # в CI install/DEB_DEPENDS готовится шагом
+    # "Compute .deb dependencies" и приезжает в артефакте install.
+    # Для bundled кэш не используется — там свои -l пути,
+    # dpkg-shlibdeps должен посчитать заново, видя бандл.
+    if [ -z "$bundle_lib" ] && [ -z "$bundle_fb" ]; then
+        local cached="$SCRIPT_DIR/install/DEB_DEPENDS"
+        if [ -f "$cached" ]; then
+            local d; d=$(tr -d '\n\r' < "$cached")
+            [ -n "$d" ] && { echo "$d"; return 0; }
+        fi
     fi
+
     local tmp_dir; tmp_dir=$(mktemp -d)
     mkdir -p "$tmp_dir/debian"
     cat > "$tmp_dir/debian/control" << EOF
@@ -776,8 +788,11 @@ Source: $PACKAGE_NAME
 Package: $PACKAGE_NAME
 Architecture: any
 EOF
+    local args=(-O)
+    [ -n "$bundle_lib" ] && args+=(-l"$bundle_lib")
+    [ -n "$bundle_fb" ]  && args+=(-l"$bundle_fb")
     local output
-    output=$(cd "$tmp_dir" && dpkg-shlibdeps -O "$bin_path" 2>&1) || true
+    output=$(cd "$tmp_dir" && dpkg-shlibdeps "${args[@]}" "$bin_path" 2>&1) || true
     rm -rf "$tmp_dir"
     echo "$output" | sed -n 's/^shlibs:Depends=//p' | tr -d '\n\r'
 }

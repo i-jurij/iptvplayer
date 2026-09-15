@@ -293,10 +293,14 @@ jobs:
                 || dnf config-manager setopt crb.enabled=1 2>/dev/null \
                 || true
             fi
-            dnf install -y ca-certificates file xz xorg-x11-server-Xvfb
+            # Xvfb есть на Fedora, но отсутствует в RHEL/Rocky 10
+            # (Xorg удалён архитектурно). Тянем оба варианта:
+            # на Fedora отработает Xvfb, на Rocky — weston headless.
+            dnf install -y ca-certificates file xz weston gtk3
+            dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
             dnf group install -y "Xfce Desktop" || dnf group install -y xfce-desktop || true
           elif command -v pacman >/dev/null; then
-            pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb xfce4
+            pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb xfce4 weston
           fi
 
       - name: Install package (deb / rpm / arch)
@@ -320,8 +324,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== ldd /opt/iptvplayer/usr/bin/iptvplayer ==="
-          if ldd /opt/iptvplayer/usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
-            ldd /opt/iptvplayer/usr/bin/iptvplayer | grep "not found"
+          LL="/opt/iptvplayer/usr/lib:/opt/iptvplayer/usr/lib/fallback"
+          if LD_LIBRARY_PATH="$LL" ldd /opt/iptvplayer/usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
+            LD_LIBRARY_PATH="$LL" ldd /opt/iptvplayer/usr/bin/iptvplayer | grep "not found"
             exit 1
           fi
           echo "OK"
@@ -330,7 +335,7 @@ jobs:
         if: matrix.family != 'arch'
         run: |
           set -euo pipefail
-          echo "=== Run package binary under Xvfb ==="
+          echo "=== Run package binary ==="
 
           APP_PID=""
           XVFB_PID=""
@@ -340,10 +345,23 @@ jobs:
           }
           trap cleanup EXIT
 
-          Xvfb :99 -screen 0 1440x900x24 &
-          XVFB_PID=$!
-          export DISPLAY=:99
-          sleep 2
+          if command -v Xvfb >/dev/null 2>&1; then
+            Xvfb :99 -screen 0 1440x900x24 &
+            XVFB_PID=$!
+            export DISPLAY=:99
+          elif command -v weston >/dev/null 2>&1; then
+            export XDG_RUNTIME_DIR=/tmp/weston-runtime
+            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+            weston --backend=headless-backend.so --socket=wayland-1 \
+                   --width=1440 --height=900 &
+            XVFB_PID=$!
+            export WAYLAND_DISPLAY=wayland-1
+          else
+            echo "::error::ни Xvfb, ни weston недоступны"
+            exit 1
+          fi
+
+          sleep 3
           /usr/bin/iptvplayer &
           APP_PID=$!
           sleep 15
@@ -361,10 +379,11 @@ jobs:
           "$APPIMAGE" --appimage-extract >/dev/null
           BIN="squashfs-root/usr/bin/iptvplayer"
           [ -f "$BIN" ] || BIN="squashfs-root/AppRun"
-          chmod +x "$BIN"
+          chmod +x squashfs-root/AppRun squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
           echo "=== ldd $BIN ==="
-          if ldd "$BIN" 2>&1 | grep -q "not found"; then
-            ldd "$BIN" | grep "not found"
+          LL="squashfs-root/usr/lib:squashfs-root/usr/lib/fallback"
+          if LD_LIBRARY_PATH="$LL" ldd "$BIN" 2>&1 | grep -q "not found"; then
+            LD_LIBRARY_PATH="$LL" ldd "$BIN" | grep "not found"
             exit 1
           fi
           echo "OK"
@@ -372,11 +391,11 @@ jobs:
       - name: Dynamic check — AppImage
         run: |
           set -euo pipefail
-          echo "=== Run AppImage under Xvfb ==="
+          echo "=== Run AppImage ==="
           APPIMAGE=$(ls dist/*.AppImage | head -1)
           chmod +x "$APPIMAGE"
           "$APPIMAGE" --appimage-extract >/dev/null
-          chmod +x squashfs-root/AppRun squashfs-root/AppRun.wrapped squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
+          chmod +x squashfs-root/AppRun squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
 
           APP_PID=""
           XVFB_PID=""
@@ -386,10 +405,23 @@ jobs:
           }
           trap cleanup EXIT
 
-          Xvfb :99 -screen 0 1440x900x24 &
-          XVFB_PID=$!
-          export DISPLAY=:99
-          sleep 2
+          if command -v Xvfb >/dev/null 2>&1; then
+            Xvfb :99 -screen 0 1440x900x24 &
+            XVFB_PID=$!
+            export DISPLAY=:99
+          elif command -v weston >/dev/null 2>&1; then
+            export XDG_RUNTIME_DIR=/tmp/weston-runtime
+            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+            weston --backend=headless-backend.so --socket=wayland-1 \
+                   --width=1440 --height=900 &
+            XVFB_PID=$!
+            export WAYLAND_DISPLAY=wayland-1
+          else
+            echo "::error::ни Xvfb, ни weston недоступны"
+            exit 1
+          fi
+
+          sleep 3
           ./squashfs-root/AppRun &
           APP_PID=$!
           sleep 15
