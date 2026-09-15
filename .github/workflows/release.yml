@@ -29,7 +29,7 @@ jobs:
     env:
       REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -92,7 +92,7 @@ jobs:
 
       - name: Cache third_party
         if: steps.check_version_changed.outputs.version_changed == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: third_party
           key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
@@ -152,7 +152,7 @@ jobs:
 
       - name: Upload install artifact
         if: steps.check_version_changed.outputs.version_changed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: install
           path: install/
@@ -167,11 +167,11 @@ jobs:
     if: needs.build-binary.outputs.version_changed == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: third_party
           key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
@@ -186,7 +186,7 @@ jobs:
           chmod +x setup-deps.sh
           ./setup-deps.sh --yes
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: install
           path: install
@@ -238,7 +238,7 @@ jobs:
           mkdir -p dist
           gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: packages
@@ -254,194 +254,10 @@ jobs:
           [ -n "${GNUPGHOME:-}" ] && rm -rf "$GNUPGHOME" || true
 
   # =========================================================================
-  # 3. Smoke-test: пакет + AppImage в десктопном окружении
-  # =========================================================================
-  smoke-test:
-    needs: package
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { container: 'ubuntu:26.04',             family: 'deb' }
-          - { container: 'debian:13',                family: 'deb' }
-          - { container: 'fedora:44',                family: 'rpm' }
-          - { container: 'rockylinux/rockylinux:10', family: 'rpm' }
-          - { container: 'archlinux:latest',         family: 'arch' }
-    container:
-      image: ${{ matrix.container }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: packages
-          path: .
-
-      - name: Install minimal desktop stack
-        run: |
-          set -euo pipefail
-          if command -v apt-get >/dev/null; then
-            apt-get update -qq
-            apt-get install -y --no-install-recommends \
-              ca-certificates file xz-utils xvfb xfce4
-          elif command -v dnf >/dev/null; then
-            if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
-              dnf install -y dnf-plugins-core || true
-              dnf config-manager --set-enabled crb 2>/dev/null \
-                || dnf config-manager setopt crb.enabled=1 2>/dev/null \
-                || true
-              # EPEL нужен для weston и других Wayland-компоситоров
-              dnf install -y epel-release || true
-            fi
-            dnf install -y ca-certificates file xz gtk3
-            # weston: на Fedora — из основных репо, на Rocky 10 — из EPEL
-            dnf install -y weston 2>/dev/null \
-              || dnf install -y gnome-kiosk 2>/dev/null \
-              || true
-            dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
-            # Xfce на Rocky 10 отсутствует — пропускаем без падения
-            dnf group install -y "Xfce Desktop" 2>/dev/null \
-              || dnf group install -y xfce-desktop 2>/dev/null \
-              || true
-          elif command -v pacman >/dev/null; then
-            pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb xfce4 weston
-          fi
-
-      - name: Install package (deb / rpm / arch)
-        run: |
-          set -euo pipefail
-          echo "=== Install package ==="
-          case "${{ matrix.family }}" in
-            deb)
-              apt-get install -y ./dist/*.deb
-              ;;
-            rpm)
-              dnf install -y ./dist/*.rpm
-              ;;
-            arch)
-              echo "[i] Arch: нативный .pkg.tar.zst в артефактах нет, пропускаем установку пакета"
-              ;;
-          esac
-
-      - name: Static check — package
-        if: matrix.family != 'arch'
-        run: |
-          set -euo pipefail
-          echo "=== ldd /opt/iptvplayer/usr/bin/iptvplayer ==="
-          LL="/opt/iptvplayer/usr/lib:/opt/iptvplayer/usr/lib/fallback"
-          if LD_LIBRARY_PATH="$LL" ldd /opt/iptvplayer/usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
-            LD_LIBRARY_PATH="$LL" ldd /opt/iptvplayer/usr/bin/iptvplayer | grep "not found"
-            exit 1
-          fi
-          echo "OK"
-
-      - name: Dynamic check — package
-        if: matrix.family != 'arch'
-        run: |
-          set -euo pipefail
-          echo "=== Run package binary ==="
-
-          APP_PID=""
-          XVFB_PID=""
-          cleanup() {
-            [ -n "$APP_PID" ]  && kill "$APP_PID"  2>/dev/null || true
-            [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          if command -v Xvfb >/dev/null 2>&1; then
-            Xvfb :99 -screen 0 1440x900x24 &
-            XVFB_PID=$!
-            export DISPLAY=:99
-          elif command -v weston >/dev/null 2>&1; then
-            export XDG_RUNTIME_DIR=/tmp/weston-runtime
-            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-            weston --backend=headless-backend.so --socket=wayland-1 \
-                   --width=1440 --height=900 &
-            XVFB_PID=$!
-            export WAYLAND_DISPLAY=wayland-1
-          else
-            echo "::error::ни Xvfb, ни weston недоступны"
-            exit 1
-          fi
-
-          sleep 3
-          /usr/bin/iptvplayer &
-          APP_PID=$!
-          sleep 15
-          if ! kill -0 "$APP_PID" 2>/dev/null; then
-            echo "::error::package binary crashed during startup"
-            exit 1
-          fi
-          echo "OK"
-
-      - name: Extract AppImage and static check
-        run: |
-          set -euo pipefail
-          APPIMAGE=$(ls dist/*.AppImage | head -1)
-          chmod +x "$APPIMAGE"
-          "$APPIMAGE" --appimage-extract >/dev/null
-          BIN="squashfs-root/usr/bin/iptvplayer"
-          [ -f "$BIN" ] || BIN="squashfs-root/AppRun"
-          chmod +x squashfs-root/AppRun squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
-          echo "=== ldd $BIN ==="
-          LL="squashfs-root/usr/lib:squashfs-root/usr/lib/fallback"
-          if LD_LIBRARY_PATH="$LL" ldd "$BIN" 2>&1 | grep -q "not found"; then
-            LD_LIBRARY_PATH="$LL" ldd "$BIN" | grep "not found"
-            exit 1
-          fi
-          echo "OK"
-
-      - name: Dynamic check — AppImage
-        run: |
-          set -euo pipefail
-          echo "=== Run AppImage ==="
-          APPIMAGE=$(ls dist/*.AppImage | head -1)
-          chmod +x "$APPIMAGE"
-          "$APPIMAGE" --appimage-extract >/dev/null
-          chmod +x squashfs-root/AppRun squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
-
-          APP_PID=""
-          XVFB_PID=""
-          cleanup() {
-            [ -n "$APP_PID" ]  && kill "$APP_PID"  2>/dev/null || true
-            [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          if command -v Xvfb >/dev/null 2>&1; then
-            Xvfb :99 -screen 0 1440x900x24 &
-            XVFB_PID=$!
-            export DISPLAY=:99
-          elif command -v weston >/dev/null 2>&1; then
-            export XDG_RUNTIME_DIR=/tmp/weston-runtime
-            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-            weston --backend=headless-backend.so --socket=wayland-1 \
-                   --width=1440 --height=900 &
-            XVFB_PID=$!
-            export WAYLAND_DISPLAY=wayland-1
-          else
-            echo "::error::ни Xvfb, ни weston недоступны"
-            exit 1
-          fi
-
-          sleep 3
-          ./squashfs-root/AppRun &
-          APP_PID=$!
-          sleep 15
-          if ! kill -0 "$APP_PID" 2>/dev/null; then
-            echo "::error::AppImage crashed during startup"
-            exit 1
-          fi
-          echo "OK"
-
-  # =========================================================================
-  # 4. Публикация
+  # 3. Публикация
   # =========================================================================
   release:
-    needs: [build-binary, package, smoke-test]
+    needs: [build-binary, package]
     if: |
       always() &&
       needs.build-binary.result == 'success' &&
@@ -450,7 +266,7 @@ jobs:
     steps:
       - name: Download packages
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: packages
           path: .
@@ -473,10 +289,7 @@ jobs:
         run: |
           set -euo pipefail
           BODY="Automated release for v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
-          if [ "${{ needs.smoke-test.result }}" != "success" ]; then
-            BODY="$BODY"$'\n\n'"⚠️ **Smoke-test не прошёл.** См. https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          fi
-          BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc >= 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"
+          BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc >= 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"$'\n\n'"Smoke-test запускается автоматически после публикации релиза — см. workflow \`Smoke test release\`."
           {
             echo "body<<EOF"
             echo "$BODY"
