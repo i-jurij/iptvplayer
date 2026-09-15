@@ -287,6 +287,12 @@ jobs:
             apt-get install -y --no-install-recommends \
               ca-certificates file xz-utils xvfb xfce4
           elif command -v dnf >/dev/null; then
+            if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
+              dnf install -y dnf-plugins-core || true
+              dnf config-manager --set-enabled crb 2>/dev/null \
+                || dnf config-manager setopt crb.enabled=1 2>/dev/null \
+                || true
+            fi
             dnf install -y ca-certificates file xz xorg-x11-server-Xvfb
             dnf group install -y "Xfce Desktop" || dnf group install -y xfce-desktop || true
           elif command -v pacman >/dev/null; then
@@ -325,20 +331,26 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Run package binary under Xvfb ==="
+
+          APP_PID=""
+          XVFB_PID=""
+          cleanup() {
+            [ -n "$APP_PID" ]  && kill "$APP_PID"  2>/dev/null || true
+            [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           Xvfb :99 -screen 0 1440x900x24 &
           XVFB_PID=$!
           export DISPLAY=:99
           sleep 2
-          /opt/iptvplayer/usr/bin/iptvplayer &
+          /usr/bin/iptvplayer &
           APP_PID=$!
           sleep 15
           if ! kill -0 "$APP_PID" 2>/dev/null; then
             echo "::error::package binary crashed during startup"
-            kill "$XVFB_PID" 2>/dev/null || true
             exit 1
           fi
-          kill "$APP_PID" 2>/dev/null || true
-          kill "$XVFB_PID" 2>/dev/null || true
           echo "OK"
 
       - name: Extract AppImage and static check
@@ -349,6 +361,7 @@ jobs:
           "$APPIMAGE" --appimage-extract >/dev/null
           BIN="squashfs-root/usr/bin/iptvplayer"
           [ -f "$BIN" ] || BIN="squashfs-root/AppRun"
+          chmod +x "$BIN"
           echo "=== ldd $BIN ==="
           if ldd "$BIN" 2>&1 | grep -q "not found"; then
             ldd "$BIN" | grep "not found"
@@ -362,20 +375,28 @@ jobs:
           echo "=== Run AppImage under Xvfb ==="
           APPIMAGE=$(ls dist/*.AppImage | head -1)
           chmod +x "$APPIMAGE"
+          "$APPIMAGE" --appimage-extract >/dev/null
+          chmod +x squashfs-root/AppRun squashfs-root/AppRun.wrapped squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
+
+          APP_PID=""
+          XVFB_PID=""
+          cleanup() {
+            [ -n "$APP_PID" ]  && kill "$APP_PID"  2>/dev/null || true
+            [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           Xvfb :99 -screen 0 1440x900x24 &
           XVFB_PID=$!
           export DISPLAY=:99
           sleep 2
-          "$APPIMAGE" &
+          ./squashfs-root/AppRun &
           APP_PID=$!
           sleep 15
           if ! kill -0 "$APP_PID" 2>/dev/null; then
             echo "::error::AppImage crashed during startup"
-            kill "$XVFB_PID" 2>/dev/null || true
             exit 1
           fi
-          kill "$APP_PID" 2>/dev/null || true
-          kill "$XVFB_PID" 2>/dev/null || true
           echo "OK"
 
   # =========================================================================

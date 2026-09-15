@@ -167,9 +167,13 @@ check_deps() {
     local required=()
     local optional=()
 
-    for tool in gpg tar; do
+    for tool in tar readelf; do
         command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
     done
+
+    if [ -n "${GPG_KEY_ID:-}" ]; then
+        command -v gpg >/dev/null 2>&1 || required+=("gpg")
+    fi
 
     if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]] || [[ "$need_bundle_deb" == true ]]; }; then
         command -v dpkg-deb >/dev/null 2>&1 || required+=("dpkg-deb")
@@ -360,16 +364,116 @@ populate_appdir() {
     fi
 
     echo "[+] Наполнение AppDir через linuxdeploy..."
-    if APPIMAGE_EXTRACT_AND_RUN=1 DEPLOY_GTK_VERSION=3 ARCH="$APPIMAGE_ARCH" "$LINUXDEPLOY" \
+    if ! APPIMAGE_EXTRACT_AND_RUN=1 DEPLOY_GTK_VERSION=3 ARCH="$APPIMAGE_ARCH" "$LINUXDEPLOY" \
         --appdir="$APPDIR" \
         --plugin gtk \
         --desktop-file="$APPDIR/usr/share/applications/$PACKAGE_NAME.desktop"; then
-        echo "[✓] AppDir наполнен."
-        return 0
+        echo "[!] Ошибка linuxdeploy." >&2
+        return 1
     fi
 
-    echo "[!] Ошибка linuxdeploy." >&2
-    return 1
+    # linuxdeploy иногда теряет exec-бит на AppRun.wrapped
+    chmod +x "$APPDIR/AppRun" 2>/dev/null || true
+    chmod +x "$APPDIR/AppRun.wrapped" 2>/dev/null || true
+    chmod +x "$APPDIR/usr/bin/$PACKAGE_NAME" 2>/dev/null || true
+
+    # Fallback-библиотеки: автоматически собираем все NEEDED из бинарника
+    # и всех .so в APPDIR (mpv и его зависимости). Кладём в отдельный
+    # каталог, AppRun подключит их к LD_LIBRARY_PATH только если их
+    # нет в системе. Системные библиотеки всегда в приоритете.
+    #
+    # FORBIDDEN_RE — то, что НЕЛЬЗЯ бандлить ни в каком виде:
+    # связка с GPU-драйвером, DRM, X11/Wayland-сервером, базовая libc.
+    local FORBIDDEN_RE='^(libEGL|libGLX|libGLdispatch|libOpenGL|libGLES|libGL\.|libGLU|libglapi|libvulkan|libdrm|libgbm|libva|libvdpau|libdisplay-info|libX11|libxcb|libwayland|libc\.so|ld-linux|libm\.so|libpthread|libdl\.so|librt\.so|libgcc_s|libstdc\+\+|libz\.so)'
+
+    echo "[+] Сбор NEEDED-списка из бинарника и библиотек в APPDIR..."
+    local needed
+    needed=$(
+        {
+            readelf -d "$APPDIR/usr/bin/$PACKAGE_NAME" 2>/dev/null || true
+            find "$APPDIR/usr/lib" -maxdepth 2 \( -name '*.so' -o -name '*.so.*' \) -type f 2>/dev/null \
+                -exec readelf -d {} \; 2>/dev/null || true
+        } \
+        | awk '/NEEDED/ {gsub(/[][]/,""); print $NF}' \
+        | sort -u
+    )
+
+    mkdir -p "$APPDIR/usr/lib/fallback"
+    local fb_count=0
+    while IFS= read -r lib; do
+        [ -z "$lib" ] && continue
+        # запрещённые (GPU, DRM, X11, libc)
+        echo "$lib" | grep -qE "$FORBIDDEN_RE" && continue
+        # уже в APPDIR — linuxdeploy забрал, дублировать не надо
+        [ -e "$APPDIR/usr/lib/$lib" ] && continue
+        # ищем в системе
+        local src
+        src=$(ldconfig -p 2>/dev/null | awk -v L="$lib" '$1==L {print $NF; exit}')
+        if [ -z "$src" ] || [ ! -f "$src" ]; then
+            continue
+        fi
+        local real
+        real=$(readlink -f "$src")
+        cp -a "$real" "$APPDIR/usr/lib/fallback/$(basename "$real")"
+        ln -sf "$(basename "$real")" "$APPDIR/usr/lib/fallback/$lib"
+        fb_count=$((fb_count + 1))
+    done <<< "$needed"
+    echo "[i] Fallback-библиотек скопировано: $fb_count"
+
+    # Заменяем AppRun на свой: preflight + fallback LD_LIBRARY_PATH
+    if [ -f "$APPDIR/AppRun" ] && [ ! -f "$APPDIR/AppRun.linuxdeploy" ]; then
+        mv "$APPDIR/AppRun" "$APPDIR/AppRun.linuxdeploy"
+    fi
+
+    cat > "$APPDIR/AppRun" <<'APPRUN'
+#!/bin/bash
+HERE="$(dirname "$(readlink -f "$0")")"
+export APPDIR="${APPDIR:-$HERE}"
+
+# Fallback: в LD_LIBRARY_PATH идут ТОЛЬКО те либы, которых нет в системе.
+# Системные всегда в приоритете, даже если fallback их содержит.
+if [ -d "$APPDIR/usr/lib/fallback" ]; then
+    FB_TMP=$(mktemp -d -t iptvplayer-fb.XXXXXX) || FB_TMP=""
+    fb_needed=0
+    for lib in "$APPDIR/usr/lib/fallback"/*.so*; do
+        [ -e "$lib" ] || continue
+        libname=$(basename "$lib")
+        if ! ldconfig -p 2>/dev/null | grep -q "$libname"; then
+            ln -sf "$lib" "$FB_TMP/$libname"
+            fb_needed=1
+        fi
+    done
+    if [ "$fb_needed" = 1 ] && [ -n "$FB_TMP" ]; then
+        export LD_LIBRARY_PATH="$FB_TMP:${LD_LIBRARY_PATH:-}"
+        # чистим при выходе
+        trap 'rm -rf "$FB_TMP"' EXIT
+    else
+        rmdir "$FB_TMP" 2>/dev/null || rm -rf "$FB_TMP"
+    fi
+fi
+
+# Preflight: проверяем, что все NEEDED разрешимы
+BIN="$APPDIR/usr/bin/iptvplayer"
+if [ -x "$BIN" ]; then
+    missing=$(ldd "$BIN" 2>&1 | awk '/not found/ {print $1}' | sort -u)
+    if [ -n "$missing" ]; then
+        echo "iptvplayer: не удалось запустить — отсутствуют системные библиотеки:" >&2
+        echo "$missing" | while read -r lib; do
+            echo "  - $lib" >&2
+        done
+        echo "" >&2
+        echo "Установите их средствами вашего дистрибутива." >&2
+        exit 1
+    fi
+fi
+
+"$APPDIR/AppRun.linuxdeploy" "$@"
+exit $?
+APPRUN
+    chmod +x "$APPDIR/AppRun"
+
+    echo "[✓] AppDir наполнен."
+    return 0
 }
 
 # =============================================================================
@@ -387,27 +491,49 @@ build_appimage() {
         fi
     fi
 
-    local LINUXDEPLOY="$SCRIPT_DIR/linuxdeploy-${APPIMAGE_ARCH}.AppImage"
-
-    echo "[+] Упаковка AppDir в AppImage..."
-    if APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$APPIMAGE_ARCH" "$LINUXDEPLOY" \
-        --appdir="$APPDIR" \
-        --output=appimage; then
-        echo "[✓] AppImage собран."
-    else
-        echo "[!] Ошибка упаковки AppImage." >&2
+    # Проверка до упаковки: AppRun должен быть наш, а не linuxdeploy-овский
+    if [ ! -f "$APPDIR/AppRun" ]; then
+        echo "[!] $APPDIR/AppRun отсутствует — populate_appdir не отработал" >&2
+        return 1
+    fi
+    if ! grep -q 'iptvplayer-fb' "$APPDIR/AppRun"; then
+        echo "[!] $APPDIR/AppRun не содержит нашей fallback-логики — отказ" >&2
         return 1
     fi
 
-    local found
-    found=$(find "$SCRIPT_DIR" -maxdepth 1 -name "*-${APPIMAGE_ARCH}.AppImage" ! -name "linuxdeploy*" -print -quit)
-    if [ -n "$found" ]; then
-        mv "$found" "$appimage_file"
-        echo "[✓] AppImage: $appimage_file"
-    else
-        echo "[!] AppImage не найден." >&2
+    # .DirIcon — appimagetool требует, linuxdeploy обычно создаёт сам
+    if [ ! -e "$APPDIR/.DirIcon" ] && [ -f "$APPDIR/$ICON_NAME" ]; then
+        ln -sf "$ICON_NAME" "$APPDIR/.DirIcon"
+    fi
+
+    # Скачиваем appimagetool (один раз)
+    local APPIMAGETOOL="$SCRIPT_DIR/appimagetool-${APPIMAGE_ARCH}.AppImage"
+    if [ ! -f "$APPIMAGETOOL" ]; then
+        echo "[+] Скачивание appimagetool ($APPIMAGE_ARCH)..."
+        if ! wget -q --show-progress \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${APPIMAGE_ARCH}.AppImage" \
+            -O "$APPIMAGETOOL"; then
+            echo "[!] не удалось скачать appimagetool" >&2
+            return 1
+        fi
+        chmod +x "$APPIMAGETOOL"
+    fi
+
+    echo "[+] Упаковка AppDir в AppImage через appimagetool..."
+    rm -f "$appimage_file"
+    if ! APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$APPIMAGE_ARCH" "$APPIMAGETOOL" \
+        --no-appstream \
+        "$APPDIR" "$appimage_file"; then
+        echo "[!] appimagetool завершился с ошибкой" >&2
         return 1
     fi
+
+    if [ ! -f "$appimage_file" ]; then
+        echo "[!] appimagetool не создал $appimage_file" >&2
+        return 1
+    fi
+
+    echo "[✓] AppImage: $appimage_file"
 
     if command -v zsyncmake >/dev/null; then
         if ! zsyncmake "$appimage_file" -o "$OUTPUT_DIR/$(basename "$appimage_file" .AppImage).zsync"; then
@@ -481,13 +607,23 @@ build_deb_bundled() {
     fi
 
     mkdir -p "$STAGING_DIR/DEBIAN"
+
+    local bundled_bin="$STAGING_DIR${BUNDLE_PREFIX}/usr/bin/$PACKAGE_NAME"
+    local depends
+    depends=$(detect_deb_depends "$bundled_bin")
+    if [ -z "$depends" ]; then
+        echo "[!] bundled .deb: не удалось определить Depends" >&2
+        return 1
+    fi
+    echo "[+] bundled .deb Depends: $depends"
+
     cat > "$STAGING_DIR/DEBIAN/control" << EOF
 Package: $PACKAGE_NAME
 Version: $VERSION
 Section: network
 Priority: optional
 Architecture: $DEB_ARCH
-Depends: libc6 (>= 2.39), libstdc++6, libgcc-s1, libgl1, libegl1
+Depends: $depends
 Maintainer: ijurij <mnisjil@duck.com>
 Homepage: https://github.com/i-jurij/$PACKAGE_NAME
 Description: IPTV Playlist Player (bundled)
@@ -554,7 +690,7 @@ build_rpm_bundled() {
 %define debug_package %{nil}
 %define _topdir $SPEC_DIR
 %define _binary_payload w2.xzdio
-AutoReqProv: no
+%global __requires_exclude_from ^/opt/iptvplayer/.*$
 Name:           $PACKAGE_NAME
 Version:        $VERSION
 Release:        $release
@@ -563,12 +699,6 @@ License:        MIT
 URL:            https://github.com/i-jurij/$PACKAGE_NAME
 Source0:        %{name}-%{version}.tar.gz
 BuildArch:      $RPM_ARCH
-
-Requires:       glibc >= 2.39
-Requires:       libstdc++
-Requires:       libgcc
-Requires:       mesa-libGL
-Requires:       mesa-libEGL
 
 %description
 Self-contained build with all libraries in $BUNDLE_PREFIX.
