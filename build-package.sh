@@ -424,6 +424,10 @@ populate_appdir() {
 HERE="$(dirname "$(readlink -f "$0")")"
 export APPDIR="${APPDIR:-$HERE}"
 
+# Базовый путь: все библиотеки, которые linuxdeploy положил в AppDir,
+# должны быть видны загрузчику ДО fallback-логики.
+export LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/usr/lib/fallback:${LD_LIBRARY_PATH:-}"
+
 # GTK-hook от linuxdeploy (source'им вручную, вместо AppRun.linuxdeploy)
 if [ -f "$APPDIR/apprun-hooks/linuxdeploy-plugin-gtk.sh" ]; then
     source "$APPDIR/apprun-hooks/linuxdeploy-plugin-gtk.sh"

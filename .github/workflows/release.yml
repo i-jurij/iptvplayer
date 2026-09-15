@@ -292,13 +292,19 @@ jobs:
               dnf config-manager --set-enabled crb 2>/dev/null \
                 || dnf config-manager setopt crb.enabled=1 2>/dev/null \
                 || true
+              # EPEL нужен для weston и других Wayland-компоситоров
+              dnf install -y epel-release || true
             fi
-            # Xvfb есть на Fedora, но отсутствует в RHEL/Rocky 10
-            # (Xorg удалён архитектурно). Тянем оба варианта:
-            # на Fedora отработает Xvfb, на Rocky — weston headless.
-            dnf install -y ca-certificates file xz weston gtk3
+            dnf install -y ca-certificates file xz gtk3
+            # weston: на Fedora — из основных репо, на Rocky 10 — из EPEL
+            dnf install -y weston 2>/dev/null \
+              || dnf install -y gnome-kiosk 2>/dev/null \
+              || true
             dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
-            dnf group install -y "Xfce Desktop" || dnf group install -y xfce-desktop || true
+            # Xfce на Rocky 10 отсутствует — пропускаем без падения
+            dnf group install -y "Xfce Desktop" 2>/dev/null \
+              || dnf group install -y xfce-desktop 2>/dev/null \
+              || true
           elif command -v pacman >/dev/null; then
             pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb xfce4 weston
           fi
