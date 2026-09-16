@@ -202,27 +202,35 @@ jobs:
             echo "can_sign=false" >> $GITHUB_OUTPUT
             exit 0
           fi
+
           export GNUPGHOME="$(mktemp -d)"; chmod 700 "$GNUPGHOME"
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
-          echo "pinentry-mode loopback" >> "$GNUPGHOME/gpg.conf"
-          : > "$GNUPGHOME/.passphrase"; chmod 600 "$GNUPGHOME/.passphrase"
-          echo "passphrase-file $GNUPGHOME/.passphrase" >> "$GNUPGHOME/gpg.conf"
+
+          echo "batch"  >> "$GNUPGHOME/gpg.conf"
+          echo "no-tty" >> "$GNUPGHOME/gpg.conf"
+
           gpgconf --kill gpg-agent 2>/dev/null || true
           gpg-connect-agent /bye 2>/dev/null || true
+
           REAL_GPG="$(command -v gpg)"
           WRAPPER_DIR="$(mktemp -d)"
-          cat > "$WRAPPER_DIR/gpg" <<WRAPPER
-          #!/bin/bash
-          exec "$REAL_GPG" --batch --pinentry-mode loopback --passphrase '' "\$@"
-          WRAPPER
+          printf '#!/bin/bash\nexec %s --batch --no-tty "$@"\n' "$REAL_GPG" \
+            > "$WRAPPER_DIR/gpg"
           chmod +x "$WRAPPER_DIR/gpg"
+
           GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
           [ -z "$GPG_KEY_ID" ] && { echo "::error::no secret key"; exit 1; }
+
+          if ! echo test | "$WRAPPER_DIR/gpg" --local-user "$GPG_KEY_ID" \
+                 --detach-sign -o /dev/null; then
+            echo "::error::signing self-test failed"
+            exit 1
+          fi
+
           echo "GNUPGHOME=$GNUPGHOME"           >> $GITHUB_ENV
           echo "GPG_KEY_ID=$GPG_KEY_ID"         >> $GITHUB_ENV
           echo "GPG_WRAPPER_DIR=$WRAPPER_DIR"   >> $GITHUB_ENV
-          echo "PATH=$WRAPPER_DIR:$PATH"        >> $GITHUB_ENV
+          echo "$WRAPPER_DIR"                   >> $GITHUB_PATH
           echo "can_sign=true"                  >> $GITHUB_OUTPUT
 
       - name: Build bundled packages + AppImage

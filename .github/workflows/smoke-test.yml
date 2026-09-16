@@ -223,7 +223,7 @@ jobs:
       - name: Extract AppImage and static check
         run: |
           set -euo pipefail
-          APPIMAGE=$(ls dist/*.AppImage | head -1)
+          APPIMAGE=$(ls dist/*.AppImage | grep -v -- '-sharun' | head -1)
           chmod +x "$APPIMAGE"
           "$APPIMAGE" --appimage-extract >/dev/null
           BIN="squashfs-root/usr/bin/iptvplayer"
@@ -241,7 +241,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Run AppImage ==="
-          APPIMAGE=$(ls dist/*.AppImage | head -1)
+          APPIMAGE=$(ls dist/*.AppImage | grep -v -- '-sharun' | head -1)
+          [ -n "$APPIMAGE" ] || { echo "::error::linuxdeploy AppImage не найден в dist/"; exit 1; }
           chmod +x "$APPIMAGE"
           "$APPIMAGE" --appimage-extract >/dev/null
           chmod +x squashfs-root/AppRun squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
