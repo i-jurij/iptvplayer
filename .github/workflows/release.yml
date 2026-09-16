@@ -289,7 +289,8 @@ jobs:
         run: |
           set -euo pipefail
           BODY="Automated release for v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
-          BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc >= 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"$'\n\n'"Smoke-test запускается автоматически после публикации релиза — см. workflow \`Smoke test release\`."
+          BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc >= 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"
+          BODY="$BODY"$'\n\n'"<!-- SMOKE-TEST-BEGIN -->"$'\n'"> 🧪 Smoke test: **⏳ pending** — will run automatically after this release is published."$'\n'"<!-- SMOKE-TEST-END -->"
           {
             echo "body<<EOF"
             echo "$BODY"

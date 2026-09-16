@@ -1,7 +1,7 @@
 # IPTV Player
 
 > **Binary built on Ubuntu 24.04 (glibc 2.39).**  
-> For local builds, use `./build-package.sh --help`.
+> For local builds, use `./scripts/build-package.sh --help`.
 > It can build a minimal-size package for your system.  
 > Tested only on Debian 13.
 >
@@ -35,11 +35,52 @@
 
 ---
 
+## Features
+
+- **Playlist management:** add local/remote M3U playlists, edit, update, remove.
+- **Channel views:** list or grid (cards) with sorting and search.
+- **Favorites:** mark channels, view separately.
+- **EPG (Electronic Program Guide):**
+  - XMLTV sources configuration (Settings → EPG);
+  - auto-update interval and cache expiration;
+  - program tab with day navigation and details;
+  - quick jump from channel context menu.
+- **Video playback:** fullscreen, volume, mute, audio/subtitle tracks, speed control.
+- **Recording:** record current stream to a user-defined directory.
+- **IPTV-Org integration:** add playlists from the public IPTV-Org repository.
+
+---
+
+## Keyboard shortcuts (quick reference)
+
+| Key | Action |
+| :--- | :--- |
+| `Space` | Play / Pause |
+| `Left` / `Right` | Seek –5s / +5s |
+| `Shift+Left/Right` | Seek –30s / +30s |
+| `Ctrl+Left/Right` | Seek –1s / +1s |
+| `Home` / `End` | Go to start / end |
+| `Up` / `Down` | Volume +5 / –5 |
+| `Ctrl+Up/Down` | Volume +1 / –1 |
+| `m` / `M` | Toggle mute |
+| `[` / `]` | Speed –0.1 / +0.1 |
+| `{` / `}` | Speed –0.5 / +0.5 |
+| `Backspace` | Reset speed |
+| `+` / `_` | Next / previous audio track |
+| `v` / `V` | Toggle subtitles |
+| `j` / `J` | Next subtitle track |
+| `h` / `H` | Previous subtitle track |
+| `f` / `F` | Toggle fullscreen (on Video tab) |
+| `ESC` | Exit fullscreen |
+| `q` / `Q` | Stop playback |
+
+---
+
 ## 1. Building a package for your system (recommended)
 
 Everything is driven by one script:
 
-    ./build-package.sh
+    ./scripts/build-package.sh
 
 Run it without arguments and you get an interactive menu tailored to your
 distribution (Debian/Ubuntu, Fedora/Rocky/RHEL/openSUSE, Arch/Manjaro).
@@ -49,21 +90,21 @@ needed, prepares a staging tree, and produces the package in `dist/`.
 Typical flows:
 
     # Interactive menu — choose what to build
-    ./build-package.sh
+    ./scripts/build-package.sh
 
     # .deb from system libraries (Debian/Ubuntu)
-    ./build-package.sh --native-deb
+    ./scripts/build-package.sh --native-deb
 
     # .rpm from system libraries (Fedora/Rocky/RHEL/openSUSE)
-    ./build-package.sh --native-rpm
+    ./scripts/build-package.sh --native-rpm
 
     # .pkg.tar.zst (Arch/Manjaro)
-    ./build-package.sh --native-arch
+    ./scripts/build-package.sh --native-arch
 
     # AppImage — works on any distribution
-    ./build-package.sh --appimage
+    ./scripts/build-package.sh --appimage
 
-Use `./build-package.sh --help` for the full list of options.
+Use `./scripts/build-package.sh --help` for the full list of options.
 
 **Which variant should I pick?**
 
@@ -81,20 +122,31 @@ Use `./build-package.sh --help` for the full list of options.
 
 ## 2. How the scripts fit together
 
-There are three scripts. You normally only touch the first one.
+Six scripts. Three are meant to be run by you, three are libraries sourced
+by `build-package.sh`.
+
+**User-facing:**
 
 | Script | Role | When to run it |
 | :--- | :--- | :--- |
-| `setup-deps.sh` | Installs system packages, then builds wxWidgets and wxSQLite3 statically into `third_party/`. | Once, before the first build. `build-package.sh` does **not** run it for you. |
-| `build-release.sh` | Configures CMake, builds the binary, installs into `--prefix` (default `install/`). Does not package. | Automatically called by `build-package.sh`, or manually for a plain build. |
-| `build-package.sh` | Orchestrator. Calls `build-release.sh` if the binary is missing, then produces the requested artifacts in `dist/`. | Whenever you want a package. |
+| `scripts/setup-deps.sh` | Installs system packages, then builds wxWidgets and wxSQLite3 statically into `third_party/`. | Once, before the first build. `build-package.sh` does **not** run it for you. |
+| `scripts/build-release.sh` | Configures CMake, builds the binary, installs into `--prefix` (default `install/`). Does not package. | Automatically called by `build-package.sh`, or manually for a plain build. |
+| `scripts/build-package.sh` | Orchestrator. Calls `build-release.sh` if the binary is missing, then produces the requested artifacts in `dist/`. | Whenever you want a package. |
+
+**Libraries** (not meant to be run directly):
+
+| Script | Role |
+| :--- | :--- |
+| `scripts/common.sh` | Shared helpers: logging, `ask()`, `detect_arch` / `detect_distro` / `detect_pkgmgr`, `read_versions_from_install`, `prepare_staging`, `detect_deb_depends`, `check_deps`. |
+| `scripts/build-native.sh` | Native `.deb` / `.rpm` / `.pkg.tar.zst` packagers. |
+| `scripts/build-bundle.sh` | Bundled `.deb` / `.rpm` + AppImage. Contains `populate_appdir()` (the AppDir/`AppRun` logic). |
 
 **Order of operations, in plain terms:**
 
-1. `setup-deps.sh` — one-time prep, produces static dependencies.
-2. `build-package.sh <flags>` —
+1. `scripts/setup-deps.sh` — one-time prep, produces static dependencies.
+2. `scripts/build-package.sh <flags>` —
    - reads `METAINFO_NAME`, detects architecture (`DEB_ARCH`, `RPM_ARCH`, `APPIMAGE_ARCH`) and distribution (`DISTRO`);
-   - checks for required tools (`dpkg-deb`, `rpmbuild`, `wget`, `tar`, `gpg`, …);
+   - checks for required tools (`dpkg-deb`, `rpmbuild`, `wget`, `tar`, `readelf`, `gpg` if signing, …);
    - if `install/bin/iptvplayer` is missing (or `--rebuild` given) — calls `build-release.sh --type release --prefix ./install --yes`;
    - reads `install/VERSION{,_FULL,_FILE}`;
    - for bundled/AppImage: populates `iptvplayer.AppDir` via `linuxdeploy` + GTK plugin (downloaded on demand);
@@ -111,7 +163,7 @@ Note: `build-package.sh` cleans up `pkg-staging/`, `iptvplayer.AppDir/` and
 
 Before the first package build, run:
 
-    ./setup-deps.sh
+    ./scripts/setup-deps.sh
 
 It will:
 
@@ -129,10 +181,10 @@ These paths are already configured in `CMakeLists.txt`.
 
 Options:
 
-    ./setup-deps.sh                  # interactive
-    ./setup-deps.sh --yes            # non-interactive
-    ./setup-deps.sh --skip-system    # only rebuild third_party
-    ./setup-deps.sh --yes --rebuild-deps
+    ./scripts/setup-deps.sh                  # interactive
+    ./scripts/setup-deps.sh --yes            # non-interactive
+    ./scripts/setup-deps.sh --skip-system    # only rebuild third_party
+    ./scripts/setup-deps.sh --yes --rebuild-deps
 
 > On a fresh system you will also need `build-essential cmake pkg-config
 > libcurl4-openssl-dev libgtk-3-dev autoconf automake libtool` (or the
@@ -148,7 +200,7 @@ do or if you need a build without packaging.
 
 1. **Install dependencies** (see §3):
 
-        ./setup-deps.sh
+        ./scripts/setup-deps.sh
 
 2. **Configure and build** with CMake:
 
@@ -167,11 +219,11 @@ do or if you need a build without packaging.
 
 Or use the wrapper script, which does all of the above in one shot:
 
-    ./build-release.sh                       # Release, install to ./install
-    ./build-release.sh --type debug          # Debug build
-    ./build-release.sh --clean --type debug  # Clean rebuild
-    ./build-release.sh --prefix /tmp/ip       # Custom install prefix
-    ./build-release.sh --log                 # Save build log
+    ./scripts/build-release.sh                       # Release, install to ./install
+    ./scripts/build-release.sh --type debug          # Debug build
+    ./scripts/build-release.sh --clean --type debug  # Clean rebuild
+    ./scripts/build-release.sh --prefix /tmp/ip      # Custom install prefix
+    ./scripts/build-release.sh --log                 # Save build log
 
 ### `build-release.sh` options
 
@@ -205,7 +257,7 @@ Or use the wrapper script, which does all of the above in one shot:
 | `--bundle-deb` | Bundled `.deb` (everything under `/opt/iptvplayer`) |
 | `--bundle-rpm` | Bundled `.rpm` (everything under `/opt/iptvplayer`) |
 | `--native` | All native packages available on this system |
-| `--native-appimage` | Native package for the current system + AppImage (rarely needed; AppImage alone already covers other systems) |
+| `--native-appimage` | Native package for the current system + AppImage |
 | `--bundle` | Bundled `.deb` + bundled `.rpm` |
 | `--all` | Everything possible on this system |
 | `--rebuild` | Force rebuild of the binary via `build-release.sh` |
@@ -220,26 +272,23 @@ tailored to your distribution. The menu offers native packages and the
 AppImage. Bundled packages are built only when you ask for them explicitly
 with `--bundle-deb` / `--bundle-rpm` / `--bundle` / `--all`.
 
-> **Note on native vs. bundled `.rpm`:** they currently use the same file
-> name, so building both into the same `dist/` will overwrite one with the
-> other. Build them in separate runs (or clean `dist/` between them) if you
-> need both.
+If no flags are given and stdin is **not** a TTY (CI, `--no-menu`), the
+default is bundled `.deb` + bundled `.rpm` + AppImage — the artifacts that
+CI actually needs. Pass explicit flags to override.
 
 Output goes to `dist/`:
 
     dist/
-    ├── iptvplayer_<version>_<deb-arch>.deb              # bundled .deb
-    ├── iptvplayer-<version>-1.<rpm-arch>.rpm            # bundled .rpm
-    ├── iptvplayer-linux-<arch>-<version>.AppImage       # AppImage
-    ├── iptvplayer-linux-<arch>-<version>.AppImage.asc   # detached GPG signature
-    ├── iptvplayer-linux-<arch>-<version>.zsync          # if zsyncmake is present
+    ├── iptvplayer_<version>_<deb-arch>.deb                     # bundled .deb
+    ├── iptvplayer_<version>_<distro>_<deb-arch>.deb            # native .deb
+    ├── iptvplayer-<version>-<release>.<rpm-arch>.rpm           # bundled .rpm
+    ├── iptvplayer-<version>-<release>.<distro>.<rpm-arch>.rpm  # native .rpm
+    ├── iptvplayer-<version>-<release>-<distro>-<arch>.pkg.tar.zst  # native Arch
+    ├── iptvplayer-linux-<arch>-<version>.AppImage              # AppImage
+    ├── iptvplayer-linux-<arch>-<version>.AppImage.asc          # if signed
+    ├── iptvplayer-linux-<arch>-<version>.zsync                 # if zsyncmake is present
     ├── checksums.txt
-    ├── checksums.txt.asc
-    └── public-key.asc
-    # native variants additionally use the `_native_` marker:
-    #   iptvplayer_<version>_native_<deb-arch>.deb
-    #   iptvplayer-<version>-1.<rpm-arch>.rpm (native .rpm — same name as bundled)
-    #   iptvplayer-<version>-1-<arch>.pkg.tar.zst
+    └── checksums.txt.asc                                       # if signed
 
 ### Signing (optional)
 
@@ -251,10 +300,13 @@ signs:
 - `*.AppImage` via a detached `.asc`;
 - `checksums.txt` via a detached `checksums.txt.asc`.
 
-`public-key.asc` is not produced by the script; export it manually if you
-need to distribute the key:
+`public-key.asc` is **not** produced by the script. If you need to publish
+the public key, export it manually:
 
     gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
+
+The CI release workflow does this step automatically and attaches the file
+to the GitHub release.
 
 ---
 
@@ -280,16 +332,16 @@ Then install the clangd extension in VSCode — it will use
 
 | Task | Command |
 | :--- | :--- |
-| Install dependencies (once) | `./setup-deps.sh` |
-| Build package for your system | `./build-package.sh` |
-| Build native `.deb` | `./build-package.sh --native-deb` |
-| Build native `.rpm` | `./build-package.sh --native-rpm` |
-| Build native `.pkg.tar.zst` | `./build-package.sh --native-arch` |
-| Build AppImage | `./build-package.sh --appimage` |
-| Bundled `.deb` + `.rpm` | `./build-package.sh --bundle` |
-| Just build the binary | `./build-release.sh` |
-| Debug build | `./build-release.sh --type debug` |
-| Clean rebuild | `./build-release.sh --clean` |
+| Install dependencies (once) | `./scripts/setup-deps.sh` |
+| Build package for your system | `./scripts/build-package.sh` |
+| Build native `.deb` | `./scripts/build-package.sh --native-deb` |
+| Build native `.rpm` | `./scripts/build-package.sh --native-rpm` |
+| Build native `.pkg.tar.zst` | `./scripts/build-package.sh --native-arch` |
+| Build AppImage | `./scripts/build-package.sh --appimage` |
+| Bundled `.deb` + `.rpm` | `./scripts/build-package.sh --bundle` |
+| Just build the binary | `./scripts/build-release.sh` |
+| Debug build | `./scripts/build-release.sh --type debug` |
+| Clean rebuild | `./scripts/build-release.sh --clean` |
 | Run the app from `install/` | `cd install/bin && ./iptvplayer` |
 
 ---
@@ -308,50 +360,7 @@ The config file is created automatically on first run.
 
 ---
 
-## 8. Features
-
-- **Playlist management:** add local/remote M3U playlists, edit, update, remove.
-- **Channel views:** list or grid (cards) with sorting and search.
-- **Favorites:** mark channels, view separately.
-- **EPG (Electronic Program Guide):**
-  - XMLTV sources configuration (Settings → EPG);
-  - auto-update interval and cache expiration;
-  - program tab with day navigation and details;
-  - quick jump from channel context menu.
-- **Video playback:** fullscreen, volume, mute, audio/subtitle tracks, speed control.
-- **Recording:** record current stream to a user-defined directory.
-- **IPTV-Org integration:** add playlists from the public IPTV-Org repository.
-
----
-
-## 9. Keyboard shortcuts (quick reference)
-
-| Key | Action |
-| :--- | :--- |
-| `Space` | Play / Pause |
-| `Left` / `Right` | Seek –5s / +5s |
-| `Shift+Left/Right` | Seek –30s / +30s |
-| `Ctrl+Left/Right` | Seek –1s / +1s |
-| `Home` / `End` | Go to start / end |
-| `Up` / `Down` | Volume +5 / –5 |
-| `Ctrl+Up/Down` | Volume +1 / –1 |
-| `m` / `M` | Toggle mute |
-| `[` / `]` | Speed –0.1 / +0.1 |
-| `{` / `}` | Speed –0.5 / +0.5 |
-| `Backspace` | Reset speed |
-| `+` / `_` | Next / previous audio track |
-| `v` / `V` | Toggle subtitles |
-| `j` / `J` | Next subtitle track |
-| `h` / `H` | Previous subtitle track |
-| `f` / `F` | Toggle fullscreen (on Video tab) |
-| `ESC` | Exit fullscreen |
-| `q` / `Q` | Stop playback |
-
-Full documentation is available in the **About** dialog.
-
----
-
-## 10. Notes
+## Notes
 
 - The scripts are designed for Linux; Windows and macOS will have separate
   build instructions later.
