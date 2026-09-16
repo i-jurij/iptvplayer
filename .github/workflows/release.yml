@@ -95,23 +95,23 @@ jobs:
         uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
 
       - name: Install all dependencies
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
-          chmod +x setup-deps.sh
+          chmod +x scripts/setup-deps.sh
           if [[ "${{ github.event.inputs.rebuild_deps }}" == "true" ]]; then
-            ./setup-deps.sh --yes --rebuild-deps
+            ./scripts/setup-deps.sh --yes --rebuild-deps
           else
-            ./setup-deps.sh --yes
+            ./scripts/setup-deps.sh --yes
           fi
 
       - name: Delete old third_party cache
         if: steps.check_version_changed.outputs.version_changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CURRENT_KEY: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
+          CURRENT_KEY: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
           KEY_PREFIX: ${{ runner.os }}-${{ runner.arch }}-third_party-
         run: |
           set -euo pipefail
@@ -128,8 +128,8 @@ jobs:
       - name: Build binary
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
-          chmod +x build-release.sh
-          ./build-release.sh --type release --prefix "$PWD/install" --yes
+          chmod +x scripts/build-release.sh
+          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
 
       - name: Compute .deb dependencies
         if: steps.check_version_changed.outputs.version_changed == 'true'
@@ -174,7 +174,7 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('setup-deps.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
 
       - name: Install packaging tools + runtime libs
         run: |
@@ -183,8 +183,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake dpkg-dev rpm gnupg debsigs file tar wget xz-utils \
             libmpv2 libgtk-3-0t64 libcurl4t64 libjpeg-turbo8 libexpat1 zlib1g
-          chmod +x setup-deps.sh
-          ./setup-deps.sh --yes
+          chmod +x scripts/setup-deps.sh
+          ./scripts/setup-deps.sh --yes
 
       - uses: actions/download-artifact@v5
         with:
@@ -228,8 +228,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p logs
-          chmod +x build-package.sh
-          ./build-package.sh --bundle-deb --bundle-rpm --appimage --yes 2>&1 | tee logs/build-package.log
+          chmod +x scripts/build-package.sh
+          ./scripts/build-package.sh --bundle-deb --bundle-rpm --appimage --yes 2>&1 | tee logs/build-package.log
 
       - name: Export public key
         if: always() && steps.import_gpg.outputs.can_sign == 'true'

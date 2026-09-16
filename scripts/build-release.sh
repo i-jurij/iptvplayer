@@ -12,7 +12,7 @@
 #     и предупреждает, если они отсутствуют.
 #
 # Использование:
-#   ./build-release.sh [опции]
+#   ./scripts/build-release.sh [опции]
 #
 # Опции:
 #   --clean         удалить старые папки сборки и установки перед сборкой
@@ -23,11 +23,11 @@
 #   -h, --help      показать справку
 #
 # Примеры:
-#   ./build-release.sh                             # релизная сборка в ./install
-#   ./build-release.sh --type debug                # отладочная сборка
-#   ./build-release.sh --clean --prefix ./my_build # очистка и установка в ./my_build
-#   ./build-release.sh --log                       # сборка с логированием
-#   ./build-release.sh --yes --prefix ./install    # неинтерактивная сборка (CI)
+#   ./scripts/build-release.sh                             # релизная сборка в ./install
+#   ./scripts/build-release.sh --type debug                # отладочная сборка
+#   ./scripts/build-release.sh --clean --prefix ./my_build # очистка и установка в ./my_build
+#   ./scripts/build-release.sh --log                       # сборка с логированием
+#   ./scripts/build-release.sh --yes --prefix ./install    # неинтерактивная сборка (CI)
 #
 # Примечание:
 #   Версия определяется в CMakeLists.txt: чистая версия читается из корневого
@@ -40,6 +40,13 @@
 
 set -euo pipefail
 
+# ---- Каталог скриптов и корень проекта ----
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# ---- Общие утилиты ----
+source "$SCRIPT_DIR/common.sh"
+
 # -------- Настройки (можно менять) --------
 PROJECT_NAME="iptvplayer"
 BUILD_TYPE="Release"          # по умолчанию
@@ -48,43 +55,6 @@ PREFIX="install"              # по умолчанию — папка в кор
 JOBS=$(nproc)                 # количество потоков
 LOG_FILE=""                   # если задан, вывод дублируется в файл
 # -----------------------------------------
-
-# -------- Неинтерактивный режим --------
-# Авто-детект: CI env vars или отсутствие TTY.
-NON_INTERACTIVE=false
-if [[ -n "${CI:-}" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ ! -t 0 ]]; then
-    NON_INTERACTIVE=true
-fi
-
-# Цвета для вывода
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-log() { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
-error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
-
-# Спросить пользователя. Возвращает 0 для "да", 1 для "нет".
-# $1 — вопрос
-# $2 — default в интерактивном режиме ("y"/"n")
-# $3 — default в неинтерактивном режиме (по умолчанию совпадает с $2)
-ask() {
-    local prompt="$1"
-    local di="${2:-n}"
-    local dni="${3:-$di}"
-    if [[ "$NON_INTERACTIVE" == true ]]; then
-        log "Неинтерактивный режим: '${prompt}' → ${dni} (авто)"
-        [[ "$dni" == "y" ]]
-        return
-    fi
-    local reply=""
-    read -p "$prompt " -n 1 -r reply || true
-    echo
-    [[ -z "$reply" ]] && reply="$di"
-    [[ "$reply" =~ ^[Yy]$ ]]
-}
 
 show_help() {
     cat << EOF
@@ -108,9 +78,6 @@ show_help() {
   $0 --yes --prefix ./install
 EOF
 }
-
-# Определяем корень проекта (там, где лежит этот скрипт)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Парсинг аргументов
 while [[ $# -gt 0 ]]; do
@@ -172,17 +139,17 @@ log "Используется генератор: $MAKE_CMD"
 
 # Преобразуем PREFIX в абсолютный путь, если он относительный
 if [[ ! "$PREFIX" = /* ]]; then
-    PREFIX="$SCRIPT_DIR/$PREFIX"
+    PREFIX="$PROJECT_ROOT/$PREFIX"
 fi
 
 # Директории
-BUILD_DIR="$SCRIPT_DIR/build-${BUILD_TYPE,,}"   # build-release или build-debug
+BUILD_DIR="$PROJECT_ROOT/build-${BUILD_TYPE,,}"   # build-release или build-debug
 INSTALL_DIR="$PREFIX"
 
 # Проверка наличия собранных зависимостей
 check_deps() {
-    local wx_lib="$SCRIPT_DIR/third_party/wx/install/lib/libwx_gtk3u_core-3.3.a"
-    local sqlite_lib="$SCRIPT_DIR/third_party/wxsqlite3/install/lib/libwxcode_gtk3u_wxsqlite3-3.3.a"
+    local wx_lib="$PROJECT_ROOT/third_party/wx/install/lib/libwx_gtk3u_core-3.3.a"
+    local sqlite_lib="$PROJECT_ROOT/third_party/wxsqlite3/install/lib/libwxcode_gtk3u_wxsqlite3-3.3.a"
     local missing=()
     [[ ! -f "$wx_lib" ]] && missing+=("wxWidgets (не найден $wx_lib)")
     [[ ! -f "$sqlite_lib" ]] && missing+=("wxSQLite3 (не найден $sqlite_lib)")
@@ -198,7 +165,7 @@ check_deps() {
     fi
 }
 
-cd "$SCRIPT_DIR"
+cd "$PROJECT_ROOT"
 check_deps
 
 # Очистка
@@ -223,7 +190,7 @@ cd "$BUILD_DIR"
 
 # Конфигурация CMake
 log "Конфигурация CMake (${BUILD_TYPE})..."
-cmake "$SCRIPT_DIR" \
+cmake "$PROJECT_ROOT" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -254,7 +221,7 @@ log "✅ Сборка завершена! Приложение готово к �
 echo -e "${GREEN}Запуск:${NC} cd $INSTALL_DIR/bin && ./$PROJECT_NAME"
 
 # Копируем compile_commands.json в корень (для IDE)
-cp "$BUILD_DIR/compile_commands.json" "$SCRIPT_DIR/" 2>/dev/null || true
+cp "$BUILD_DIR/compile_commands.json" "$PROJECT_ROOT/" 2>/dev/null || true
 
 if [[ -n "$LOG_FILE" ]]; then
     log "Полный лог сохранён в $LOG_FILE"

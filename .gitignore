@@ -10,6 +10,7 @@ dist/
 pkg-*/
 *.AppDir/
 linuxdeploy*
+appimagetool*
 
 # -------------------------------
 # IDE и редакторы

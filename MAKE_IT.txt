@@ -1,2 +1,772 @@
+Переписывать всё сразу — плохая идея. Слишком много движущихся частей, и при первой же ошибке будет неясно, что именно сломалось: перенос путей, вынос в отдельные модули или переход на `sharun`. Разбивка на шаги — правильный путь. Предлагаю такой порядок:
 
+1. **Перенос в `scripts/`** — самый безопасный шаг. Ничего не ломается, только пути.
+2. **Вынос нативных пакетов** — они изолированы, не зависят от AppImage и `sharun`.
+3. **Вынос AppImage + переход на `sharun`** — самый крупный шаг, делается один раз.
+4. **Вынос бандлов** — они переиспользуют `AppDir`, собранный на шаге 3.
+5. **Общие функции** — вынос по факту, когда станет видно, что реально дублируется.
+
+Ниже — полный план с содержанием каждого шага.
+
+---
+
+## Шаг 1. Перенос в `scripts/`
+
+Ничего не выносим, только перемещаем. Создаём `scripts/` и переносим туда четыре файла:
+
+```
+scripts/
+├── build-package.sh
+├── build-release.sh
+├── setup-deps.sh
+└── lib/                    # пока пусто, появится на шаге 5
+```
+
+Что поправить в каждом:
+
+**`scripts/build-release.sh`** — единственное место, где путь важен:
+```bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+```
+`SCRIPT_DIR` теперь указывает на `scripts/`, а `PROJECT_ROOT` должен быть на уровень выше. Нужно добавить:
+```bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+```
+И заменить все `$SCRIPT_DIR` на `$PROJECT_ROOT` там, где речь о корне проекта (CMakeLists.txt, `third_party/`, `install/`, `build-release/`). `PREFIX="install"` остаётся относительным, но преобразуется в абсолютный через `$PROJECT_ROOT`, не `$SCRIPT_DIR`.
+
+**`scripts/setup-deps.sh`** — то же самое:
+```bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ ! -f "$PROJECT_ROOT/CMakeLists.txt" ]]; then
+    error "Скрипт должен быть запущен из корня проекта..."
+fi
+THIRD_PARTY_DIR="$PROJECT_ROOT/third_party"
+```
+
+**`scripts/build-package.sh`** — здесь путей больше:
+```bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+```
+Далее `BUILD_RELEASE_SCRIPT="$SCRIPT_DIR/build-release.sh"` — правильно, остаётся в `scripts/`. А `OUTPUT_DIR="$PROJECT_ROOT/dist"`, `STAGING_DIR="$PROJECT_ROOT/pkg-staging"`, `APPDIR="$PROJECT_ROOT/${PACKAGE_NAME}.AppDir"`, `METAINFO_NAME` читается из `$PROJECT_ROOT/METAINFO_NAME`, `install/` — из `$PROJECT_ROOT/install`.
+
+Проверка после шага 1: `./scripts/build-release.sh --yes --prefix "$PWD/install"`, `./scripts/setup-deps.sh --yes`, `./scripts/build-package.sh --native-deb --yes` — все должны работать как раньше. CI при этом **не трогаем**, пути в `release.yml` (`./build-release.sh`, `./setup-deps.sh`, `./build-package.sh`) временно меняем на `./scripts/...`. Это откатывается одной строкой, если что-то пойдёт не так.
+
+---
+
+## Шаг 2. Вынос нативных пакетов
+
+`--native-deb`, `--native-rpm`, `--native-arch` не используют `AppDir`, `linuxdeploy`, `sharun`. Они читают `$STAGING_DIR`, который заполняет `prepare_staging`, и упаковывают его системными инструментами. Это идеальные кандидаты на вынос.
+
+Создаём `scripts/packagers/native.sh`:
+
+```bash
+#!/bin/bash
+# Нативные .deb / .rpm / .pkg.tar.zst из системных библиотек.
+# Требует: STAGING_DIR, OUTPUT_DIR, VERSION, DEB_ARCH, RPM_ARCH, APPIMAGE_ARCH,
+#          DISTRO, PACKAGE_NAME, ICON_NAME, METAINFO_NAME — как переменные окружения.
+
+build_deb_native() {
+    local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION}_${DISTRO}_${DEB_ARCH}.deb"
+    # ... тело из build-package.sh без изменений ...
+}
+
+build_rpm_native() {
+    # ... тело из build-package.sh без изменений ...
+}
+
+build_pkg_arch() {
+    # ... тело из build-package.sh без изменений ...
+}
+```
+
+`detect_deb_depends` — она используется и нативным, и bundled, — пока остаётся в `build-package.sh`. На шаге 5 переедет в общий `lib/`.
+
+В `build-package.sh` в начале (после парсинга аргументов) добавляем:
+```bash
+NATIVE_PACKAGERS="$SCRIPT_DIR/packagers/native.sh"
+```
+И в `main` вместо тел функций делаем:
+```bash
+if [[ "$BUILD_NATIVE_DEB" == true ]]; then
+    if [[ "$pkgmgr" == "deb" ]]; then
+        # shellcheck source=packagers/native.sh
+        source "$NATIVE_PACKAGERS"
+        if ! prepare_staging; then FAILED+=("native-deb")
+        elif ! build_deb_native; then FAILED+=("native-deb")
+        fi
+    fi
+fi
+```
+Аналогично для `native-rpm` и `native-arch`. `source` лучше вынести один раз перед блоком, чтобы не дублировать.
+
+Проверка после шага 2: `./scripts/build-package.sh --native-deb --yes` на Ubuntu, `--native-rpm` на Fedora, `--native-arch` на Arch — каждый должен дать тот же артефакт, что и раньше.
+
+---
+
+## Шаг 3. Вынос AppImage + переход на `sharun`
+
+Это самый крупный шаг. Сначала нужно понять, как `quick-sharun` работает, потом переписать.
+
+### Как работает `quick-sharun`
+
+`quick-sharun` — это обёртка над `sharun` от того же автора, что и `uruntime`. Типичный сценарий использования выглядит так:
+
+```bash
+wget "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/refs/heads/main/useful-tools/quick-sharun.sh" -O ./quick-sharun
+chmod +x ./quick-sharun
+
+export ICON=/usr/share/icons/hicolor/256x256/apps/myapp.png
+export DESKTOP=/usr/share/applications/myapp.desktop
+export OUTPATH=./dist
+export OUTNAME=myapp-"$ARCH".AppImage
+
+./quick-sharun /usr/bin/myapp
+./quick-sharun --make-appimage
+```
+
+Первая команда (`./quick-sharun /usr/bin/myapp`) анализирует бинарник через `strace`, находит все библиотеки, которые он открывает (включая те, что загружаются через `dlopen`), и складывает их в `AppDir`. Вторая (`--make-appimage`) упаковывает `AppDir` в AppImage с использованием `uruntime` — рантайма, который умеет работать без FUSE, откатываясь на namespaces или extract-and-run.
+
+Ключевое отличие от `linuxdeploy`: `sharun` **не использует плагины**. Он не полагается на то, что кто-то другой настроит `GTK_PATH`, `GDK_PIXBUF_MODULE_FILE` и прочие переменные. Вместо этого он «прошивает» в `AppRun` вызов собственного динамического линковщика (`ld-*.so`), который подгружает все библиотеки из `AppDir` **до** того, как стартует основной бинарник. Это решает проблему `dlopen`: если приложению нужен `libwayland.so` для GTK-бэкенда, `sharun` найдёт его через `strace` и положит в `AppDir`, а линковщик подхватит его при старте.
+
+`uruntime` при этом решает проблему FUSE: если `libfuse2` нет, он автоматически откатывается на namespaces, а если и их нет — на extract-and-run во временный каталог с последующей очисткой.
+
+### Что это значит для нашего проекта
+
+`sharun` требует **собирать AppImage на той системе, где приложение и все его зависимости установлены в `/usr`**. В нашем случае это Ubuntu 24.04 в джобе `package` — там уже стоит `libgtk-3-0t64` и `libmpv2`. Это подходит.
+
+`sharun` **не использует `linuxdeploy`** — его нужно полностью убрать из `populate_appdir`. Файл `linuxdeploy-*.AppImage` и `linuxdeploy-plugin-gtk.sh` больше не скачиваются.
+
+`sharun` сам разберётся с GTK3, его бэкендами и `dlopen` — никаких отдельных блоков для `GTK_BACKENDS_SRC` и `FORBIDDEN_RE` не нужно. Достаточно передать ему бинарник и список дополнительных библиотек, которые он должен включить (если какие-то не видны через `strace`).
+
+### Структура `scripts/packagers/appimage.sh`
+
+```bash
+#!/bin/bash
+# AppImage через sharun + uruntime.
+# Требует: APPDIR, OUTPUT_DIR, PROJECT_ROOT, APPIMAGE_ARCH,
+#          PACKAGE_NAME, ICON_NAME, VERSION_FILE, METAINFO_NAME,
+#          SCRIPT_DIR (каталог scripts/), STAGING_DIR.
+
+build_appimage_sharun() {
+    local appimage_file="$OUTPUT_DIR/${PACKAGE_NAME}-linux-${APPIMAGE_ARCH}-${VERSION_FILE}.AppImage"
+
+    echo "[+] Создание AppImage через sharun ($APPIMAGE_ARCH)..."
+
+    # Готовим staging и AppDir: копируем бинарник + метаданные
+    if [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]; then
+        prepare_staging
+    fi
+
+    rm -rf "$APPDIR"
+    mkdir -p "$APPDIR"
+    cp -a "$STAGING_DIR/usr" "$APPDIR/"
+
+    # Иконка и .desktop должны быть видны quick-sharun через переменные окружения
+    export APPDIR
+    export ICON="$APPDIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME"
+    export DESKTOP="$APPDIR/usr/share/applications/$PACKAGE_NAME.desktop"
+    export OUTPATH="$OUTPUT_DIR"
+    export OUTNAME="$(basename "$appimage_file")"
+
+    # Скачиваем quick-sharun один раз
+    local QUICK_SHARUN="$SCRIPT_DIR/quick-sharun"
+    if [ ! -f "$QUICK_SHARUN" ]; then
+        echo "[+] Скачивание quick-sharun..."
+        wget -q --show-progress \
+            "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/refs/heads/main/useful-tools/quick-sharun.sh" \
+            -O "$QUICK_SHARUN" || {
+            echo "[!] не удалось скачать quick-sharun" >&2
+            return 1
+        }
+        chmod +x "$QUICK_SHARUN"
+    fi
+
+    # Первый вызов: deploy зависимостей бинарника в AppDir
+    echo "[+] Деплой зависимостей через quick-sharun..."
+    if ! "$QUICK_SHARUN" "$APPDIR/usr/bin/$PACKAGE_NAME"; then
+        echo "[!] quick-sharun (deploy) упал" >&2
+        return 1
+    fi
+
+    # Второй вызов: упаковка AppDir в AppImage
+    echo "[+] Упаковка через quick-sharun --make-appimage..."
+    if ! "$QUICK_SHARUN" --make-appimage; then
+        echo "[!] quick-sharun (make-appimage) упал" >&2
+        return 1
+    fi
+
+    if [ ! -f "$appimage_file" ]; then
+        echo "[!] AppImage не создан: $appimage_file" >&2
+        return 1
+    fi
+
+    echo "[✓] AppImage: $appimage_file"
+
+    if command -v zsyncmake >/dev/null; then
+        zsyncmake "$appimage_file" -o "$OUTPUT_DIR/$(basename "$appimage_file" .AppImage).zsync" \
+            || echo "[!] zsyncmake упал — .zsync не сгенерирован" >&2
+    fi
+    return 0
+}
+```
+
+В `build-package.sh` `populate_appdir` и `build_appimage` удаляются, вместо них:
+```bash
+if [[ "$BUILD_APPIMAGE" == true ]]; then
+    source "$SCRIPT_DIR/packagers/appimage.sh"
+    if ! build_appimage_sharun; then FAILED+=("appimage"); fi
+fi
+```
+
+Проверка после шага 3: на Ubuntu 24.04 (или в контейнере) `./scripts/build-package.sh --appimage --yes`, затем запуск полученного AppImage в чистых контейнерах Ubuntu 26.04, Debian 13, Fedora 44, Rocky 10, Arch. Все пять должны пройти smoke-test.
+
+---
+
+## Шаг 4. Вынос бандлов
+
+Bundled `.deb`/`.rpm` переиспользуют `$APPDIR`, который заполнил `sharun`. Отличие от нативного варианта в том, что в `AppDir` уже лежат все библиотеки, включая GTK3, GLib и прочее, которые `sharun` положил туда через `strace`. Это значит, что bundled-пакет снова становится самодостаточным — но теперь не за счёт `linuxdeploy` с его `--plugin gtk`, а за счёт того, что `sharun` нашёл все `dlopen`-зависимости сам.
+
+`scripts/packagers/bundled.sh`:
+
+```bash
+#!/bin/bash
+# Bundled .deb / .rpm: весь AppDir в /opt/iptvplayer.
+# Требует: APPDIR, STAGING_DIR, OUTPUT_DIR, PROJECT_ROOT, VERSION,
+#          DEB_ARCH, RPM_ARCH, PACKAGE_NAME, ICON_NAME, METAINFO_NAME,
+#          BUNDLE_PREFIX, detect_deb_depends (из общего lib/).
+
+build_bundled_stage() {
+    if [ ! -d "$APPDIR/usr" ]; then
+        echo "[!] bundled: AppDir пуст — сначала нужно собрать AppImage (sharun)" >&2
+        return 1
+    fi
+    # ... тело build_bundled_stage из build-package.sh без изменений ...
+}
+
+build_deb_bundled() {
+    # ... тело без изменений, detect_deb_depends вызывается как раньше ...
+}
+
+build_rpm_bundled() {
+    # ... тело без изменений ...
+}
+```
+
+Важный нюанс: в текущем `build-package.sh` bundled-сборка вызывает `populate_appdir`, если `$APPDIR/usr/lib` не существует. После перехода на `sharun` это условие нужно заменить на `$APPDIR/usr` (у `sharun` `lib` может лежать не там, где у `linuxdeploy`) или просто на `$APPDIR/AppRun`, который `quick-sharun` создаёт всегда.
+
+В `build-package.sh`:
+```bash
+if [[ "$BUILD_BUNDLE_DEB" == true || "$BUILD_BUNDLE_RPM" == true ]]; then
+    source "$SCRIPT_DIR/packagers/bundled.sh"
+fi
+if [[ "$BUILD_BUNDLE_DEB" == true ]]; then
+    if ! build_deb_bundled; then FAILED+=("bundle-deb"); fi
+fi
+```
+
+Проверка после шага 4: `./scripts/build-package.sh --bundle-deb --bundle-rpm --appimage --yes`, затем установка `.deb` в Debian 13 и `.rpm` в Fedora 44 / Rocky 10. Smoke-test на bundled-пакете должен пройти так же, как на AppImage.
+
+**Важно:** bundled-пакеты и AppImage должны использовать **один и тот же** `AppDir`. Если `quick-sharun` вызывается дважды (один раз для AppImage, один раз для bundled), второй вызов может сломать уже заполненный `AppDir`. В `build-package.sh` нужно гарантировать, что `build_appimage_sharun` выполняется **до** bundled-сборки. Сейчас в `main` порядок такой: `native` → `bundle` → `appimage`. Нужно поменять на `native` → `appimage` → `bundle`.
+
+---
+
+## Шаг 5. Общие функции в `scripts/lib/`
+
+После шагов 2–4 станет видно, что реально дублируется. Скорее всего, это:
+
+- **`detect_arch`, `detect_distro`, `detect_pkgmgr`** — используются везде.
+- **`check_deps`** — используется в `build-package.sh`, но может понадобиться и в `appimage.sh` (для проверки `wget`, `zsyncmake`).
+- **`sign_files`** — общая для всех, кто кладёт артефакты в `dist/`.
+- **`detect_deb_depends`** — используется и нативным `.deb`, и bundled `.deb`.
+- **`prepare_staging`** — используется и нативными, и AppImage, и bundled.
+
+Выносим в `scripts/lib/`:
+
+```
+scripts/lib/
+├── common.sh       # detect_arch, detect_distro, detect_pkgmgr, log/warn/error
+├── deps.sh         # check_deps
+├── staging.sh      # prepare_staging
+├── signing.sh      # sign_files
+└── shlibs.sh       # detect_deb_depends
+```
+
+`build-package.sh` в начале делает:
+```bash
+source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/deps.sh"
+source "$SCRIPT_DIR/lib/staging.sh"
+source "$SCRIPT_DIR/lib/signing.sh"
+source "$SCRIPT_DIR/lib/shlibs.sh"
+```
+
+Каждый packager тоже сорсит нужные ему модули, чтобы быть автономным (если его вызовут напрямую).
+
+---
+
+## Итоговая структура
+
+```
+scripts/
+├── build-package.sh          # оркестратор
+├── build-release.sh          # сборка бинарника
+├── setup-deps.sh             # third_party
+├── lib/
+│   ├── common.sh
+│   ├── deps.sh
+│   ├── staging.sh
+│   ├── signing.sh
+│   └── shlibs.sh
+└── packagers/
+    ├── native.sh             # .deb / .rpm / .pkg.tar.zst
+    ├── appimage.sh           # sharun + uruntime
+    └── bundled.sh            # bundled .deb / .rpm
+```
+
+`release.yml` в джобе `package` меняет `./build-package.sh` на `./scripts/build-package.sh`. `build-binary` — на `./scripts/build-release.sh` и `./scripts/setup-deps.sh`. Больше ничего не трогается.
+
+---
+
+## Что делать прямо сейчас
+
+Начните с **шага 1**. Это изолированная правка путей, её можно проверить локально за пять минут и откатить одной командой. Как только `scripts/build-package.sh --native-deb --yes` даст тот же `.deb`, что и раньше, — переходите к шагу 2. Шаг 3 (sharun) — единственный, где возможны сюрпризы, поэтому его лучше делать на отдельной ветке, с прогоном smoke-test на всех пяти контейнерах до мержа в `main`.
 =======================================================================
+
+
+## Общие правила
+
+- Работаем прямо в `main`, без веток.
+- Один шаг = один заход. После каждого шага — проверка. Если проверка не проходит — фикс внутри того же шага, дальше не идём.
+- Шаги 1–3 механические. Шаг 4 — самый крупный. Шаги 5–6 косметические. Шаг 7 — правка CI. Шаг 8 — релиз.
+
+---
+
+## Перед началом: снять baseline
+
+На текущем состоянии `main` (до любых правок) собрать всё и сохранить списки файлов — чтобы потом было с чем сравнивать.
+
+```bash
+./setup-deps.sh --yes
+./build-release.sh --yes --prefix "$PWD/install"
+./build-package.sh --bundle-deb --bundle-rpm --appimage --yes
+
+dpkg-deb -c dist/*.deb > /tmp/baseline-deb.lst
+rpm -qlp dist/*.rpm > /tmp/baseline-rpm.lst
+
+APPIMAGE=$(ls dist/*.AppImage | head -1)
+chmod +x "$APPIMAGE"
+"$APPIMAGE" --appimage-extract >/dev/null
+find squashfs-root -type f -o -type l | sort > /tmp/baseline-appimage.lst
+find squashfs-root -type l | xargs -I{} sh -c 'echo "{} -> $(readlink {})"' | sort >> /tmp/baseline-appimage.lst
+grep -c 'iptvplayer-fb' squashfs-root/AppRun > /tmp/baseline-apprun.count
+ls squashfs-root/usr/lib/gtk-3.0/3.0.0/backends/ > /tmp/baseline-gtk-backends.lst
+
+# сохранить копии самих артефактов
+mkdir -p /tmp/baseline-dist
+cp dist/* /tmp/baseline-dist/
+```
+
+Эти файлы в `/tmp/` — не трогаются, пока не закончим рефакторинг.
+
+---
+
+## Шаг 1. Перенос в `scripts/` и фикс путей
+
+**Что делаем.** Три скрипта переезжают в `scripts/`. Логика не меняется.
+
+**Файлы:**
+
+1. Создать папку `scripts/`.
+2. Переместить (через файловый менеджер VSCode, не через shell):
+   - `build-package.sh` → `scripts/build-package.sh`
+   - `build-release.sh` → `scripts/build-release.sh`
+   - `setup-deps.sh` → `scripts/setup-deps.sh`
+
+**Правка в каждом из трёх скриптов — в шапке, сразу после `#!/bin/bash`:**
+
+```bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+```
+
+Если в файле уже была строка с `SCRIPT_DIR` — заменить её этой парой. Если не было — добавить.
+
+**Далее в каждом файле — заменить ссылки на корень проекта:**
+
+Везде, где встречается `$SCRIPT_DIR/CMakeLists.txt`, `$SCRIPT_DIR/third_party`, `$SCRIPT_DIR/install`, `$SCRIPT_DIR/dist`, `$SCRIPT_DIR/pkg-staging`, `$SCRIPT_DIR/${PACKAGE_NAME}.AppDir`, `$SCRIPT_DIR/METAINFO_NAME`, `$SCRIPT_DIR/VERSION` — заменить `$SCRIPT_DIR` на `$PROJECT_ROOT`.
+
+Ссылки на «соседний скрипт» **остаются** через `$SCRIPT_DIR`:
+- в `build-package.sh`: `BUILD_RELEASE_SCRIPT="$SCRIPT_DIR/build-release.sh"` — так и должно быть, они оба в `scripts/`.
+
+В `build-release.sh` блок преобразования `PREFIX` в абсолютный путь:
+```bash
+if [[ ! "$PREFIX" = /* ]]; then
+    PREFIX="$PROJECT_ROOT/$PREFIX"
+fi
+```
+
+**Правка в `.github/workflows/release.yml`:**
+
+Все вызовы скриптов — с префиксом `scripts/`:
+
+- `chmod +x setup-deps.sh` → `chmod +x scripts/setup-deps.sh`
+- `./setup-deps.sh` → `./scripts/setup-deps.sh`
+- `chmod +x build-release.sh` → `chmod +x scripts/build-release.sh`
+- `./build-release.sh` → `./scripts/build-release.sh`
+- `chmod +x build-package.sh` → `chmod +x scripts/build-package.sh`
+- `./build-package.sh` → `./scripts/build-package.sh`
+
+Встречаются в джобах `build-binary` и `package`. `smoke-test.yml` не трогается.
+
+**Проверка:**
+
+```bash
+bash -n scripts/*.sh
+./scripts/setup-deps.sh --yes
+./scripts/build-release.sh --yes --prefix "$PWD/install"
+./scripts/build-package.sh --native-deb --yes
+./scripts/build-package.sh --appimage --yes
+ls -la dist/
+```
+
+Артефакты — те же, что и до переноса. Если `.deb` и `.AppImage` появились, а ошибок нет — шаг пройден.
+
+---
+
+## Шаг 2. Создать `scripts/common.sh`
+
+**Что делаем.** Утилиты и environment-детект переезжают в отдельный файл. Оркестратор его подключает. `build-release.sh` и `setup-deps.sh` пока не трогаются.
+
+**Создать `scripts/common.sh` со следующим содержимым:**
+
+В шапке:
+```bash
+#!/bin/bash
+# Общие утилиты для скриптов сборки.
+# Сорсится из build-package.sh (и, впоследствии, из build-release.sh и setup-deps.sh).
+# Не запускается напрямую.
+
+: "${SCRIPT_DIR:=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+: "${PROJECT_ROOT:=$(cd "$SCRIPT_DIR/.." && pwd)}"
+```
+
+Далее — блок с цветами и логированием (взять из `build-release.sh`):
+```bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log()     { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
+error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
+section() { echo -e "\n${BLUE}═══════════════════════════════════════${NC}\n${BLUE}$1${NC}\n${BLUE}═══════════════════════════════════════${NC}\n"; }
+```
+
+Блок `NON_INTERACTIVE` — вариант из `build-release.sh` (с `! -t 0`):
+```bash
+NON_INTERACTIVE=false
+if [[ -n "${CI:-}" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ ! -t 0 ]]; then
+    NON_INTERACTIVE=true
+fi
+```
+
+Функция `ask` — целиком из `build-release.sh`.
+
+Функции `detect_arch`, `detect_distro`, `detect_pkgmgr`, `read_versions_from_install`, `prepare_staging`, `detect_deb_depends`, `check_deps` — целиком из `build-package.sh`. В `prepare_staging` и `detect_deb_depends` заменить `$SCRIPT_DIR` на `$PROJECT_ROOT` (речь о корне проекта: `install/`, `DEB_DEPENDS`).
+
+**Убрать из `build-package.sh`** — все эти определения.
+
+**В шапке `build-package.sh`** после блока `SCRIPT_DIR`/`PROJECT_ROOT`:
+```bash
+source "$SCRIPT_DIR/common.sh"
+```
+
+**Важно:** `common.sh` не должен содержать `set -euo pipefail` — этот режим включают сами скрипты, не библиотека.
+
+**Проверка:** то же, что на шаге 1.
+
+---
+
+## Шаг 3. Создать `scripts/build-native.sh`
+
+**Что делаем.** Три нативных упаковщика — в отдельный файл-библиотеку.
+
+**Создать `scripts/build-native.sh`:**
+
+```bash
+#!/bin/bash
+# Нативные .deb / .rpm / .pkg.tar.zst из системных библиотек.
+# Библиотека, не запускается напрямую.
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "build-native.sh — библиотека, не запускается напрямую. Используйте build-package.sh." >&2
+    exit 1
+fi
+
+source "$SCRIPT_DIR/common.sh"
+```
+
+Далее — целиком тела функций `build_deb_native`, `build_rpm_native`, `build_pkg_arch` из `build-package.sh`, без правок.
+
+**Убрать эти три функции из `build-package.sh`.**
+
+**В `build-package.sh`** после `source common.sh`:
+```bash
+source "$SCRIPT_DIR/build-native.sh"
+```
+
+**Проверка:**
+
+```bash
+./scripts/build-package.sh --native-deb --yes       # на Ubuntu
+./scripts/build-package.sh --native-rpm --yes       # на Fedora (или в контейнере)
+./scripts/build-package.sh --native-arch --yes      # на Arch (или в контейнере)
+```
+
+Плюс проверить «недоступен на ...»: на Fedora запустить `--native-deb --yes` — должно вывести сообщение о недоступности без ошибки.
+
+---
+
+## Шаг 4. Создать `scripts/build-bundle.sh` (с `linuxdeploy`)
+
+**Что делаем.** Вся bundle-сборка — в одном файле. `linuxdeploy` остаётся, поведение не меняется.
+
+**Создать `scripts/build-bundle.sh`:**
+
+```bash
+#!/bin/bash
+# Bundled-пакеты и AppImage. Использует linuxdeploy.
+# Библиотека, не запускается напрямую.
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "build-bundle.sh — библиотека, не запускается напрямую. Используйте build-package.sh." >&2
+    exit 1
+fi
+
+source "$SCRIPT_DIR/common.sh"
+```
+
+Далее — **пять функций целиком из `build-package.sh` без правок**:
+
+- `populate_appdir` — вся как есть, включая `linuxdeploy --plugin gtk`, блок `GTK_BACKENDS_SRC`, `FORBIDDEN_RE`, fallback-логику, `AppRun`-heredoc с `GTK_PATH`.
+- `build_appimage` — с `appimagetool` и `zsyncmake`.
+- `build_bundled_stage`.
+- `build_deb_bundled`.
+- `build_rpm_bundled`.
+
+Единственная замена: `$SCRIPT_DIR/install/share/...` в `prepare_staging`-подобных местах → `$PROJECT_ROOT/install/share/...`. Скачиваемые бинарники (`linuxdeploy-*.AppImage`, `appimagetool-*.AppImage`, `linuxdeploy-plugin-gtk.sh`) остаются в `$SCRIPT_DIR` — они рядом со скриптами.
+
+**Убрать эти пять функций из `build-package.sh`.**
+
+**В `build-package.sh`** после `source build-native.sh`:
+```bash
+source "$SCRIPT_DIR/build-bundle.sh"
+```
+
+**Порядок вызовов в `main` не менять.** Как работает сейчас — так пусть и работает.
+
+**Проверка — самая важная из всех шагов:**
+
+```bash
+./scripts/build-package.sh --bundle-deb --bundle-rpm --appimage --yes
+```
+
+Сравнить с baseline:
+
+```bash
+# .deb — список файлов
+dpkg-deb -c dist/*.deb | awk '{print $6}' | sort > /tmp/new-deb.lst
+diff /tmp/baseline-deb.lst /tmp/new-deb.lst
+
+# .rpm — список файлов
+rpm -qlp dist/*.rpm | sort > /tmp/new-rpm.lst
+diff /tmp/baseline-rpm.lst /tmp/new-rpm.lst
+
+# AppImage — список файлов и симлинков
+APPIMAGE=$(ls dist/*.AppImage | head -1)
+chmod +x "$APPIMAGE"
+"$APPIMAGE" --appimage-extract >/dev/null
+find squashfs-root -type f -o -type l | sort > /tmp/new-appimage.lst
+find squashfs-root -type l | xargs -I{} sh -c 'echo "{} -> $(readlink {})"' | sort >> /tmp/new-appimage.lst
+diff /tmp/baseline-appimage.lst /tmp/new-appimage.lst
+
+# AppRun — наша fallback-логика на месте
+grep -c 'iptvplayer-fb' squashfs-root/AppRun        # должно совпасть с baseline
+
+# GTK backends на месте
+ls squashfs-root/usr/lib/gtk-3.0/3.0.0/backends/ > /tmp/new-gtk-backends.lst
+diff /tmp/baseline-gtk-backends.lst /tmp/new-gtk-backends.lst
+```
+
+Списки файлов должны совпасть с baseline. Размеры могут отличаться (timestamps), но **пути и симлинки — нет**.
+
+**Ручной прогон в контейнерах** (как делает smoke-test):
+
+- Ubuntu 26.04 — `.deb` + AppImage
+- Debian 13 — `.deb` + AppImage
+- Fedora 44 — `.rpm` + AppImage
+- Arch — AppImage
+- Rocky 10 — `.rpm` + AppImage
+
+Ожидание: всё как было. Fedora / Ubuntu / Debian / Arch — зелёные. Rocky AppImage — красный, как и раньше.
+
+**Если Arch сломался** — искать потерю в `populate_appdir`. Почти всегда это либо отсутствующий `--plugin gtk`, либо потерянный `GTK_PATH` в `AppRun`, либо не скопированные GTK backends. Сравнить `diff squashfs-root/...` построчно.
+
+---
+
+## Шаг 5. Вычистить `build-package.sh`
+
+**Что делаем.** Убедиться, что оркестратор — только оркестратор.
+
+**Правки:**
+
+1. Удалить оставшиеся «шапки-разделители» от перемещённых функций — комментарии вида `# ==== APPIMAGE ====`, `# ==== BUNDLED ====` и прочие, которые теперь висят над пустотой.
+
+2. Убедиться, что в `build-package.sh` остались только:
+   - `SCRIPT_DIR`/`PROJECT_ROOT` + `source`'ы;
+   - парсинг аргументов;
+   - `show_help`, `show_menu`;
+   - `setup_dirs`;
+   - `build_binary`;
+   - `sign_files`;
+   - `main`.
+
+3. В шапку файла, сразу после `source`'ов, добавить комментарий:
+
+```bash
+# Environment для packagers (build-native.sh, build-bundle.sh):
+#   DEB_ARCH, RPM_ARCH, APPIMAGE_ARCH, DISTRO
+#   VERSION, VERSION_FILE, VERSION_FULL
+#   STAGING_DIR, APPDIR, OUTPUT_DIR
+#   PACKAGE_NAME, ICON_NAME, METAINFO_NAME, BUNDLE_PREFIX
+# Все эти переменные устанавливаются в main() до вызова packagers.
+```
+
+4. Проверить, что `sign_files` не ссылается на что-либо удалённое.
+
+**Проверка:** полный набор команд из шага 4. Поведение идентичное — шаг косметический.
+
+---
+
+## Шаг 6. Унификация логирования в `build-release.sh` и `setup-deps.sh`
+
+**Что делаем.** Оба скрипта начинают использовать `common.sh`.
+
+**Правки в `scripts/build-release.sh`:**
+
+- В шапке, **после** `SCRIPT_DIR`/`PROJECT_ROOT`, добавить:
+  ```bash
+  source "$SCRIPT_DIR/common.sh"
+  ```
+- Удалить блок с `RED/GREEN/YELLOW/NC`.
+- Удалить определения `log`, `warn`, `error`.
+- Удалить локальный автодетект `NON_INTERACTIVE` (теперь берётся из `common.sh`).
+- Удалить локальную функцию `ask`.
+
+**Правки в `scripts/setup-deps.sh`:**
+
+- То же самое. Здесь дополнительно есть `section()` — она уже в `common.sh`, локальное определение удалить.
+
+**Важно:** `common.sh` не делает `set -euo pipefail`. Оба скрипта включают его сами — это остаётся.
+
+**Проверка:**
+
+```bash
+bash -n scripts/*.sh
+./scripts/setup-deps.sh --yes
+./scripts/build-release.sh --yes --prefix "$PWD/install"
+```
+
+Формат вывода (цвета, `[INFO]`, `[WARN]`, `[ERROR]`) — тот же, что до правок.
+
+---
+
+## Шаг 7. Обновить `release.yml`
+
+**Что делаем.** CI вызывает скрипты из `scripts/`.
+
+**Правки в `.github/workflows/release.yml`:**
+
+Джоба `build-binary`:
+- `chmod +x setup-deps.sh` → `chmod +x scripts/setup-deps.sh`
+- `./setup-deps.sh --yes --rebuild-deps` → `./scripts/setup-deps.sh --yes --rebuild-deps`
+- `./setup-deps.sh --yes` → `./scripts/setup-deps.sh --yes`
+- `chmod +x build-release.sh` → `chmod +x scripts/build-release.sh`
+- `./build-release.sh --type release --prefix "$PWD/install" --yes` → `./scripts/build-release.sh --type release --prefix "$PWD/install" --yes`
+
+Джоба `package`:
+- `chmod +x setup-deps.sh` → `chmod +x scripts/setup-deps.sh`
+- `./setup-deps.sh --yes` → `./scripts/setup-deps.sh --yes`
+- `chmod +x build-package.sh` → `chmod +x scripts/build-package.sh`
+- `./build-package.sh --bundle-deb --bundle-rpm --appimage --yes` → `./scripts/build-package.sh --bundle-deb --bundle-rpm --appimage --yes`
+
+`smoke-test.yml` не трогать.
+
+**Проверка:** пуш в `main` с правками (без бампа `VERSION` — джоба `package` не запустится, `version_changed=false`, но синтаксис CI проверится на отсутствие ошибок в YAML).
+
+Если хочется прогнать именно сборку — можно временно запустить workflow_dispatch вручную (в `release.yml` он есть). Тогда `version_changed=true` и вся цепочка отработает, но **без публикации релиза** (потому что версия та же и тег уже существует).
+
+---
+
+## Шаг 8. Финальная проверка и релиз
+
+**Действия:**
+
+1. Прогнать полный локальный набор команд:
+   ```bash
+   ./scripts/setup-deps.sh --yes
+   ./scripts/build-release.sh --yes --prefix "$PWD/install"
+   ./scripts/build-package.sh --bundle-deb --bundle-rpm --appimage --yes
+   ```
+   Сравнить с baseline (шаг 4 — сравнение списков файлов).
+
+2. Проверить `--native-deb`/`--native-rpm`/`--native-arch` в соответствующих контейнерах — как на шаге 3.
+
+3. Бамп `VERSION` на следующую версию (например, `0.0.22`). Пуш в `main`.
+
+4. `release.yml` соберёт релиз, `smoke-test.yml` сработает автоматически.
+
+**Ожидание по smoke-test:**
+
+| Контейнер | Пакет | AppImage |
+|---|---|---|
+| ubuntu:26.04 | ✅ | ✅ |
+| debian:13 | ✅ | ✅ |
+| fedora:44 | ✅ | ✅ |
+| archlinux:latest | n/a (native `.pkg.tar.zst` в CI не собирается) | ✅ |
+| rockylinux:10 | ✅ | ❌ |
+
+Rocky AppImage — красный, как и было. Всё остальное — зелёное.
+
+Если что-то другое — это регрессия от рефакторинга. Искать в том шаге, который последний менял соответствующую часть кода.
+
+---
+
+## Чек-лист после каждого шага
+
+Перед тем как перейти к следующему:
+
+- [ ] `bash -n scripts/*.sh` — синтаксис без ошибок.
+- [ ] `./scripts/build-package.sh --help` — работает.
+- [ ] Хотя бы одна сборка прошла: `.deb` или AppImage.
+- [ ] Для шага 4 — diff списков файлов совпал с baseline.
+
+---
+
+## Что помнить
+
+- **`SCRIPT_DIR` / `PROJECT_ROOT`** — определяются в `common.sh` через `: "${VAR:=...}"`. Если оркестратор уже их установил — `common.sh` не перезапишет. Если не установил — `common.sh` вычислит сам. `build-release.sh` и `setup-deps.sh` определяют их сами, потому что до шага 6 не сорсят `common.sh`.
+
+- **`APPIMAGE_ARCH`** устанавливается только в `detect_arch`. Убедиться, что в `main` он вызывается **до** любого обращения к функциям из `build-bundle.sh`.
+
+- **`STAGING_DIR` и `APPDIR`** — глобальные переменные оркестратора, не `local`. Так и должно быть.
+
+- **`smoke-test.yml`** не трогается ни на одном шаге.
+
+- **Baseline в `/tmp/`** — единственный ориентир, что рефакторинг не сломал поведение. Не удалять до конца шага 8.

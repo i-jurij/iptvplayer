@@ -10,7 +10,7 @@
 #   - Поддерживает интерактивный и неинтерактивный (CI) режимы.
 #
 # Использование:
-#   ./setup-deps.sh [--yes] [--skip-system] [--rebuild-deps]
+#   ./scripts/setup-deps.sh [--yes] [--skip-system] [--rebuild-deps]
 #
 # Опции:
 #   --yes            Автоматически соглашаться на все запросы (неинтерактивный).
@@ -22,32 +22,23 @@
 #   SETUP_DEPS_SKIP_SYSTEM=1   эквивалентно --skip-system
 #
 # Примеры:
-#   ./setup-deps.sh                              # интерактивный режим
-#   ./setup-deps.sh --yes                        # неинтерактивный (для CI)
-#   ./setup-deps.sh --skip-system                # только сборка third_party
-#   ./setup-deps.sh --yes --rebuild-deps         # принудительная пересборка third_party
+#   ./scripts/setup-deps.sh                              # интерактивный режим
+#   ./scripts/setup-deps.sh --yes                        # неинтерактивный (для CI)
+#   ./scripts/setup-deps.sh --skip-system                # только сборка third_party
+#   ./scripts/setup-deps.sh --yes --rebuild-deps         # принудительная пересборка third_party
 # =============================================================================
 
 set -euo pipefail
 
+# ---- Каталог скриптов и корень проекта ----
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# ---- Общие утилиты ----
+source "$SCRIPT_DIR/common.sh"
+
 WX_VERSION="3.3.2"
 WXSQLITE3_VERSION="5.0.1"
-
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log() { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
-error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
-section() { echo -e "\n${BLUE}═══════════════════════════════════════${NC}\n${BLUE}$1${NC}\n${BLUE}═══════════════════════════════════════${NC}\n"; }
-
-# ---- Определение корня проекта ----
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$SCRIPT_DIR"
 
 if [[ ! -f "$PROJECT_ROOT/CMakeLists.txt" ]]; then
     error "Скрипт должен быть запущен из корня проекта (там, где CMakeLists.txt)."
@@ -60,7 +51,6 @@ WX_DIR="$THIRD_PARTY_DIR/wx"
 WXSQLITE3_DIR="$THIRD_PARTY_DIR/wxsqlite3"
 
 # ---- Обработка аргументов ----
-NON_INTERACTIVE=false
 SKIP_SYSTEM=false
 FORCE_DEPS_REBUILD=false
 
@@ -72,12 +62,6 @@ for arg in "$@"; do
         *) error "Неизвестный аргумент: $arg" ;;
     esac
 done
-
-# Если запущено в CI, автоматически включаем неинтерактивный режим
-if [[ -n "${CI:-}" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-    NON_INTERACTIVE=true
-    log "Обнаружена среда CI, включён неинтерактивный режим."
-fi
 
 # Переменная окружения также управляет SKIP_SYSTEM
 if [[ "${SETUP_DEPS_SKIP_SYSTEM:-0}" == "1" ]]; then
@@ -514,7 +498,7 @@ section "ГОТОВО"
 
 log "✅ Все зависимости установлены!"
 echo "Теперь можно собирать проект:"
-echo "  ./build-release.sh"
+echo "  ./scripts/build-release.sh"
 echo "  или (ручная сборка):"
 echo "  mkdir -p build && cd build"
 echo "  cmake .. && make -j$(nproc)"
