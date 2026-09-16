@@ -41,10 +41,12 @@ build_sharun_appimage() {
 
     echo "[+] Сборка AppImage через quick-sharun..."
 
-    if [ ! -x "$bin_src" ]; then
+    if [ ! -f "$bin_src" ]; then
         echo "[!] build_sharun_appimage: не найден бинарник $bin_src" >&2
         return 1
     fi
+    # После artifact upload/download exec-бит может не сохраниться.
+    chmod +x "$bin_src" 2>/dev/null || true
 
     # quick-sharun (один раз)
     local QUICK_SHARUN="$SCRIPT_DIR/quick-sharun.sh"
