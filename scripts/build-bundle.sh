@@ -337,19 +337,7 @@ exec ${BUNDLE_PREFIX}/AppRun "\$@"
 EOF
     chmod 755 "$STAGING_DIR/usr/bin/$PACKAGE_NAME"
 
-    # .desktop в системный каталог
-    cat > "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop" << EOF
-[Desktop Entry]
-Name=IPTV Player
-Exec=$PACKAGE_NAME %F
-Icon=${ICON_NAME%.svg}
-Type=Application
-Categories=AudioVideo;
-Comment=IPTV Playlist Player
-Terminal=false
-StartupNotify=true
-MimeType=video/mp4;video/x-matroska;video/avi;video/mpeg;video/quicktime;video/x-msvideo;video/x-flv;video/ogg;video/webm;application/x-mpegURL;audio/x-mpegurl;audio/x-scpls;application/xspf+xml;application/vnd.apple.mpegurl;
-EOF
+    write_desktop_file "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop"
 
     cp "$APPDIR/$ICON_NAME" "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME" 2>/dev/null || true
 

@@ -101,8 +101,12 @@ Typical flows:
     # .pkg.tar.zst (Arch/Manjaro)
     ./scripts/build-package.sh --native-arch
 
-    # AppImage — works on any distribution
+    # AppImage через linuxdeploy (classic pipeline)
     ./scripts/build-package.sh --appimage
+
+    # AppImage через quick-sharun (maximum portable:
+    # old glibc, musl-system, NixOS)
+    ./scripts/build-package.sh --sharun
 
 Use `./scripts/build-package.sh --help` for the full list of options.
 
@@ -113,6 +117,8 @@ Use `./scripts/build-package.sh --help` for the full list of options.
   when the script recognises your system.
 - **AppImage** — self-contained, runs on any glibc >= 2.39 system, no
   installation required.
+- **AppImage (sharun)** — use `quick-sharun` and include own dynamic linker,  
+- can work on old distro, musl-system (Alpine, Void-musl) and NixOS without FHS.
 - **Bundled** (`.deb` / `.rpm`) — self-contained packages that install
   everything under `/opt/iptvplayer`. These are separate from the native
   variants and are **not** offered in the interactive menu; build them
@@ -140,6 +146,7 @@ by `build-package.sh`.
 | `scripts/common.sh` | Shared helpers: logging, `ask()`, `detect_arch` / `detect_distro` / `detect_pkgmgr`, `read_versions_from_install`, `prepare_staging`, `detect_deb_depends`, `check_deps`. |
 | `scripts/build-native.sh` | Native `.deb` / `.rpm` / `.pkg.tar.zst` packagers. |
 | `scripts/build-bundle.sh` | Bundled `.deb` / `.rpm` + AppImage. Contains `populate_appdir()` (the AppDir/`AppRun` logic). |
+| `scripts/build-sharun.sh` | AppImage throw `quick-sharun`. Contains `build_sharun_appimage()`. |
 
 **Order of operations, in plain terms:**
 
@@ -258,6 +265,7 @@ Or use the wrapper script, which does all of the above in one shot:
 | `--bundle-rpm` | Bundled `.rpm` (everything under `/opt/iptvplayer`) |
 | `--native` | All native packages available on this system |
 | `--native-appimage` | Native package for the current system + AppImage |
+| `--sharun` | AppImage throw `quick-sharun` (maximal portable) |
 | `--bundle` | Bundled `.deb` + bundled `.rpm` |
 | `--all` | Everything possible on this system |
 | `--rebuild` | Force rebuild of the binary via `build-release.sh` |
@@ -284,9 +292,10 @@ Output goes to `dist/`:
     ├── iptvplayer-<version>-<release>.<rpm-arch>.rpm           # bundled .rpm
     ├── iptvplayer-<version>-<release>.<distro>.<rpm-arch>.rpm  # native .rpm
     ├── iptvplayer-<version>-<release>-<distro>-<arch>.pkg.tar.zst  # native Arch
-    ├── iptvplayer-linux-<arch>-<version>.AppImage              # AppImage
+    ├── iptvplayer-linux-<arch>-<version>.AppImage              # AppImage (linuxdeploy)
     ├── iptvplayer-linux-<arch>-<version>.AppImage.asc          # if signed
     ├── iptvplayer-linux-<arch>-<version>.zsync                 # if zsyncmake is present
+    ├── iptvplayer-linux-<arch>-<version>-sharun.AppImage       # AppImage (quick-sharun)
     ├── checksums.txt
     └── checksums.txt.asc                                       # if signed
 
@@ -338,6 +347,7 @@ Then install the clangd extension in VSCode — it will use
 | Build native `.rpm` | `./scripts/build-package.sh --native-rpm` |
 | Build native `.pkg.tar.zst` | `./scripts/build-package.sh --native-arch` |
 | Build AppImage | `./scripts/build-package.sh --appimage` |
+| Build AppImage (quick-sharun) | `./scripts/build-package.sh --sharun` |
 | Bundled `.deb` + `.rpm` | `./scripts/build-package.sh --bundle` |
 | Just build the binary | `./scripts/build-release.sh` |
 | Debug build | `./scripts/build-release.sh --type debug` |

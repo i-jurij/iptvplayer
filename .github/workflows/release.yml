@@ -182,6 +182,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             cmake dpkg-dev rpm gnupg debsigs file tar wget xz-utils \
+            patchelf \
             libmpv2 libgtk-3-0t64 libcurl4t64 libjpeg-turbo8 libexpat1 zlib1g
           chmod +x scripts/setup-deps.sh
           ./scripts/setup-deps.sh --yes
@@ -229,7 +230,7 @@ jobs:
           set -euo pipefail
           mkdir -p logs
           chmod +x scripts/build-package.sh
-          ./scripts/build-package.sh --bundle-deb --bundle-rpm --appimage --yes 2>&1 | tee logs/build-package.log
+          ./scripts/build-package.sh --bundle-deb --bundle-rpm --appimage --sharun --yes 2>&1 | tee logs/build-package.log
 
       - name: Export public key
         if: always() && steps.import_gpg.outputs.can_sign == 'true'

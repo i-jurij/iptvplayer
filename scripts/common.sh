@@ -131,6 +131,27 @@ read_versions_from_install() {
     printf '%s\n%s\n%s\n' "$VERSION_FULL" "$VERSION_FILE" "$VERSION"
 }
 
+# === Генерация .desktop-файла ===
+# $1 — путь к целевому .desktop
+# Требует: PACKAGE_NAME, ICON_NAME
+write_desktop_file() {
+    local target="$1"
+    mkdir -p "$(dirname "$target")"
+    cat > "$target" << EOF
+[Desktop Entry]
+Name=IPTV Player
+Exec=$PACKAGE_NAME %F
+Icon=${ICON_NAME%.svg}
+Type=Application
+Categories=AudioVideo;
+Comment=IPTV Playlist Player
+Terminal=false
+StartupNotify=true
+StartupWMClass=$PACKAGE_NAME
+MimeType=video/mp4;video/x-matroska;video/avi;video/mpeg;video/quicktime;video/x-msvideo;video/x-flv;video/ogg;video/webm;application/x-mpegURL;audio/x-mpegurl;audio/x-scpls;application/xspf+xml;application/vnd.apple.mpegurl;
+EOF
+}
+
 # === Подготовка STAGING_DIR для нативных пакетов ===
 # Требует: PROJECT_ROOT, STAGING_DIR, PACKAGE_NAME, ICON_NAME, METAINFO_NAME
 prepare_staging() {
@@ -146,19 +167,7 @@ prepare_staging() {
     mkdir -p "$STAGING_DIR/usr/share/$PACKAGE_NAME"
     cp -r "$PROJECT_ROOT/install/share/$PACKAGE_NAME/"* "$STAGING_DIR/usr/share/$PACKAGE_NAME/" 2>/dev/null || true
 
-    mkdir -p "$STAGING_DIR/usr/share/applications"
-    cat > "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop" << EOF
-[Desktop Entry]
-Name=IPTV Player
-Exec=$PACKAGE_NAME %F
-Icon=${ICON_NAME%.svg}
-Type=Application
-Categories=AudioVideo;
-Comment=IPTV Playlist Player
-Terminal=false
-StartupNotify=true
-MimeType=video/mp4;video/x-matroska;video/avi;video/mpeg;video/quicktime;video/x-msvideo;video/x-flv;video/ogg;video/webm;application/x-mpegURL;audio/x-mpegurl;audio/x-scpls;application/xspf+xml;application/vnd.apple.mpegurl;
-EOF
+    write_desktop_file "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop"
 
     mkdir -p "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps"
     cp "$PROJECT_ROOT/install/share/$PACKAGE_NAME/icons/$ICON_NAME" "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME" 2>/dev/null || true
@@ -192,6 +201,7 @@ check_deps() {
     local need_bundle_deb=$4
     local need_bundle_rpm=$5
     local need_appimage=$6
+    local need_sharun=$7
 
     local required=()
     local optional=()
@@ -218,8 +228,12 @@ check_deps() {
     if [[ "$need_native_arch" == true && "$pkgmgr" == arch ]]; then
         command -v makepkg >/dev/null 2>&1 || required+=("makepkg")
     fi
-    if [[ "$need_appimage" == true || "$need_bundle_deb" == true || "$need_bundle_rpm" == true ]]; then
+    if [[ "$need_appimage" == true || "$need_bundle_deb" == true || \
+          "$need_bundle_rpm" == true || "$need_sharun" == true ]]; then
         command -v wget >/dev/null 2>&1 || required+=("wget")
+    fi
+        if [[ "$need_sharun" == true ]]; then
+        command -v patchelf >/dev/null 2>&1 || required+=("patchelf")
     fi
 
     if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]] || [[ "$need_bundle_deb" == true ]]; } && ! command -v debsigs >/dev/null 2>&1; then

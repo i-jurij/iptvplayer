@@ -9,7 +9,8 @@
 #   --native-deb      Нативный .deb (системные библиотеки, Ubuntu/Debian)
 #   --native-rpm      Нативный .rpm (Fedora/Rocky/RHEL/openSUSE)
 #   --native-arch     Нативный .pkg.tar.zst (Arch/Manjaro)
-#   --appimage        AppImage (bundled, работает везде)
+#   --appimage        AppImage (linuxdeploy + appimagetool, bundled)
+#   --sharun          AppImage (quick-sharun, максимальная переносимость)
 #
 # Bundled-варианты (обычно только для CI):
 #   --bundle-deb      Bundled .deb (всё внутри /opt/iptvplayer)
@@ -17,7 +18,7 @@
 #
 # Комбинированные:
 #   --native          Все нативные пакеты, доступные здесь
-#   --native-appimage Нативные + AppImage
+#   --native-appimage Нативные + AppImage (linuxdeploy)
 #   --bundle          Bundled .deb + bundled .rpm
 #   --all             Всё возможное на этой системе
 #
@@ -29,7 +30,7 @@
 #   --yes, -y         Неинтерактивный режим
 #   -h, --help        Показать справку
 #
-# Environment для packagers (build-native.sh, build-bundle.sh):
+# Environment для packagers (build-native.sh, build-bundle.sh, build-sharun.sh):
 #   PROJECT_ROOT, SCRIPT_DIR
 #   STAGING_DIR, APPDIR, OUTPUT_DIR
 #   PACKAGE_NAME, ICON_NAME, METAINFO_NAME, BUNDLE_PREFIX
@@ -50,6 +51,7 @@ cd "$PROJECT_ROOT"
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/build-native.sh"
 source "$SCRIPT_DIR/build-bundle.sh"
+source "$SCRIPT_DIR/build-sharun.sh"
 
 # === Настройки ===
 PACKAGE_NAME="iptvplayer"
@@ -75,7 +77,7 @@ fi
 BUILD_RELEASE_SCRIPT="$SCRIPT_DIR/build-release.sh"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
 STAGING_DIR="$PROJECT_ROOT/pkg-staging"
-APPDIR="$PROJECT_ROOT/${PACKAGE_NAME}.AppDir"
+APPDIR="$PROJECT_ROOT/dist/.AppDir"
 FORCE_REBUILD=false
 DO_CLEAN=false
 CLEAN_ONLY=false
@@ -121,7 +123,7 @@ cleanup() {
     echo "[+] Очистка временных каталогов..."
     rm -rf "$STAGING_DIR" "$APPDIR" "$PROJECT_ROOT/pkg-rpm"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 # =============================================================================
 #                               ПОДПИСЬ
@@ -196,6 +198,7 @@ sign_files() {
         files=()
         for f in *; do
             case "$f" in "$checksum_basename"|"$signature_basename") continue ;; esac
+            [ -f "$f" ] || continue
             files+=("$f")
         done
         (( ${#files[@]} > 0 )) && sha256sum "${files[@]}"
@@ -219,6 +222,8 @@ show_help() {
   --native-rpm      .rpm из системных библиотек (Fedora/Rocky/RHEL/openSUSE)
   --native-arch     .pkg.tar.zst (Arch/Manjaro)
   --appimage        AppImage (bundled, работает везде)
+  --sharun          AppImage через quick-sharun (максимальная переносимость:
+                    старые glibc, musl-системы, NixOS)
 
 Bundled (обычно только для CI):
   --bundle-deb      bundled .deb (всё в /opt/iptvplayer)
@@ -246,39 +251,69 @@ show_menu() {
     echo ""
     echo "Обнаружена система: $DISTRO ($(uname -m))"
     echo ""
-    echo "Выберите, что собрать:"
 
-    local options=()
+    # Собираем список опций; для каждой храним action.
+    local -a labels=()
+    local -a actions=()
+
+    local native_label=""
     case "$pkgmgr" in
-        deb)  options+=("Нативный .deb (системные библиотеки)") ;;
-        rpm)  options+=("Нативный .rpm (системные библиотеки)") ;;
-        arch) options+=("Нативный .pkg.tar.zst (системные библиотеки)") ;;
+        deb)  native_label="Нативный .deb (системные библиотеки)" ;;
+        rpm)  native_label="Нативный .rpm (системные библиотеки)" ;;
+        arch) native_label="Нативный .pkg.tar.zst (системные библиотеки)" ;;
     esac
-    options+=("AppImage (bundled, работает везде)")
-    options+=("Родной пакет для этой системы + AppImage")
 
+    if [ -n "$native_label" ]; then
+        labels+=("$native_label")
+        actions+=("native")
+    fi
+
+    labels+=("AppImage (linuxdeploy — классический пайплайн)")
+    actions+=("appimage")
+
+    labels+=("AppImage (quick-sharun — максимальная переносимость)")
+    actions+=("sharun")
+
+    if [ -n "$native_label" ]; then
+        labels+=("Родной пакет + AppImage (linuxdeploy)")
+        actions+=("native+appimage")
+
+        labels+=("Родной пакет + AppImage (quick-sharun)")
+        actions+=("native+sharun")
+    fi
+
+    echo "Выберите, что собрать:"
     local i=1
-    for opt in "${options[@]}"; do
+    for opt in "${labels[@]}"; do
         echo "  $i) $opt"
         i=$((i+1))
     done
     echo "  0) Отмена"
     echo ""
+
+    local choice=""
     read -p "Введите номер: " choice
 
-    case "$choice" in
-        1)
+    [ "$choice" = "0" ] && exit 0
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || \
+       [ "$choice" -lt 1 ] || \
+       [ "$choice" -gt "${#actions[@]}" ]; then
+        echo "Неверный выбор"; exit 1
+    fi
+
+    local action="${actions[$((choice-1))]}"
+
+    case "$action" in
+        native)
             case "$pkgmgr" in
                 deb)  BUILD_NATIVE_DEB=true ;;
                 rpm)  BUILD_NATIVE_RPM=true ;;
                 arch) BUILD_NATIVE_ARCH=true ;;
-                *)    BUILD_APPIMAGE=true ;;
             esac
             ;;
-        2)
-            BUILD_APPIMAGE=true
-            ;;
-        3)
+        appimage) BUILD_APPIMAGE=true ;;
+        sharun)   BUILD_SHARUN=true ;;
+        native+appimage)
             case "$pkgmgr" in
                 deb)  BUILD_NATIVE_DEB=true ;;
                 rpm)  BUILD_NATIVE_RPM=true ;;
@@ -286,8 +321,14 @@ show_menu() {
             esac
             BUILD_APPIMAGE=true
             ;;
-        0) exit 0 ;;
-        *) echo "Неверный выбор"; exit 1 ;;
+        native+sharun)
+            case "$pkgmgr" in
+                deb)  BUILD_NATIVE_DEB=true ;;
+                rpm)  BUILD_NATIVE_RPM=true ;;
+                arch) BUILD_NATIVE_ARCH=true ;;
+            esac
+            BUILD_SHARUN=true
+            ;;
     esac
 }
 
@@ -301,6 +342,7 @@ main() {
     BUILD_BUNDLE_DEB=false
     BUILD_BUNDLE_RPM=false
     BUILD_APPIMAGE=false
+    BUILD_SHARUN=false
     SHOW_MENU=true
 
     while [[ $# -gt 0 ]]; do
@@ -311,10 +353,11 @@ main() {
             --bundle-deb)    BUILD_BUNDLE_DEB=true ;;
             --bundle-rpm)    BUILD_BUNDLE_RPM=true ;;
             --appimage)      BUILD_APPIMAGE=true ;;
+            --sharun)        BUILD_SHARUN=true ;;
             --native)        BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true ;;
             --native-appimage) BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_APPIMAGE=true ;;
             --bundle)        BUILD_BUNDLE_DEB=true; BUILD_BUNDLE_RPM=true ;;
-            --all)           BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_BUNDLE_DEB=true; BUILD_BUNDLE_RPM=true; BUILD_APPIMAGE=true ;;
+            --all)           BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_BUNDLE_DEB=true; BUILD_BUNDLE_RPM=true; BUILD_APPIMAGE=true ; BUILD_SHARUN=true ;;
             --rebuild)       FORCE_REBUILD=true ;;
             --clean)         DO_CLEAN=true ;;
             --clean-only)    DO_CLEAN=true; CLEAN_ONLY=true ;;
@@ -328,7 +371,7 @@ main() {
 
     if [[ "$CLEAN_ONLY" == true ]]; then
         echo "[+] Очистка $OUTPUT_DIR..."
-        rm -rf "${OUTPUT_DIR:?}"/*
+        find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
         mkdir -p "$OUTPUT_DIR"
         exit 0
     fi
@@ -342,7 +385,8 @@ main() {
     # Если ничего не выбрано и меню разрешено — показать меню
     if [[ "$BUILD_NATIVE_DEB" == false && "$BUILD_NATIVE_RPM" == false && \
           "$BUILD_NATIVE_ARCH" == false && "$BUILD_BUNDLE_DEB" == false && \
-          "$BUILD_BUNDLE_RPM" == false && "$BUILD_APPIMAGE" == false ]]; then
+          "$BUILD_BUNDLE_RPM" == false && "$BUILD_APPIMAGE" == false && \
+          "$BUILD_SHARUN" == false ]]; then
         if [[ "$SHOW_MENU" == true && "$NON_INTERACTIVE" == false ]]; then
             show_menu "$pkgmgr"
         else
@@ -356,7 +400,7 @@ main() {
     # Bundled требует AppDir — если запрошены bundle и AppImage, populate один раз
     check_deps "$pkgmgr" \
                "$BUILD_NATIVE_DEB" "$BUILD_NATIVE_RPM" "$BUILD_NATIVE_ARCH" \
-               "$BUILD_BUNDLE_DEB" "$BUILD_BUNDLE_RPM" "$BUILD_APPIMAGE"
+               "$BUILD_BUNDLE_DEB" "$BUILD_BUNDLE_RPM" "$BUILD_APPIMAGE" "$BUILD_SHARUN"
     setup_dirs
 
     if ! build_binary; then
@@ -417,6 +461,9 @@ main() {
     fi
     if [[ "$BUILD_APPIMAGE" == true ]]; then
         if ! build_appimage; then FAILED+=("appimage"); fi
+    fi
+    if [[ "$BUILD_SHARUN" == true ]]; then
+        if ! build_sharun_appimage; then FAILED+=("sharun"); fi
     fi
 
     sign_files
