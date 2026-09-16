@@ -289,8 +289,13 @@ jobs:
         id: body
         run: |
           set -euo pipefail
-          BODY="Automated release for v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
-          BODY="$BODY"$'\n\n'"---"$'\n\n'"**Бинарник собран на Ubuntu 24.04 (glibc >= 2.39).**"$'\n'"- Ubuntu 24.04+, Debian 13+: \`.deb\`"$'\n'"- Fedora 44+, Rocky 10+: \`.rpm\`"$'\n'"- Любая система с glibc >= 2.39: \`AppImage\`"
+          BODY="Release v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
+          BODY="$BODY"$'\n\n'"Built on Ubuntu 24.04 (glibc >= 2.39)."
+          BODY="$BODY"$'\n\n'"- \`.deb\` — Ubuntu 24.04+, Debian 13+"
+          BODY="$BODY"$'\n'"- \`.rpm\` — Fedora 44+, Rocky 10+"
+          BODY="$BODY"$'\n'"- \`*.AppImage\` — any glibc >= 2.39 (linuxdeploy). Follows system GTK theme, or Adwaita light/dark if none."
+          BODY="$BODY"$'\n'"- \`*-sharun.AppImage\` — any Linux, incl. old glibc, musl, NixOS (Adwaita light/dark)."
+          BODY="$BODY"$'\n\n'"Both AppImages support auto-update via embedded update information."
           BODY="$BODY"$'\n\n'"<!-- SMOKE-TEST-BEGIN -->"$'\n'"> 🧪 Smoke test: **⏳ pending** — will run automatically after this release is published."$'\n'"<!-- SMOKE-TEST-END -->"
           {
             echo "body<<EOF"
