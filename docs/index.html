@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>About — IPTV Player</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            max-width: 900px;
+            margin: 2em auto;
+            padding: 0 1.2em 3em;
+            line-height: 1.55;
+            color: #222;
+        }
+
+        h1 {
+            font-size: 1.9em;
+            border-bottom: 2px solid #ccc;
+            padding-bottom: .25em;
+            margin-bottom: .6em;
+        }
+
+        h2 {
+            font-size: 1.35em;
+            margin-top: 2.2em;
+            padding-bottom: .2em;
+            border-bottom: 1px solid #eee;
+        }
+
+        h3 {
+            font-size: 1.1em;
+            margin-top: 1.6em;
+        }
+
+        p,
+        ul,
+        ol {
+            margin: .6em 0;
+        }
+
+        ul {
+            padding-left: 1.4em;
+        }
+
+        li {
+            margin: .25em 0;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: .92em;
+            font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1em 0;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 6px 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #f7f7f7;
+        }
+
+        hr {
+            border: 0;
+            border-top: 1px solid #ccc;
+            margin: 3.5em 0 2.5em;
+        }
+
+        a {
+            color: #0645ad;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: .5em 0;
+        }
+
+        .langnav {
+            text-align: right;
+            margin-bottom: 1.5em;
+            font-size: .95em;
+        }
+    </style>
+</head>
+
+<body>
+
+    <p class="langnav"><a href="#russian">Русская версия ↓</a></p>
+
+    <h1>IPTV Player</h1>
+
+    <p>A cross-platform IPTV player with M3U playlist support, favorites, channel logos, and an Electronic Program Guide
+        (EPG).</p>
+
+    <h2>Screenshots</h2>
+
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/playlists.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/playlists.png" width="720"
+                alt="Playlists"></a></p>
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/channels.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/channels.png" width="720"
+                alt="Channels"></a></p>
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/favorites.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/favorites.png" width="720"
+                alt="Favorites"></a></p>
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/video.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/video.png" width="720"
+                alt="Video player"></a></p>
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/program.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/program.png" width="720"
+                alt="EPG Program"></a></p>
+
+    <h2>Features</h2>
+
+    <ul>
+        <li><strong>Playlist management:</strong> add local/remote M3U playlists, edit, update, remove.</li>
+        <li><strong>Channel views:</strong> list or grid (cards) with sorting and search.</li>
+        <li><strong>Favorites:</strong> mark channels, view separately.</li>
+        <li><strong>EPG (Electronic Program Guide):</strong>
+            <ul>
+                <li>XMLTV sources configuration (Settings → EPG, or the <strong>Program</strong> tab);</li>
+                <li>auto-update interval and cache expiration;</li>
+                <li>program tab with day navigation and details;</li>
+                <li>quick jump from the channel context menu;</li>
+                <li>manual channel-to-EPG mapping.</li>
+            </ul>
+        </li>
+        <li><strong>Video playback:</strong> fullscreen, volume, mute, audio/subtitle tracks, speed control.</li>
+        <li><strong>Recording:</strong> record the current stream to a user-defined directory.</li>
+        <li><strong>IPTV-Org integration:</strong> add playlists from the public IPTV-Org repository with filters by
+            country, language, and category.</li>
+        <li><strong>Export:</strong> export any playlist to M3U.</li>
+    </ul>
+
+    <h2>Installation</h2>
+
+    <p>Download the artifact that matches your system from
+        <a href="https://github.com/i-jurij/iptvplayer/releases">GitHub Releases</a>:
+    </p>
+
+    <table>
+        <tr>
+            <th>Artifact</th>
+            <th>Target</th>
+        </tr>
+        <tr>
+            <td><code>*.AppImage</code></td>
+            <td>Any Linux with glibc ≥ 2.39 (built with <code>linuxdeploy</code>)</td>
+        </tr>
+        <tr>
+            <td><code>*-sharun.AppImage</code></td>
+            <td>Any Linux, including old glibc, musl systems (Alpine, Void-musl), NixOS without FHS</td>
+        </tr>
+        <tr>
+            <td><code>*.deb</code></td>
+            <td>Ubuntu 24.04+, Debian 13+ (bundled: installs under <code>/opt/iptvplayer</code>)</td>
+        </tr>
+        <tr>
+            <td><code>*.rpm</code></td>
+            <td>Fedora 44+, Rocky 10+ (bundled: installs under <code>/opt/iptvplayer</code>)</td>
+        </tr>
+    </table>
+
+    <p>All artifacts come with <code>checksums.txt</code> and a detached GPG signature.
+        See <a href="https://github.com/i-jurij/iptvplayer/blob/main/SECURITY.md">SECURITY.md</a> for verification
+        instructions.</p>
+
+    <h2>First launch</h2>
+
+    <ol>
+        <li><strong>Add a playlist.</strong> Open the <strong>Playlists</strong> tab and use one of:
+            <ul>
+                <li><strong>Add from file</strong> — local <code>.m3u</code> / <code>.m3u8</code>;</li>
+                <li><strong>Add from URL</strong> — remote M3U;</li>
+                <li><strong>Add from IPTV-Org</strong> — browse the public IPTV-Org repository.</li>
+            </ul>
+        </li>
+        <li><strong>Open the playlist.</strong> Double-click it (or press <strong>Open</strong>) and switch to the
+            <strong>Channels</strong> tab.</li>
+        <li><strong>Add an EPG source (optional).</strong> Open the <strong>Program</strong> tab (or <strong>Settings →
+                EPG</strong>), press <strong>Add</strong>, and enter an XMLTV URL. Press <strong>Refresh Now</strong> to
+            load it.</li>
+        <li><strong>Configure the rest (optional).</strong> In <strong>Settings</strong> you can enable channel logos,
+            choose the recording method (<code>stream-record</code> or <code>record-file</code>), and adjust cache and
+            auto-update intervals.</li>
+    </ol>
+
+    <h2>Usage</h2>
+
+    <h3>Playlists</h3>
+
+    <p>The <strong>Playlists</strong> tab is where you manage your playlist collection. Each playlist has a title,
+        source (local file or URL), and update settings. You can:</p>
+
+    <ul>
+        <li>add, edit, update, and remove playlists;</li>
+        <li>manually update one playlist or all playlists at once (updates run in the background — the UI stays
+            responsive);</li>
+        <li>export a playlist to a local <code>.m3u</code> file.</li>
+    </ul>
+
+    <h3>Channels</h3>
+
+    <p>The <strong>Channels</strong> tab shows the channels of the currently opened playlist.</p>
+
+    <ul>
+        <li><strong>List or grid</strong> — switch between the two views with the toolbar buttons. Grid view shows
+            channel cards with logos.</li>
+        <li><strong>Filters</strong> — filter by group, country, and language; sort by name, group, or country.</li>
+        <li><strong>Search</strong> — TypeAheadSearch in list and grid views.</li>
+        <li><strong>Context menu (right click)</strong> — "Program Guide", "Copy URL", "Copy Name", "Remove from
+            playlist".</li>
+        <li><strong>EPG panel</strong> — the Channels tab has a vertical splitter with an EPG panel on the right that
+            shows the schedule for the currently selected channel (see the EPG section below).</li>
+    </ul>
+
+    <h3>Favorites</h3>
+
+    <p>The <strong>Favorites</strong> tab mirrors the Channels tab but only shows channels you have marked as favorite.
+        Same list/grid views, same filters, same EPG panel. Favorites are stored separately and persist across playlist
+        updates.</p>
+
+    <h3>EPG</h3>
+
+    <p><strong>What it is.</strong> EPG (Electronic Program Guide) is a TV schedule that shows what is airing on each
+        channel now, as well as what aired before and what will air later.</p>
+
+    <p><strong>How it works in the app:</strong></p>
+
+    <ol>
+        <li><strong>Sources</strong> — you add one or more XMLTV URLs (<code>guide.xml</code> style). The app downloads
+            them, parses them, and stores the data in a local SQLite cache.</li>
+        <li><strong>Matching</strong> — matching to your playlist channels happens automatically. First by the
+            <code>tvg-id</code> field from the M3U; if that's missing, by normalized channel name with regional suffixes
+            (HD, FHD, (US), (UK), etc.) stripped. The algorithm uses Jaro-Winkler, token comparison, and substring
+            matching.</li>
+        <li><strong>Manual mapping</strong> — if automatic matching fails or is wrong, you can link a channel to an EPG
+            channel by hand (see <em>Manual EPG mapping</em> below).</li>
+        <li><strong>Ignoring</strong> — you can mark an automatic mapping as <em>Ignored</em> so it is not used, without
+            deleting it. Restore it later if needed.</li>
+        <li><strong>Display</strong> — the current program shows in the <strong>Program</strong> column of the list and
+            in the tooltip on cards. For a detailed view, use the EPG panel on the Channels/Favorites tabs, or the
+            <strong>Program</strong> tab to manage sources.</li>
+        <li><strong>Caching</strong> — data is saved to disk so the app does not re-download EPG on the next launch.
+            Programs older than the configured number of days are cleaned out automatically.</li>
+        <li><strong>Auto-update</strong> — if enabled, EPG is refreshed in the background at a configurable interval.
+            When refreshing, the app checks whether the playlist has changed (by hash); if not, mapping is not
+            recomputed.</li>
+    </ol>
+
+    <p><strong>Setting up EPG:</strong></p>
+
+    <ol>
+        <li>Open <strong>Settings → EPG</strong>, or switch to the <strong>Program</strong> tab.</li>
+        <li>In <strong>EPG Sources</strong>, press <strong>Add</strong> and enter the source URL and an optional name.
+        </li>
+        <li>Configure:
+            <ul>
+                <li><strong>Auto-update</strong> — enable to refresh automatically.</li>
+                <li><strong>Update interval (hours)</strong> — default 24.</li>
+                <li><strong>Days to keep in cache</strong> — default 3.</li>
+            </ul>
+        </li>
+        <li>Press <strong>Refresh Now</strong> to load EPG immediately.</li>
+    </ol>
+
+    <p><strong>Recommended sources.</strong> The file <code>epg_sources.json</code> in the resources directory
+        (<code>/usr/share/iptvplayer/resources/</code>) contains links to the most well-known sources. Links change and
+        go stale, so verify their availability online before relying on them. You can use multiple sources at once —
+        data is merged on load.</p>
+
+    <p><strong>EPG panel (Channels / Favorites tabs).</strong></p>
+
+    <ul>
+        <li>Selecting a channel shows its schedule for the current day on the right.</li>
+        <li>Day navigation: <code>&lt;</code> (previous day), <code>&gt;</code> (next day), <code>Today</code> (back to
+            today).</li>
+        <li>Clicking a program opens a dialog with a detailed description (title, time, description, category).</li>
+        <li><strong>Refresh</strong> button — force reloads EPG from all sources and re-matches channels.</li>
+    </ul>
+
+    <p><strong>Program tab.</strong></p>
+
+    <ul>
+        <li>A separate tab for administering EPG:
+            <ul>
+                <li>add / remove sources (URL and name);</li>
+                <li>enable / disable auto-update per source;</li>
+                <li>trigger a manual refresh of all sources (<strong>Refresh Now</strong>);</li>
+                <li>set global parameters: update interval, days to keep in cache.</li>
+            </ul>
+        </li>
+        <li>This tab does not show channel schedules.</li>
+    </ul>
+
+    <h3>Manual EPG mapping</h3>
+
+    <p>The <strong>Manual Mapping</strong> dialog lets you link a channel from the current playlist to a channel from
+        the EPG.</p>
+
+    <p><strong>How to open it:</strong></p>
+
+    <ul>
+        <li>From the channel context menu → <strong>Manual Mapping</strong> (if present in your build);</li>
+        <li>From the <strong>Manual Mapping</strong> button on the EPG control panel (Program tab or Settings).</li>
+    </ul>
+
+    <p><strong>Dialog features:</strong></p>
+
+    <ul>
+        <li>Left: playlist channels with search and sorting by name or <code>tvg-id</code>.</li>
+        <li>Right: EPG channels (from the DB) with search and sorting.</li>
+        <li><strong>Add mapping →</strong> — creates a manual mapping for the selected pair.</li>
+        <li>Below: a table of all existing mappings for the current playlist (status: Auto, Manual, Ignored).</li>
+        <li><strong>Remove mapping</strong>, <strong>Ignore</strong>, <strong>Unignore</strong> — manage the selected
+            mapping.</li>
+        <li>A manual mapping takes priority over the automatic one for that key.</li>
+    </ul>
+
+    <p><strong>Note:</strong> manual mappings are stored in the database and persist across sessions. When a channel is
+        removed from a playlist, its mapping is removed automatically (both by <code>tvg-id</code> and by normalized
+        name).</p>
+
+    <h3>Recording</h3>
+
+    <ul>
+        <li>Records the currently playing stream.</li>
+        <li>Two methods are supported — <code>stream-record</code> and <code>record-file</code> — chosen in Settings.
+        </li>
+        <li>The <strong>Rec</strong> button on the video panel is active during playback.</li>
+        <li>Recording starts from the current moment; the file is saved to a configurable directory.</li>
+        <li>The status bar shows the file name and duration.</li>
+        <li>Stopping playback stops recording automatically.</li>
+        <li><code>.ts</code> and <code>.mkv</code> containers are supported depending on the stream codec.</li>
+    </ul>
+
+    <h3>IPTV-Org</h3>
+
+    <ul>
+        <li>Button <strong>"Add from IPTV-Org…"</strong> on the <strong>Playlists</strong> tab.</li>
+        <li>Filter by country, language, or category, with dynamic data loading from the official IPTV-Org repository.
+        </li>
+        <li>The playlist is downloaded and added to your collection automatically.</li>
+    </ul>
+
+    <h3>Export</h3>
+
+    <ul>
+        <li>In the playlist edit dialog, press <strong>Export</strong>.</li>
+        <li>Choose a path and file name — an M3U file with the channels of the selected playlist is created.</li>
+    </ul>
+
+    <h3>Interface</h3>
+
+    <ul>
+        <li>Tabs: <strong>Playlists</strong> (playlist management), <strong>Channels</strong> (channels of the current
+            playlist), <strong>Favorites</strong>, <strong>Video</strong> (playback), <strong>Program</strong> (EPG
+            source management).</li>
+        <li>Switch between list and grid for channels and favorites.</li>
+        <li>Channel search (TypeAheadSearch) in both views.</li>
+        <li>Channel context menu (right click): "Program Guide", "Copy URL", "Copy Name", "Remove from playlist".</li>
+        <li>Fullscreen video (double-click, F, or ESC).</li>
+        <li>Volume, mute, audio delay, audio/subtitle track switching (from the menu).</li>
+    </ul>
+
+    <h2>Keyboard shortcuts</h2>
+
+    <table>
+        <tr>
+            <th>Key</th>
+            <th>Action</th>
+        </tr>
+        <tr>
+            <td><code>Space</code></td>
+            <td>Play / Pause</td>
+        </tr>
+        <tr>
+            <td><code>Left</code> / <code>Right</code></td>
+            <td>Seek −5s / +5s</td>
+        </tr>
+        <tr>
+            <td><code>Shift+Left/Right</code></td>
+            <td>Seek −30s / +30s</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Left/Right</code></td>
+            <td>Seek −1s / +1s</td>
+        </tr>
+        <tr>
+            <td><code>Home</code> / <code>End</code></td>
+            <td>Go to start / end</td>
+        </tr>
+        <tr>
+            <td><code>Up</code> / <code>Down</code></td>
+            <td>Volume +5 / −5</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Up/Down</code></td>
+            <td>Volume +1 / −1</td>
+        </tr>
+        <tr>
+            <td><code>m</code> / <code>M</code></td>
+            <td>Toggle mute</td>
+        </tr>
+        <tr>
+            <td><code>[</code> / <code>]</code></td>
+            <td>Speed −0.1 / +0.1</td>
+        </tr>
+        <tr>
+            <td><code>{</code> / <code>}</code></td>
+            <td>Speed −0.5 / +0.5</td>
+        </tr>
+        <tr>
+            <td><code>Backspace</code></td>
+            <td>Reset speed</td>
+        </tr>
+        <tr>
+            <td><code>+</code> / <code>_</code></td>
+            <td>Next / previous audio track</td>
+        </tr>
+        <tr>
+            <td><code>v</code> / <code>V</code></td>
+            <td>Toggle subtitles</td>
+        </tr>
+        <tr>
+            <td><code>j</code> / <code>J</code></td>
+            <td>Next subtitle track</td>
+        </tr>
+        <tr>
+            <td><code>h</code> / <code>H</code></td>
+            <td>Previous subtitle track</td>
+        </tr>
+        <tr>
+            <td><code>f</code> / <code>F</code></td>
+            <td>Toggle fullscreen (on the Video tab)</td>
+        </tr>
+        <tr>
+            <td><code>ESC</code></td>
+            <td>Exit fullscreen</td>
+        </tr>
+        <tr>
+            <td><code>q</code> / <code>Q</code></td>
+            <td>Stop playback</td>
+        </tr>
+    </table>
+
+    <h2>Data locations</h2>
+
+    <table>
+        <tr>
+            <th>Path</th>
+            <th>Purpose</th>
+        </tr>
+        <tr>
+            <td><code>~/.config/iptvplayer/config.json</code></td>
+            <td>Main settings (JSON)</td>
+        </tr>
+        <tr>
+            <td><code>~/.config/iptvplayer/playlists/*.json</code></td>
+            <td>Playlist metadata</td>
+        </tr>
+        <tr>
+            <td><code>~/.config/iptvplayer/favorites.json</code></td>
+            <td>Favorite channels</td>
+        </tr>
+        <tr>
+            <td><code>~/.cache/iptvplayer/icons/</code></td>
+            <td>Cached channel logos (disk)</td>
+        </tr>
+        <tr>
+            <td><code>~/.config/iptvplayer/epg_cache.db</code></td>
+            <td>Cached EPG data (SQLite)</td>
+        </tr>
+    </table>
+
+    <p>The config file is created automatically on the first run.</p>
+
+    <h2>Source code</h2>
+
+    <p>Repository: <a href="https://github.com/i-jurij/iptvplayer">github.com/i-jurij/iptvplayer</a>.<br>
+        Build and packaging instructions are in
+        <a href="https://github.com/i-jurij/iptvplayer/blob/main/README.md">README.md</a>.
+    </p>
+
+    <hr>
+
+    <a id="russian"></a>
+
+    <h1>IPTV Player</h1>
+
+    <p>Кросс-платформенное приложение для просмотра IPTV-каналов с поддержкой M3U-плейлистов, избранных каналов,
+        логотипов и электронной программы передач (EPG).</p>
+
+    <h2>Скриншоты</h2>
+
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/playlists.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/playlists.png" width="720"
+                alt="Playlists"></a></p>
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/channels.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/channels.png" width="720"
+                alt="Channels"></a></p>
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/favorites.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/favorites.png" width="720"
+                alt="Favorites"></a></p>
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/video.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/video.png" width="720"
+                alt="Video player"></a></p>
+    <p><a href="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/program.png"><img
+                src="https://raw.githubusercontent.com/i-jurij/iptvplayer/main/docs/screenshots/program.png" width="720"
+                alt="EPG Program"></a></p>
+
+    <h2>Возможности</h2>
+
+    <ul>
+        <li><strong>Управление плейлистами:</strong> добавление локальных и удалённых M3U-плейлистов, редактирование,
+            обновление, удаление.</li>
+        <li><strong>Представления каналов:</strong> список или сетка (карточки) с сортировкой и поиском.</li>
+        <li><strong>Избранное:</strong> отметить каналы, просматривать отдельно.</li>
+        <li><strong>EPG (электронная программа передач):</strong>
+            <ul>
+                <li>настройка XMLTV-источников (Настройки → EPG или вкладка <strong>Program</strong>);</li>
+                <li>интервал автообновления и время жизни кэша;</li>
+                <li>вкладка программы с навигацией по дням и подробностями;</li>
+                <li>быстрый переход из контекстного меню канала;</li>
+                <li>ручное сопоставление каналов с EPG.</li>
+            </ul>
+        </li>
+        <li><strong>Воспроизведение видео:</strong> полноэкранный режим, громкость, mute, аудио/субтитры, скорость.</li>
+        <li><strong>Запись:</strong> запись текущего потока в указанный каталог.</li>
+        <li><strong>Интеграция с IPTV-Org:</strong> добавление плейлистов из публичного репозитория IPTV-Org с фильтрами
+            по стране, языку и категории.</li>
+        <li><strong>Экспорт:</strong> выгрузка любого плейлиста в M3U.</li>
+    </ul>
+
+    <h2>Установка</h2>
+
+    <p>Скачайте артефакт, подходящий вашей системе, со страницы
+        <a href="https://github.com/i-jurij/iptvplayer/releases">GitHub Releases</a>:
+    </p>
+
+    <table>
+        <tr>
+            <th>Артефакт</th>
+            <th>Для чего</th>
+        </tr>
+        <tr>
+            <td><code>*.AppImage</code></td>
+            <td>Любой Linux с glibc ≥ 2.39 (собран через <code>linuxdeploy</code>)</td>
+        </tr>
+        <tr>
+            <td><code>*-sharun.AppImage</code></td>
+            <td>Любой Linux, включая старые glibc, musl-системы (Alpine, Void-musl), NixOS без FHS</td>
+        </tr>
+        <tr>
+            <td><code>*.deb</code></td>
+            <td>Ubuntu 24.04+, Debian 13+ (bundled: ставится в <code>/opt/iptvplayer</code>)</td>
+        </tr>
+        <tr>
+            <td><code>*.rpm</code></td>
+            <td>Fedora 44+, Rocky 10+ (bundled: ставится в <code>/opt/iptvplayer</code>)</td>
+        </tr>
+    </table>
+
+    <p>Все артефакты сопровождаются <code>checksums.txt</code> и отделённой GPG-подписью.
+        Инструкции по проверке — в
+        <a href="https://github.com/i-jurij/iptvplayer/blob/main/SECURITY.md">SECURITY.md</a>.
+    </p>
+
+    <h2>Первый запуск</h2>
+
+    <ol>
+        <li><strong>Добавьте плейлист.</strong> Откройте вкладку <strong>Playlists</strong> и используйте один из
+            вариантов:
+            <ul>
+                <li><strong>Add from file</strong> — локальный <code>.m3u</code> / <code>.m3u8</code>;</li>
+                <li><strong>Add from URL</strong> — удалённый M3U;</li>
+                <li><strong>Add from IPTV-Org</strong> — выбор из публичного репозитория IPTV-Org.</li>
+            </ul>
+        </li>
+        <li><strong>Откройте плейлист.</strong> Двойной клик (или кнопка <strong>Open</strong>), затем перейдите на
+            вкладку <strong>Channels</strong>.</li>
+        <li><strong>Добавьте EPG-источник (опционально).</strong> Вкладка <strong>Program</strong> (или
+            <strong>Настройки → EPG</strong>), нажмите <strong>Add</strong> и введите URL XMLTV. Затем <strong>Refresh
+                Now</strong>.</li>
+        <li><strong>Настройте остальное (опционально).</strong> В <strong>Настройках</strong> можно включить логотипы,
+            выбрать метод записи (<code>stream-record</code> или <code>record-file</code>), настроить интервалы кэша и
+            автообновления.</li>
+    </ol>
+
+    <h2>Использование</h2>
+
+    <h3>Плейлисты</h3>
+
+    <p>Вкладка <strong>Playlists</strong> — управление коллекцией плейлистов. У каждого плейлиста есть название,
+        источник (локальный файл или URL) и настройки обновления. Можно:</p>
+
+    <ul>
+        <li>добавлять, редактировать, обновлять и удалять плейлисты;</li>
+        <li>обновлять вручную один плейлист или все сразу (обновления идут в фоне — UI остаётся отзывчивым);</li>
+        <li>экспортировать плейлист в локальный <code>.m3u</code>.</li>
+    </ul>
+
+    <h3>Каналы</h3>
+
+    <p>Вкладка <strong>Channels</strong> показывает каналы текущего плейлиста.</p>
+
+    <ul>
+        <li><strong>Список или сетка</strong> — переключение кнопками тулбара. Сетка показывает карточки каналов с
+            логотипами.</li>
+        <li><strong>Фильтры</strong> — по группе, стране и языку; сортировка по имени, группе или стране.</li>
+        <li><strong>Поиск</strong> — TypeAheadSearch в списке и сетке.</li>
+        <li><strong>Контекстное меню (ПКМ)</strong> — "Program Guide", "Copy URL", "Copy Name", "Remove from playlist".
+        </li>
+        <li><strong>Панель EPG</strong> — на вкладке Channels есть вертикальный сплиттер с EPG-панелью справа, где
+            показывается расписание выбранного канала (см. раздел EPG).</li>
+    </ul>
+
+    <h3>Избранное</h3>
+
+    <p>Вкладка <strong>Favorites</strong> повторяет Channels, но показывает только отмеченные каналы. Те же виды
+        (список/сетка), те же фильтры, та же панель EPG. Избранное хранится отдельно и не теряется при обновлении
+        плейлистов.</p>
+
+    <h3>EPG</h3>
+
+    <p><strong>Что это.</strong> EPG (Electronic Program Guide) — расписание телепрограмм, показывает что идёт сейчас,
+        что шло раньше и что будет позже.</p>
+
+    <p><strong>Как это работает в приложении:</strong></p>
+
+    <ol>
+        <li><strong>Источники</strong> — вы добавляете один или несколько XMLTV-URL (в стиле <code>guide.xml</code>).
+            Приложение скачивает их, парсит и сохраняет в локальный кэш SQLite.</li>
+        <li><strong>Сопоставление</strong> — с каналами плейлиста автоматически. Сначала по полю <code>tvg-id</code> из
+            M3U; если его нет — по нормализованному имени с удалением региональных суффиксов (HD, FHD, (US), (UK) и
+            т.д.). Алгоритм использует Jaro-Winkler, токен-сравнение и субстроки.</li>
+        <li><strong>Ручное сопоставление</strong> — если автоматика не сработала или дала неверный результат, можно
+            связать канал с EPG вручную (см. <em>Ручное сопоставление EPG</em> ниже).</li>
+        <li><strong>Игнорирование</strong> — можно пометить автоматический маппинг как <em>Ignored</em>, не удаляя его.
+            Вернуть позже.</li>
+        <li><strong>Отображение</strong> — текущая программа видна в колонке <strong>Program</strong> списка и во
+            всплывающей подсказке карточек. Для подробностей — панель EPG на Channels/Favorites или вкладка
+            <strong>Program</strong> для управления источниками.</li>
+        <li><strong>Кэширование</strong> — данные сохраняются на диск, при следующем запуске заново не скачиваются.
+            Программы старше указанного числа дней автоматически удаляются.</li>
+        <li><strong>Автообновление</strong> — если включено, EPG обновляется в фоне через настраиваемый интервал. При
+            обновлении проверяется, изменился ли плейлист (по хэшу); если нет — маппинг не пересчитывается.</li>
+    </ol>
+
+    <p><strong>Настройка EPG:</strong></p>
+
+    <ol>
+        <li>Откройте <strong>Настройки → EPG</strong> или вкладку <strong>Program</strong>.</li>
+        <li>В разделе <strong>EPG Sources</strong> нажмите <strong>Add</strong> и введите URL источника и опциональное
+            имя.</li>
+        <li>Настройте:
+            <ul>
+                <li><strong>Auto-update</strong> — включить автообновление.</li>
+                <li><strong>Update interval (hours)</strong> — по умолчанию 24.</li>
+                <li><strong>Days to keep in cache</strong> — по умолчанию 3.</li>
+            </ul>
+        </li>
+        <li>Нажмите <strong>Refresh Now</strong>, чтобы загрузить EPG немедленно.</li>
+    </ol>
+
+    <p><strong>Рекомендуемые источники.</strong> Файл <code>epg_sources.json</code> в каталоге ресурсов
+        (<code>/usr/share/iptvplayer/resources/</code>) содержит ссылки на самые известные источники. Ссылки меняются и
+        устаревают — проверяйте их актуальность в сети. Можно использовать несколько источников одновременно: данные
+        объединяются при загрузке.</p>
+
+    <p><strong>Панель EPG (вкладки Channels / Favorites).</strong></p>
+
+    <ul>
+        <li>Выбор канала показывает справа его расписание на текущий день.</li>
+        <li>Навигация по дням: <code>&lt;</code> (предыдущий), <code>&gt;</code> (следующий), <code>Today</code>
+            (вернуться к сегодня).</li>
+        <li>Клик по программе открывает диалог с подробным описанием (название, время, описание, категория).</li>
+        <li>Кнопка <strong>Refresh</strong> — принудительно перезагружает EPG из всех источников и пересопоставляет
+            каналы.</li>
+    </ul>
+
+    <p><strong>Вкладка Program.</strong></p>
+
+    <ul>
+        <li>Отдельная вкладка для администрирования EPG:
+            <ul>
+                <li>добавление / удаление источников (URL и имя);</li>
+                <li>включение / отключение автообновления для каждого источника;</li>
+                <li>ручное обновление всех источников (<strong>Refresh Now</strong>);</li>
+                <li>глобальные параметры: интервал обновления, число дней хранения кэша.</li>
+            </ul>
+        </li>
+        <li>Расписание каналов на этой вкладке не показывается.</li>
+    </ul>
+
+    <h3>Ручное сопоставление EPG</h3>
+
+    <p>Диалог <strong>Manual Mapping</strong> позволяет связать канал из текущего плейлиста с каналом из EPG вручную.
+    </p>
+
+    <p><strong>Как открыть:</strong></p>
+
+    <ul>
+        <li>Из контекстного меню канала → <strong>Manual Mapping</strong> (если доступно);</li>
+        <li>Кнопкой <strong>Manual Mapping</strong> на панели EPG (вкладка Program или Настройки).</li>
+    </ul>
+
+    <p><strong>Возможности диалога:</strong></p>
+
+    <ul>
+        <li>Слева: каналы плейлиста с поиском и сортировкой по имени или <code>tvg-id</code>.</li>
+        <li>Справа: EPG-каналы (из БД) с поиском и сортировкой.</li>
+        <li><strong>Add mapping →</strong> — создать ручной маппинг для выбранной пары.</li>
+        <li>Ниже: таблица всех существующих маппингов текущего плейлиста (статус: Auto, Manual, Ignored).</li>
+        <li><strong>Remove mapping</strong>, <strong>Ignore</strong>, <strong>Unignore</strong> — управление выбранным
+            маппингом.</li>
+        <li>Ручной маппинг имеет приоритет над автоматическим для данного ключа.</li>
+    </ul>
+
+    <p><strong>Примечание:</strong> ручные маппинги хранятся в БД и сохраняются между сессиями. При удалении канала из
+        плейлиста его маппинг удаляется автоматически (как по <code>tvg-id</code>, так и по нормализованному имени).</p>
+
+    <h3>Запись</h3>
+
+    <ul>
+        <li>Запись текущего воспроизводимого потока.</li>
+        <li>Поддерживаются два метода — <code>stream-record</code> и <code>record-file</code> — выбор в Настройках.</li>
+        <li>Кнопка <strong>Rec</strong> на панели видео активна во время воспроизведения.</li>
+        <li>Запись начинается с текущего момента; файл сохраняется в настраиваемый каталог.</li>
+        <li>В статус-баре отображается имя файла и длительность записи.</li>
+        <li>Остановка воспроизведения автоматически останавливает запись.</li>
+        <li>Поддерживаются контейнеры <code>.ts</code> и <code>.mkv</code> в зависимости от кодека потока.</li>
+    </ul>
+
+    <h3>IPTV-Org</h3>
+
+    <ul>
+        <li>Кнопка <strong>"Add from IPTV-Org…"</strong> на вкладке <strong>Playlists</strong>.</li>
+        <li>Фильтр по стране, языку или категории с динамической загрузкой данных из официального репозитория IPTV-Org.
+        </li>
+        <li>Плейлист скачивается и добавляется в коллекцию автоматически.</li>
+    </ul>
+
+    <h3>Экспорт</h3>
+
+    <ul>
+        <li>В диалоге редактирования плейлиста нажмите <strong>Export</strong>.</li>
+        <li>Выберите путь и имя файла — будет создан M3U-файл с каналами выбранного плейлиста.</li>
+    </ul>
+
+    <h3>Интерфейс</h3>
+
+    <ul>
+        <li>Вкладки: <strong>Playlists</strong> (управление плейлистами), <strong>Channels</strong> (каналы текущего
+            плейлиста), <strong>Favorites</strong> (избранное), <strong>Video</strong> (воспроизведение),
+            <strong>Program</strong> (управление источниками EPG).</li>
+        <li>Переключение между списком и сеткой для каналов и избранного.</li>
+        <li>Поиск каналов (TypeAheadSearch) в обоих видах.</li>
+        <li>Контекстное меню канала (ПКМ): "Program Guide", "Copy URL", "Copy Name", "Remove from playlist".</li>
+        <li>Полноэкранный режим видео (двойной клик, F или ESC).</li>
+        <li>Громкость, mute, задержка аудио, переключение аудио/субтитров (в меню).</li>
+    </ul>
+
+    <h2>Горячие клавиши</h2>
+
+    <table>
+        <tr>
+            <th>Клавиша</th>
+            <th>Действие</th>
+        </tr>
+        <tr>
+            <td><code>Space</code></td>
+            <td>Play / Pause</td>
+        </tr>
+        <tr>
+            <td><code>Left</code> / <code>Right</code></td>
+            <td>Перемотка −5с / +5с</td>
+        </tr>
+        <tr>
+            <td><code>Shift+Left/Right</code></td>
+            <td>Перемотка −30с / +30с</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Left/Right</code></td>
+            <td>Перемотка −1с / +1с</td>
+        </tr>
+        <tr>
+            <td><code>Home</code> / <code>End</code></td>
+            <td>В начало / в конец</td>
+        </tr>
+        <tr>
+            <td><code>Up</code> / <code>Down</code></td>
+            <td>Громкость +5 / −5</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Up/Down</code></td>
+            <td>Громкость +1 / −1</td>
+        </tr>
+        <tr>
+            <td><code>m</code> / <code>M</code></td>
+            <td>Вкл/выкл mute</td>
+        </tr>
+        <tr>
+            <td><code>[</code> / <code>]</code></td>
+            <td>Скорость −0.1 / +0.1</td>
+        </tr>
+        <tr>
+            <td><code>{</code> / <code>}</code></td>
+            <td>Скорость −0.5 / +0.5</td>
+        </tr>
+        <tr>
+            <td><code>Backspace</code></td>
+            <td>Сброс скорости</td>
+        </tr>
+        <tr>
+            <td><code>+</code> / <code>_</code></td>
+            <td>Следующая / предыдущая аудиодорожка</td>
+        </tr>
+        <tr>
+            <td><code>v</code> / <code>V</code></td>
+            <td>Вкл/выкл субтитры</td>
+        </tr>
+        <tr>
+            <td><code>j</code> / <code>J</code></td>
+            <td>Следующая дорожка субтитров</td>
+        </tr>
+        <tr>
+            <td><code>h</code> / <code>H</code></td>
+            <td>Предыдущая дорожка субтитров</td>
+        </tr>
+        <tr>
+            <td><code>f</code> / <code>F</code></td>
+            <td>Полноэкранный режим (на вкладке Video)</td>
+        </tr>
+        <tr>
+            <td><code>ESC</code></td>
+            <td>Выход из полноэкранного режима</td>
+        </tr>
+        <tr>
+            <td><code>q</code> / <code>Q</code></td>
+            <td>Остановить воспроизведение</td>
+        </tr>
+    </table>
+
+    <h2>Расположение данных</h2>
+
+    <table>
+        <tr>
+            <th>Путь</th>
+            <th>Назначение</th>
+        </tr>
+        <tr>
+            <td><code>~/.config/iptvplayer/config.json</code></td>
+            <td>Основные настройки (JSON)</td>
+        </tr>
+        <tr>
+            <td><code>~/.config/iptvplayer/playlists/*.json</code></td>
+            <td>Метаданные плейлистов</td>
+        </tr>
+        <tr>
+            <td><code>~/.config/iptvplayer/favorites.json</code></td>
+            <td>Избранные каналы</td>
+        </tr>
+        <tr>
+            <td><code>~/.cache/iptvplayer/icons/</code></td>
+            <td>Кэш логотипов каналов</td>
+        </tr>
+        <tr>
+            <td><code>~/.config/iptvplayer/epg_cache.db</code></td>
+            <td>Кэш EPG (SQLite)</td>
+        </tr>
+    </table>
+
+    <p>Файл конфигурации создаётся автоматически при первом запуске.</p>
+
+    <h2>Исходный код</h2>
+
+    <p>Репозиторий: <a href="https://github.com/i-jurij/iptvplayer">github.com/i-jurij/iptvplayer</a>.<br>
+        Инструкции по сборке и упаковке — в
+        <a href="https://github.com/i-jurij/iptvplayer/blob/main/README.md">README.md</a>.
+    </p>
+
+</body>
+
+</html>

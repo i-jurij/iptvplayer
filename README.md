@@ -1,80 +1,66 @@
 # IPTV Player
 
-> **Binary built on Ubuntu 24.04 (glibc 2.39).**  
-> For local builds, use `./scripts/build-package.sh --help`.
-> It can build a minimal-size package for your system.  
-> Tested only on Debian 13.
->
-> The bundled `.deb` from GitHub should theoretically run on most Debian-family
-> systems with glibc >= 2.39 (Ubuntu 24.04+, Debian 13+), and the bundled `.rpm`
-> on most RPM-based distributions of the Red Hat family (Fedora, Rocky, RHEL,
-> AlmaLinux, openSUSE) with a compatible glibc. The AppImage is self-contained
-> and should work on any system with glibc >= 2.39.
+A cross-platform IPTV player with M3U playlist support, favorites, channel logos, and an Electronic Program Guide (EPG).
+
+---
 
 ## Screenshots
 
 ### Playlists
 
-<a href="screenshots/playlists.png"><img src="screenshots/playlists.png" width="720" alt="Playlists"></a>
+<a href="docs/screenshots/playlists.png"><img src="docs/screenshots/playlists.png" width="720" alt="Playlists"></a>
 
 ### Channels
 
-<a href="screenshots/channels.png"><img src="screenshots/channels.png" width="720" alt="Channels"></a>
+<a href="docs/screenshots/channels.png"><img src="docs/screenshots/channels.png" width="720" alt="Channels"></a>
 
 ### Favorites
 
-<a href="screenshots/favorites.png"><img src="screenshots/favs.png" width="720" alt="Favorites"></a>
+<a href="docs/screenshots/favorites.png"><img src="docs/screenshots/favorites.png" width="720" alt="Favorites"></a>
 
 ### Video Player
 
-<a href="screenshots/video.png"><img src="screenshots/video.png" width="720" alt="Video player"></a>
+<a href="docs/screenshots/video.png"><img src="docs/screenshots/video.png" width="720" alt="Video player"></a>
 
-### EPG Program Settings
+### EPG Program
 
-<a href="screenshots/program.png"><img src="screenshots/program.png" width="720" alt="EPG Program"></a>
-
----
-
-## Features
-
-- **Playlist management:** add local/remote M3U playlists, edit, update, remove.
-- **Channel views:** list or grid (cards) with sorting and search.
-- **Favorites:** mark channels, view separately.
-- **EPG (Electronic Program Guide):**
-  - XMLTV sources configuration (Settings → EPG);
-  - auto-update interval and cache expiration;
-  - program tab with day navigation and details;
-  - quick jump from channel context menu.
-- **Video playback:** fullscreen, volume, mute, audio/subtitle tracks, speed control.
-- **Recording:** record current stream to a user-defined directory.
-- **IPTV-Org integration:** add playlists from the public IPTV-Org repository.
+<a href="docs/screenshots/program.png"><img src="docs/screenshots/program.png" width="720" alt="EPG Program"></a>
 
 ---
 
-## Keyboard shortcuts (quick reference)
+## Detailed usage guide
 
-| Key | Action |
+The full user guide — playlists, channels, EPG, manual mapping, recording, IPTV-Org, export, keyboard shortcuts, data locations:
+
+- **[Online (GitHub Pages)](https://i-jurij.github.io/iptvplayer/)**
+- **[Source (docs/index.html)](docs/index.html)**
+- **Offline:** bundled with the app — **Menu → About → Details**.
+
+---
+
+## Installation
+
+### From GitHub Releases
+
+Pick the artifact that matches your system:
+
+| Artifact | Target |
 | :--- | :--- |
-| `Space` | Play / Pause |
-| `Left` / `Right` | Seek –5s / +5s |
-| `Shift+Left/Right` | Seek –30s / +30s |
-| `Ctrl+Left/Right` | Seek –1s / +1s |
-| `Home` / `End` | Go to start / end |
-| `Up` / `Down` | Volume +5 / –5 |
-| `Ctrl+Up/Down` | Volume +1 / –1 |
-| `m` / `M` | Toggle mute |
-| `[` / `]` | Speed –0.1 / +0.1 |
-| `{` / `}` | Speed –0.5 / +0.5 |
-| `Backspace` | Reset speed |
-| `+` / `_` | Next / previous audio track |
-| `v` / `V` | Toggle subtitles |
-| `j` / `J` | Next subtitle track |
-| `h` / `H` | Previous subtitle track |
-| `f` / `F` | Toggle fullscreen (on Video tab) |
-| `ESC` | Exit fullscreen |
-| `q` / `Q` | Stop playback |
+| `*.AppImage` | Any Linux with glibc ≥ 2.39 (built with `linuxdeploy`) |
+| `*-sharun.AppImage` | Any Linux, including old glibc, musl systems (Alpine, Void-musl), NixOS without FHS |
+| `*.deb` | Ubuntu 24.04+, Debian 13+ (bundled: installs under `/opt/iptvplayer`) |
+| `*.rpm` | Fedora 44+, Rocky 10+ (bundled: installs under `/opt/iptvplayer`) |
+
+All artifacts come with `checksums.txt` and a detached GPG signature.
+See [SECURITY.md](SECURITY.md) for verification instructions.
+
+### From source
+
+See [Building and packaging](#building-and-packaging) below.
 
 ---
+
+# Building and packaging
 
 ## 1. Building a package for your system (recommended)
 
@@ -101,11 +87,11 @@ Typical flows:
     # .pkg.tar.zst (Arch/Manjaro)
     ./scripts/build-package.sh --native-arch
 
-    # AppImage через linuxdeploy (classic pipeline)
+    # AppImage through linuxdeploy (classic pipeline)
     ./scripts/build-package.sh --appimage
 
-    # AppImage через quick-sharun (maximum portable:
-    # old glibc, musl-system, NixOS)
+    # AppImage through quick-sharun (maximum portability:
+    # old glibc, musl systems, NixOS)
     ./scripts/build-package.sh --sharun
 
 Use `./scripts/build-package.sh --help` for the full list of options.
@@ -115,16 +101,15 @@ Use `./scripts/build-package.sh --help` for the full list of options.
 - **Native** (`.deb` / `.rpm` / `.pkg.tar.zst`) — smallest download, but
   depends on libraries already present in your distribution. Only offered
   when the script recognises your system.
-- **AppImage** — self-contained, runs on any glibc >= 2.39 system, no
+- **AppImage** — self-contained, runs on any glibc ≥ 2.39 system, no
   installation required.
-- **AppImage (sharun)** — use `quick-sharun` and include own dynamic linker,  
-- can work on old distro, musl-system (Alpine, Void-musl) and NixOS without FHS.
+- **AppImage (sharun)** — uses `quick-sharun` and embeds its own dynamic
+  linker; can work on old distros, musl systems (Alpine, Void-musl) and
+  NixOS without FHS.
 - **Bundled** (`.deb` / `.rpm`) — self-contained packages that install
   everything under `/opt/iptvplayer`. These are separate from the native
   variants and are **not** offered in the interactive menu; build them
   explicitly with `--bundle-deb` / `--bundle-rpm` if you need them.
-
----
 
 ## 2. How the scripts fit together
 
@@ -145,8 +130,8 @@ by `build-package.sh`.
 | :--- | :--- |
 | `scripts/common.sh` | Shared helpers: logging, `ask()`, `detect_arch` / `detect_distro` / `detect_pkgmgr`, `read_versions_from_install`, `prepare_staging`, `detect_deb_depends`, `check_deps`. |
 | `scripts/build-native.sh` | Native `.deb` / `.rpm` / `.pkg.tar.zst` packagers. |
-| `scripts/build-bundle.sh` | Bundled `.deb` / `.rpm` + AppImage. Contains `populate_appdir()` (the AppDir/`AppRun` logic). |
-| `scripts/build-sharun.sh` | AppImage throw `quick-sharun`. Contains `build_sharun_appimage()`. |
+| `scripts/build-bundle.sh` | Bundled `.deb` / `.rpm` + AppImage. Contains `populate_appdir()` (the AppDir / `AppRun` logic). |
+| `scripts/build-sharun.sh` | AppImage through `quick-sharun`. Contains `build_sharun_appimage()`. |
 
 **Order of operations, in plain terms:**
 
@@ -163,8 +148,6 @@ by `build-package.sh`.
 
 Note: `build-package.sh` cleans up `pkg-staging/`, `iptvplayer.AppDir/` and
 `pkg-rpm/` on exit. `dist/` is preserved (unless you pass `--clean`).
-
----
 
 ## 3. Installing dependencies (manual step)
 
@@ -197,8 +180,6 @@ Options:
 > libcurl4-openssl-dev libgtk-3-dev autoconf automake libtool` (or the
 > equivalents for your distribution) before `setup-deps.sh` can do its job.
 > The script installs them for you when it recognises your package manager.
-
----
 
 ## 4. Manual build (step by step)
 
@@ -265,7 +246,7 @@ Or use the wrapper script, which does all of the above in one shot:
 | `--bundle-rpm` | Bundled `.rpm` (everything under `/opt/iptvplayer`) |
 | `--native` | All native packages available on this system |
 | `--native-appimage` | Native package for the current system + AppImage |
-| `--sharun` | AppImage throw `quick-sharun` (maximal portable) |
+| `--sharun` | AppImage through `quick-sharun` (maximum portability) |
 | `--bundle` | Bundled `.deb` + bundled `.rpm` |
 | `--all` | Everything possible on this system |
 | `--rebuild` | Force rebuild of the binary via `build-release.sh` |
@@ -317,8 +298,6 @@ the public key, export it manually:
 The CI release workflow does this step automatically and attaches the file
 to the GitHub release.
 
----
-
 ## 5. IDE support
 
 After any build, `compile_commands.json` is generated and copied to the
@@ -334,8 +313,6 @@ Install `clangd` (recommended):
 
 Then install the clangd extension in VSCode — it will use
 `compile_commands.json` automatically.
-
----
 
 ## 6. Summary of common commands
 
@@ -356,17 +333,60 @@ Then install the clangd extension in VSCode — it will use
 
 ---
 
-## 7. Application data directories
+# Architecture (for developers)
 
-| Path | Purpose |
+## Entry point
+
+- `main.cpp` → `wxIMPLEMENT_APP(Application)`.
+- The `Application` class (derives from `wxApp`) manages the application lifecycle.
+
+## Core classes
+
+| Class | Purpose |
 | :--- | :--- |
-| `~/.config/iptvplayer/config.json` | Main settings (JSON) |
-| `~/.config/iptvplayer/playlists/*.json` | Playlist metadata |
-| `~/.config/iptvplayer/favorites.json` | Favorite channels |
-| `~/.cache/iptvplayer/icons/` | Cached channel logos (disk) |
-| `~/.config/iptvplayer/epg.db` | Cached EPG data (SQLite) |
+| `Application` | Application initialization, creates `GUIManager`, loads settings and playlists. |
+| `GUIManager` | Creates and manages the main window (`MainFrame`). |
+| `MainFrame` | Main window with tabs: **Playlists**, **Channels**, **Favorites**, **Video**, **Program**. Handles navigation, events, and fullscreen mode. |
+| `ConfigManager` | Configuration handling (JSON): saving/loading settings (`config.json`). |
+| `PlaylistManager` | Manages the playlist collection, loading/updating, saving to `~/.config/iptvplayer/playlists/`. |
+| `Playlist` | Stores playlist information: title, source, channels, update settings. |
+| `Channel` | Channel model: name, URL, `tvg-logo`, `group-title`, language, country, `tvg-id`, etc. |
+| `M3UParser` | M3U file parsing, extraction of channels and attributes. |
+| `IconManager` | Asynchronous loading and caching of channel logos (WebP, PNG, SVG). LRU cache. |
+| `FavoritesManager` | Manages favorite channels (saved to `favorites.json`). |
+| `ChannelList` / `ChannelCards` | Displays channels as a list or cards with sorting, search, and logo loading. |
+| `FavoritesCards` / `FavoritesList` | Displays favorite channels in the same views. |
+| `UpdateOneThread` / `UpdateAllThread` | Multi-threaded update of one or all playlists. |
+| `EPGManager` | Manages EPG data: loading from URL, XMLTV parsing, caching (SQLite), channel matching by `tvg-id` and normalized names (Jaro-Winkler, tokens, suffixes). |
+| `EPGParserExpat` | Streaming XMLTV parser based on Expat, for large files. |
+| `EPGPanel` | Panel showing the schedule for the selected channel on the Channels and Favorites tabs (right of the list/grid). |
+| `EpgSourceManagerPanel` | EPG source management panel on the **Program** tab. |
+| `ManualMappingDialog` | Dialog for manual mapping of playlist channels to EPG channels. Supports search, sorting, ignoring automatic mappings. |
+| `IPTVOrgMetadataManager` | Loads metadata from the IPTV-Org repository (countries, languages, categories). |
+| `AddIPTVPlaylistDialog` | Dialog for adding a playlist from IPTV-Org with filter selection. |
+| `VideoPanel` | Video playback panel with controls (play/pause/stop, volume, fullscreen, recording). |
+| `PlayerController` | Manages the player backend (mpv). |
+| `MpvBackend` | Player interface implementation via libmpv, including video recording support. |
 
-The config file is created automatically on first run.
+## Dialogs
+
+- `AddPlaylistFileDialog` — add a playlist from a file.
+- `AddPlaylistUrlDialog` — add by URL.
+- `EditPlaylistDialog` — editing with M3U export.
+- `SettingsDialog` — settings: logos, auto-update, EPG sources, update interval, caching, recording methods.
+- `AddIPTVPlaylistDialog` — add a playlist from IPTV-Org (filter by country, language, category).
+- `ManualMappingDialog` — manual channel-to-EPG mapping.
+
+## Technologies
+
+- **C++20** (per `CMakeLists.txt`).
+- **wxWidgets 3.3.2** (static build).
+- **libcurl** — URL downloads.
+- **libwebp** — WebP image handling.
+- **rapidjson** — JSON handling (in `FavoritesManager` and the EPG cache).
+- **Expat** — streaming XML parser (for EPG).
+- **SQLite3** — storage for EPG data and mappings.
+- **CMake** — build system.
 
 ---
 
@@ -376,7 +396,3 @@ The config file is created automatically on first run.
   build instructions later.
 - After a successful build, `install/` contains a ready-to-run tree; after a
   successful package build, `dist/` contains the artifacts.
-
----
-
-**You are now ready to develop, use, and distribute iptvplayer!**

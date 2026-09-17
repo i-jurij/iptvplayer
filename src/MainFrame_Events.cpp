@@ -6,7 +6,14 @@
 #include "Utils.h"
 #include "version.h"
 
+#include <wx/dialog.h>
+#include <wx/filename.h>
+#include <wx/hyperlink.h>
 #include <wx/msgdlg.h>
+#include <wx/sizer.h>
+#include <wx/statline.h>
+#include <wx/stattext.h>
+#include <wx/utils.h>
 
 void MainFrame::onSettings(wxCommandEvent &WXUNUSED(event)) {
   SettingsDialog dlg(this, getConfigManager());
@@ -20,19 +27,56 @@ void MainFrame::onQuit(wxCommandEvent &WXUNUSED(event)) {
 }
 
 void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
-    wxString msg = wxString::Format(
-        _("IPTV Player %s\n"
-          "Commit: %s\n\n"
-          "A simple player for M3U playlists with EPG support.\n"
-          "Built with wxWidgets, MPV, and SQLite.\n\n"
-          "© 2026 I-Jurij\n"
-          "License: MIT\n"
-          "GitHub: https://github.com/i-jurij/iptvplayer\n\n"
-          "Author: I-Jurij"),
-        IPTVPLAYER_VERSION_FULL,
-        IPTVPLAYER_GIT_COMMIT[0] ? IPTVPLAYER_GIT_COMMIT : "unknown"
-    );
+  wxString msg = wxString::Format(
+      _("IPTV Player %s\n"
+        "Commit: %s\n\n"
+        "A simple player for M3U playlists with EPG support.\n"
+        "Built with wxWidgets, MPV, and SQLite.\n\n"
+        "© 2026 I-Jurij\n"
+        "License: MIT\n"
+        "GitHub: https://github.com/i-jurij/iptvplayer\n\n"
+        "Author: I-Jurij"),
+      IPTVPLAYER_VERSION_FULL,
+      IPTVPLAYER_GIT_COMMIT[0] ? IPTVPLAYER_GIT_COMMIT : "unknown");
+
+  wxString detailsPath = FindResourceFile("about.html");
+
+  // Fallback: файла нет — старое поведение, без ссылки.
+  if (detailsPath.IsEmpty()) {
     showInfo(this, msg, _("About IPTV Player"));
+    return;
+  }
+
+  wxDialog dlg(this, wxID_ANY, _("About IPTV Player"), wxDefaultPosition,
+               wxDefaultSize, wxDEFAULT_DIALOG_STYLE);
+
+  auto *top = new wxBoxSizer(wxVERTICAL);
+
+  auto *text = new wxStaticText(&dlg, wxID_ANY, msg);
+  top->Add(text, 0, wxALL, FromDIP(12));
+
+  top->Add(new wxStaticLine(&dlg), 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(12));
+
+  auto *row = new wxBoxSizer(wxHORIZONTAL);
+  auto *label = new wxStaticText(&dlg, wxID_ANY, _("Details:"));
+  row->Add(label, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+
+  auto *link = new wxHyperlinkCtrl(
+      &dlg, wxID_ANY, wxFileName(detailsPath).GetFullName(), detailsPath);
+  link->Bind(wxEVT_HYPERLINK, [detailsPath](wxHyperlinkEvent &) {
+    wxLaunchDefaultApplication(detailsPath);
+  });
+  row->Add(link, 0, wxALIGN_CENTER_VERTICAL);
+
+  top->Add(row, 0, wxALL, FromDIP(12));
+
+  auto *btns = dlg.CreateButtonSizer(wxOK);
+  if (btns)
+    top->Add(btns, 0, wxEXPAND | wxALL, FromDIP(8));
+
+  dlg.SetSizerAndFit(top);
+  dlg.CentreOnParent();
+  dlg.ShowModal();
 }
 
 void MainFrame::onToggleFavoritesView(wxCommandEvent &) {

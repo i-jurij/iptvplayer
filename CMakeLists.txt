@@ -290,6 +290,25 @@ install_resource(epg_sources.json)
 install_resource(matching_rules.json)
 install_resource(channel_aliases.json)
 
+# ---- About page (docs/index.html) ----
+set(ABOUT_SRC "${CMAKE_SOURCE_DIR}/docs/index.html")
+
+if(EXISTS "${ABOUT_SRC}")
+    add_custom_command(TARGET iptvplayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ABOUT_SRC}"
+            "$<TARGET_FILE_DIR:iptvplayer>/about.html"
+        COMMENT "Copying about.html to build directory")
+
+    install(FILES "${ABOUT_SRC}"
+            DESTINATION share/iptvplayer
+            RENAME about.html)
+
+    message(STATUS "About page: docs/index.html → share/iptvplayer/about.html")
+else()
+    message(WARNING "docs/index.html не найден — About page не будет установлен")
+endif()
+
 # ---- Сохранение версий в install/ ----
 if(EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
     # Чистая версия уже в PROJECT_VERSION
