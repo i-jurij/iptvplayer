@@ -167,7 +167,7 @@ sign_files() {
         if command -v rpm >/dev/null 2>&1; then
             local real_gpg; real_gpg="$(command -v gpg)"
             local sign_cmd
-            sign_cmd='%{__gpg} --batch --pinentry-mode loopback --passphrase "" -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
+            sign_cmd='%{__gpg} --batch --pinentry-mode loopback --passphrase-file /dev/null -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
 
             for file in "$dist_dir"/*.rpm; do
                 [ -f "$file" ] || continue
