@@ -332,7 +332,6 @@ jobs:
           BODY="$BODY"$'\n'"- \`*.AppImage\` — any glibc >= 2.39 (linuxdeploy). Follows system GTK theme, or Adwaita light/dark if none."
           BODY="$BODY"$'\n'"- \`*-sharun.AppImage\` — any Linux, incl. old glibc, musl, NixOS (Adwaita light/dark)."
           BODY="$BODY"$'\n\n'"Both AppImages support auto-update via embedded update information."
-          BODY="$BODY"$'\n\n'"<!-- SMOKE-TEST-BEGIN -->"$'\n'"> 🧪 Smoke test: **⏳ pending** — will run automatically after this release is published."$'\n'"<!-- SMOKE-TEST-END -->"
           {
             echo "body<<EOF"
             echo "$BODY"

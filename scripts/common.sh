@@ -73,34 +73,62 @@ fi
 
 # Скачивание с повторами и таймаутом.
 # $1 — URL, $2 — путь назначения, $3 — необязательный User-Agent.
+# Скачивание с повторами и таймаутом.
+# $1 — URL, $2 — путь назначения, $3 — необязательный User-Agent.
+#
+# В TTY: прогресс-бар на stderr, ошибки загрузчика видны вживую.
+# В CI/пайпе: тихий режим, весь вывод загрузчика пишется в лог
+# и показывается при окончательном провале.
 download() {
     local url="$1"
     local out="$2"
     local ua="${3:-}"
     local tries=5
     local i
+    local log
+    log="$(mktemp -t download.XXXXXX)"
 
     if [[ -z "$DOWNLOADER" ]]; then
         error "Нужен wget или curl для скачивания $url"
     fi
 
-    for ((i = 1; i <= tries; i++)); do
+    # Прогресс — только когда stderr это терминал.
+    local -a progress=()
+    if [[ -t 2 ]]; then
         if [[ "$DOWNLOADER" == "wget" ]]; then
-            local args=(-q --show-progress --tries=1 --timeout=30 --read-timeout=60)
+            progress=(--show-progress)
+        else
+            progress=(--progress-bar)
+        fi
+    fi
+
+    for ((i = 1; i <= tries; i++)); do
+        : > "$log"
+        if [[ "$DOWNLOADER" == "wget" ]]; then
+            local -a args=(--tries=1 --timeout=30 --read-timeout=60 "${progress[@]}")
             [[ -n "$ua" ]] && args+=(--header="User-Agent: $ua")
-            if wget "${args[@]}" "$url" -O "$out"; then
+            # stderr → tee: и в лог, и на экран. В TTY видно прогресс, в CI — тишина.
+            if wget "${args[@]}" "$url" -O "$out" 2> >(tee "$log" >&2); then
+                rm -f "$log"
                 return 0
             fi
         else
-            local args=(-L -f --progress-bar --connect-timeout 30 --retry 0)
+            local -a args=(-L -f --connect-timeout 30 --retry 0 "${progress[@]}")
             [[ -n "$ua" ]] && args+=(-H "User-Agent: $ua")
-            if curl "${args[@]}" -o "$out" "$url"; then
+            if curl "${args[@]}" -o "$out" "$url" 2> >(tee "$log" >&2); then
+                rm -f "$log"
                 return 0
             fi
         fi
         warn "Скачивание не удалось (попытка $i/$tries): $url"
+        if ((i == tries)) && [[ -s "$log" ]]; then
+            echo "--- Вывод загрузчика ---" >&2
+            cat "$log" >&2
+            echo "------------------------" >&2
+        fi
         ((i < tries)) && sleep 5
     done
+    rm -f "$log"
     return 1
 }
 
