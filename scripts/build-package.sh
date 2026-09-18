@@ -96,21 +96,17 @@ setup_dirs() {
 
 # === Сборка бинарника ===
 build_binary() {
-    local BIN_PATH="$PROJECT_ROOT/install/bin/$PACKAGE_NAME"
-    if [ -f "$BIN_PATH" ] && [ "$FORCE_REBUILD" = false ]; then
-        echo "[+] Бинарник уже собран: $BIN_PATH"
-        if ask "Использовать существующий? [Y/n]:" y; then
-            echo "[+] Используем существующий бинарник."
-            return 0
-        fi
-        FORCE_REBUILD=true
-    fi
     echo "[+] Сборка через $BUILD_RELEASE_SCRIPT..."
     if [ ! -f "$BUILD_RELEASE_SCRIPT" ]; then
         echo "[!] $BUILD_RELEASE_SCRIPT не найден." >&2
         return 1
     fi
-    if ! "$BUILD_RELEASE_SCRIPT" --type release --prefix "$PROJECT_ROOT/install" --yes; then
+
+    local args=(--type release --prefix "$PROJECT_ROOT/install")
+    [[ "$FORCE_REBUILD" == true ]] && args+=(--clean)
+    [[ "$NON_INTERACTIVE" == true ]] && args+=(--yes)
+
+    if ! "$BUILD_RELEASE_SCRIPT" "${args[@]}"; then
         echo "[!] $BUILD_RELEASE_SCRIPT завершился с ошибкой" >&2
         return 1
     fi
@@ -121,7 +117,9 @@ build_binary() {
 # === Очистка ===
 cleanup() {
     echo "[+] Очистка временных каталогов..."
-    rm -rf "$STAGING_DIR" "$APPDIR" "$PROJECT_ROOT/pkg-rpm"
+    rm -rf "${STAGING_DIR:?}" "${APPDIR:?}" "$PROJECT_ROOT/pkg-rpm"
+    rm -rf "$PROJECT_ROOT/AppDir"
+    rm -f  "${OUTPUT_DIR:?}/appinfo"
 }
 trap cleanup EXIT INT TERM
 

@@ -62,6 +62,48 @@ ask() {
     [[ "$reply" =~ ^[Yy]$ ]]
 }
 
+# === Загрузчик ===
+if command -v wget &>/dev/null; then
+    DOWNLOADER="wget"
+elif command -v curl &>/dev/null; then
+    DOWNLOADER="curl"
+else
+    DOWNLOADER=""
+fi
+
+# Скачивание с повторами и таймаутом.
+# $1 — URL, $2 — путь назначения, $3 — необязательный User-Agent.
+download() {
+    local url="$1"
+    local out="$2"
+    local ua="${3:-}"
+    local tries=5
+    local i
+
+    if [[ -z "$DOWNLOADER" ]]; then
+        error "Нужен wget или curl для скачивания $url"
+    fi
+
+    for ((i = 1; i <= tries; i++)); do
+        if [[ "$DOWNLOADER" == "wget" ]]; then
+            local args=(-q --show-progress --tries=1 --timeout=30 --read-timeout=60)
+            [[ -n "$ua" ]] && args+=(--header="User-Agent: $ua")
+            if wget "${args[@]}" "$url" -O "$out"; then
+                return 0
+            fi
+        else
+            local args=(-L -f --progress-bar --connect-timeout 30 --retry 0)
+            [[ -n "$ua" ]] && args+=(-H "User-Agent: $ua")
+            if curl "${args[@]}" -o "$out" "$url"; then
+                return 0
+            fi
+        fi
+        warn "Скачивание не удалось (попытка $i/$tries): $url"
+        ((i < tries)) && sleep 5
+    done
+    return 1
+}
+
 # === Определение архитектуры ===
 # Устанавливает глобальные: DEB_ARCH, RPM_ARCH, APPIMAGE_ARCH
 detect_arch() {

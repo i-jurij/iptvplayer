@@ -69,9 +69,9 @@ populate_appdir() {
 
     if [ ! -f "$LINUXDEPLOY" ]; then
         echo "[+] Скачивание linuxdeploy ($APPIMAGE_ARCH)..."
-        if ! wget -q --show-progress \
+        if ! download \
             "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${APPIMAGE_ARCH}.AppImage" \
-            -O "$LINUXDEPLOY"; then
+            "$LINUXDEPLOY"; then
             echo "[!] не удалось скачать linuxdeploy" >&2
             return 1
         fi
@@ -79,9 +79,9 @@ populate_appdir() {
     fi
     if [ ! -f "$GTK_PLUGIN" ]; then
         echo "[+] Скачивание GTK-плагина (скрипт)..."
-        if ! wget -q --show-progress \
+        if ! download \
             "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" \
-            -O "$GTK_PLUGIN"; then
+            "$GTK_PLUGIN"; then
             echo "[!] не удалось скачать GTK-плагин" >&2
             return 1
         fi
@@ -274,9 +274,9 @@ build_appimage() {
     local APPIMAGETOOL="$SCRIPT_DIR/appimagetool-${APPIMAGE_ARCH}.AppImage"
     if [ ! -f "$APPIMAGETOOL" ]; then
         echo "[+] Скачивание appimagetool ($APPIMAGE_ARCH)..."
-        if ! wget -q --show-progress \
+        if ! download \
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${APPIMAGE_ARCH}.AppImage" \
-            -O "$APPIMAGETOOL"; then
+            "$APPIMAGETOOL"; then
             echo "[!] не удалось скачать appimagetool" >&2
             return 1
         fi
@@ -304,6 +304,9 @@ build_appimage() {
             echo "[!] zsyncmake упал — .zsync не сгенерирован" >&2
         fi
     fi
+    
+    rm -f "${OUTPUT_DIR:?}/appinfo"
+    
     return 0
 }
 

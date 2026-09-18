@@ -145,44 +145,41 @@ fi
 # Директории
 BUILD_DIR="$PROJECT_ROOT/build-${BUILD_TYPE,,}"   # build-release или build-debug
 INSTALL_DIR="$PREFIX"
-
-# Проверка наличия собранных зависимостей
-check_deps() {
-    local wx_lib="$PROJECT_ROOT/third_party/wx/install/lib/libwx_gtk3u_core-3.3.a"
-    local sqlite_lib="$PROJECT_ROOT/third_party/wxsqlite3/install/lib/libwxcode_gtk3u_wxsqlite3-3.3.a"
-    local missing=()
-    [[ ! -f "$wx_lib" ]] && missing+=("wxWidgets (не найден $wx_lib)")
-    [[ ! -f "$sqlite_lib" ]] && missing+=("wxSQLite3 (не найден $sqlite_lib)")
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        warn "Отсутствуют зависимости:"
-        printf '  - %s\n' "${missing[@]}"
-        echo "Запустите $SCRIPT_DIR/setup-deps.sh для установки зависимостей."
-        if ! ask "Продолжить сборку всё равно? [y/N]:" n; then
-            error "Сборка прервана из-за отсутствующих зависимостей. Запустите $SCRIPT_DIR/setup-deps.sh."
-        fi
-    else
-        log "Все зависимости найдены."
-    fi
-}
+EXE_PATH="$INSTALL_DIR/bin/$PROJECT_NAME"
 
 cd "$PROJECT_ROOT"
-check_deps
 
-# Очистка
+# Локально — зависимости собирает setup-deps.sh (сам решит, что делать).
+# В CI — не зовём: там setup-deps.sh отдельный шаг workflow'а ради кеша third_party.
+if [[ "$NON_INTERACTIVE" == false ]]; then
+    if ! "$SCRIPT_DIR/setup-deps.sh"; then
+        error "setup-deps.sh завершился с ошибкой — сборка невозможна."
+    fi
+fi
+
+# Решение «собрать или переиспользовать» принимается здесь.
+REBUILD=true
+
 if [[ "$DO_CLEAN" == true ]]; then
-    log "Очистка предыдущих сборок..."
+    log "Очистка предыдущих сборок (--clean)..."
     rm -rf "$BUILD_DIR" "$INSTALL_DIR"
-elif [[ -d "$BUILD_DIR" && -n "$(ls -A "$BUILD_DIR" 2>/dev/null)" ]]; then
+elif [[ -x "$EXE_PATH" ]]; then
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        log "Неинтерактивный режим: директория '$BUILD_DIR' существует, выполняем чистую пересборку."
+        log "Неинтерактивный режим: бинарник уже собран ($EXE_PATH) — используем существующий."
+        REBUILD=false
+    elif ask "Бинарник уже собран ($EXE_PATH). Пересобрать? [y/N]:" n; then
+        log "Пересобираем бинарник."
         rm -rf "$BUILD_DIR" "$INSTALL_DIR"
     else
-        warn "Директория '$BUILD_DIR' уже существует."
-        if ! ask "Пересобрать с очисткой? [y/N]:" n; then
-            error "Сборка прервана пользователем."
-        fi
-        rm -rf "$BUILD_DIR" "$INSTALL_DIR"
+        log "Используем существующий бинарник."
+        REBUILD=false
     fi
+fi
+
+if [[ "$REBUILD" == false ]]; then
+    log "✅ Готово (пересборка не требовалась)."
+    echo -e "${GREEN}Запуск:${NC} cd $INSTALL_DIR/bin && ./$PROJECT_NAME"
+    exit 0
 fi
 
 mkdir -p "$BUILD_DIR"
@@ -212,7 +209,6 @@ if [[ "$BUILD_TYPE" == "Release" || "$BUILD_TYPE" == "MinSizeRel" ]]; then
 fi
 
 # Проверка исполняемого файла
-EXE_PATH="$INSTALL_DIR/bin/$PROJECT_NAME"
 if [[ ! -x "$EXE_PATH" ]]; then
     error "Исполняемый файл не найден: $EXE_PATH"
 fi

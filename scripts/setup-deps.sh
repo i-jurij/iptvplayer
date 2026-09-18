@@ -30,15 +30,15 @@
 
 set -euo pipefail
 
+WX_VERSION="3.3.2"
+WXSQLITE3_VERSION="5.0.1"
+
 # ---- Каталог скриптов и корень проекта ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---- Общие утилиты ----
 source "$SCRIPT_DIR/common.sh"
-
-WX_VERSION="3.3.2"
-WXSQLITE3_VERSION="5.0.1"
 
 if [[ ! -f "$PROJECT_ROOT/CMakeLists.txt" ]]; then
     error "Скрипт должен быть запущен из корня проекта (там, где CMakeLists.txt)."
@@ -211,6 +211,9 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
 
     section "ПРОВЕРКА УСТАНОВЛЕННЫХ ПАКЕТОВ"
 
+    # MISSING_LABELS   – человекочитаемые ключи (build-essential, mpv-dev, ...) — для лога
+    # MISSING_PACKAGES – плоский список реальных имён пакетов — для установки
+    MISSING_LABELS=()
     MISSING_PACKAGES=()
 
     for pkg_key in "${!PACKAGES[@]}"; do
@@ -242,7 +245,9 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
             log "✓ $pkg_key: установлен"
         else
             warn "✗ $pkg_key: НЕ установлен ($pkg_names)"
-            MISSING_PACKAGES+=("$pkg_names")
+            MISSING_LABELS+=("$pkg_key")
+            # shellcheck disable=SC2206
+            MISSING_PACKAGES+=($pkg_names)
         fi
     done
 
@@ -252,10 +257,8 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
 
     if [[ ${#MISSING_PACKAGES[@]} -gt 0 ]]; then
         section "УСТАНОВКА НЕДОСТАЮЩИХ ПАКЕТОВ"
-        echo "Требуется установить следующие пакеты:"
-        for pkg in "${MISSING_PACKAGES[@]}"; do
-            echo "  - $pkg"
-        done
+        echo "Требуется установить (${MISSING_LABELS[*]}):"
+        printf '  - %s\n' "${MISSING_PACKAGES[@]}"
         echo
 
         if [[ "$NON_INTERACTIVE" == true ]]; then
@@ -271,17 +274,25 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
             error "Установка прервана пользователем. Установите зависимости вручную."
         fi
 
-        log "Обновление пакетного менеджера..."
+        log "Обновление индексов пакетного менеджера..."
         case "$PKG_MANAGER" in
-            apt) sudo apt-get update -qq ;;
-            dnf) sudo dnf makecache -q ;;
+            apt)    sudo apt-get update -qq ;;
+            dnf)    sudo dnf makecache -q ;;
             pacman) sudo pacman -Sy --noconfirm > /dev/null ;;
         esac
 
-        log "Установка пакетов..."
-        for pkg in "${MISSING_PACKAGES[@]}"; do
-            eval "$INSTALL_CMD $pkg" || warn "Ошибка при установке: $pkg (может быть необязательным)"
-        done
+        INSTALL_LOG="$PROJECT_ROOT/.install-deps.log"
+        log "Установка: ${MISSING_PACKAGES[*]}"
+        log "Полный лог: $INSTALL_LOG"
+
+        # Одной транзакцией. stderr не глушим: apt/dnf/pacman сами укажут,
+        # какой именно пакет недоступен или конфликтует.
+        # shellcheck disable=SC2086
+        if ! $INSTALL_CMD "${MISSING_PACKAGES[@]}" 2>&1 | tee "$INSTALL_LOG"; then
+            echo
+            error "Установка не удалась. Ошибки пакетного менеджера — выше; полный лог: $INSTALL_LOG"
+        fi
+
         log "✅ Пакеты установлены"
     else
         log "✅ Все обязательные пакеты уже установлены"
@@ -306,14 +317,6 @@ command -v cmake >/dev/null || error "cmake не установлен (треб�
 command -v git >/dev/null || warn "git не найден – версионирование будет отключено"
 command -v autoreconf >/dev/null || error "autoreconf не найден (установите autoconf, automake, libtool)"
 
-if ! command -v wget &> /dev/null && ! command -v curl &> /dev/null; then
-    error "Установите wget или curl."
-fi
-
-DOWNLOADER="wget"
-if command -v curl &> /dev/null; then
-    DOWNLOADER="curl"
-fi
 log "Используется загрузчик: $DOWNLOADER"
 
 
@@ -323,12 +326,14 @@ cd "$PROJECT_ROOT"
 # -------------------- wxWidgets --------------------
 section "СБОРКА WXWIDGETS $WX_VERSION"
 
-if [[ -d "$WX_DIR" ]]; then
+# Готовность = директория + артефакт. Директория без артефакта — сломанное
+# состояние (сборка не докатилась), поэтому такой случай не отличается от «нет директории».
+if [[ -d "$WX_DIR" && -f "$WX_DIR/install/lib/libwx_gtk3u_core-${WX_VERSION%.*}.a" ]]; then
     if [[ "$NON_INTERACTIVE" == true ]]; then
         log "Неинтерактивный режим: пропускаем сборку wxWidgets (используем существующую)."
         SKIP_WX=true
     else
-        warn "Директория wx уже существует. Пропускаем сборку wxWidgets? [y/N]"
+        warn "wx уже существует в каталоге. Пропускаем сборку wxWidgets? [y/N]"
         read -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -339,6 +344,10 @@ if [[ -d "$WX_DIR" ]]; then
         fi
     fi
 else
+    if [[ -d "$WX_DIR" ]]; then
+        log "wxWidgets: директория есть, артефакт не найден — пересобираем."
+        rm -rf "$WX_DIR"
+    fi
     SKIP_WX=false
 fi
 
@@ -350,10 +359,8 @@ if [[ "$SKIP_WX" != true ]]; then
     WX_ARCHIVE="wxWidgets-$WX_VERSION.tar.bz2"
     WX_URL="https://github.com/wxWidgets/wxWidgets/releases/download/v$WX_VERSION/$WX_ARCHIVE"
 
-    if [[ "$DOWNLOADER" == "wget" ]]; then
-        wget -q --show-progress "$WX_URL" -O "$WX_ARCHIVE" || error "Скачивание wxWidgets не удалось"
-    else
-        curl -L -o "$WX_ARCHIVE" "$WX_URL" --progress-bar || error "Скачивание wxWidgets не удалось"
+    if ! download "$WX_URL" "$WX_ARCHIVE"; then
+        error "Скачивание wxWidgets не удалось"
     fi
 
     tar xf "$WX_ARCHIVE" && rm "$WX_ARCHIVE"
@@ -400,12 +407,12 @@ fi
 # -------------------- wxSQLite3 --------------------
 section "СБОРКА WXSQLITE3 $WXSQLITE3_VERSION"
 
-if [[ -d "$WXSQLITE3_DIR" ]]; then
+if [[ -d "$WXSQLITE3_DIR" && -f "$WXSQLITE3_DIR/install/lib/libwxcode_gtk3u_wxsqlite3-${WX_VERSION%.*}.a" ]]; then
     if [[ "$NON_INTERACTIVE" == true ]]; then
         log "Неинтерактивный режим: пропускаем сборку wxSQLite3 (используем существующую)."
         SKIP_WXSQLITE3=true
     else
-        warn "Директория wxsqlite3 уже существует. Пропускаем сборку wxSQLite3? [y/N]"
+        warn "wxsqlite3 уже существует. Пропускаем сборку wxSQLite3? [y/N]"
         read -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -416,6 +423,10 @@ if [[ -d "$WXSQLITE3_DIR" ]]; then
         fi
     fi
 else
+    if [[ -d "$WXSQLITE3_DIR" ]]; then
+        log "wxSQLite3: директория есть, артефакт не найден — пересобираем."
+        rm -rf "$WXSQLITE3_DIR"
+    fi
     SKIP_WXSQLITE3=false
 fi
 
@@ -427,10 +438,8 @@ if [[ "$SKIP_WXSQLITE3" != true ]]; then
     WXSQLITE3_ARCHIVE="v$WXSQLITE3_VERSION.tar.gz"
     WXSQLITE3_URL="https://github.com/utelle/wxsqlite3/archive/refs/tags/$WXSQLITE3_ARCHIVE"
 
-    if [[ "$DOWNLOADER" == "wget" ]]; then
-        wget -q --show-progress --header="User-Agent: Mozilla/5.0" "$WXSQLITE3_URL" -O "$WXSQLITE3_ARCHIVE" || error "Скачивание wxSQLite3 не удалось"
-    else
-        curl -L -f -H "User-Agent: Mozilla/5.0" -o "$WXSQLITE3_ARCHIVE" "$WXSQLITE3_URL" --progress-bar || error "Скачивание wxSQLite3 не удалось"
+    if ! download "$WXSQLITE3_URL" "$WXSQLITE3_ARCHIVE" "Mozilla/5.0"; then
+        error "Скачивание wxSQLite3 не удалось"
     fi
 
     tar xf "$WXSQLITE3_ARCHIVE" && rm "$WXSQLITE3_ARCHIVE"

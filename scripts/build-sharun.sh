@@ -52,9 +52,9 @@ build_sharun_appimage() {
     local QUICK_SHARUN="$SCRIPT_DIR/quick-sharun.sh"
     if [ ! -f "$QUICK_SHARUN" ]; then
         echo "[+] Скачивание quick-sharun..."
-        if ! wget -q --show-progress \
+        if ! download \
             "https://github.com/pkgforge-dev/Anylinux-AppImages/raw/main/useful-tools/quick-sharun.sh" \
-            -O "$QUICK_SHARUN"; then
+            "$QUICK_SHARUN"; then
             echo "[!] не удалось скачать quick-sharun" >&2
             return 1
         fi
@@ -95,6 +95,7 @@ build_sharun_appimage() {
     fi
 
     # Переменные quick-sharun.
+    export APPDIR
     export ARCH="$APPIMAGE_ARCH"
     export VERSION="$VERSION_FILE"
     export OUTPATH="$OUTPUT_DIR"
@@ -134,5 +135,8 @@ build_sharun_appimage() {
         zsyncmake "$OUTPUT_DIR/$appimage_file" \
             -o "$OUTPUT_DIR/$(basename "$appimage_file" .AppImage).zsync" || true
     fi
+
+    rm -f "${OUTPUT_DIR:?}/appinfo"
+
     return 0
 }
