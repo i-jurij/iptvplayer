@@ -131,15 +131,23 @@ jobs:
           chmod +x scripts/build-package.sh
           ./scripts/build-package.sh --appimage --sharun --yes 2>&1 | tee logs/build-package.log
 
-      - uses: actions/upload-artifact@v5
+      - name: Upload AppImage artifacts
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: packages
-          path: |
-            dist/*
-            logs/build-package.log
+          path: dist/
           retention-days: 1
           if-no-files-found: warn
+
+      - name: Upload build log
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: appimage-build-log
+          path: logs/build-package.log
+          retention-days: 1
+          if-no-files-found: ignore
 
   # =========================================================================
   # 3. Нативные .deb / .rpm — каждый в своём контейнере
@@ -431,25 +439,15 @@ jobs:
 
           ### Какой пакет выбрать
 
-          **Ubuntu 24.04+, Linux Mint 22+** → \`iptvplayer_*_ubuntu-24.04_amd64.deb\`
+          **Ubuntu 24.04+, Linux Mint 22+** (glibc 2.39) → \`iptvplayer_*_ubuntu-24.04_amd64.deb\`
 
-          **Debian 13+** → \`iptvplayer_*_debian-13_amd64.deb\`
+          **Debian 13+** (glibc 2.41) → \`iptvplayer_*_debian-13_amd64.deb\`
 
-          **RHEL 10+, Rocky 10+, Alma 10+, Fedora 40+** → \`iptvplayer-*.rocky-10.x86_64.rpm\`
+          **RHEL 10+, Rocky 10+, Alma 10+, Fedora 40+** (glibc 2.39) → \`iptvplayer-*.rocky-10.x86_64.rpm\`
 
-          Любая Linux (включая старые glibc, musl, NixOS) → \`*-sharun.AppImage\`
+          **Любая Linux** (включая старые glibc, musl, NixOS) → \`*-sharun.AppImage\`
 
-          ### О совместимости
-
-          Гарантия совместимости распространяется только на системы, перечисленные в колонке «Проверен в CI».
-
-          Собранные пакеты могут теоретически работать и на других системах того же семейства с glibc не ниже версии сборочного контейнера, но это не проверяется автоматически:
-
-          - \`.deb\` (Ubuntu) — glibc 2.39, сборка на Ubuntu 24.04
-          - \`.deb\` (Debian) — glibc 2.41, сборка на Debian 13
-          - \`.rpm\` — glibc 2.39, сборка на Rocky 10. Не установится на RHEL 8/9 и любые системы с glibc < 2.39.
-
-          Если вы запустили пакет на системе вне списка CI и он работает — сообщите, добавим в smoke-тесты.
+          <sub>Собранные пакеты могут теоретически работать и на других системах того же семейства с glibc не ниже версии сборочного контейнера, но это не проверяется автоматически.</sub>
           EOF
           )
 

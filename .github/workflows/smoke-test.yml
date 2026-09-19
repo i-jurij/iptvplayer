@@ -18,7 +18,8 @@ jobs:
   resolve:
     if: |
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success' ||
+      github.event.workflow_run.conclusion == 'failure'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
@@ -215,6 +216,12 @@ jobs:
 
   # =========================================================================
   # Нативные .deb / .rpm: установка и запуск в родных контейнерах
+  #
+  # target     — система, на которой тестируем (контейнер, лог).
+  # pkg_distro — суффикс имени пакета, который ставим в этом контейнере.
+  #              Он не всегда совпадает с target: например, .deb собирается
+  #              на ubuntu-24.04, а проверяется ещё и на ubuntu-26.04;
+  #              .rpm собирается на rocky-10 и ставится в fedora-44.
   # =========================================================================
   smoke-native:
     needs: fetch
@@ -223,10 +230,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: ubuntu-26.04, family: deb, container: 'ubuntu:26.04' }
-          - { target: debian-13,    family: deb, container: 'debian:13' }
-          - { target: rocky-10,     family: rpm, container: 'rockylinux/rockylinux:10' }
-          - { target: fedora-44,    family: rpm, container: 'fedora:44' }
+          - { target: ubuntu-26.04, family: deb, container: 'ubuntu:26.04',             pkg_distro: ubuntu-24.04 }
+          - { target: debian-13,    family: deb, container: 'debian:13',                pkg_distro: debian-13 }
+          - { target: rocky-10,     family: rpm, container: 'rockylinux/rockylinux:10', pkg_distro: rocky-10 }
+          - { target: fedora-44,    family: rpm, container: 'fedora:44',                pkg_distro: rocky-10 }
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -263,13 +270,25 @@ jobs:
           shopt -s nullglob
           case "${{ matrix.family }}" in
             deb)
-              PKG=(dist/*.deb)
-              (( ${#PKG[@]} > 0 )) || { echo "::error::No .deb"; exit 1; }
+              # Имя .deb: iptvplayer_<version>_<pkg_distro>_<arch>.deb.
+              # Фильтруем по pkg_distro, а не по target, чтобы
+              # ubuntu-26.04-контейнер не тянул debian-вариант.
+              PKG=(dist/*_${{ matrix.pkg_distro }}_*.deb)
+              (( ${#PKG[@]} > 0 )) || {
+                echo "::error::No .deb matching *_${{ matrix.pkg_distro }}_*"
+                ls -la dist/ || true
+                exit 1
+              }
               apt-get install -y "${PKG[@]}"
               ;;
             rpm)
-              PKG=(dist/*.rpm)
-              (( ${#PKG[@]} > 0 )) || { echo "::error::No .rpm"; exit 1; }
+              # Имя .rpm: iptvplayer-<version>-<release>.<pkg_distro>.<arch>.rpm.
+              PKG=(dist/*.${{ matrix.pkg_distro }}.*.rpm)
+              (( ${#PKG[@]} > 0 )) || {
+                echo "::error::No .rpm matching *.${{ matrix.pkg_distro }}.*"
+                ls -la dist/ || true
+                exit 1
+              }
               dnf install -y "${PKG[@]}"
               ;;
           esac

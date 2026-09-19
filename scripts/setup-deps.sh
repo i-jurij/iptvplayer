@@ -387,6 +387,7 @@ if [[ "$SKIP_WX" != true ]]; then
     export CXXFLAGS="-std=c++20"
      cmake ../src \
         -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_LIBDIR=lib \
         -DwxBUILD_SHARED=OFF \
         -DwxUSE_LIBWEBP=builtin \
         -DwxUSE_SVG=ON \
