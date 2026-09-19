@@ -53,7 +53,7 @@ build_sharun_appimage() {
     if [ ! -f "$QUICK_SHARUN" ]; then
         echo "[+] Скачивание quick-sharun..."
         if ! download \
-            "https://github.com/pkgforge-dev/Anylinux-AppImages/raw/main/useful-tools/quick-sharun.sh" \
+            "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/raw/main/useful-tools/quick-sharun.sh" \
             "$QUICK_SHARUN"; then
             echo "[!] не удалось скачать quick-sharun" >&2
             return 1
@@ -72,7 +72,11 @@ build_sharun_appimage() {
     # 1. Бинарник
     cp "$bin_src" "$APPDIR/usr/bin/$PACKAGE_NAME"
 
-    # 2. Все данные приложения — зеркалом, как в install/
+    # 2. Все данные приложения — зеркалом, как в install/.
+    #    Сюда же попадают UI-иконки: share/iptvplayer/icons/*.svg
+    #    → $APPDIR/usr/share/iptvplayer/icons/.
+    #    Приложение находит их через FindResourceFile(), которая ищет
+    #    в $APPDIR/usr/share/iptvplayer/ (см. Utils.cpp). 
     if [ -d "$share_src" ]; then
         mkdir -p "$APPDIR/usr/share/$PACKAGE_NAME"
         cp -a "$share_src/." "$APPDIR/usr/share/$PACKAGE_NAME/"
@@ -87,13 +91,6 @@ build_sharun_appimage() {
            "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
     fi
 
-    # 5. Иконки UI — приложение ищет их рядом с бинарником (см. warning'и
-    #    "SvgIcon: NOT FOUND .../usr/bin/icons/*.svg" в логах).
-    if [ -d "$share_src/icons" ]; then
-        mkdir -p "$APPDIR/usr/bin/icons"
-        cp -a "$share_src/icons/." "$APPDIR/usr/bin/icons/"
-    fi
-
     # Переменные quick-sharun.
     export APPDIR
     export ARCH="$APPIMAGE_ARCH"
@@ -102,27 +99,94 @@ build_sharun_appimage() {
     export OUTNAME="$appimage_file"
     export ICON="$APPDIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME"
     export DESKTOP="$APPDIR/usr/share/applications/$PACKAGE_NAME.desktop"
-        export UPDATE_INFORMATION="gh-releases-zsync|i-jurij|iptvplayer|latest|iptvplayer-linux-*-sharun.AppImage.zsync"
+    export UPDATE_INFORMATION="gh-releases-zsync|i-jurij|iptvplayer|latest|iptvplayer-linux-*-sharun.AppImage.zsync"
     # Поправляет WM_CLASS для GTK-приложений.
     export GTK_CLASS_FIX=1
+    # Форсируем deployment gdk-pixbuf (SVG-лоадеры и кэш).
+    # Авто-детект по NEEDED может промахнуться: libgdk_pixbuf — не прямая
+    # зависимость бинарника, а транзитивная через libgtk. Без лоадеров
+    # GTK падает в assert при рендере SVG-иконок.
+    export DEPLOY_GDK=1
 
     # 1) Развёртывание зависимостей
     echo "[+] Развёртывание зависимостей через quick-sharun..."
     if ! "$QUICK_SHARUN" "$APPDIR/usr/bin/$PACKAGE_NAME"; then
         echo "[!] quick-sharun (deploy) завершился с ошибкой" >&2
-        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX
+        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX DEPLOY_GDK
         return 1
+    fi
+
+    # =====================================================================
+    # Постобработка gdk-pixbuf.
+    #
+    # gdk-pixbuf ищет loaders.cache в порядке:
+    #   1) $GDK_PIXBUF_MODULE_FILE
+    #   2) вкомпилированный дефолт (у нас — хостовый
+    #      /usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache)
+    #
+    # Без (1) GTK грузит ХОСТОВЫЕ pixbuf-лоадеры. Хостовый SVG-лоадер
+    # dlopen'ит бандленный librsvg (потому что LD_LIBRARY_PATH от sharun
+    # подсовывает бандл первым) и валится на несовпадении символов:
+    #   undefined symbol: rsvg_handle_get_pixbuf_and_error
+    # Это не warning, а abort() внутри GTK — приложение падает с "Bail out!".
+    #
+    # Лечится тем, что переменная GDK_PIXBUF_MODULE_FILE указывает на
+    # бандленный loaders.cache, а сам кэш в бандле правится так, чтобы пути
+    # внутри были относительными (иначе лоадеры всё равно резолвятся
+    # в хостовые .so).
+    # =====================================================================
+    _gdkpixbuf_cache=""
+    if [ -d "$APPDIR/lib" ]; then
+        _gdkpixbuf_cache="$(find "$APPDIR/lib" -maxdepth 5 -type f \
+                            -name 'loaders.cache' -print -quit 2>/dev/null || true)"
+    fi
+
+    if [ -z "$_gdkpixbuf_cache" ]; then
+        echo "[!] loaders.cache не найден в \$APPDIR/lib —" \
+             "SVG-иконки GTK работать не будут" >&2
+    else
+        echo "[+] Найден gdk-pixbuf кэш: $_gdkpixbuf_cache"
+
+        # Патчим абсолютные пути на относительные. Idempotent: после
+        # первого прогона вхождений /usr/lib/.../loaders/ уже не остаётся,
+        # повторный вызов grep -q ничего не найдёт и sed не сработает.
+        if grep -q '/usr/lib' "$_gdkpixbuf_cache" 2>/dev/null; then
+            sed -i -e 's|/usr/lib/.*/loaders/||g' "$_gdkpixbuf_cache"
+            echo "[+] loaders.cache: абсолютные пути заменены относительными"
+        fi
+
+        if ! grep -q 'svg' "$_gdkpixbuf_cache"; then
+            echo "[!] В loaders.cache нет записи для SVG-лоадера —" \
+                 "проверьте, что DEPLOY_GDK отработал" >&2
+        fi
+
+        # Путь относительно корня AppDir, для подстановки через ${SHARUN_DIR}.
+        # ${SHARUN_DIR} разворачивается в runtime sharun'ом и указывает
+        # на корень смонтированного AppImage.
+        _gdkpixbuf_cache_rel="${_gdkpixbuf_cache#"$APPDIR"}"
+
+        if [ ! -f "$APPDIR/.env" ]; then
+            : > "$APPDIR/.env"
+        fi
+
+        if ! grep -q '^GDK_PIXBUF_MODULE_FILE=' "$APPDIR/.env"; then
+            echo "GDK_PIXBUF_MODULE_FILE=\${SHARUN_DIR}${_gdkpixbuf_cache_rel}" \
+                >> "$APPDIR/.env"
+            echo "[+] .env += GDK_PIXBUF_MODULE_FILE=\${SHARUN_DIR}${_gdkpixbuf_cache_rel}"
+        else
+            echo "[i] GDK_PIXBUF_MODULE_FILE уже прописан в .env — оставляем как есть"
+        fi
     fi
 
     # 2) Упаковка AppDir → AppImage (внутри вызывается appimagetool)
     echo "[+] Упаковка AppDir в AppImage..."
     if ! "$QUICK_SHARUN" --make-appimage; then
         echo "[!] quick-sharun --make-appimage завершился с ошибкой" >&2
-        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX
+        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX DEPLOY_GDK
         return 1
     fi
 
-    unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX
+    unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX DEPLOY_GDK
 
     if [ ! -f "$OUTPUT_DIR/$appimage_file" ]; then
         echo "[!] quick-sharun не создал $appimage_file" >&2

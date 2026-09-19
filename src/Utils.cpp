@@ -1251,6 +1251,17 @@ wxString FindResourceFile(const wxString &filename) {
       return candidate2.GetFullPath();
   }
 
+  // 7. AppImage: $APPDIR/usr/share/iptvplayer/.
+  //    Переменная APPDIR выставляется AppRun'ом и в linuxdeploy, и в sharun.
+  if (const char *appdir = std::getenv("APPDIR")) {
+    if (*appdir) {
+      wxFileName candidate(wxString::FromUTF8(appdir) + "/usr/share/iptvplayer",
+                           filename);
+      if (candidate.FileExists())
+        return candidate.GetFullPath();
+    }
+  }
+
   return wxEmptyString;
 }
 
