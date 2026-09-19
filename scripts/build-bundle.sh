@@ -160,6 +160,8 @@ fi
 # и передаёт GDK_BACKEND=wayland.
 if [ -n "$_iptv_saved_gdk_backend" ]; then
     export GDK_BACKEND="$_iptv_saved_gdk_backend"
+else
+    unset GDK_BACKEND
 fi
 unset _iptv_saved_gdk_backend
 
@@ -436,7 +438,7 @@ build_rpm_bundled() {
 
     mkdir -p "$SPEC_DIR/SOURCES"
     if ! tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
-        --transform="s,^,$PACKAGE_NAME-$VERSION/," \
+        --transform="flags=r;s,^,$PACKAGE_NAME-$VERSION/," \
         -C "$STAGING_DIR" .; then
         echo "[!] bundled .rpm: не удалось создать архив" >&2
         return 1

@@ -103,7 +103,7 @@ build_rpm_native() {
 
     mkdir -p "$SPEC_DIR/SOURCES"
     cd "$STAGING_DIR" && tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
-        --transform="s,^,$PACKAGE_NAME-$VERSION/," . && cd - > /dev/null
+        --transform="flags=r;s,^,$PACKAGE_NAME-$VERSION/," . && cd - > /dev/null
 
     cat > "$SPEC_DIR/${PACKAGE_NAME}.spec" << EOF
 %define debug_package %{nil}

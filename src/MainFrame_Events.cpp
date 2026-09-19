@@ -8,6 +8,7 @@
 
 #include <wx/dialog.h>
 #include <wx/filename.h>
+#include <wx/filesys.h>
 #include <wx/hyperlink.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
@@ -32,10 +33,7 @@ void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
         "Commit: %s\n\n"
         "A simple player for M3U playlists with EPG support.\n"
         "Built with wxWidgets, MPV, and SQLite.\n\n"
-        "© 2026 I-Jurij\n"
-        "License: MIT\n"
-        "GitHub: https://github.com/i-jurij/iptvplayer\n\n"
-        "Author: I-Jurij"),
+        "GitHub: https://github.com/i-jurij/iptvplayer\n\n"),
       IPTVPLAYER_VERSION_FULL,
       IPTVPLAYER_GIT_COMMIT[0] ? IPTVPLAYER_GIT_COMMIT : "unknown");
 
@@ -64,7 +62,10 @@ void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
   auto *link = new wxHyperlinkCtrl(
       &dlg, wxID_ANY, wxFileName(detailsPath).GetFullName(), detailsPath);
   link->Bind(wxEVT_HYPERLINK, [detailsPath](wxHyperlinkEvent &) {
-    wxLaunchDefaultApplication(detailsPath);
+    wxString url = wxFileSystem::FileNameToURL(wxFileName(detailsPath));
+    if (!wxLaunchDefaultBrowser(url)) {
+      LOG_WARN("About: не удалось открыть %s", detailsPath.c_str());
+    }
   });
   row->Add(link, 0, wxALIGN_CENTER_VERTICAL);
 

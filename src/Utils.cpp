@@ -527,17 +527,7 @@ std::string FormatLocalTime(time_t t, const wxString &format) {
 // ============================================================================
 
 wxString getIconPath(const wxString &iconName) {
-  wxString exeDir =
-      wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
-  wxString localPath = exeDir + "/icons/" + iconName;
-  if (wxFileExists(localPath))
-    return localPath;
-
-  wxString sysPath = wxString(DATADIR) + "/iptvplayer/icons/" + iconName;
-  if (wxFileExists(sysPath))
-    return sysPath;
-
-  return iconName;
+  return FindResourceFile("icons/" + iconName);
 }
 
 // ============================================================================
