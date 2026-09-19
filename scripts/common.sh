@@ -260,16 +260,12 @@ prepare_staging() {
 
 # === Проверка зависимостей ===
 # $1 — pkgmgr (deb/rpm/arch/unknown)
-# $2..$7 — need_native_deb, need_native_rpm, need_native_arch,
-#          need_bundle_deb, need_bundle_rpm, need_appimage
 check_deps() {
     local pkgmgr="$1"
     shift
     local need_native_deb=$1
     local need_native_rpm=$2
     local need_native_arch=$3
-    local need_bundle_deb=$4
-    local need_bundle_rpm=$5
     local need_appimage=$6
     local need_sharun=$7
 
@@ -284,13 +280,13 @@ check_deps() {
         command -v gpg >/dev/null 2>&1 || required+=("gpg")
     fi
 
-    if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]] || [[ "$need_bundle_deb" == true ]]; }; then
+    if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]]; }; then
         command -v dpkg-deb >/dev/null 2>&1 || required+=("dpkg-deb")
     fi
     if [[ "$need_native_deb" == true && "$pkgmgr" == deb ]]; then
         command -v dpkg-shlibdeps >/dev/null 2>&1 || required+=("dpkg-shlibdeps")
     fi
-    if { [[ "$need_native_rpm" == true && "$pkgmgr" == rpm ]] || [[ "$need_bundle_rpm" == true ]]; }; then
+    if { [[ "$need_native_rpm" == true && "$pkgmgr" == rpm ]]; }; then
         for tool in rpmbuild rpm; do
             command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
         done
@@ -298,15 +294,14 @@ check_deps() {
     if [[ "$need_native_arch" == true && "$pkgmgr" == arch ]]; then
         command -v makepkg >/dev/null 2>&1 || required+=("makepkg")
     fi
-    if [[ "$need_appimage" == true || "$need_bundle_deb" == true || \
-          "$need_bundle_rpm" == true || "$need_sharun" == true ]]; then
+    if [[ "$need_appimage" == true || "$need_sharun" == true ]]; then
         command -v wget >/dev/null 2>&1 || required+=("wget")
     fi
         if [[ "$need_sharun" == true ]]; then
         command -v patchelf >/dev/null 2>&1 || required+=("patchelf")
     fi
 
-    if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]] || [[ "$need_bundle_deb" == true ]]; } && ! command -v debsigs >/dev/null 2>&1; then
+    if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]]; } && ! command -v debsigs >/dev/null 2>&1; then
         optional+=("debsigs")
     fi
     if [[ "$need_appimage" == true ]] && ! command -v zsyncmake >/dev/null 2>&1; then
@@ -328,28 +323,11 @@ check_deps() {
     fi
 }
 
-# === Вычисление Depends для .deb ===
+# === Вычисление Depends для нативного .deb ===
 # $1 — путь к бинарнику
-# $2 — (опц.) путь к бандленным .so
-# $3 — (опц.) путь к fallback-библиотекам
 # Возвращает через stdout строку Depends (может быть пустой)
 detect_deb_depends() {
     local bin_path="$1"
-    local bundle_lib="${2:-}"
-    local bundle_fb="${3:-}"
-
-    # Кэш имеет смысл только для native-варианта (без -l):
-    # в CI install/DEB_DEPENDS готовится шагом
-    # "Compute .deb dependencies" и приезжает в артефакте install.
-    # Для bundled кэш не используется — там свои -l пути,
-    # dpkg-shlibdeps должен посчитать заново, видя бандл.
-    if [ -z "$bundle_lib" ] && [ -z "$bundle_fb" ]; then
-        local cached="$PROJECT_ROOT/install/DEB_DEPENDS"
-        if [ -f "$cached" ]; then
-            local d; d=$(tr -d '\n\r' < "$cached")
-            [ -n "$d" ] && { echo "$d"; return 0; }
-        fi
-    fi
 
     local tmp_dir; tmp_dir=$(mktemp -d)
     mkdir -p "$tmp_dir/debian"
@@ -358,11 +336,8 @@ Source: $PACKAGE_NAME
 Package: $PACKAGE_NAME
 Architecture: any
 EOF
-    local args=(-O)
-    [ -n "$bundle_lib" ] && args+=(-l"$bundle_lib")
-    [ -n "$bundle_fb" ]  && args+=(-l"$bundle_fb")
     local output
-    output=$(cd "$tmp_dir" && dpkg-shlibdeps "${args[@]}" "$bin_path" 2>&1) || true
+    output=$(cd "$tmp_dir" && dpkg-shlibdeps -O "$bin_path" 2>&1) || true
     rm -rf "$tmp_dir"
     echo "$output" | sed -n 's/^shlibs:Depends=//p' | tr -d '\n\r'
 }

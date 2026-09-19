@@ -132,25 +132,6 @@ jobs:
           chmod +x scripts/build-release.sh
           ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
 
-      - name: Compute .deb dependencies
-        if: steps.check_version_changed.outputs.version_changed == 'true'
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends dpkg-dev >/dev/null
-          TMP="$(mktemp -d)"; mkdir -p "$TMP/debian"
-          cat > "$TMP/debian/control" <<'EOF'
-          Source: iptvplayer
-          Package: iptvplayer
-          Architecture: any
-          EOF
-          BIN="$PWD/install/bin/iptvplayer"
-          DEPS=$(cd "$TMP" && dpkg-shlibdeps -O "$BIN" 2>/dev/null \
-            | sed -n 's/^shlibs:Depends=//p' | tr -d '\n\r' || true)
-          rm -rf "$TMP"
-          [[ -z "$DEPS" ]] && echo "::warning::dpkg-shlibdeps пустой"
-          echo "$DEPS" > "$PWD/install/DEB_DEPENDS"
-
       - name: Upload install artifact
         if: steps.check_version_changed.outputs.version_changed == 'true'
         uses: actions/upload-artifact@v5
@@ -161,7 +142,7 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # 2. Bundled .deb + .rpm + AppImage
+  # 2. Bundled AppImage
   # =========================================================================
   package:
     needs: build-binary
@@ -287,13 +268,13 @@ jobs:
           echo "$WRAPPER_DIR"                   >> $GITHUB_PATH
           echo "can_sign=true"                  >> $GITHUB_OUTPUT
 
-      - name: Build bundled packages + AppImage
+      - name: Build AppImages
         run: |
           set -euo pipefail
           mkdir -p logs
           chmod +x scripts/build-package.sh
-          ./scripts/build-package.sh --bundle-deb --bundle-rpm --appimage --sharun --yes 2>&1 | tee logs/build-package.log
-
+          ./scripts/build-package.sh --appimage --sharun --yes 2>&1 | tee logs/build-package.log
+          
       - name: Export public key
         if: always() && steps.import_gpg.outputs.can_sign == 'true'
         run: |

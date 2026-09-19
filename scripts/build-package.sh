@@ -12,14 +12,9 @@
 #   --appimage        AppImage (linuxdeploy + appimagetool, bundled)
 #   --sharun          AppImage (quick-sharun, максимальная переносимость)
 #
-# Bundled-варианты (обычно только для CI):
-#   --bundle-deb      Bundled .deb (всё внутри /opt/iptvplayer)
-#   --bundle-rpm      Bundled .rpm (всё внутри /opt/iptvplayer)
-#
 # Комбинированные:
 #   --native          Все нативные пакеты, доступные здесь
 #   --native-appimage Нативные + AppImage (linuxdeploy)
-#   --bundle          Bundled .deb + bundled .rpm
 #   --all             Всё возможное на этой системе
 #
 # Служебные:
@@ -30,7 +25,7 @@
 #   --yes, -y         Неинтерактивный режим
 #   -h, --help        Показать справку
 #
-# Environment для packagers (build-native.sh, build-bundle.sh, build-sharun.sh):
+# Environment для packagers (build-native.sh, build-appimage.sh, build-sharun.sh):
 #   PROJECT_ROOT, SCRIPT_DIR
 #   STAGING_DIR, APPDIR, OUTPUT_DIR
 #   PACKAGE_NAME, ICON_NAME, METAINFO_NAME, BUNDLE_PREFIX
@@ -57,7 +52,7 @@ cd "$PROJECT_ROOT"
 # ---- Общие утилиты и packagers ----
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/build-native.sh"
-source "$SCRIPT_DIR/build-bundle.sh"
+source "$SCRIPT_DIR/build-appimage.sh"
 source "$SCRIPT_DIR/build-sharun.sh"
 
 # === Настройки ===
@@ -230,14 +225,9 @@ show_help() {
   --sharun          AppImage через quick-sharun (максимальная переносимость:
                     старые glibc, musl-системы, NixOS)
 
-Bundled (обычно только для CI):
-  --bundle-deb      bundled .deb (всё в /opt/iptvplayer)
-  --bundle-rpm      bundled .rpm
-
 Комбинированные:
   --native          все нативные, доступные здесь
   --native-appimage нативные + AppImage
-  --bundle          bundled .deb + bundled .rpm
   --all             всё возможное на этой системе
 
 Служебные:
@@ -344,8 +334,6 @@ main() {
     BUILD_NATIVE_DEB=false
     BUILD_NATIVE_RPM=false
     BUILD_NATIVE_ARCH=false
-    BUILD_BUNDLE_DEB=false
-    BUILD_BUNDLE_RPM=false
     BUILD_APPIMAGE=false
     BUILD_SHARUN=false
     SHOW_MENU=true
@@ -355,14 +343,11 @@ main() {
             --native-deb)    BUILD_NATIVE_DEB=true ;;
             --native-rpm)    BUILD_NATIVE_RPM=true ;;
             --native-arch)   BUILD_NATIVE_ARCH=true ;;
-            --bundle-deb)    BUILD_BUNDLE_DEB=true ;;
-            --bundle-rpm)    BUILD_BUNDLE_RPM=true ;;
             --appimage)      BUILD_APPIMAGE=true ;;
             --sharun)        BUILD_SHARUN=true ;;
             --native)        BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true ;;
             --native-appimage) BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_APPIMAGE=true ;;
-            --bundle)        BUILD_BUNDLE_DEB=true; BUILD_BUNDLE_RPM=true ;;
-            --all)           BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_BUNDLE_DEB=true; BUILD_BUNDLE_RPM=true; BUILD_APPIMAGE=true ; BUILD_SHARUN=true ;;
+            --all)           BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_APPIMAGE=true ; BUILD_SHARUN=true ;;
             --rebuild)       FORCE_REBUILD=true ;;
             --clean)         DO_CLEAN=true ;;
             --clean-only)    DO_CLEAN=true; CLEAN_ONLY=true ;;
@@ -389,23 +374,19 @@ main() {
 
     # Если ничего не выбрано и меню разрешено — показать меню
     if [[ "$BUILD_NATIVE_DEB" == false && "$BUILD_NATIVE_RPM" == false && \
-          "$BUILD_NATIVE_ARCH" == false && "$BUILD_BUNDLE_DEB" == false && \
-          "$BUILD_BUNDLE_RPM" == false && "$BUILD_APPIMAGE" == false && \
+          "$BUILD_NATIVE_ARCH" == false && "$BUILD_APPIMAGE" == false && \
           "$BUILD_SHARUN" == false ]]; then
         if [[ "$SHOW_MENU" == true && "$NON_INTERACTIVE" == false ]]; then
             show_menu "$pkgmgr"
         else
-            # В CI или --no-menu без флагов — по умолчанию bundle + appimage
-            BUILD_BUNDLE_DEB=true
-            BUILD_BUNDLE_RPM=true
+            # В CI или --no-menu без флагов — по умолчанию appimage
             BUILD_APPIMAGE=true
         fi
     fi
 
-    # Bundled требует AppDir — если запрошены bundle и AppImage, populate один раз
     check_deps "$pkgmgr" \
                "$BUILD_NATIVE_DEB" "$BUILD_NATIVE_RPM" "$BUILD_NATIVE_ARCH" \
-               "$BUILD_BUNDLE_DEB" "$BUILD_BUNDLE_RPM" "$BUILD_APPIMAGE" "$BUILD_SHARUN"
+               "$BUILD_APPIMAGE" "$BUILD_SHARUN"
     setup_dirs
 
     if ! build_binary; then
@@ -458,12 +439,6 @@ main() {
         fi
     fi
 
-    if [[ "$BUILD_BUNDLE_DEB" == true ]]; then
-        if ! build_deb_bundled; then FAILED+=("bundle-deb"); fi
-    fi
-    if [[ "$BUILD_BUNDLE_RPM" == true ]]; then
-        if ! build_rpm_bundled; then FAILED+=("bundle-rpm"); fi
-    fi
     if [[ "$BUILD_APPIMAGE" == true ]]; then
         if ! build_appimage; then FAILED+=("appimage"); fi
     fi
