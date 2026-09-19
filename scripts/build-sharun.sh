@@ -75,7 +75,7 @@ build_sharun_appimage() {
     # 2. Все данные приложения — зеркалом, как в install/.
     #    Сюда же попадают UI-иконки: share/iptvplayer/icons/*.svg
     #    → $APPDIR/usr/share/iptvplayer/icons/.
-    #    Приложение находит их через FindResourceFile(), которая ищет
+    #    Приложение находит их через FindAppDataFile(), которая ищет
     #    в $APPDIR/usr/share/iptvplayer/ (см. Utils.cpp). 
     if [ -d "$share_src" ]; then
         mkdir -p "$APPDIR/usr/share/$PACKAGE_NAME"
@@ -119,62 +119,113 @@ build_sharun_appimage() {
     # =====================================================================
     # Постобработка gdk-pixbuf.
     #
-    # gdk-pixbuf ищет loaders.cache в порядке:
-    #   1) $GDK_PIXBUF_MODULE_FILE
-    #   2) вкомпилированный дефолт (у нас — хостовый
-    #      /usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache)
-    #
-    # Без (1) GTK грузит ХОСТОВЫЕ pixbuf-лоадеры. Хостовый SVG-лоадер
-    # dlopen'ит бандленный librsvg (потому что LD_LIBRARY_PATH от sharun
-    # подсовывает бандл первым) и валится на несовпадении символов:
+    # quick-sharun при DEPLOY_GDK=1 копирует libpixbufloader-*.so и
+    # librsvg в бандл, но НЕ создаёт loaders.cache и НЕ прописывает
+    # GDK_PIXBUF_MODULE_FILE. Без этого GTK берёт хостовый кэш, тот
+    # ссылается на хостовый загрузчик, а хостовый загрузчик dlopen'ит
+    # бандленный librsvg (LD_LIBRARY_PATH от sharun подсовывает бандл
+    # первым) и валится на несовпадении ABI:
     #   undefined symbol: rsvg_handle_get_pixbuf_and_error
-    # Это не warning, а abort() внутри GTK — приложение падает с "Bail out!".
     #
-    # Лечится тем, что переменная GDK_PIXBUF_MODULE_FILE указывает на
-    # бандленный loaders.cache, а сам кэш в бандле правится так, чтобы пути
-    # внутри были относительными (иначе лоадеры всё равно резолвятся
-    # в хостовые .so).
+    # Решение: сгенерировать бандленный loaders.cache, поправить пути
+    # на относительные, прописать GDK_PIXBUF_MODULE_FILE=${SHARUN_DIR}/...
     # =====================================================================
-    _gdkpixbuf_cache=""
+
+    # 1. Найти директорию с бандленными загрузчиками.
+    _loaders_dir=""
     if [ -d "$APPDIR/lib" ]; then
-        _gdkpixbuf_cache="$(find "$APPDIR/lib" -maxdepth 5 -type f \
-                            -name 'loaders.cache' -print -quit 2>/dev/null || true)"
+        _loaders_dir="$(find "$APPDIR/lib" -type d \
+                        -path '*gdk-pixbuf*/loaders' -print -quit 2>/dev/null || true)"
     fi
 
-    if [ -z "$_gdkpixbuf_cache" ]; then
-        echo "[!] loaders.cache не найден в \$APPDIR/lib —" \
-             "SVG-иконки GTK работать не будут" >&2
+    if [ -z "$_loaders_dir" ]; then
+        echo "[i] gdk-pixbuf loaders в \$APPDIR/lib не найдены —" \
+             "кэш не создаём, GTK будет использовать хостовый"
     else
-        echo "[+] Найден gdk-pixbuf кэш: $_gdkpixbuf_cache"
+        echo "[+] Директория gdk-pixbuf loaders: $_loaders_dir"
+        _cache_path="${_loaders_dir%/loaders}/loaders.cache"
 
-        # Патчим абсолютные пути на относительные. Idempotent: после
-        # первого прогона вхождений /usr/lib/.../loaders/ уже не остаётся,
-        # повторный вызов grep -q ничего не найдёт и sed не сработает.
-        if grep -q '/usr/lib' "$_gdkpixbuf_cache" 2>/dev/null; then
-            sed -i -e 's|/usr/lib/.*/loaders/||g' "$_gdkpixbuf_cache"
-            echo "[+] loaders.cache: абсолютные пути заменены относительными"
-        fi
+        # 2. Найти gdk-pixbuf-query-loaders в системе сборки.
+        _query_tool=""
+        for _t in gdk-pixbuf-query-loaders-64 \
+                  gdk-pixbuf-query-loaders \
+                  gdk-pixbuf-query-loaders-32; do
+            if command -v "$_t" >/dev/null 2>&1; then
+                _query_tool="$_t"
+                break
+            fi
+        done
 
-        if ! grep -q 'svg' "$_gdkpixbuf_cache"; then
-            echo "[!] В loaders.cache нет записи для SVG-лоадера —" \
-                 "проверьте, что DEPLOY_GDK отработал" >&2
-        fi
+        # 3a. Сгенерировать кэш через утилиту.
+        #     cd в _loaders_dir, чтобы вывод содержал имена .so без пути.
+        #     LD_LIBRARY_PATH=$APPDIR/lib нужен, если загрузчики линкуются
+        #     с бандленными библиотеками, которые ещё не в системном пути.
+        if [ -n "$_query_tool" ]; then
+            echo "[+] Генерация loaders.cache через $_query_tool"
+            (
+                cd "$_loaders_dir" || exit 1
+                LD_LIBRARY_PATH="$APPDIR/lib:$APPDIR/lib/fallback:${LD_LIBRARY_PATH:-}" \
+                    "$_query_tool" ./*.so* > "$_cache_path" 2>/dev/null
+            ) || true
 
-        # Путь относительно корня AppDir, для подстановки через ${SHARUN_DIR}.
-        # ${SHARUN_DIR} разворачивается в runtime sharun'ом и указывает
-        # на корень смонтированного AppImage.
-        _gdkpixbuf_cache_rel="${_gdkpixbuf_cache#"$APPDIR"}"
-
-        if [ ! -f "$APPDIR/.env" ]; then
-            : > "$APPDIR/.env"
-        fi
-
-        if ! grep -q '^GDK_PIXBUF_MODULE_FILE=' "$APPDIR/.env"; then
-            echo "GDK_PIXBUF_MODULE_FILE=\${SHARUN_DIR}${_gdkpixbuf_cache_rel}" \
-                >> "$APPDIR/.env"
-            echo "[+] .env += GDK_PIXBUF_MODULE_FILE=\${SHARUN_DIR}${_gdkpixbuf_cache_rel}"
+            if [ -s "$_cache_path" ]; then
+                echo "[+] loaders.cache сгенерирован ($(wc -l < "$_cache_path") строк)"
+            else
+                echo "[!] Не удалось сгенерировать loaders.cache"
+                rm -f "$_cache_path"
+            fi
         else
-            echo "[i] GDK_PIXBUF_MODULE_FILE уже прописан в .env — оставляем как есть"
+            echo "[i] gdk-pixbuf-query-loaders не найден в PATH"
+        fi
+
+        # 3b. Fallback: если утилиты нет или она дала пустой результат —
+        #     копируем хостовый кэш. Пути потом всё равно правим на
+        #     относительные, так что имена .so совпадут с бандленными.
+        if [ ! -s "$_cache_path" ]; then
+            _host_cache=""
+            for _c in /usr/lib/*/gdk-pixbuf-*/*/loaders.cache \
+                      /usr/lib64/gdk-pixbuf-*/*/loaders.cache \
+                      /usr/lib/gdk-pixbuf-*/*/loaders.cache; do
+                if [ -f "$_c" ]; then
+                    _host_cache="$_c"
+                    break
+                fi
+            done
+            if [ -n "$_host_cache" ]; then
+                echo "[+] Копирование хостового кэша: $_host_cache"
+                cp "$_host_cache" "$_cache_path"
+            else
+                echo "[!] Хостовый loaders.cache тоже не найден —" \
+                     "SVG-загрузчик в GTK работать не будет"
+            fi
+        fi
+
+        # 4. Пути в кэше → относительные.
+        if [ -s "$_cache_path" ]; then
+            if grep -qE '/usr/(lib|lib64)/[^"]*/loaders/' "$_cache_path" 2>/dev/null; then
+                sed -i -E 's|/usr/(lib|lib64)/[^"]*/loaders/||g' "$_cache_path"
+                echo "[+] loaders.cache: пути приведены к относительным"
+            fi
+
+            if ! grep -q 'svg' "$_cache_path"; then
+                echo "[!] В loaders.cache нет записи svg —" \
+                     "SVG-иконки GTK работать не будут"
+            fi
+
+            # 5. Прописать GDK_PIXBUF_MODULE_FILE в .env.
+            _cache_rel="${_cache_path#"$APPDIR"}"
+
+            if [ ! -f "$APPDIR/.env" ]; then
+                : > "$APPDIR/.env"
+            fi
+
+            if ! grep -q '^GDK_PIXBUF_MODULE_FILE=' "$APPDIR/.env"; then
+                echo "GDK_PIXBUF_MODULE_FILE=\${SHARUN_DIR}${_cache_rel}" \
+                    >> "$APPDIR/.env"
+                echo "[+] .env += GDK_PIXBUF_MODULE_FILE=\${SHARUN_DIR}${_cache_rel}"
+            else
+                echo "[i] GDK_PIXBUF_MODULE_FILE уже прописан в .env"
+            fi
         fi
     fi
 

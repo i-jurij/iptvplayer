@@ -9,7 +9,7 @@
 #   --native-deb      Нативный .deb (системные библиотеки, Ubuntu/Debian)
 #   --native-rpm      Нативный .rpm (Fedora/Rocky/RHEL/openSUSE)
 #   --native-arch     Нативный .pkg.tar.zst (Arch/Manjaro)
-#   --appimage        AppImage (linuxdeploy + appimagetool, bundled)
+#   --appimage        AppImage (linuxdeploy + appimagetool)
 #   --sharun          AppImage (quick-sharun, максимальная переносимость)
 #
 # Комбинированные:
@@ -28,7 +28,7 @@
 # Environment для packagers (build-native.sh, build-appimage.sh, build-sharun.sh):
 #   PROJECT_ROOT, SCRIPT_DIR
 #   STAGING_DIR, APPDIR, OUTPUT_DIR
-#   PACKAGE_NAME, ICON_NAME, METAINFO_NAME, BUNDLE_PREFIX
+#   PACKAGE_NAME, ICON_NAME, METAINFO_NAME
 #   APPIMAGE_ARCH, DEB_ARCH, RPM_ARCH, DISTRO
 #   VERSION, VERSION_FILE
 # Все эти переменные устанавливаются в main() до вызова packagers.
@@ -58,7 +58,6 @@ source "$SCRIPT_DIR/build-sharun.sh"
 # === Настройки ===
 PACKAGE_NAME="iptvplayer"
 ICON_NAME="${PACKAGE_NAME}.svg"
-BUNDLE_PREFIX="/opt/${PACKAGE_NAME}"
 
 DEB_ARCH=""
 RPM_ARCH=""
@@ -221,7 +220,7 @@ show_help() {
   --native-deb      .deb из системных библиотек (Ubuntu/Debian)
   --native-rpm      .rpm из системных библиотек (Fedora/Rocky/RHEL/openSUSE)
   --native-arch     .pkg.tar.zst (Arch/Manjaro)
-  --appimage        AppImage (bundled, работает везде)
+  --appimage        AppImage (linuxdeploy + appimagetool)
   --sharun          AppImage через quick-sharun (максимальная переносимость:
                     старые glibc, musl-системы, NixOS)
 

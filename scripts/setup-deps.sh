@@ -99,23 +99,31 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
 
     log "Обнаружена ОС: $OS_ID $OS_VERSION"
 
+    if command -v sudo >/dev/null 2>&1; then
+        SUDO="sudo"
+    elif [ "$(id -u)" = "0" ]; then
+        SUDO=""
+    else
+        error "Нужен sudo или root для установки пакетов"
+    fi
+
     case "$OS_ID" in
         debian|ubuntu)
             PKG_MANAGER="apt"
-            INSTALL_CMD="sudo apt-get install -y"
+            INSTALL_CMD="$SUDO apt-get install -y"
             ;;
         fedora|rhel|centos|rocky)
             PKG_MANAGER="dnf"
             if ! command -v dnf &>/dev/null; then
                 PKG_MANAGER="yum"
-                INSTALL_CMD="sudo yum install -y"
+                INSTALL_CMD="$SUDO yum install -y"
             else
-                INSTALL_CMD="sudo dnf install -y"
+                INSTALL_CMD="$SUDO dnf install -y"
             fi
             ;;
         arch|manjaro)
             PKG_MANAGER="pacman"
-            INSTALL_CMD="sudo pacman -S --noconfirm"
+            INSTALL_CMD="$SUDO pacman -S --noconfirm"
             ;;
         *)
             error "Неподдерживаемая ОС: $OS_ID"
@@ -284,9 +292,9 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
 
         log "Обновление индексов пакетного менеджера..."
         case "$PKG_MANAGER" in
-            apt)    sudo apt-get update -qq ;;
-            dnf)    sudo dnf makecache -q ;;
-            pacman) sudo pacman -Sy --noconfirm > /dev/null ;;
+            apt)    $SUDO apt-get update -qq ;;
+            dnf)    $SUDO dnf makecache -q ;;
+            pacman) $SUDO pacman -Sy --noconfirm > /dev/null ;;
         esac
 
         INSTALL_LOG="$PROJECT_ROOT/.install-deps.log"

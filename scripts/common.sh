@@ -266,8 +266,8 @@ check_deps() {
     local need_native_deb=$1
     local need_native_rpm=$2
     local need_native_arch=$3
-    local need_appimage=$6
-    local need_sharun=$7
+    local need_appimage=$4
+    local need_sharun=$5
 
     local required=()
     local optional=()

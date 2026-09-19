@@ -124,7 +124,7 @@ void AddEpgSourceDialog::ShowInfoDialog() {
                  infoDlg.FromDIP(10));
 
   // ---- Поиск и парсинг JSON ----
-  wxString jsonPath = FindResourceFile("epg_sources.json");
+  wxString jsonPath = FindAppDataFile("epg_sources.json");
   wxString jsonContent;
   bool found = false;
   if (!jsonPath.IsEmpty()) {

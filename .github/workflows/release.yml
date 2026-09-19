@@ -19,9 +19,9 @@ permissions:
 
 jobs:
   # =========================================================================
-  # 1. Сборка бинарника (один раз, Ubuntu 24.04 — glibc 2.39)
+  # 1. Версия + тег. Сборкой не занимается.
   # =========================================================================
-  build-binary:
+  version:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.read_version.outputs.version }}
@@ -90,64 +90,15 @@ jobs:
           git tag -a "${TAG}" -m "Release ${TAG} (CI)"
           git push origin "refs/tags/${TAG}"
 
-      - name: Cache third_party
-        if: steps.check_version_changed.outputs.version_changed == 'true'
-        uses: actions/cache@v5
-        with:
-          path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
-
-      - name: Install all dependencies
-        if: steps.check_version_changed.outputs.version_changed == 'true'
-        run: |
-          set -euo pipefail
-          chmod +x scripts/setup-deps.sh
-          if [[ "${{ github.event.inputs.rebuild_deps }}" == "true" ]]; then
-            ./scripts/setup-deps.sh --yes --rebuild-deps
-          else
-            ./scripts/setup-deps.sh --yes
-          fi
-
-      - name: Delete old third_party cache
-        if: steps.check_version_changed.outputs.version_changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CURRENT_KEY: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
-          KEY_PREFIX: ${{ runner.os }}-${{ runner.arch }}-third_party-
-        run: |
-          set -euo pipefail
-          command -v gh >/dev/null 2>&1 || { echo "gh missing"; exit 0; }
-          OLD_KEYS=$(gh cache list --repo "$REPO" --limit 100 \
-            | awk -v cur="$CURRENT_KEY" -v prefix="$KEY_PREFIX" \
-                  '$2 != cur && index($2, prefix) == 1 {print $2}')
-          [[ -z "$OLD_KEYS" ]] && { echo "No old caches"; exit 0; }
-          while IFS= read -r key; do
-            [ -z "$key" ] && continue
-            gh cache delete "$key" --repo "$REPO" || true
-          done <<< "$OLD_KEYS"
-
-      - name: Build binary
-        if: steps.check_version_changed.outputs.version_changed == 'true'
-        run: |
-          chmod +x scripts/build-release.sh
-          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
-
-      - name: Upload install artifact
-        if: steps.check_version_changed.outputs.version_changed == 'true'
-        uses: actions/upload-artifact@v5
-        with:
-          name: install
-          path: install/
-          retention-days: 1
-          if-no-files-found: error
-
   # =========================================================================
-  # 2. Bundled AppImage
+  # 2. AppImage (linuxdeploy + sharun) на Ubuntu 24.04
   # =========================================================================
-  package:
-    needs: build-binary
-    if: needs.build-binary.outputs.version_changed == 'true'
+  appimage:
+    needs: version
+    if: needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-24.04
+    env:
+      REBUILD_DEPS: ${{ github.event.inputs.rebuild_deps }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -156,117 +107,22 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-appimage-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
 
       - name: Install packaging tools + runtime libs
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            cmake dpkg-dev rpm gnupg debsigs file tar wget xz-utils \
-            patchelf \
-            libmpv2 libgtk-3-0t64 libgdk-pixbuf2.0-bin libcurl4t64 libjpeg-turbo8 libexpat1 zlib1g
+            cmake gnupg file tar wget xz-utils patchelf \
+            libmpv2 libgtk-3-0t64 libgdk-pixbuf2.0-bin \
+            libcurl4t64 libjpeg-turbo8 libexpat1 zlib1g
           chmod +x scripts/setup-deps.sh
-          ./scripts/setup-deps.sh --yes
-
-      - uses: actions/download-artifact@v5
-        with:
-          name: install
-          path: install
-
-      - name: Import GPG key
-        id: import_gpg
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
-        run: |
-          set -euo pipefail
-
-          # --- Проверки: без ключа и без пароля подписывать нечем ---
-          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
-            echo "can_sign=false" >> $GITHUB_OUTPUT
-            exit 0
+          if [[ "${REBUILD_DEPS:-}" == "true" ]]; then
+            ./scripts/setup-deps.sh --yes --rebuild-deps
+          else
+            ./scripts/setup-deps.sh --yes
           fi
-          if [ -z "${GPG_PASSPHRASE:-}" ]; then
-            echo "::warning::GPG_PASSPHRASE не задан — релиз будет без подписи"
-            echo "can_sign=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # --- Всё временное — в память (tmpfs), не на диск ---
-          export TMPDIR=/dev/shm
-
-          export GNUPGHOME="$(mktemp -d)"
-          chmod 700 "$GNUPGHOME"
-
-          # Конфиги — ДО первого вызова gpg, иначе агент стартует с дефолтами.
-          cat > "$GNUPGHOME/gpg.conf" <<'EOF'
-          batch
-          no-tty
-          pinentry-mode loopback
-          EOF
-
-          cat > "$GNUPGHOME/gpg-agent.conf" <<'EOF'
-          allow-loopback-pinentry
-          pinentry-program /bin/false
-          EOF
-
-          gpgconf --kill gpg-agent 2>/dev/null || true
-          gpg-connect-agent /bye 2>/dev/null || true
-
-          # --- Импорт приватного ключа (passphrase при импорте не нужен) ---
-          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --yes \
-            --pinentry-mode loopback \
-            --passphrase-file /dev/null \
-            --import
-
-          # Перезапустить агента, чтобы он перечитал gpg-agent.conf.
-          gpgconf --kill gpg-agent 2>/dev/null || true
-          gpg-connect-agent /bye 2>/dev/null || true
-
-          # --- Wrapper gpg с реальной passphrase ---
-          # PASSFILE лежит внутри WRAPPER_DIR: живёт столько же, сколько wrapper.
-          # Никакого trap — иначе файл удалится при выходе из этого шага,
-          # а wrapper понадобится в следующем шаге (build-package.sh).
-          REAL_GPG="$(command -v gpg)"
-
-          WRAPPER_DIR="$(mktemp -d)"
-          chmod 700 "$WRAPPER_DIR"
-
-          PASSFILE="$WRAPPER_DIR/pass"
-          printf '%s' "$GPG_PASSPHRASE" > "$PASSFILE"
-          chmod 600 "$PASSFILE"
-
-          cat > "$WRAPPER_DIR/gpg" <<WRAPPER
-          #!/bin/bash
-          exec "$REAL_GPG" --batch --no-tty \
-            --pinentry-mode loopback \
-            --passphrase-file "$PASSFILE" "\$@"
-          WRAPPER
-          chmod +x "$WRAPPER_DIR/gpg"
-
-          # --- Определить ключ ---
-          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
-          if [ -z "$GPG_KEY_ID" ]; then
-            echo "::warning::no secret key — релиз будет без подписи"
-            echo "can_sign=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # --- Self-test: если подпись не удалась — релиз без подписи, но не падаем ---
-          if ! echo test | "$WRAPPER_DIR/gpg" --local-user "$GPG_KEY_ID" \
-                 --detach-sign -o /dev/null; then
-            echo "::warning::signing self-test failed — релиз будет без подписи"
-            echo "can_sign=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # --- Экспорт окружения для следующих шагов ---
-          echo "GNUPGHOME=$GNUPGHOME"           >> $GITHUB_ENV
-          echo "GPG_KEY_ID=$GPG_KEY_ID"         >> $GITHUB_ENV
-          echo "GPG_WRAPPER_DIR=$WRAPPER_DIR"   >> $GITHUB_ENV
-          echo "$WRAPPER_DIR"                   >> $GITHUB_PATH
-          echo "can_sign=true"                  >> $GITHUB_OUTPUT
 
       - name: Build AppImages
         run: |
@@ -274,13 +130,6 @@ jobs:
           mkdir -p logs
           chmod +x scripts/build-package.sh
           ./scripts/build-package.sh --appimage --sharun --yes 2>&1 | tee logs/build-package.log
-          
-      - name: Export public key
-        if: always() && steps.import_gpg.outputs.can_sign == 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
 
       - uses: actions/upload-artifact@v5
         if: always()
@@ -292,74 +141,344 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-      - name: Cleanup GNUPGHOME and gpg wrapper
-        if: always()
-        run: |
-          rm -rf "${GNUPGHOME:-}"       2>/dev/null || true
-          rm -rf "${GPG_WRAPPER_DIR:-}" 2>/dev/null || true
+  # =========================================================================
+  # 3. Нативные .deb / .rpm — каждый в своём контейнере
+  # =========================================================================
+  native-packages:
+    needs: version
+    if: needs.version.outputs.version_changed == 'true'
+    uses: ./.github/workflows/native-packages.yml
+    with:
+      targets: '["ubuntu-24.04","debian-13","rocky-10"]'
+    secrets: inherit
 
   # =========================================================================
-  # 3. Публикация
+  # 4. Публикация: подпись + checksums + релиз
   # =========================================================================
   release:
-    needs: [build-binary, package]
+    needs: [version, appimage, native-packages]
     if: |
       always() &&
-      needs.build-binary.result == 'success' &&
-      needs.build-binary.outputs.version_changed == 'true'
+      needs.version.result == 'success' &&
+      needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Download packages
+      - name: Download AppImage
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with: { name: packages, path: dist }
+
+      - name: Download all native packages
         continue-on-error: true
         uses: actions/download-artifact@v5
         with:
-          name: packages
-          path: .
+          pattern: native-*
+          path: dist
+          merge-multiple: true
 
-      - name: Check artifacts
-        id: check_artifacts
+      - name: Import GPG key
+        id: gpg
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          ls -la dist/ || true
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "can_sign=false" >> $GITHUB_OUTPUT; exit 0
+          fi
+          if [ -z "${GPG_PASSPHRASE:-}" ]; then
+            echo "::warning::GPG_PASSPHRASE не задан — релиз будет без подписи"
+            echo "can_sign=false" >> $GITHUB_OUTPUT; exit 0
+          fi
+
+          export TMPDIR=/dev/shm
+          export GNUPGHOME="$(mktemp -d)"
+          chmod 700 "$GNUPGHOME"
+
+          cat > "$GNUPGHOME/gpg.conf" <<'EOF'
+          batch
+          no-tty
+          pinentry-mode loopback
+          EOF
+          cat > "$GNUPGHOME/gpg-agent.conf" <<'EOF'
+          allow-loopback-pinentry
+          pinentry-program /bin/false
+          EOF
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg-connect-agent /bye 2>/dev/null || true
+
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-file /dev/null --import
+
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg-connect-agent /bye 2>/dev/null || true
+
+          REAL_GPG="$(command -v gpg)"
+          WRAPPER_DIR="$(mktemp -d)"
+          chmod 700 "$WRAPPER_DIR"
+          PASSFILE="$WRAPPER_DIR/pass"
+          printf '%s' "$GPG_PASSPHRASE" > "$PASSFILE"
+          chmod 600 "$PASSFILE"
+          cat > "$WRAPPER_DIR/gpg" <<WRAPPER
+          #!/bin/bash
+          exec "$REAL_GPG" --batch --no-tty \
+            --pinentry-mode loopback --passphrase-file "$PASSFILE" "\$@"
+          WRAPPER
+          chmod +x "$WRAPPER_DIR/gpg"
+
+          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5;exit}')
+          if [ -z "$GPG_KEY_ID" ]; then
+            echo "::warning::no secret key — релиз без подписи"
+            echo "can_sign=false" >> $GITHUB_OUTPUT; exit 0
+          fi
+
+          if ! echo test | "$WRAPPER_DIR/gpg" --local-user "$GPG_KEY_ID" \
+                 --detach-sign -o /dev/null; then
+            echo "::warning::signing self-test failed — релиз без подписи"
+            echo "can_sign=false" >> $GITHUB_OUTPUT; exit 0
+          fi
+
+          echo "GNUPGHOME=$GNUPGHOME"         >> $GITHUB_ENV
+          echo "GPG_KEY_ID=$GPG_KEY_ID"       >> $GITHUB_ENV
+          echo "GPG_WRAPPER_DIR=$WRAPPER_DIR" >> $GITHUB_ENV
+          echo "$WRAPPER_DIR"                 >> $GITHUB_PATH
+          echo "can_sign=true"                >> $GITHUB_OUTPUT
+
+      - name: Sign packages
+        if: steps.gpg.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
           shopt -s nullglob
-          pkgs=(dist/*.deb dist/*.rpm dist/*.AppImage)
-          if (( ${#pkgs[@]} > 0 )); then
+
+          for f in dist/*.deb; do
+            if command -v debsigs >/dev/null 2>&1; then
+              debsigs --sign=origin --default-key="$GPG_KEY_ID" "$f" \
+                || gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
+            else
+              gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
+            fi
+          done
+
+          if command -v rpm >/dev/null 2>&1; then
+            REAL_GPG="$(command -v gpg)"
+            SIGN_CMD='%{__gpg} --batch --pinentry-mode loopback --passphrase-file /dev/null -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
+            for f in dist/*.rpm; do
+              rpm --addsign \
+                  --define "_gpg_name $GPG_KEY_ID" \
+                  --define "_signature gpg" \
+                  --define "__gpg $REAL_GPG" \
+                  --define "__gpg_check_password_cmd /bin/true" \
+                  --define "__gpg_sign_cmd $SIGN_CMD" \
+                  "$f" 2>/dev/null \
+                || gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
+            done
+          fi
+
+          for f in dist/*.AppImage; do
+            gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
+          done
+
+          gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          files=()
+          for f in *; do
+            case "$f" in
+              checksums.txt|checksums.txt.asc|public-key.asc) continue ;;
+            esac
+            [ -f "$f" ] || continue
+            files+=("$f")
+          done
+          (( ${#files[@]} > 0 )) && sha256sum "${files[@]}" > checksums.txt || :
+          cd -
+
+      - name: Sign checksums
+        if: steps.gpg.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
+          gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" \
+            -o dist/checksums.txt.asc dist/checksums.txt || true
+
+      - name: Check artifacts
+        id: check
+        run: |
+          set -euo pipefail
+          echo "=== dist/ ==="
+          ls -la dist/ 2>/dev/null || true
+          echo ""
+
+          shopt -s nullglob
+
+          lld=(); for f in dist/*.AppImage; do
+            [[ "$f" == *-sharun.AppImage ]] && continue
+            lld+=("$f")
+          done
+          sharun=(dist/*-sharun.AppImage)
+          deb=(dist/*.deb)
+          rpm=(dist/*.rpm)
+
+          # Разделяем .deb по дистрибутиву (ubuntu-*, debian-*)
+          deb_ubuntu_count=0
+          deb_ubuntu_distros=""
+          deb_debian_count=0
+          deb_debian_distros=""
+          for f in "${deb[@]}"; do
+            b=$(basename "$f" .deb)
+            d="${b%_*}"; d="${d##*_}"
+            case "$d" in
+              ubuntu-*)
+                deb_ubuntu_count=$((deb_ubuntu_count + 1))
+                deb_ubuntu_distros+="${d}, " ;;
+              debian-*)
+                deb_debian_count=$((deb_debian_count + 1))
+                deb_debian_distros+="${d}, " ;;
+            esac
+          done
+          deb_ubuntu_distros="${deb_ubuntu_distros%, }"
+          deb_debian_distros="${deb_debian_distros%, }"
+
+          # Разделяем .rpm по дистрибутиву
+          rpm_distros=""
+          for f in "${rpm[@]}"; do
+            b=$(basename "$f" .rpm)
+            d="${b%.*}"; d="${d##*.}"
+            rpm_distros+="${d}, "
+          done
+          rpm_distros="${rpm_distros%, }"
+
+          echo "AppImage(linuxdeploy): ${#lld[@]}"
+          echo "AppImage(sharun):      ${#sharun[@]}"
+          echo ".deb (Ubuntu):         ${deb_ubuntu_count}  [${deb_ubuntu_distros}]"
+          echo ".deb (Debian):         ${deb_debian_count}  [${deb_debian_distros}]"
+          echo ".rpm:                  ${#rpm[@]}  [${rpm_distros}]"
+
+          have_lld=false; (( ${#lld[@]}    > 0 )) && have_lld=true
+          have_shr=false; (( ${#sharun[@]} > 0 )) && have_shr=true
+
+          {
+            echo "have_linuxdeploy=$have_lld"
+            echo "have_sharun=$have_shr"
+            echo "deb_ubuntu_count=$deb_ubuntu_count"
+            echo "deb_ubuntu_distros=$deb_ubuntu_distros"
+            echo "deb_debian_count=$deb_debian_count"
+            echo "deb_debian_distros=$deb_debian_distros"
+            echo "rpm_count=${#rpm[@]}"
+            echo "rpm_distros=$rpm_distros"
+          } >> $GITHUB_OUTPUT
+
+          # Релиз создаётся, если собран хотя бы один артефакт любого типа.
+          # Что именно не собралось — видно в таблице release body. Единственный
+          # случай, когда релиз не имеет смысла, — не собралось совсем ничего.
+          total=$(( ${#lld[@]} + ${#sharun[@]} + ${#deb[@]} + ${#rpm[@]} ))
+          if (( total > 0 )); then
             echo "have_artifacts=true" >> $GITHUB_OUTPUT
           else
             echo "have_artifacts=false" >> $GITHUB_OUTPUT
+            echo "::error::не собралось ни одного артефакта — релиз не создаётся"
           fi
 
       - name: Compose release body
         id: body
         run: |
           set -euo pipefail
-          BODY="Release v${{ needs.build-binary.outputs.version }} (commit ${{ github.sha }})"
-          BODY="$BODY"$'\n\n'"Built on Ubuntu 24.04 (glibc >= 2.39)."
-          BODY="$BODY"$'\n\n'"- \`.deb\` — Ubuntu 24.04+, Debian 13+"
-          BODY="$BODY"$'\n'"- \`.rpm\` — Fedora 44+, Rocky 10+"
-          BODY="$BODY"$'\n'"- \`*.AppImage\` — any glibc >= 2.39 (linuxdeploy). Follows system GTK theme, or Adwaita light/dark if none."
-          BODY="$BODY"$'\n'"- \`*-sharun.AppImage\` — any Linux, incl. old glibc, musl, NixOS (Adwaita light/dark)."
-          BODY="$BODY"$'\n\n'"Both AppImages support auto-update via embedded update information."
+          V="${{ needs.version.outputs.version }}"
+
+          mark() { [[ "$1" == "true" ]] && printf '✅' || printf '❌'; }
+          LLD=$(mark "${{ steps.check.outputs.have_linuxdeploy }}")
+          SHR=$(mark "${{ steps.check.outputs.have_sharun }}")
+
+          du_c="${{ steps.check.outputs.deb_ubuntu_count }}"
+          du_d="${{ steps.check.outputs.deb_ubuntu_distros }}"
+          dd_c="${{ steps.check.outputs.deb_debian_count }}"
+          dd_d="${{ steps.check.outputs.deb_debian_distros }}"
+          rc="${{ steps.check.outputs.rpm_count }}"
+          rd="${{ steps.check.outputs.rpm_distros }}"
+
+          deb_ubuntu_cell="❌ 0"
+          if [[ -n "$du_c" && "$du_c" != "0" ]]; then
+            deb_ubuntu_cell="✅ $du_c"
+            [[ -n "$du_d" ]] && deb_ubuntu_cell="✅ $du_c ($du_d)"
+          fi
+
+          deb_debian_cell="❌ 0"
+          if [[ -n "$dd_c" && "$dd_c" != "0" ]]; then
+            deb_debian_cell="✅ $dd_c"
+            [[ -n "$dd_d" ]] && deb_debian_cell="✅ $dd_c ($dd_d)"
+          fi
+
+          rpm_cell="❌ 0"
+          if [[ -n "$rc" && "$rc" != "0" ]]; then
+            rpm_cell="✅ $rc"
+            [[ -n "$rd" ]] && rpm_cell="✅ $rc ($rd)"
+          fi
+
+          BODY=$(cat <<EOF
+          Release v$V (commit ${{ github.sha }})
+
+          | Артефакт | Собрано | Описание |
+          |:---|:---:|---|
+          | \`*.AppImage\` | $LLD | linuxdeploy — glibc ≥ 2.39, следует системной GTK-теме |
+          | \`*-sharun.AppImage\` | $SHR | quick-sharun — любая Linux, включая старые glibc, musl, NixOS |
+          | \`.deb\` (Ubuntu) | $deb_ubuntu_cell | Собран на Ubuntu 24.04. Проверен в CI на Ubuntu 26.04. |
+          | \`.deb\` (Debian) | $deb_debian_cell | Собран на Debian 13. Проверен в CI на Debian 13. |
+          | \`.rpm\` | $rpm_cell | Собран на Rocky 10. Проверен в CI на Rocky 10 и Fedora 44. |
+
+          Обе AppImage поддерживают auto-update через встроенную update information.
+
+          ### Какой пакет выбрать
+
+          **Ubuntu 24.04+, Linux Mint 22+** → \`iptvplayer_*_ubuntu-24.04_amd64.deb\`
+
+          **Debian 13+** → \`iptvplayer_*_debian-13_amd64.deb\`
+
+          **RHEL 10+, Rocky 10+, Alma 10+, Fedora 40+** → \`iptvplayer-*.rocky-10.x86_64.rpm\`
+
+          Любая Linux (включая старые glibc, musl, NixOS) → \`*-sharun.AppImage\`
+
+          ### О совместимости
+
+          Гарантия совместимости распространяется только на системы, перечисленные в колонке «Проверен в CI».
+
+          Собранные пакеты могут теоретически работать и на других системах того же семейства с glibc не ниже версии сборочного контейнера, но это не проверяется автоматически:
+
+          - \`.deb\` (Ubuntu) — glibc 2.39, сборка на Ubuntu 24.04
+          - \`.deb\` (Debian) — glibc 2.41, сборка на Debian 13
+          - \`.rpm\` — glibc 2.39, сборка на Rocky 10. Не установится на RHEL 8/9 и любые системы с glibc < 2.39.
+
+          Если вы запустили пакет на системе вне списка CI и он работает — сообщите, добавим в smoke-тесты.
+          EOF
+          )
+
           {
             echo "body<<EOF"
-            echo "$BODY"
+            printf '%s\n' "$BODY"
             echo "EOF"
           } >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
-        if: steps.check_artifacts.outputs.have_artifacts == 'true'
+        if: steps.check.outputs.have_artifacts == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ format('v{0}', needs.build-binary.outputs.version) }}
-          name: Release v${{ needs.build-binary.outputs.version }}
+          tag_name: ${{ format('v{0}', needs.version.outputs.version) }}
+          name: Release v${{ needs.version.outputs.version }}
           body: ${{ steps.body.outputs.body }}
           files: |
+            dist/*.AppImage
             dist/*.deb
             dist/*.rpm
-            dist/*.AppImage
             dist/*.zsync
             dist/*.asc
             dist/checksums.txt
             dist/public-key.asc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup GNUPGHOME
+        if: always()
+        run: |
+          rm -rf "${GNUPGHOME:-}"       2>/dev/null || true
+          rm -rf "${GPG_WRAPPER_DIR:-}" 2>/dev/null || true

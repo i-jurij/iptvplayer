@@ -1,0 +1,118 @@
+name: Update release assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Релиз, который обновляем (например, v0.1.4)'
+        required: true
+        type: string
+      native_run_id:
+        description: 'Run ID job-а Native packages (пусто = последний успешный)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve run-id
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RID="${{ inputs.native_run_id }}"
+          if [ -z "$RID" ]; then
+            RID=$(gh run list --repo "${{ github.repository }}" \
+                    --workflow "Native packages" \
+                    --status success --limit 1 \
+                    --json databaseId --jq '.[0].databaseId')
+          fi
+          [ -n "$RID" ] || { echo "::error::не найден run Native packages"; exit 1; }
+          echo "run_id=$RID" >> $GITHUB_OUTPUT
+
+      - name: Download native artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          pattern: native-*
+          path: dist
+          merge-multiple: true
+          run-id: ${{ steps.resolve.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify we got something
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pkgs=(dist/*.deb dist/*.rpm)
+          (( ${#pkgs[@]} > 0 )) || { echo "::error::нечего обновлять"; exit 1; }
+          ls -la dist/
+
+      - name: Import GPG key
+        id: gpg
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_PASSPHRASE:-}" ]; then
+            echo "can_sign=false" >> $GITHUB_OUTPUT; exit 0
+          fi
+          export TMPDIR=/dev/shm
+          export GNUPGHOME="$(mktemp -d)"; chmod 700 "$GNUPGHOME"
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5;exit}')
+          echo "GNUPGHOME=$GNUPGHOME"   >> $GITHUB_ENV
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
+          echo "can_sign=true"          >> $GITHUB_OUTPUT
+
+      - name: Sign native packages
+        if: steps.gpg.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          for f in dist/*.deb; do
+            if command -v debsigs >/dev/null 2>&1; then
+              debsigs --sign=origin --default-key="$GPG_KEY_ID" "$f" \
+                || gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
+            else
+              gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
+            fi
+          done
+
+          if command -v rpm >/dev/null 2>&1; then
+            REAL_GPG="$(command -v gpg)"
+            SIGN_CMD='%{__gpg} --batch --pinentry-mode loopback --passphrase-file /dev/null -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
+            for f in dist/*.rpm; do
+              rpm --addsign \
+                  --define "_gpg_name $GPG_KEY_ID" \
+                  --define "_signature gpg" \
+                  --define "__gpg $REAL_GPG" \
+                  --define "__gpg_check_password_cmd /bin/true" \
+                  --define "__gpg_sign_cmd $SIGN_CMD" \
+                  "$f" 2>/dev/null \
+                || gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
+            done
+          fi
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.asc
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "${GNUPGHOME:-}" 2>/dev/null || true

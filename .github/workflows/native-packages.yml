@@ -1,0 +1,155 @@
+name: Native packages
+
+on:
+  workflow_call:
+    inputs:
+      targets:
+        description: 'JSON-массив имён таргетов'
+        required: false
+        type: string
+        default: '["ubuntu-24.04","debian-13","rocky-10"]'
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 'Что собрать'
+        required: true
+        type: choice
+        options:
+          - '["ubuntu-24.04","debian-13","rocky-10"]'
+          - '["ubuntu-24.04"]'
+          - '["debian-13"]'
+          - '["rocky-10"]'
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+    steps:
+      - id: build
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          set -euo pipefail
+
+          # Единый реестр известных таргетов. Пользователь подаёт только
+          # имена — маппинг на образ/пакетный менеджер задан здесь, чтобы
+          # нельзя было случайно передать произвольный контейнер.
+          #
+          # Политика: собираем на самом старом glibc в целевом семействе.
+          #   ubuntu-24.04 — glibc 2.39, для Ubuntu 24.04+ и Mint 22+
+          #   debian-13    — glibc 2.41, для Debian 13+ (своя сборка, т.к.
+          #                  имена пакетов и Depends формируются против
+          #                  репозиториев Debian, а не Ubuntu)
+          #   rocky-10     — glibc 2.39, для RHEL 10+, Fedora 40+
+          ALL='{
+            "ubuntu-24.04": {"family":"deb","container":"ubuntu:24.04","pkgmgr":"apt"},
+            "debian-13":    {"family":"deb","container":"debian:13","pkgmgr":"apt"},
+            "rocky-10":     {"family":"rpm","container":"rockylinux/rockylinux:10","pkgmgr":"dnf"}
+          }'
+
+          MATRIX=$(jq -cn --argjson targets "$TARGETS" --argjson all "$ALL" '
+            {
+              include: ($targets | map(
+                . as $t
+                | if $all[$t] == null
+                  then error("unknown target: " + $t)
+                  else
+                    { target: $t,
+                      family: $all[$t].family,
+                      container: $all[$t].container,
+                      pkgmgr: $all[$t].pkgmgr }
+                  end
+              ))
+            }')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    container:
+      image: ${{ matrix.container }}
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Кэш third_party — per-target. Ubuntu, Debian и Rocky имеют разные
+      # glibc, поэтому .a-файлы wxWidgets собираются отдельно под каждый.
+      - uses: actions/cache@v5
+        with:
+          path: third_party
+          key: ${{ matrix.target }}-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Install build toolchain
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.pkgmgr }}" = "apt" ]; then
+            apt-get update -qq
+            apt-get install -y --no-install-recommends \
+              build-essential cmake git autoconf automake libtool pkg-config \
+              wget curl ca-certificates file xz-utils dpkg-dev fakeroot
+          elif [ "${{ matrix.pkgmgr }}" = "dnf" ]; then
+            if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
+              dnf install -y dnf-plugins-core
+              dnf config-manager --set-enabled crb 2>/dev/null || true
+              dnf install -y epel-release || true
+            fi
+            dnf install -y gcc gcc-c++ make cmake git autoconf automake libtool \
+              pkgconf-pkg-config wget curl ca-certificates file xz \
+              rpm-build rpm-sign
+          fi
+
+      - name: Install runtime + dev libs
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.pkgmgr }}" = "apt" ]; then
+            apt-get install -y --no-install-recommends \
+              libmpv-dev libgtk-3-dev libgdk-pixbuf-2.0-dev \
+              libcurl4-openssl-dev libjpeg-dev libexpat1-dev zlib1g-dev \
+              libwebp-dev libfreetype-dev libpng-dev rapidjson-dev \
+              libx11-dev libx11-xcb-dev libgl1-mesa-dev libegl1-mesa-dev
+          elif [ "${{ matrix.pkgmgr }}" = "dnf" ]; then
+            dnf install -y \
+              mpv-libs-devel gtk3-devel gdk-pixbuf2-devel \
+              libcurl-devel libjpeg-turbo-devel expat-devel zlib-devel \
+              libwebp-devel freetype-devel libpng-devel rapidjson-devel \
+              libX11-devel libxcb-devel mesa-libGL-devel mesa-libEGL-devel
+          fi
+
+      - name: Build binary
+        run: |
+          set -euo pipefail
+          chmod +x scripts/setup-deps.sh scripts/build-release.sh
+          # Системные пакеты поставлены выше; setup-deps.sh собирает только
+          # third_party и не трогает apt/dnf.
+          ./scripts/setup-deps.sh --yes --skip-system
+          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
+
+      - name: Build native package
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-package.sh
+          case "${{ matrix.family }}" in
+            deb) ./scripts/build-package.sh --native-deb --yes ;;
+            rpm) ./scripts/build-package.sh --native-rpm --yes ;;
+          esac
+          ls -la dist/
+
+      - name: Upload native package
+        uses: actions/upload-artifact@v5
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/*.${{ matrix.family }}
+          retention-days: 1
+          if-no-files-found: error

@@ -320,7 +320,7 @@ void EPGManager::EnsureConfigFile(const wxString &filename) {
   if (wxFileExists(configPath))
     return;
 
-  wxString resourcePath = FindResourceFile(filename);
+  wxString resourcePath = FindAppDataFile(filename);
   if (resourcePath.IsEmpty())
     return;
 

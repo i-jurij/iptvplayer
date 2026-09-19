@@ -37,7 +37,7 @@ void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
       IPTVPLAYER_VERSION_FULL,
       IPTVPLAYER_GIT_COMMIT[0] ? IPTVPLAYER_GIT_COMMIT : "unknown");
 
-  wxString detailsPath = FindResourceFile("about.html");
+  wxString detailsPath = FindAppDataFile("about.html");
 
   // Fallback: файла нет — старое поведение, без ссылки.
   if (detailsPath.IsEmpty()) {

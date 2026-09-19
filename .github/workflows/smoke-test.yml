@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to test (e.g. v0.0.21)'
+        description: 'Release tag to test (e.g. v0.1.4)'
         required: true
         type: string
 
@@ -15,15 +15,6 @@ permissions:
   contents: read
 
 jobs:
-  # -----------------------------------------------------------------------
-  # Определяем, какой тег тестировать, и ждём появления релиза.
-  # Для workflow_dispatch: берём inputs.tag.
-  # Для workflow_run: читаем VERSION на коммите, который собрал release.yml,
-  # и формируем тег v<VERSION>. Ждём до 2 минут, пока релиз появится в API
-  # (обычно он уже там, т.к. release.yml завершился успешно).
-  # Если релиза нет — считаем, что VERSION не менялся, и просто пропускаем
-  # весь smoke-test (не падаем).
-  # -----------------------------------------------------------------------
   resolve:
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -40,18 +31,16 @@ jobs:
         run: |
           set -euo pipefail
           REPO="${{ github.repository }}"
-
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ inputs.tag }}"
           else
             SHA="${{ github.event.workflow_run.head_sha }}"
             VERSION=$(gh api "/repos/$REPO/contents/VERSION?ref=$SHA" \
                         --jq '.content' 2>/dev/null \
-                      | base64 -d 2>/dev/null \
-                      | head -1 | tr -d '\n\r' || true)
+                      | base64 -d 2>/dev/null | head -1 | tr -d '\n\r' || true)
             if [ -z "$VERSION" ]; then
               echo "should_run=false" >> "$GITHUB_OUTPUT"
-              echo "[i] не удалось прочитать VERSION на $SHA — пропускаем"
+              echo "[i] VERSION на $SHA не найден — пропускаем"
               exit 0
             fi
             TAG="v$VERSION"
@@ -59,21 +48,16 @@ jobs:
 
           for i in $(seq 1 24); do
             if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-              echo "tag=$TAG"           >> "$GITHUB_OUTPUT"
-              echo "should_run=true"    >> "$GITHUB_OUTPUT"
+              echo "tag=$TAG"        >> "$GITHUB_OUTPUT"
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
               echo "[i] релиз $TAG найден"
               exit 0
             fi
             sleep 5
           done
-
           echo "should_run=false" >> "$GITHUB_OUTPUT"
-          echo "[i] релиз $TAG не найден за 2 минуты (VERSION не менялся?) — пропускаем"
+          echo "[i] релиз $TAG не найден — пропускаем"
 
-  # -----------------------------------------------------------------------
-  # Скачиваем ассеты релиза на хосте (там есть gh и jq),
-  # затем отдаём их в контейнерные матричные джобы через artifact.
-  # -----------------------------------------------------------------------
   fetch:
     needs: resolve
     if: needs.resolve.outputs.should_run == 'true'
@@ -88,33 +72,32 @@ jobs:
           gh release download "${{ needs.resolve.outputs.tag }}" \
             --repo "${{ github.repository }}" \
             --dir dist \
-            --pattern '*.deb' --pattern '*.rpm' --pattern '*.AppImage' \
+            --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm' \
             --clobber
           ls -la dist/
 
-      - name: Upload packages as artifact
-        uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v5
         with:
-          name: packages
+          name: release-assets
           path: dist/
           retention-days: 1
           if-no-files-found: error
 
-  # -----------------------------------------------------------------------
-  # Собственно smoke-test (та же матрица, что была раньше)
-  # -----------------------------------------------------------------------
-  smoke-test:
+  # =========================================================================
+  # AppImage: тестируем на 5 контейнерах
+  # =========================================================================
+  smoke-appimage:
     needs: fetch
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { container: 'ubuntu:26.04',             family: 'deb' }
-          - { container: 'debian:13',                family: 'deb' }
-          - { container: 'fedora:44',                family: 'rpm' }
-          - { container: 'rockylinux/rockylinux:10', family: 'rpm' }
-          - { container: 'archlinux:latest',         family: 'arch' }
+        container:
+          - 'ubuntu:26.04'
+          - 'debian:13'
+          - 'fedora:44'
+          - 'rockylinux/rockylinux:10'
+          - 'archlinux:latest'
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -123,66 +106,214 @@ jobs:
     steps:
       - uses: actions/download-artifact@v5
         with:
-          name: packages
+          name: release-assets
           path: dist
 
-      - name: Install minimal desktop stack
+      - name: Install minimal stack
         run: |
           set -euo pipefail
           if command -v apt-get >/dev/null; then
             apt-get update -qq
             apt-get install -y --no-install-recommends \
-              ca-certificates file xz-utils xvfb xfce4
+              ca-certificates file xz-utils xvfb xfce4 desktop-file-utils
           elif command -v dnf >/dev/null; then
             if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
-              dnf install -y dnf-plugins-core || true
-              dnf config-manager --set-enabled crb 2>/dev/null \
-                || dnf config-manager setopt crb.enabled=1 2>/dev/null \
-                || true
+              dnf install -y dnf-plugins-core
+              dnf config-manager --set-enabled crb 2>/dev/null || true
               dnf install -y epel-release || true
             fi
-            dnf install -y ca-certificates file xz gtk3
-            dnf install -y weston 2>/dev/null \
-              || dnf install -y gnome-kiosk 2>/dev/null \
-              || true
+            dnf install -y ca-certificates file xz gtk3 desktop-file-utils
             dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
             dnf group install -y "Xfce Desktop" 2>/dev/null \
-              || dnf group install -y xfce-desktop 2>/dev/null \
-              || true
+              || dnf group install -y xfce-desktop 2>/dev/null || true
           elif command -v pacman >/dev/null; then
-            pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb xfce4 weston
+            pacman -Sy --noconfirm ca-certificates file xz xorg-server-xvfb \
+              xfce4 desktop-file-utils
           fi
 
-      - name: Install package (deb / rpm / arch)
+      - name: Extract AppImages
         run: |
           set -euo pipefail
-          echo "=== Install package ==="
+          shopt -s nullglob
+          APPIMAGES=(dist/*.AppImage)
+          (( ${#APPIMAGES[@]} > 0 )) || { echo "::error::No AppImage"; exit 1; }
+
+          for AI in "${APPIMAGES[@]}"; do
+            chmod +x "$AI"
+            DIR="extract-$(basename "$AI" .AppImage)"
+            rm -rf "$DIR"
+            mkdir -p "$DIR"
+            ( cd "$DIR" && "../$AI" --appimage-extract >/dev/null )
+          done
+          ls -la
+
+      - name: Verify --version
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          APPIMAGES=(dist/*.AppImage)
+          for AI in "${APPIMAGES[@]}"; do
+            echo "=== $AI --version ==="
+            OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$AI" --version)
+            echo "$OUT"
+            echo "$OUT" | grep -qE '^iptvplayer [0-9]'
+          done
+
+      - name: Verify resources (linuxdeploy)
+        run: |
+          set -euo pipefail
+          AI=$(ls dist/*.AppImage | grep -v -- '-sharun' | head -1)
+          [ -n "$AI" ] || { echo "::error::linuxdeploy AppImage не найден"; exit 1; }
+          DIR="extract-$(basename "$AI" .AppImage)"
+          test -f "$DIR/squashfs-root/usr/share/applications/iptvplayer.desktop"
+          test -f "$DIR/squashfs-root/usr/share/icons/hicolor/scalable/apps/iptvplayer.svg"
+          test -f "$DIR/squashfs-root/usr/share/iptvplayer/about.html"
+          test -d "$DIR/squashfs-root/usr/share/iptvplayer/icons"
+
+          if command -v desktop-file-validate >/dev/null 2>&1; then
+            desktop-file-validate "$DIR/squashfs-root/usr/share/applications/iptvplayer.desktop"
+          fi
+
+      - name: Dynamic check under Xvfb
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          APPIMAGES=(dist/*.AppImage)
+
+          XVFB_PID=""
+          cleanup() { [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          if command -v Xvfb >/dev/null 2>&1; then
+            Xvfb :99 -screen 0 1440x900x24 &
+            XVFB_PID=$!
+            export DISPLAY=:99
+          else
+            echo "::error::Xvfb недоступен"
+            exit 1
+          fi
+          sleep 3
+
+          FAILED=0
+          for AI in "${APPIMAGES[@]}"; do
+            echo ""
+            echo "=== $AI (15s run) ==="
+            APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
+            APP_PID=$!
+            sleep 15
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo "::error::$AI crashed during startup"
+              wait "$APP_PID" 2>/dev/null || true
+              FAILED=1
+            else
+              echo "[✓] survived 15s"
+              kill "$APP_PID" 2>/dev/null || true
+              wait "$APP_PID" 2>/dev/null || true
+            fi
+          done
+          exit "$FAILED"
+
+  # =========================================================================
+  # Нативные .deb / .rpm: установка и запуск в родных контейнерах
+  # =========================================================================
+  smoke-native:
+    needs: fetch
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: ubuntu-26.04, family: deb, container: 'ubuntu:26.04' }
+          - { target: debian-13,    family: deb, container: 'debian:13' }
+          - { target: rocky-10,     family: rpm, container: 'rockylinux/rockylinux:10' }
+          - { target: fedora-44,    family: rpm, container: 'fedora:44' }
+    container:
+      image: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Install desktop stack
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null; then
+            apt-get update -qq
+            apt-get install -y --no-install-recommends \
+              ca-certificates file xz-utils xvfb xfce4 desktop-file-utils
+          elif command -v dnf >/dev/null; then
+            if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
+              dnf install -y dnf-plugins-core
+              dnf config-manager --set-enabled crb 2>/dev/null || true
+              dnf install -y epel-release || true
+            fi
+            dnf install -y ca-certificates file xz gtk3 desktop-file-utils
+            dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
+            dnf group install -y "Xfce Desktop" 2>/dev/null \
+              || dnf group install -y xfce-desktop 2>/dev/null || true
+          fi
+
+      - name: Install package
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
           case "${{ matrix.family }}" in
-            deb)  apt-get install -y ./dist/*.deb ;;
-            rpm)  dnf install -y ./dist/*.rpm ;;
-            arch) echo "[i] Arch: нативный .pkg.tar.zst в артефактах нет, пропускаем установку пакета" ;;
+            deb)
+              PKG=(dist/*.deb)
+              (( ${#PKG[@]} > 0 )) || { echo "::error::No .deb"; exit 1; }
+              apt-get install -y "${PKG[@]}"
+              ;;
+            rpm)
+              PKG=(dist/*.rpm)
+              (( ${#PKG[@]} > 0 )) || { echo "::error::No .rpm"; exit 1; }
+              dnf install -y "${PKG[@]}"
+              ;;
           esac
 
-      - name: Static check — package
-        if: matrix.family != 'arch'
+      - name: Verify --version
         run: |
           set -euo pipefail
-          echo "=== ldd /opt/iptvplayer/usr/bin/iptvplayer ==="
-          LL="/opt/iptvplayer/usr/lib:/opt/iptvplayer/usr/lib/fallback"
-          if LD_LIBRARY_PATH="$LL" ldd /opt/iptvplayer/usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
-            LD_LIBRARY_PATH="$LL" ldd /opt/iptvplayer/usr/bin/iptvplayer | grep "not found"
+          OUT=$(/usr/bin/iptvplayer --version)
+          echo "$OUT"
+          echo "$OUT" | grep -qE '^iptvplayer [0-9]'
+
+      - name: Verify resources
+        run: |
+          set -euo pipefail
+          test -f /usr/share/applications/iptvplayer.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/iptvplayer.svg
+          test -f /usr/share/iptvplayer/about.html
+          test -d /usr/share/iptvplayer/icons
+          test -f /usr/share/metainfo/io.github.i_jurij.iptvplayer.metainfo.xml
+
+      - name: Validate .desktop
+        run: |
+          set -euo pipefail
+          if command -v desktop-file-validate >/dev/null 2>&1; then
+            desktop-file-validate /usr/share/applications/iptvplayer.desktop
+          else
+            echo "[i] desktop-file-validate отсутствует"
+          fi
+
+      - name: Static check (ldd)
+        run: |
+          set -euo pipefail
+          echo "=== ldd /usr/bin/iptvplayer ==="
+          if ldd /usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
+            ldd /usr/bin/iptvplayer | grep "not found"
             exit 1
           fi
           echo "OK"
 
-      - name: Dynamic check — package
-        if: matrix.family != 'arch'
+      - name: Dynamic check under Xvfb
         run: |
           set -euo pipefail
-          echo "=== Run package binary ==="
 
-          APP_PID=""
-          XVFB_PID=""
+          XVFB_PID=""; APP_PID=""
           cleanup() {
             [ -n "$APP_PID" ]  && kill "$APP_PID"  2>/dev/null || true
             [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
@@ -193,24 +324,12 @@ jobs:
             Xvfb :99 -screen 0 1440x900x24 &
             XVFB_PID=$!
             export DISPLAY=:99
-          elif command -v weston >/dev/null 2>&1; then
-            export XDG_RUNTIME_DIR=/tmp/weston-runtime
-            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-            weston --backend=headless-backend.so --socket=wayland-1 \
-                   --width=1440 --height=900 &
-            XVFB_PID=$!
-            export WAYLAND_DISPLAY=wayland-1
-            export GDK_BACKEND=wayland
-            for _ in $(seq 1 20); do
-              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
-              sleep 0.5
-            done
           else
-            echo "::error::ни Xvfb, ни weston недоступны"
+            echo "::error::Xvfb недоступен"
             exit 1
           fi
-
           sleep 3
+
           /usr/bin/iptvplayer &
           APP_PID=$!
           sleep 15
@@ -218,70 +337,4 @@ jobs:
             echo "::error::package binary crashed during startup"
             exit 1
           fi
-          echo "OK"
-
-      - name: Extract AppImage and static check
-        run: |
-          set -euo pipefail
-          APPIMAGE=$(ls dist/*.AppImage | grep -v -- '-sharun' | head -1)
-          chmod +x "$APPIMAGE"
-          "$APPIMAGE" --appimage-extract >/dev/null
-          BIN="squashfs-root/usr/bin/iptvplayer"
-          [ -f "$BIN" ] || BIN="squashfs-root/AppRun"
-          chmod +x squashfs-root/AppRun squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
-          echo "=== ldd $BIN ==="
-          LL="squashfs-root/usr/lib:squashfs-root/usr/lib/fallback"
-          if LD_LIBRARY_PATH="$LL" ldd "$BIN" 2>&1 | grep -q "not found"; then
-            LD_LIBRARY_PATH="$LL" ldd "$BIN" | grep "not found"
-            exit 1
-          fi
-          echo "OK"
-
-      - name: Dynamic check — AppImage
-        run: |
-          set -euo pipefail
-          echo "=== Run AppImage ==="
-          APPIMAGE=$(ls dist/*.AppImage | grep -v -- '-sharun' | head -1)
-          [ -n "$APPIMAGE" ] || { echo "::error::linuxdeploy AppImage не найден в dist/"; exit 1; }
-          chmod +x "$APPIMAGE"
-          "$APPIMAGE" --appimage-extract >/dev/null
-          chmod +x squashfs-root/AppRun squashfs-root/usr/bin/iptvplayer 2>/dev/null || true
-
-          APP_PID=""
-          XVFB_PID=""
-          cleanup() {
-            [ -n "$APP_PID" ]  && kill "$APP_PID"  2>/dev/null || true
-            [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          if command -v Xvfb >/dev/null 2>&1; then
-            Xvfb :99 -screen 0 1440x900x24 &
-            XVFB_PID=$!
-            export DISPLAY=:99
-          elif command -v weston >/dev/null 2>&1; then
-            export XDG_RUNTIME_DIR=/tmp/weston-runtime
-            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-            weston --backend=headless-backend.so --socket=wayland-1 \
-                   --width=1440 --height=900 &
-            XVFB_PID=$!
-            export WAYLAND_DISPLAY=wayland-1
-            export GDK_BACKEND=wayland
-            for _ in $(seq 1 20); do
-              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
-              sleep 0.5
-            done
-          else
-            echo "::error::ни Xvfb, ни weston недоступны"
-            exit 1
-          fi
-
-          sleep 3
-          ./squashfs-root/AppRun &
-          APP_PID=$!
-          sleep 15
-          if ! kill -0 "$APP_PID" 2>/dev/null; then
-            echo "::error::AppImage crashed during startup"
-            exit 1
-          fi
-          echo "OK"
+          echo "[✓] survived 15s"

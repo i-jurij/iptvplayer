@@ -527,7 +527,7 @@ std::string FormatLocalTime(time_t t, const wxString &format) {
 // ============================================================================
 
 wxString getIconPath(const wxString &iconName) {
-  return FindResourceFile("icons/" + iconName);
+  return FindAppDataFile("icons/" + iconName);
 }
 
 // ============================================================================
@@ -1193,75 +1193,41 @@ bool NeedsEmbeddedVideoBackend(ConfigManager *cfg) {
   // неизвестный плеер → считаем НЕ embed
   return false;
 }
+wxString FindAppDataFile(const wxString &filename) {
+  if (filename.IsEmpty())
+    return wxEmptyString;
 
-wxString FindResourceFile(const wxString &filename) {
+  static const wxString APP_NAME = "iptvplayer";
+
   wxArrayString searchPaths;
+  auto pushUnique = [&searchPaths](const wxString &p) {
+    if (!p.IsEmpty() && searchPaths.Index(p) == wxNOT_FOUND)
+      searchPaths.Add(p);
+  };
 
-  // 1. Стандартный каталог ресурсов
-  wxString resourceDir = wxStandardPaths::Get().GetResourcesDir();
-  if (!resourceDir.IsEmpty())
-    searchPaths.Add(resourceDir);
-
-  // 2. Каталог данных (обычно /usr/share/appname)
-  wxString dataDir = wxStandardPaths::Get().GetDataDir();
-  if (!dataDir.IsEmpty() && dataDir != resourceDir)
-    searchPaths.Add(dataDir);
-
-  // 3. Локальный каталог данных (пользовательский)
-  wxString localDataDir = wxStandardPaths::Get().GetLocalDataDir();
-  if (!localDataDir.IsEmpty() && localDataDir != resourceDir &&
-      localDataDir != dataDir)
-    searchPaths.Add(localDataDir);
-
-  // 4. Каталог исполняемого файла (для разработки)
-  wxString exeDir = wxPathOnly(wxStandardPaths::Get().GetExecutablePath());
-  if (!exeDir.IsEmpty() && exeDir != resourceDir && exeDir != dataDir &&
-      exeDir != localDataDir)
-    searchPaths.Add(exeDir);
-
-  // 5. Текущий рабочий каталог (для запуска из консоли)
-  wxString cwd = wxGetCwd();
-  if (!cwd.IsEmpty() && cwd != resourceDir && cwd != dataDir &&
-      cwd != localDataDir && cwd != exeDir)
-    searchPaths.Add(cwd);
-
-  // 6. Добавляем системный каталог, определённый в CMake (DATADIR)
+  // Прод
+  if (const char *appdir = std::getenv("APPDIR"); appdir && *appdir)
+    pushUnique(wxString::FromUTF8(appdir) + "/usr/share/" + APP_NAME);
+  pushUnique(wxStandardPaths::Get().GetLocalDataDir());
+  pushUnique(wxStandardPaths::Get().GetDataDir());
+  pushUnique(wxStandardPaths::Get().GetResourcesDir());
 #ifdef DATADIR
-  wxString sysDataDir = wxString::FromUTF8(DATADIR) + "/iptvplayer";
-  if (!sysDataDir.IsEmpty() && sysDataDir != resourceDir &&
-      sysDataDir != dataDir && sysDataDir != localDataDir &&
-      sysDataDir != exeDir && sysDataDir != cwd)
-    searchPaths.Add(sysDataDir);
+  pushUnique(wxString::FromUTF8(DATADIR) + "/" + APP_NAME);
 #endif
 
-  // Поиск по всем путям
-  for (const auto &base : searchPaths) {
-    wxFileName candidate(base, filename);
-    if (candidate.FileExists())
-      return candidate.GetFullPath();
-  }
+  // Dev
+  pushUnique(wxPathOnly(wxStandardPaths::Get().GetExecutablePath()));
+  pushUnique(wxGetCwd() + "/resources");
 
-  // Дополнительный поиск в подкаталогах "resources" или "share"
+  const wxString sep = wxFileName::GetPathSeparator();
   for (const auto &base : searchPaths) {
-    wxFileName candidate(base + "/resources", filename);
-    if (candidate.FileExists())
-      return candidate.GetFullPath();
-    wxFileName candidate2(base + "/share/iptvplayer", filename);
-    if (candidate2.FileExists())
-      return candidate2.GetFullPath();
-  }
-
-  // 7. AppImage: $APPDIR/usr/share/iptvplayer/.
-  //    Переменная APPDIR выставляется AppRun'ом и в linuxdeploy, и в sharun.
-  if (const char *appdir = std::getenv("APPDIR")) {
-    if (*appdir) {
-      wxFileName candidate(wxString::FromUTF8(appdir) + "/usr/share/iptvplayer",
-                           filename);
-      if (candidate.FileExists())
-        return candidate.GetFullPath();
-    }
+    wxString full = base;
+    if (!full.EndsWith(sep))
+      full += sep;
+    full += filename;
+    if (wxFileExists(full))
+      return full;
   }
 
   return wxEmptyString;
 }
-

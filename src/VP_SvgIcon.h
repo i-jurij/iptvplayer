@@ -1,5 +1,8 @@
 #pragma once
+
 #include "LogControl.h"
+#include "Utils.h"
+
 #include <wx/filename.h>
 #include <wx/process.h>
 #include <wx/stdpaths.h>
@@ -40,32 +43,22 @@ inline wxBitmap InvertBitmap(const wxBitmap &src) {
 }
 
 // ============================================================================
-// Load SVG icon from ./icons/ and recolor if needed
+// Load SVG icon from resource paths, recolor if needed
 // ============================================================================
 inline wxBitmapBundle LoadSvgIcon(const wxString &name, wxWindow *win) {
   int size = win ? win->FromDIP(24) : 24;
   wxSize iconSize(size, size);
 
-  wxString path;
+  // Единая точка поиска ресурсов. FindAppDataFile проверяет
+  //   $APPDIR/usr/share/iptvplayer       (AppImage: linuxdeploy и sharun)
+  //   ~/.local/share/iptvplayer          (пользовательский override)
+  //   <exeDir>/../share/iptvplayer       (dev-сборка, распакованный AppImage)
+  //   /usr/share/iptvplayer              (системная установка)
+  //   $PWD                               (запуск из дерева исходников)
+  wxString path = FindAppDataFile("icons/" + name + ".svg");
 
-  // 1. Попытка загрузить из DATADIR (если определён)
-#ifdef DATADIR
-  wxString datadirPath =
-      wxString::FromUTF8(DATADIR) + "/iptvplayer/icons/" + name + ".svg";
-  if (wxFileExists(datadirPath)) {
-    path = datadirPath;
-  }
-#endif
-
-  // 2. Если не найден, пробуем относительно исполняемого файла (для отладки)
   if (path.empty()) {
-    wxString exeDir =
-        wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath();
-    path = exeDir + "/icons/" + name + ".svg";
-  }
-
-  if (!wxFileExists(path)) {
-    LOG_WARN("SvgIcon: NOT FOUND %s", path);
+    LOG_WARN("SvgIcon: NOT FOUND icons/%s.svg", name);
     return wxBitmapBundle();
   }
 
