@@ -100,6 +100,7 @@ jobs:
       - name: Install all dependencies
         if: steps.check_version_changed.outputs.version_changed == 'true'
         run: |
+          set -euo pipefail
           chmod +x scripts/setup-deps.sh
           if [[ "${{ github.event.inputs.rebuild_deps }}" == "true" ]]; then
             ./scripts/setup-deps.sh --yes --rebuild-deps
@@ -196,14 +197,26 @@ jobs:
         id: import_gpg
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
+
+          # --- Проверки: без ключа и без пароля подписывать нечем ---
           if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
             echo "can_sign=false" >> $GITHUB_OUTPUT
             exit 0
           fi
+          if [ -z "${GPG_PASSPHRASE:-}" ]; then
+            echo "::warning::GPG_PASSPHRASE не задан — релиз будет без подписи"
+            echo "can_sign=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
-          export GNUPGHOME="$(mktemp -d)"; chmod 700 "$GNUPGHOME"
+          # --- Всё временное — в память (tmpfs), не на диск ---
+          export TMPDIR=/dev/shm
+
+          export GNUPGHOME="$(mktemp -d)"
+          chmod 700 "$GNUPGHOME"
 
           # Конфиги — ДО первого вызова gpg, иначе агент стартует с дефолтами.
           cat > "$GNUPGHOME/gpg.conf" <<'EOF'
@@ -220,8 +233,8 @@ jobs:
           gpgconf --kill gpg-agent 2>/dev/null || true
           gpg-connect-agent /bye 2>/dev/null || true
 
-          # Импорт — сразу с loopback и пустым passphrase.
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --yes \
+          # --- Импорт приватного ключа (passphrase при импорте не нужен) ---
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --yes \
             --pinentry-mode loopback \
             --passphrase-file /dev/null \
             --import
@@ -230,16 +243,28 @@ jobs:
           gpgconf --kill gpg-agent 2>/dev/null || true
           gpg-connect-agent /bye 2>/dev/null || true
 
+          # --- Wrapper gpg с реальной passphrase ---
+          # PASSFILE лежит внутри WRAPPER_DIR: живёт столько же, сколько wrapper.
+          # Никакого trap — иначе файл удалится при выходе из этого шага,
+          # а wrapper понадобится в следующем шаге (build-package.sh).
           REAL_GPG="$(command -v gpg)"
+
           WRAPPER_DIR="$(mktemp -d)"
+          chmod 700 "$WRAPPER_DIR"
+
+          PASSFILE="$WRAPPER_DIR/pass"
+          printf '%s' "$GPG_PASSPHRASE" > "$PASSFILE"
+          chmod 600 "$PASSFILE"
+
           cat > "$WRAPPER_DIR/gpg" <<WRAPPER
           #!/bin/bash
           exec "$REAL_GPG" --batch --no-tty \
             --pinentry-mode loopback \
-            --passphrase-file /dev/null "\$@"
+            --passphrase-file "$PASSFILE" "\$@"
           WRAPPER
           chmod +x "$WRAPPER_DIR/gpg"
 
+          # --- Определить ключ ---
           GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
           if [ -z "$GPG_KEY_ID" ]; then
             echo "::warning::no secret key — релиз будет без подписи"
@@ -247,7 +272,7 @@ jobs:
             exit 0
           fi
 
-          # Self-test: если подпись не удалась — релиз без подписи, но не падаем.
+          # --- Self-test: если подпись не удалась — релиз без подписи, но не падаем ---
           if ! echo test | "$WRAPPER_DIR/gpg" --local-user "$GPG_KEY_ID" \
                  --detach-sign -o /dev/null; then
             echo "::warning::signing self-test failed — релиз будет без подписи"
@@ -255,6 +280,7 @@ jobs:
             exit 0
           fi
 
+          # --- Экспорт окружения для следующих шагов ---
           echo "GNUPGHOME=$GNUPGHOME"           >> $GITHUB_ENV
           echo "GPG_KEY_ID=$GPG_KEY_ID"         >> $GITHUB_ENV
           echo "GPG_WRAPPER_DIR=$WRAPPER_DIR"   >> $GITHUB_ENV
@@ -285,10 +311,11 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-      - name: Cleanup GNUPGHOME
+      - name: Cleanup GNUPGHOME and gpg wrapper
         if: always()
         run: |
-          [ -n "${GNUPGHOME:-}" ] && rm -rf "$GNUPGHOME" || true
+          rm -rf "${GNUPGHOME:-}"       2>/dev/null || true
+          rm -rf "${GPG_WRAPPER_DIR:-}" 2>/dev/null || true
 
   # =========================================================================
   # 3. Публикация
