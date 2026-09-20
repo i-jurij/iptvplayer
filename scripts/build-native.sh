@@ -48,7 +48,7 @@ build_deb_native() {
     cat > "$STAGING_DIR/DEBIAN/control" << EOF
 Package: $PACKAGE_NAME
 Version: $VERSION
-Section: network
+Section: video
 Priority: optional
 Architecture: $DEB_ARCH
 Depends: $depends

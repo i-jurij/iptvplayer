@@ -1193,6 +1193,7 @@ bool NeedsEmbeddedVideoBackend(ConfigManager *cfg) {
   // неизвестный плеер → считаем НЕ embed
   return false;
 }
+
 wxString FindAppDataFile(const wxString &filename) {
   if (filename.IsEmpty())
     return wxEmptyString;
@@ -1205,9 +1206,27 @@ wxString FindAppDataFile(const wxString &filename) {
       searchPaths.Add(p);
   };
 
-  // Прод
-  if (const char *appdir = std::getenv("APPDIR"); appdir && *appdir)
-    pushUnique(wxString::FromUTF8(appdir) + "/usr/share/" + APP_NAME);
+  // 1. Runtime-provided roots. sharun ставит SHARUN_DIR (иногда на <root>,
+  //    иногда на <root>/shared); APPDIR ставит AppRun любого AppImage.
+  //    Для каждого пробуем и сам путь, и родителя, и /usr/share, и /share.
+  for (const char *var : {"SHARUN_DIR", "APPDIR"}) {
+    const char *v = std::getenv(var);
+    if (!v || !*v)
+      continue;
+    wxString base = wxString::FromUTF8(v);
+    for (const wxString &root : {base, base + "/..", base + "/../.."}) {
+      pushUnique(root + "/usr/share/" + APP_NAME);
+      pushUnique(root + "/share/" + APP_NAME);
+    }
+  }
+
+  // 2. Рядом с бинарником (dev-сборка, распакованный AppImage).
+  wxFileName exeFn(wxStandardPaths::Get().GetExecutablePath());
+  wxString exeDir = exeFn.GetPath();
+  pushUnique(exeDir + "/../share/" + APP_NAME);
+  pushUnique(exeDir + "/../usr/share/" + APP_NAME);
+
+  // 3. Системная установка / пользовательский override.
   pushUnique(wxStandardPaths::Get().GetLocalDataDir());
   pushUnique(wxStandardPaths::Get().GetDataDir());
   pushUnique(wxStandardPaths::Get().GetResourcesDir());
@@ -1215,9 +1234,9 @@ wxString FindAppDataFile(const wxString &filename) {
   pushUnique(wxString::FromUTF8(DATADIR) + "/" + APP_NAME);
 #endif
 
-  // Dev
-  pushUnique(wxPathOnly(wxStandardPaths::Get().GetExecutablePath()));
+  // 4. Dev-фоллбэки.
   pushUnique(wxGetCwd() + "/resources");
+  pushUnique(wxGetCwd() + "/install/share/" + APP_NAME);
 
   const wxString sep = wxFileName::GetPathSeparator();
   for (const auto &base : searchPaths) {
