@@ -393,6 +393,7 @@ if [[ "$SKIP_WX" != true ]]; then
         -DCMAKE_INSTALL_LIBDIR=lib \
         -DwxBUILD_SHARED=OFF \
         -DwxUSE_LIBWEBP=builtin \
+        -DwxUSE_LIBJPEG=builtin \
         -DwxUSE_SVG=ON \
         -DwxUSE_MEDIACTRL:BOOL=OFF \
         -DwxUSE_GSTREAMER:BOOL=OFF \

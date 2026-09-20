@@ -117,12 +117,9 @@ build_sharun_appimage() {
     # Поправляет WM_CLASS для GTK-приложений.
     export GTK_CLASS_FIX=1
     # Форсируем deployment gdk-pixbuf (SVG-лоадеры и кэш).
-    # quick-sharun читает эту переменную (см. строки ~1183-1192 и ~4625-4629),
-    # но глоб "$gdkdir"/*svg*.so* молча ничего не находит, если на сборочной
-    # машине нет пакета с SVG-лоадером (Debian/Ubuntu: librsvg2-common —
-    # отдельный пакет, в librsvg2-2 его нет). Поэтому после deploy
-    # проверяем факт и падаем с внятной ошибкой, а не деградируем тихо.
     export DEPLOY_GDK=1
+    # GPU-стек принципиально host-coupled: libEGL/libGLX/libGLdispatch
+    export ANYLINUX_DO_NOT_LOAD_LIBS="libEGL.so*:libGL.so*:libGLX.so*:libGLdispatch.so*:libOpenGL.so*:libGLES*.so*:libglapi.so*:libvulkan.so*:libdrm.so*:libgbm.so*"
 
     # 1) Развёртывание зависимостей
     echo "[+] Развёртывание зависимостей через quick-sharun..."
@@ -136,20 +133,6 @@ build_sharun_appimage() {
 
     # =====================================================================
     # Проверка gdk-pixbuf SVG-loader.
-    #
-    # quick-sharun при DEPLOY_GDK=1 копирует libpixbufloader_*svg*.so
-    # и loaders.cache из хостового LIB_DIR, если они там есть. Если нет —
-    # глоб не матчится, set -- добавляет буквальную строку со звёздочками,
-    # и на этапе копирования она ни во что не попадает. Никаких
-    # предупреждений в логе не будет.
-    #
-    # В рантайме без своего loader'а GTK берёт хостовый loaders.cache,
-    # тот указывает на хостовый libpixbufloader_svg.so, хостовый loader
-    # вызывает dlopen("librsvg-2.so.2") — а LD_LIBRARY_PATH от sharun
-    # отдаёт ему БАНДЛЕННЫЙ librsvg. При несовпадении ABI (у librsvg ≥ 2.46
-    # удалён rsvg_handle_get_pixbuf_and_error) — крах GTK.
-    #
-    # Лучше падать на сборке, чем у пользователя.
     # =====================================================================
     _bundle_loader="$(find "$APPDIR" -type f \
                       -name 'libpixbufloader*svg*.so*' -print -quit 2>/dev/null || true)"
@@ -184,6 +167,11 @@ build_sharun_appimage() {
     else
         echo "[i] GDK_PIXBUF_MODULE_FILE уже прописан в .env"
     fi
+
+    # Страховка: удаляем GPU-стек, чтобы рантайм гарантированно взял системные.
+    find "$APPDIR/lib" -maxdepth 1 -regextype posix-extended \
+        -regex '.*/lib(EGL|GL|GLX|GLdispatch|OpenGL|GLESv[12]|glapi|vulkan|drm|gbm)\.so.*' \
+        -delete 2>/dev/null || true
 
     # 2) Упаковка AppDir → AppImage (внутри вызывается appimagetool)
     echo "[+] Упаковка AppDir в AppImage..."

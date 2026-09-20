@@ -1,4 +1,5 @@
-#include "Utils.h"
+#include "Utils.h" 
+#include "LogControl.h"
 
 #include <curl/curl.h>
 
@@ -1206,25 +1207,43 @@ wxString FindAppDataFile(const wxString &filename) {
       searchPaths.Add(p);
   };
 
-  // 1. Runtime-provided roots. sharun ставит SHARUN_DIR (иногда на <root>,
-  //    иногда на <root>/shared); APPDIR ставит AppRun любого AppImage.
-  //    Для каждого пробуем и сам путь, и родителя, и /usr/share, и /share.
+  auto normalize = [](const wxString &p) -> wxString {
+    if (p.IsEmpty())
+      return p;
+    wxFileName fn(p);
+    fn.MakeAbsolute();
+    fn.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
+    return fn.GetPath();
+  };
+
+  // 1. Runtime-provided roots. Перебираем 4 уровня вверх — покрывает
+  //    и <root>, и <root>/shared, и любые вложенные варианты.
   for (const char *var : {"SHARUN_DIR", "APPDIR"}) {
     const char *v = std::getenv(var);
     if (!v || !*v)
       continue;
-    wxString base = wxString::FromUTF8(v);
-    for (const wxString &root : {base, base + "/..", base + "/../.."}) {
-      pushUnique(root + "/usr/share/" + APP_NAME);
-      pushUnique(root + "/share/" + APP_NAME);
+
+    wxString probe = normalize(wxString::FromUTF8(v));
+    for (int up = 0; up < 4; ++up) {
+      pushUnique(probe + "/usr/share/" + APP_NAME);
+      pushUnique(probe + "/share/" + APP_NAME);
+      wxFileName parent(probe);
+      parent.MakeAbsolute();
+      parent.AppendDir("..");
+      parent.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
+      probe = parent.GetPath();
     }
   }
 
-  // 2. Рядом с бинарником (dev-сборка, распакованный AppImage).
-  wxFileName exeFn(wxStandardPaths::Get().GetExecutablePath());
-  wxString exeDir = exeFn.GetPath();
-  pushUnique(exeDir + "/../share/" + APP_NAME);
-  pushUnique(exeDir + "/../usr/share/" + APP_NAME);
+  // 2. Рядом с бинарником.
+  {
+    wxFileName exeFn(wxStandardPaths::Get().GetExecutablePath());
+    exeFn.MakeAbsolute();
+    exeFn.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
+    wxString exeDir = exeFn.GetPath();
+    pushUnique(exeDir + "/../share/" + APP_NAME);
+    pushUnique(exeDir + "/../usr/share/" + APP_NAME);
+  }
 
   // 3. Системная установка / пользовательский override.
   pushUnique(wxStandardPaths::Get().GetLocalDataDir());
@@ -1237,6 +1256,20 @@ wxString FindAppDataFile(const wxString &filename) {
   // 4. Dev-фоллбэки.
   pushUnique(wxGetCwd() + "/resources");
   pushUnique(wxGetCwd() + "/install/share/" + APP_NAME);
+
+  // Однократный дамп в лог — понять, какие пути реально пробуются.
+  static bool dumped = false;
+  if (!dumped) {
+    dumped = true;
+    LOG_DEBUG("FindAppDataFile('%s'): SHARUN_DIR=%s APPDIR=%s exe=%s cwd=%s",
+              filename.utf8_str().data(),
+              std::getenv("SHARUN_DIR") ? std::getenv("SHARUN_DIR") : "(unset)",
+              std::getenv("APPDIR") ? std::getenv("APPDIR") : "(unset)",
+              wxStandardPaths::Get().GetExecutablePath().utf8_str().data(),
+              wxGetCwd().utf8_str().data());
+    for (const auto &p : searchPaths)
+      LOG_DEBUG("  candidate: %s", p.utf8_str().data());
+  }
 
   const wxString sep = wxFileName::GetPathSeparator();
   for (const auto &base : searchPaths) {

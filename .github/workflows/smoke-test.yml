@@ -286,12 +286,6 @@ jobs:
 
   # =========================================================================
   # Нативные .deb / .rpm: установка и запуск в родных контейнерах
-  #
-  # target     — система, на которой тестируем (контейнер, лог).
-  # pkg_distro — суффикс имени пакета, который ставим в этом контейнере.
-  #              Он не всегда совпадает с target: например, .deb собирается
-  #              на ubuntu-24.04, а проверяется ещё и на ubuntu-26.04;
-  #              .rpm собирается на rocky-10 и ставится в fedora-44.
   # =========================================================================
   smoke-native:
     needs: fetch
@@ -378,15 +372,16 @@ jobs:
           fi
           echo "OK"
 
-      - name: Dynamic check (Xvfb, fallback weston)
+      # --- Фаза 3a: linuxdeploy, headless ---
+      - name: Dynamic check — linuxdeploy
+        if: always()
         run: |
           set -euo pipefail
+          AI=$(ls dist/*.AppImage 2>/dev/null | grep -v -- '-sharun' | head -1)
+          [ -n "$AI" ] || { echo "::error::linuxdeploy AppImage не найден"; exit 1; }
 
-          APP_PID=""; HEADLESS_PID=""
-          cleanup() {
-            [ -n "$APP_PID" ]      && kill "$APP_PID"      2>/dev/null || true
-            [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true
-          }
+          HEADLESS_PID=""
+          cleanup() { [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true; }
           trap cleanup EXIT
 
           if command -v Xvfb >/dev/null 2>&1; then
@@ -395,7 +390,7 @@ jobs:
             HEADLESS_PID=$!
             export DISPLAY=:99
           elif command -v weston >/dev/null 2>&1; then
-            echo "[i] headless: weston (Xvfb недоступен)"
+            echo "[i] headless: weston"
             export XDG_RUNTIME_DIR=/tmp/weston-runtime
             mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
             weston --backend=headless-backend.so --socket=wayland-1 \
@@ -413,11 +408,64 @@ jobs:
           fi
           sleep 3
 
-          /usr/bin/iptvplayer &
+          echo "=== [linuxdeploy] $AI (15s run) ==="
+          APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
           APP_PID=$!
           sleep 15
           if ! kill -0 "$APP_PID" 2>/dev/null; then
-            echo "::error::package binary crashed during startup"
+            echo "::error::[linuxdeploy] $AI crashed during startup"
+            wait "$APP_PID" 2>/dev/null || true
             exit 1
           fi
-          echo "[✓] survived 15s"
+          echo "[✓][linuxdeploy] survived 15s"
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
+
+      # --- Фаза 3b: sharun, headless ---
+      - name: Dynamic check — sharun
+        if: always()
+        run: |
+          set -euo pipefail
+          AI=$(ls dist/*-sharun.AppImage 2>/dev/null | head -1)
+          [ -n "$AI" ] || { echo "::error::sharun AppImage не найден"; exit 1; }
+
+          HEADLESS_PID=""
+          cleanup() { [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          if command -v Xvfb >/dev/null 2>&1; then
+            echo "[i] headless: Xvfb"
+            Xvfb :99 -screen 0 1440x900x24 &
+            HEADLESS_PID=$!
+            export DISPLAY=:99
+          elif command -v weston >/dev/null 2>&1; then
+            echo "[i] headless: weston"
+            export XDG_RUNTIME_DIR=/tmp/weston-runtime
+            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+            weston --backend=headless-backend.so --socket=wayland-1 \
+                   --width=1440 --height=900 &
+            HEADLESS_PID=$!
+            export WAYLAND_DISPLAY=wayland-1
+            export GDK_BACKEND=wayland
+            for _ in $(seq 1 20); do
+              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
+              sleep 0.5
+            done
+          else
+            echo "::error::ни Xvfb, ни weston недоступны"
+            exit 1
+          fi
+          sleep 3
+
+          echo "=== [sharun] $AI (15s run) ==="
+          APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
+          APP_PID=$!
+          sleep 15
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "::error::[sharun] $AI crashed during startup"
+            wait "$APP_PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "[✓][sharun] survived 15s"
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
