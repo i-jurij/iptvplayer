@@ -261,11 +261,12 @@ build_sharun_appimage() {
     fi
 
     echo "[✓] AppImage (sharun): $OUTPUT_DIR/$appimage_file"
-
-    if command -v zsyncmake >/dev/null; then
-        zsyncmake "$OUTPUT_DIR/$appimage_file" \
-            -o "$OUTPUT_DIR/$(basename "$appimage_file" .AppImage).zsync" || true
-    fi
+    
+    # .zsync для sharun-варианта генерирует сам quick-sharun
+    #if command -v zsyncmake >/dev/null; then
+    #    zsyncmake "$OUTPUT_DIR/$appimage_file" \
+    #        -o "$OUTPUT_DIR/$(basename "$appimage_file" .AppImage).zsync" || true
+    #fi
 
     rm -f "${OUTPUT_DIR:?}/appinfo"
     rm -f "$QUICK_SHARUN"

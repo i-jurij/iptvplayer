@@ -85,7 +85,15 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # AppImage: тестируем на 5 контейнерах
+  # AppImage: тестируем на 5 контейнерах.
+  #
+  # Два варианта AppImage:
+  #   *-sharun.AppImage     — self-contained, всё бандлит сам;
+  #   *.AppImage            — linuxdeploy, сознательно НЕ несёт libEGL/libOpenGL,
+  #                           использует системный GPU-стек (иначе краши
+  #                           на несовпадении с драйверами хоста).
+  # Поэтому sharun проверяем без доп. зависимостей, а linuxdeploy —
+  # после доустановки системного OpenGL/EGL.
   # =========================================================================
   smoke-appimage:
     needs: fetch
@@ -125,6 +133,7 @@ jobs:
             fi
             dnf install -y ca-certificates file xz gtk3 desktop-file-utils
             dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
+            dnf install -y weston 2>/dev/null || true
             dnf group install -y "Xfce Desktop" 2>/dev/null \
               || dnf group install -y xfce-desktop 2>/dev/null || true
           elif command -v pacman >/dev/null; then
@@ -148,17 +157,46 @@ jobs:
           done
           ls -la
 
-      - name: Verify --version
+      # --- фаза 1: sharun, самодостаточный, без системных либ ---
+      - name: Verify sharun AppImage (self-contained)
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          APPIMAGES=(dist/*.AppImage)
-          for AI in "${APPIMAGES[@]}"; do
-            echo "=== $AI --version ==="
-            OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$AI" --version)
-            echo "$OUT"
-            echo "$OUT" | grep -qE '^iptvplayer [0-9]'
-          done
+          AI=$(ls dist/*-sharun.AppImage 2>/dev/null | head -1)
+          [ -n "$AI" ] || { echo "::error::sharun AppImage не найден"; exit 1; }
+          echo "=== $AI --version (no extra system libs) ==="
+          OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$AI" --version)
+          echo "$OUT"
+          echo "$OUT" | grep -qE '^iptvplayer [0-9]'
+
+      # --- фаза 2: доустановить системный OpenGL/EGL для linuxdeploy ---
+      # linuxdeploy-AppImage сознательно не несёт libEGL/libOpenGL:
+      # приложение десктопное и должно использовать системный GPU-стек,
+      # иначе — краши на несовпадении с драйверами хоста.
+      - name: Install OpenGL/EGL system libraries
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null; then
+            apt-get install -y --no-install-recommends \
+              libgl1 libegl1 libopengl0 libglvnd0 libglx0 \
+              libglx-mesa0 libgl1-mesa-dri libgbm1
+          elif command -v dnf >/dev/null; then
+            dnf install -y mesa-libGL mesa-libEGL mesa-dri-drivers \
+                           libglvnd-glx libglvnd-egl libglvnd-opengl \
+                           mesa-libgbm
+          elif command -v pacman >/dev/null; then
+            pacman -Sy --noconfirm mesa libglvnd
+          fi
+
+      # --- фаза 3: linuxdeploy, теперь с системным OpenGL ---
+      - name: Verify linuxdeploy AppImage (uses system OpenGL)
+        run: |
+          set -euo pipefail
+          AI=$(ls dist/*.AppImage 2>/dev/null | grep -v -- '-sharun' | head -1)
+          [ -n "$AI" ] || { echo "::error::linuxdeploy AppImage не найден"; exit 1; }
+          echo "=== $AI --version ==="
+          OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$AI" --version)
+          echo "$OUT"
+          echo "$OUT" | grep -qE '^iptvplayer [0-9]'
 
       - name: Verify resources (linuxdeploy)
         run: |
@@ -175,43 +213,75 @@ jobs:
             desktop-file-validate "$DIR/squashfs-root/usr/share/applications/iptvplayer.desktop"
           fi
 
-      - name: Dynamic check under Xvfb
+      - name: Dynamic check (Xvfb, fallback weston)
         run: |
           set -euo pipefail
           shopt -s nullglob
           APPIMAGES=(dist/*.AppImage)
+          (( ${#APPIMAGES[@]} > 0 )) || { echo "::error::No AppImage"; exit 1; }
 
-          XVFB_PID=""
-          cleanup() { [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true; }
+          HEADLESS_PID=""
+          cleanup() { [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true; }
           trap cleanup EXIT
 
           if command -v Xvfb >/dev/null 2>&1; then
+            echo "[i] headless: Xvfb"
             Xvfb :99 -screen 0 1440x900x24 &
-            XVFB_PID=$!
+            HEADLESS_PID=$!
             export DISPLAY=:99
+          elif command -v weston >/dev/null 2>&1; then
+            echo "[i] headless: weston (Xvfb недоступен)"
+            export XDG_RUNTIME_DIR=/tmp/weston-runtime
+            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+            weston --backend=headless-backend.so --socket=wayland-1 \
+                   --width=1440 --height=900 &
+            HEADLESS_PID=$!
+            export WAYLAND_DISPLAY=wayland-1
+            export GDK_BACKEND=wayland
+            for _ in $(seq 1 20); do
+              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
+              sleep 0.5
+            done
           else
-            echo "::error::Xvfb недоступен"
+            echo "::error::ни Xvfb, ни weston недоступны"
             exit 1
           fi
           sleep 3
 
+          declare -A RESULT
           FAILED=0
+
           for AI in "${APPIMAGES[@]}"; do
+            case "$AI" in
+              *-sharun.AppImage) VARIANT="sharun"      ;;
+              *)                 VARIANT="linuxdeploy" ;;
+            esac
             echo ""
-            echo "=== $AI (15s run) ==="
+            echo "=== [$VARIANT] $AI (15s run) ==="
+
             APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
             APP_PID=$!
             sleep 15
+
             if ! kill -0 "$APP_PID" 2>/dev/null; then
-              echo "::error::$AI crashed during startup"
+              echo "::error::[$VARIANT] $AI crashed during startup"
               wait "$APP_PID" 2>/dev/null || true
+              RESULT["$VARIANT"]="FAIL"
               FAILED=1
             else
-              echo "[✓] survived 15s"
+              echo "[✓][$VARIANT] survived 15s"
+              RESULT["$VARIANT"]="PASS"
               kill "$APP_PID" 2>/dev/null || true
               wait "$APP_PID" 2>/dev/null || true
             fi
           done
+
+          echo ""
+          echo "==================== SUMMARY ===================="
+          for V in sharun linuxdeploy; do
+            printf "  %-12s : %s\n" "$V" "${RESULT[$V]:-SKIPPED (нет файла)}"
+          done
+          echo "================================================="
           exit "$FAILED"
 
   # =========================================================================
@@ -260,6 +330,7 @@ jobs:
             fi
             dnf install -y ca-certificates file xz gtk3 desktop-file-utils
             dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
+            dnf install -y weston 2>/dev/null || true
             dnf group install -y "Xfce Desktop" 2>/dev/null \
               || dnf group install -y xfce-desktop 2>/dev/null || true
           fi
@@ -267,30 +338,9 @@ jobs:
       - name: Install package
         run: |
           set -euo pipefail
-          shopt -s nullglob
           case "${{ matrix.family }}" in
-            deb)
-              # Имя .deb: iptvplayer_<version>_<pkg_distro>_<arch>.deb.
-              # Фильтруем по pkg_distro, а не по target, чтобы
-              # ubuntu-26.04-контейнер не тянул debian-вариант.
-              PKG=(dist/*_${{ matrix.pkg_distro }}_*.deb)
-              (( ${#PKG[@]} > 0 )) || {
-                echo "::error::No .deb matching *_${{ matrix.pkg_distro }}_*"
-                ls -la dist/ || true
-                exit 1
-              }
-              apt-get install -y "${PKG[@]}"
-              ;;
-            rpm)
-              # Имя .rpm: iptvplayer-<version>-<release>.<pkg_distro>.<arch>.rpm.
-              PKG=(dist/*.${{ matrix.pkg_distro }}.*.rpm)
-              (( ${#PKG[@]} > 0 )) || {
-                echo "::error::No .rpm matching *.${{ matrix.pkg_distro }}.*"
-                ls -la dist/ || true
-                exit 1
-              }
-              dnf install -y "${PKG[@]}"
-              ;;
+            deb) apt-get install -y ./dist/*.deb ;;
+            rpm) dnf install -y ./dist/*.rpm ;;
           esac
 
       - name: Verify --version
@@ -328,23 +378,37 @@ jobs:
           fi
           echo "OK"
 
-      - name: Dynamic check under Xvfb
+      - name: Dynamic check (Xvfb, fallback weston)
         run: |
           set -euo pipefail
 
-          XVFB_PID=""; APP_PID=""
+          APP_PID=""; HEADLESS_PID=""
           cleanup() {
-            [ -n "$APP_PID" ]  && kill "$APP_PID"  2>/dev/null || true
-            [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
+            [ -n "$APP_PID" ]      && kill "$APP_PID"      2>/dev/null || true
+            [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true
           }
           trap cleanup EXIT
 
           if command -v Xvfb >/dev/null 2>&1; then
+            echo "[i] headless: Xvfb"
             Xvfb :99 -screen 0 1440x900x24 &
-            XVFB_PID=$!
+            HEADLESS_PID=$!
             export DISPLAY=:99
+          elif command -v weston >/dev/null 2>&1; then
+            echo "[i] headless: weston (Xvfb недоступен)"
+            export XDG_RUNTIME_DIR=/tmp/weston-runtime
+            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+            weston --backend=headless-backend.so --socket=wayland-1 \
+                   --width=1440 --height=900 &
+            HEADLESS_PID=$!
+            export WAYLAND_DISPLAY=wayland-1
+            export GDK_BACKEND=wayland
+            for _ in $(seq 1 20); do
+              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
+              sleep 0.5
+            done
           else
-            echo "::error::Xvfb недоступен"
+            echo "::error::ни Xvfb, ни weston недоступны"
             exit 1
           fi
           sleep 3
