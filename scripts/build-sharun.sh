@@ -9,16 +9,19 @@
 #   - работает с уже собранным бинарником из install/, staging не нужен;
 #   - quick-sharun сам сканирует зависимости (ldd + strace, включая dlopen);
 #   - встраивает собственный ld-linux/musl, поэтому AppImage запускается на
-#     старых glibc, musl-системах (Alpine) и NixOS без FHS;
-#   - отдельный appimagetool не нужен: quick-sharun вызывает его сам
-#     при --make-appimage;
-#   - результат называется с суффиксом "-sharun", чтобы не конфликтовать
-#     с linuxdeploy-вариантом.
+#     старых glibc, musl-системах (Alpine) и NixOS без FHS.
 #
 # Требует установленных переменных (выставляются в build-package.sh):
 #   PROJECT_ROOT, SCRIPT_DIR, APPDIR, OUTPUT_DIR
 #   PACKAGE_NAME, ICON_NAME, APPIMAGE_ARCH
 #   VERSION, VERSION_FILE
+#
+# Переменные окружения (опционально):
+#   QUICK_SHARUN_REF   git-ref (branch/tag/commit) для quick-sharun.sh.
+#                      По умолчанию "main". Позволяет зафиксировать
+#                      рабочую версию, если upstream сломает main.
+#   SHARUN_LINK        полный URL до sharun+helper-libs-<arch>.tar.
+#                      Пробрасывается в quick-sharun.sh как есть.
 #
 # Функции:
 #   build_sharun_appimage — собирает AppImage через quick-sharun
@@ -38,6 +41,7 @@ build_sharun_appimage() {
     local appimage_file="${PACKAGE_NAME}-linux-${APPIMAGE_ARCH}-${VERSION_FILE}-sharun.AppImage"
     local bin_src="$PROJECT_ROOT/install/bin/$PACKAGE_NAME"
     local share_src="$PROJECT_ROOT/install/share/$PACKAGE_NAME"
+    local QUICK_SHARUN="$SCRIPT_DIR/quick-sharun.sh"
 
     echo "[+] Сборка AppImage через quick-sharun..."
 
@@ -48,18 +52,24 @@ build_sharun_appimage() {
     # После artifact upload/download exec-бит может не сохраниться.
     chmod +x "$bin_src" 2>/dev/null || true
 
-    # quick-sharun (один раз)
-    local QUICK_SHARUN="$SCRIPT_DIR/quick-sharun.sh"
-    if [ ! -f "$QUICK_SHARUN" ]; then
-        echo "[+] Скачивание quick-sharun..."
-        if ! download \
-            "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/raw/main/useful-tools/quick-sharun.sh" \
-            "$QUICK_SHARUN"; then
-            echo "[!] не удалось скачать quick-sharun" >&2
-            return 1
-        fi
-        chmod +x "$QUICK_SHARUN"
+    # -------------------------------------------------------------------------
+    # quick-sharun.sh — всегда качаем свежий.    #
+    # Пин версии на случай сбоя upstream:
+    #   QUICK_SHARUN_REF=<commit-sha>  (branch/tag/commit)
+    # Пин версии самого sharun — переменной окружения SHARUN_LINK
+    # (её читает quick-sharun.sh: SHARUN_LINK=${SHARUN_LINK:-...}).
+    # -------------------------------------------------------------------------
+    local QUICK_SHARUN_REF="${QUICK_SHARUN_REF:-main}"
+    local QUICK_SHARUN_URL="https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/${QUICK_SHARUN_REF}/useful-tools/quick-sharun.sh"
+
+    rm -f "$QUICK_SHARUN"
+    echo "[+] Скачивание quick-sharun (ref=${QUICK_SHARUN_REF})..."
+    if ! download "$QUICK_SHARUN_URL" "$QUICK_SHARUN"; then
+        echo "[!] не удалось скачать quick-sharun" >&2
+        rm -f "$QUICK_SHARUN"
+        return 1
     fi
+    chmod +x "$QUICK_SHARUN"
 
     # Свой минимальный AppDir. Ничего общего со staging не имеет:
     # quick-sharun сам разложит библиотеки, создаст AppRun, выставит
@@ -76,7 +86,7 @@ build_sharun_appimage() {
     #    Сюда же попадают UI-иконки: share/iptvplayer/icons/*.svg
     #    → $APPDIR/usr/share/iptvplayer/icons/.
     #    Приложение находит их через FindAppDataFile(), которая ищет
-    #    в $APPDIR/usr/share/iptvplayer/ (см. Utils.cpp). 
+    #    в $APPDIR/usr/share/iptvplayer/ (см. Utils.cpp).
     if [ -d "$share_src" ]; then
         mkdir -p "$APPDIR/usr/share/$PACKAGE_NAME"
         cp -a "$share_src/." "$APPDIR/usr/share/$PACKAGE_NAME/"
@@ -112,7 +122,9 @@ build_sharun_appimage() {
     echo "[+] Развёртывание зависимостей через quick-sharun..."
     if ! "$QUICK_SHARUN" "$APPDIR/usr/bin/$PACKAGE_NAME"; then
         echo "[!] quick-sharun (deploy) завершился с ошибкой" >&2
-        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX DEPLOY_GDK
+        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
+              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK
+        rm -f "$QUICK_SHARUN"
         return 1
     fi
 
@@ -233,14 +245,18 @@ build_sharun_appimage() {
     echo "[+] Упаковка AppDir в AppImage..."
     if ! "$QUICK_SHARUN" --make-appimage; then
         echo "[!] quick-sharun --make-appimage завершился с ошибкой" >&2
-        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX DEPLOY_GDK
+        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
+              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK
+        rm -f "$QUICK_SHARUN"
         return 1
     fi
 
-    unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP GTK_CLASS_FIX DEPLOY_GDK
+    unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
+          UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK
 
     if [ ! -f "$OUTPUT_DIR/$appimage_file" ]; then
         echo "[!] quick-sharun не создал $appimage_file" >&2
+        rm -f "$QUICK_SHARUN"
         return 1
     fi
 
@@ -252,6 +268,7 @@ build_sharun_appimage() {
     fi
 
     rm -f "${OUTPUT_DIR:?}/appinfo"
+    rm -f "$QUICK_SHARUN"
 
     return 0
 }

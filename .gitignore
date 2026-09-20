@@ -11,6 +11,7 @@ pkg-*/
 *.AppDir/
 linuxdeploy*
 appimagetool*
+quick-sharun*
 
 # -------------------------------
 # IDE и редакторы

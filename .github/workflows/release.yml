@@ -126,10 +126,35 @@ jobs:
 
       - name: Build AppImages
         run: |
-          set -euo pipefail
+          # -e здесь намеренно НЕ ставим: rc обоих запусков собираем вручную,
+          # иначе первое падение убило бы шаг до попытки собрать второй вариант.
+          set -uo pipefail
+
           mkdir -p logs
           chmod +x scripts/build-package.sh
-          ./scripts/build-package.sh --appimage --sharun --yes 2>&1 | tee logs/build-package.log
+
+          rc_lld=0
+          rc_sharun=0
+
+          ./scripts/build-package.sh --appimage --yes 2>&1 \
+            | tee logs/build-package.log || rc_lld=$?
+
+          ./scripts/build-package.sh --sharun   --yes 2>&1 \
+            | tee -a logs/build-package.log || rc_sharun=$?
+
+          shopt -s nullglob
+          imgs=(dist/*.AppImage)
+
+          if (( ${#imgs[@]} == 0 )); then
+            echo "::error::ни одного AppImage не собралось (linuxdeploy rc=$rc_lld, sharun rc=$rc_sharun)"
+            exit 1
+          fi
+
+          (( rc_lld    != 0 )) && echo "::warning::linuxdeploy AppImage не собрался (rc=$rc_lld)"
+          (( rc_sharun != 0 )) && echo "::warning::sharun AppImage не собрался (rc=$rc_sharun)"
+
+          printf 'собрано AppImage: %d\n' "${#imgs[@]}"
+          printf '  %s\n' "${imgs[@]}"
 
       - name: Upload AppImage artifacts
         uses: actions/upload-artifact@v5
@@ -429,15 +454,15 @@ jobs:
 
           | Артефакт | Собрано | Описание |
           |:---|:---:|---|
-          | \`*.AppImage\` | $LLD | linuxdeploy — glibc ≥ 2.39, следует системной GTK-теме |
+          | \`*.AppImage\` | $LLD | linuxdeploy — glibc ≥ 2.39 |
           | \`*-sharun.AppImage\` | $SHR | quick-sharun — любая Linux, включая старые glibc, musl, NixOS |
           | \`.deb\` (Ubuntu) | $deb_ubuntu_cell | Собран на Ubuntu 24.04. Проверен в CI на Ubuntu 26.04. |
           | \`.deb\` (Debian) | $deb_debian_cell | Собран на Debian 13. Проверен в CI на Debian 13. |
           | \`.rpm\` | $rpm_cell | Собран на Rocky 10. Проверен в CI на Rocky 10 и Fedora 44. |
 
-          Обе AppImage поддерживают auto-update через встроенную update information.
-
           ### Какой пакет выбрать
+
+          <sub>Собранные пакеты могут теоретически работать и на других системах того же семейства с glibc не ниже версии сборочного контейнера.</sub>
 
           **Ubuntu 24.04+, Linux Mint 22+** (glibc 2.39) → \`iptvplayer_*_ubuntu-24.04_amd64.deb\`
 
@@ -446,8 +471,6 @@ jobs:
           **RHEL 10+, Rocky 10+, Alma 10+, Fedora 40+** (glibc 2.39) → \`iptvplayer-*.rocky-10.x86_64.rpm\`
 
           **Любая Linux** (включая старые glibc, musl, NixOS) → \`*-sharun.AppImage\`
-
-          <sub>Собранные пакеты могут теоретически работать и на других системах того же семейства с glibc не ниже версии сборочного контейнера, но это не проверяется автоматически.</sub>
           EOF
           )
 
