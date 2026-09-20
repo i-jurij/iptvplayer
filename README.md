@@ -58,11 +58,15 @@ See [SECURITY.md](SECURITY.md) for verification instructions.
 
 See [Building and packaging](#building-and-packaging) below.
 
+### Hardware decoding
+
+For smooth HD playback, install VA-API drivers (`va-driver-all` on Debian/Ubuntu, `mesa-va-drivers` on Fedora/RHEL, `libva-mesa-driver` on Arch, `nvidia-vaapi-driver` for NVIDIA).
+
 ---
 
-# Building and packaging
+## Building and packaging
 
-## 1. Building a package for your system (recommended)
+### 1. Building a package for your system (recommended)
 
 Everything is driven by one script:
 
@@ -111,7 +115,7 @@ Use `./scripts/build-package.sh --help` for the full list of options.
   variants and are **not** offered in the interactive menu; build them
   explicitly with `--bundle-deb` / `--bundle-rpm` if you need them.
 
-## 2. How the scripts fit together
+### 2. How the scripts fit together
 
 Six scripts. Three are meant to be run by you, three are libraries sourced
 by `build-package.sh`.
@@ -149,7 +153,7 @@ by `build-package.sh`.
 Note: `build-package.sh` cleans up `pkg-staging/`, `iptvplayer.AppDir/` and
 `pkg-rpm/` on exit. `dist/` is preserved (unless you pass `--clean`).
 
-## 3. Installing dependencies (manual step)
+### 3. Installing dependencies (manual step)
 
 Before the first package build, run:
 
@@ -181,7 +185,7 @@ Options:
 > equivalents for your distribution) before `setup-deps.sh` can do its job.
 > The script installs them for you when it recognises your package manager.
 
-## 4. Manual build (step by step)
+### 4. Manual build (step by step)
 
 This is the low-level path, useful if you want to understand what the scripts
 do or if you need a build without packaging.
@@ -213,7 +217,7 @@ Or use the wrapper script, which does all of the above in one shot:
     ./scripts/build-release.sh --prefix /tmp/ip      # Custom install prefix
     ./scripts/build-release.sh --log                 # Save build log
 
-### `build-release.sh` options
+#### `build-release.sh` options
 
 | Option | Description |
 | :----- | :---------- |
@@ -234,7 +238,7 @@ Or use the wrapper script, which does all of the above in one shot:
 6. `strip`s the binary in Release/MinSizeRel builds.
 7. Copies `compile_commands.json` to the project root for IDE support.
 
-### `build-package.sh` options (full list)
+#### `build-package.sh` options (full list)
 
 | Option | Description |
 | :----- | :---------- |
@@ -280,7 +284,7 @@ Output goes to `dist/`:
     ├── checksums.txt
     └── checksums.txt.asc                                       # if signed
 
-### Signing (optional)
+#### Signing (optional)
 
 If `GPG_KEY_ID` is set in the environment when `build-package.sh` runs, it
 signs:
@@ -298,7 +302,7 @@ the public key, export it manually:
 The CI release workflow does this step automatically and attaches the file
 to the GitHub release.
 
-## 5. IDE support
+### 5. IDE support
 
 After any build, `compile_commands.json` is generated and copied to the
 project root. This enables:
@@ -314,7 +318,7 @@ Install `clangd` (recommended):
 Then install the clangd extension in VSCode — it will use
 `compile_commands.json` automatically.
 
-## 6. Summary of common commands
+### 6. Summary of common commands
 
 | Task | Command |
 | :--- | :--- |
@@ -333,14 +337,14 @@ Then install the clangd extension in VSCode — it will use
 
 ---
 
-# Architecture (for developers)
+## Architecture (for developers)
 
-## Entry point
+### Entry point
 
 - `main.cpp` → `wxIMPLEMENT_APP(Application)`.
 - The `Application` class (derives from `wxApp`) manages the application lifecycle.
 
-## Core classes
+### Core classes
 
 | Class | Purpose |
 | :--- | :--- |
@@ -368,7 +372,7 @@ Then install the clangd extension in VSCode — it will use
 | `PlayerController` | Manages the player backend (mpv). |
 | `MpvBackend` | Player interface implementation via libmpv, including video recording support. |
 
-## Dialogs
+### Dialogs
 
 - `AddPlaylistFileDialog` — add a playlist from a file.
 - `AddPlaylistUrlDialog` — add by URL.
@@ -377,7 +381,7 @@ Then install the clangd extension in VSCode — it will use
 - `AddIPTVPlaylistDialog` — add a playlist from IPTV-Org (filter by country, language, category).
 - `ManualMappingDialog` — manual channel-to-EPG mapping.
 
-## Technologies
+### Technologies
 
 - **C++20** (per `CMakeLists.txt`).
 - **wxWidgets 3.3.2** (static build).

@@ -62,7 +62,6 @@ std::string NormalizeFileNameForDisk(const std::string &input,
                                      NormalizeFileNameMode mode = Disk);
 void showError(wxWindow *parent, const wxString &message,
                const wxString &title = "Error");
-std::vector<wxString> extractAllUrls(const wxString &s);
 void showInfo(wxWindow *parent, const wxString &message,
               const wxString &caption = wxT("Info"));
 

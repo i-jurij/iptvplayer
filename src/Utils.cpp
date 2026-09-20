@@ -429,65 +429,6 @@ void showInfo(wxWindow *parent, const wxString &message,
 }
 
 // ============================================================================
-// Вытаскивание URL из строки
-// ============================================================================
-std::vector<wxString> extractAllUrls(const wxString &s) {
-  std::vector<wxString> urls;
-
-  wxRegEx re(R"((https?://[^\s]+))", wxRE_EXTENDED);
-  if (!re.IsValid())
-    return urls;
-
-  size_t searchPos = 0;
-
-  while (searchPos < s.length()) {
-    wxString sub = s.Mid(searchPos);
-
-    if (!re.Matches(sub))
-      break;
-
-    wxString match = re.GetMatch(sub, 0);
-
-    // Найти реальную позицию match в исходной строке
-    size_t localPos = sub.find(match);
-    if (localPos == wxString::npos)
-      break;
-
-    size_t globalPos = searchPos + localPos;
-
-    wxString url = match;
-
-    // Убираем хвостовую пунктуацию
-    while (!url.empty()) {
-      wxChar last = url.Last();
-      if (last == ')' || last == ']' || last == '}' || last == '.' ||
-          last == ',' || last == ';' || last == ':')
-        url.RemoveLast();
-      else
-        break;
-    }
-
-    // Убираем ведущие скобки/кавычки
-    while (!url.empty()) {
-      wxChar first = url[0];
-      if (first == '(' || first == '[' || first == '{' || first == '"' ||
-          first == '\'')
-        url.Remove(0, 1);
-      else
-        break;
-    }
-
-    if (!url.empty())
-      urls.push_back(url);
-
-    // Двигаемся дальше
-    searchPos = globalPos + match.length();
-  }
-
-  return urls;
-}
-
-// ============================================================================
 // Форматирование времени
 // ============================================================================
 

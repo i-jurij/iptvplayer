@@ -9,7 +9,11 @@
 #   - работает с уже собранным бинарником из install/, staging не нужен;
 #   - quick-sharun сам сканирует зависимости (ldd + strace, включая dlopen);
 #   - встраивает собственный ld-linux/musl, поэтому AppImage запускается на
-#     старых glibc, musl-системах (Alpine) и NixOS без FHS.
+#     старых glibc, musl-системах (Alpine) и NixOS без FHS;
+#   - бандлит GPU-стек целиком (OpenGL + Vulkan, включая loader libvulkan.so.1
+#     и mesa ICD-драйверы), чтобы приложение работало даже на системах без
+#     Mesa. На хостах с проприетарным NVIDIA-драйвером рендеринг уйдёт в
+#     llvmpipe (software) — осознанный trade-off ради переносимости.
 #
 # Требует установленных переменных (выставляются в build-package.sh):
 #   PROJECT_ROOT, SCRIPT_DIR, APPDIR, OUTPUT_DIR
@@ -53,7 +57,7 @@ build_sharun_appimage() {
     chmod +x "$bin_src" 2>/dev/null || true
 
     # -------------------------------------------------------------------------
-    # quick-sharun.sh — всегда качаем свежий.    #
+    # quick-sharun.sh — всегда качаем свежий.
     # Пин версии на случай сбоя upstream:
     #   QUICK_SHARUN_REF=<commit-sha>  (branch/tag/commit)
     # Пин версии самого sharun — переменной окружения SHARUN_LINK
@@ -118,15 +122,24 @@ build_sharun_appimage() {
     export GTK_CLASS_FIX=1
     # Форсируем deployment gdk-pixbuf (SVG-лоадеры и кэш).
     export DEPLOY_GDK=1
-    # GPU-стек принципиально host-coupled: libEGL/libGLX/libGLdispatch
-    export ANYLINUX_DO_NOT_LOAD_LIBS="libEGL.so*:libGL.so*:libGLX.so*:libGLdispatch.so*:libOpenGL.so*:libGLES*.so*:libglapi.so*:libvulkan.so*:libdrm.so*:libgbm.so*"
+    # Полный бандл GPU-стека. Цель — запускаться и на системах без Mesa
+    # (минимальные контейнеры, musl-дистрибутивы). quick-sharun развернёт
+    # mesa-gl, mesa-vulkan, ICD-драйверы и loader libvulkan.so.1.
+    # На хостах с проприетарным NVIDIA-драйвером рендеринг уйдёт в
+    # llvmpipe (software) — это осознанный trade-off ради переносимости.
+    export DEPLOY_OPENGL=1
+    export DEPLOY_VULKAN=1
+    # Явно снимаем любые ограничения на загрузку библиотек, если они
+    # остались в окружении от предыдущих версий скрипта.
+    unset ANYLINUX_DO_NOT_LOAD_LIBS 2>/dev/null || true
 
     # 1) Развёртывание зависимостей
     echo "[+] Развёртывание зависимостей через quick-sharun..."
     if ! "$QUICK_SHARUN" "$APPDIR/usr/bin/$PACKAGE_NAME"; then
         echo "[!] quick-sharun (deploy) завершился с ошибкой" >&2
         unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
-              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK
+              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK \
+              DEPLOY_OPENGL DEPLOY_VULKAN
         rm -f "$QUICK_SHARUN"
         return 1
     fi
@@ -147,7 +160,8 @@ build_sharun_appimage() {
         echo "[!]   Fedora/RHEL:   librsvg2" >&2
         echo "[!]   Arch:          librsvg" >&2
         unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
-              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK
+              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK \
+              DEPLOY_OPENGL DEPLOY_VULKAN
         rm -f "$QUICK_SHARUN"
         return 1
     fi
@@ -168,23 +182,23 @@ build_sharun_appimage() {
         echo "[i] GDK_PIXBUF_MODULE_FILE уже прописан в .env"
     fi
 
-    # Страховка: удаляем GPU-стек, чтобы рантайм гарантированно взял системные.
-    find "$APPDIR/lib" -maxdepth 1 -regextype posix-extended \
-        -regex '.*/lib(EGL|GL|GLX|GLdispatch|OpenGL|GLESv[12]|glapi|vulkan|drm|gbm)\.so.*' \
-        -delete 2>/dev/null || true
+    # GPU-стек НЕ удаляем — quick-sharun развернул его по DEPLOY_OPENGL/DEPLOY_VULKAN,
+    # и AppImage должен его нести целиком.
 
     # 2) Упаковка AppDir → AppImage (внутри вызывается appimagetool)
     echo "[+] Упаковка AppDir в AppImage..."
     if ! "$QUICK_SHARUN" --make-appimage; then
         echo "[!] quick-sharun --make-appimage завершился с ошибкой" >&2
         unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
-              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK
+              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK \
+              DEPLOY_OPENGL DEPLOY_VULKAN
         rm -f "$QUICK_SHARUN"
         return 1
     fi
 
     unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
-          UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK
+          UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK \
+          DEPLOY_OPENGL DEPLOY_VULKAN
 
     if [ ! -f "$OUTPUT_DIR/$appimage_file" ]; then
         echo "[!] quick-sharun не создал $appimage_file" >&2

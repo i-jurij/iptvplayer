@@ -294,7 +294,10 @@ jobs:
 
           if command -v rpm >/dev/null 2>&1; then
             REAL_GPG="$(command -v gpg)"
-            SIGN_CMD='%{__gpg} --batch --pinentry-mode loopback --passphrase-file /dev/null -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
+            # --passphrase-file НЕ добавляем: его подставит wrapper из PATH
+            # (см. шаг Import GPG key). Если бы здесь был /dev/null, gpg взял бы
+            # последнее значение опции и проигнорировал wrapper.
+            SIGN_CMD='%{__gpg} --batch --pinentry-mode loopback -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
             for f in dist/*.rpm; do
               rpm --addsign \
                   --define "_gpg_name $GPG_KEY_ID" \
@@ -454,8 +457,8 @@ jobs:
 
           | Артефакт | Собрано | Описание |
           |:---|:---:|---|
-          | \`*.AppImage\` | $LLD | linuxdeploy — glibc ≥ 2.39 |
-          | \`*-sharun.AppImage\` | $SHR | quick-sharun — любая Linux, включая старые glibc, musl, NixOS |
+          | \`*.AppImage\` | $LLD | linuxdeploy — glibc ≥ 2.39, использует системный OpenGL/EGL |
+          | \`*-sharun.AppImage\` | $SHR | quick-sharun — свой glibc и рантайм; использует системный OpenGL/EGL |
           | \`.deb\` (Ubuntu) | $deb_ubuntu_cell | Собран на Ubuntu 24.04. Проверен в CI на Ubuntu 26.04. |
           | \`.deb\` (Debian) | $deb_debian_cell | Собран на Debian 13. Проверен в CI на Debian 13. |
           | \`.rpm\` | $rpm_cell | Собран на Rocky 10. Проверен в CI на Rocky 10 и Fedora 44. |
@@ -470,7 +473,7 @@ jobs:
 
           **RHEL 10+, Rocky 10+, Alma 10+, Fedora 40+** (glibc 2.39) → \`iptvplayer-*.rocky-10.x86_64.rpm\`
 
-          **Любая Linux** (включая старые glibc, musl, NixOS) → \`*-sharun.AppImage\`
+          **Любая Linux с системным OpenGL/EGL** (в т.ч. старые glibc, musl-дистрибутивы) → \`*-sharun.AppImage\`
           EOF
           )
 

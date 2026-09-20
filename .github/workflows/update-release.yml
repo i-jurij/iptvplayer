@@ -64,13 +64,59 @@ jobs:
           if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_PASSPHRASE:-}" ]; then
             echo "can_sign=false" >> $GITHUB_OUTPUT; exit 0
           fi
+
           export TMPDIR=/dev/shm
-          export GNUPGHOME="$(mktemp -d)"; chmod 700 "$GNUPGHOME"
-          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          export GNUPGHOME="$(mktemp -d)"
+          chmod 700 "$GNUPGHOME"
+
+          cat > "$GNUPGHOME/gpg.conf" <<'EOF'
+          batch
+          no-tty
+          pinentry-mode loopback
+          EOF
+          cat > "$GNUPGHOME/gpg-agent.conf" <<'EOF'
+          allow-loopback-pinentry
+          pinentry-program /bin/false
+          EOF
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg-connect-agent /bye 2>/dev/null || true
+
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-file /dev/null --import
+
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg-connect-agent /bye 2>/dev/null || true
+
+          REAL_GPG="$(command -v gpg)"
+          WRAPPER_DIR="$(mktemp -d)"
+          chmod 700 "$WRAPPER_DIR"
+          PASSFILE="$WRAPPER_DIR/pass"
+          printf '%s' "$GPG_PASSPHRASE" > "$PASSFILE"
+          chmod 600 "$PASSFILE"
+          cat > "$WRAPPER_DIR/gpg" <<WRAPPER
+          #!/bin/bash
+          exec "$REAL_GPG" --batch --no-tty \
+            --pinentry-mode loopback --passphrase-file "$PASSFILE" "\$@"
+          WRAPPER
+          chmod +x "$WRAPPER_DIR/gpg"
+
           GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5;exit}')
-          echo "GNUPGHOME=$GNUPGHOME"   >> $GITHUB_ENV
-          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
-          echo "can_sign=true"          >> $GITHUB_OUTPUT
+          if [ -z "$GPG_KEY_ID" ]; then
+            echo "::warning::no secret key — релиз без подписи"
+            echo "can_sign=false" >> $GITHUB_OUTPUT; exit 0
+          fi
+
+          if ! echo test | "$WRAPPER_DIR/gpg" --local-user "$GPG_KEY_ID" \
+                 --detach-sign -o /dev/null; then
+            echo "::warning::signing self-test failed — релиз без подписи"
+            echo "can_sign=false" >> $GITHUB_OUTPUT; exit 0
+          fi
+
+          echo "GNUPGHOME=$GNUPGHOME"         >> $GITHUB_ENV
+          echo "GPG_KEY_ID=$GPG_KEY_ID"       >> $GITHUB_ENV
+          echo "GPG_WRAPPER_DIR=$WRAPPER_DIR" >> $GITHUB_ENV
+          echo "$WRAPPER_DIR"                 >> $GITHUB_PATH
+          echo "can_sign=true"                >> $GITHUB_OUTPUT
 
       - name: Sign native packages
         if: steps.gpg.outputs.can_sign == 'true'
@@ -89,7 +135,8 @@ jobs:
 
           if command -v rpm >/dev/null 2>&1; then
             REAL_GPG="$(command -v gpg)"
-            SIGN_CMD='%{__gpg} --batch --pinentry-mode loopback --passphrase-file /dev/null -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
+            # --passphrase-file НЕ добавляем: его подставит wrapper из PATH.
+            SIGN_CMD='%{__gpg} --batch --pinentry-mode loopback -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
             for f in dist/*.rpm; do
               rpm --addsign \
                   --define "_gpg_name $GPG_KEY_ID" \
@@ -115,4 +162,6 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -rf "${GNUPGHOME:-}" 2>/dev/null || true
+        run: |
+          rm -rf "${GNUPGHOME:-}"       2>/dev/null || true
+          rm -rf "${GPG_WRAPPER_DIR:-}" 2>/dev/null || true

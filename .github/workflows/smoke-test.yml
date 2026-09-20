@@ -85,15 +85,19 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # AppImage: тестируем на 5 контейнерах.
+  # AppImage: 5 контейнеров × 2 варианта = 10 отдельных строк в UI.
   #
-  # Два варианта AppImage:
-  #   *-sharun.AppImage     — self-contained, всё бандлит сам;
-  #   *.AppImage            — linuxdeploy, сознательно НЕ несёт libEGL/libOpenGL,
-  #                           использует системный GPU-стек (иначе краши
-  #                           на несовпадении с драйверами хоста).
-  # Поэтому sharun проверяем без доп. зависимостей, а linuxdeploy —
-  # после доустановки системного OpenGL/EGL.
+  # Варианты:
+  #   *-sharun.AppImage     — quick-sharun. Несёт свой glibc и рантайм;
+  #                           как и linuxdeploy, использует системный
+  #                           GPU-стек (OpenGL/EGL/Mesa). Разница — в
+  #                           бандлинге glibc и пользовательских
+  #                           зависимостей, не в GPU.
+  #   *.AppImage            — linuxdeploy. Также системный GPU-стек.
+  #
+  # Оба варианта нуждаются в системном OpenGL/EGL в динамической фазе:
+  # --version его не требует, GUI-ран — требует. Поэтому OpenGL ставится
+  # в обеих ветках матрицы.
   # =========================================================================
   smoke-appimage:
     needs: fetch
@@ -107,6 +111,7 @@ jobs:
           - 'fedora:44'
           - 'rockylinux/rockylinux:10'
           - 'archlinux:latest'
+        variant: [sharun, linuxdeploy]
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -141,37 +146,6 @@ jobs:
               xfce4 desktop-file-utils
           fi
 
-      - name: Extract AppImages
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          APPIMAGES=(dist/*.AppImage)
-          (( ${#APPIMAGES[@]} > 0 )) || { echo "::error::No AppImage"; exit 1; }
-
-          for AI in "${APPIMAGES[@]}"; do
-            chmod +x "$AI"
-            DIR="extract-$(basename "$AI" .AppImage)"
-            rm -rf "$DIR"
-            mkdir -p "$DIR"
-            ( cd "$DIR" && "../$AI" --appimage-extract >/dev/null )
-          done
-          ls -la
-
-      # --- фаза 1: sharun, самодостаточный, без системных либ ---
-      - name: Verify sharun AppImage (self-contained)
-        run: |
-          set -euo pipefail
-          AI=$(ls dist/*-sharun.AppImage 2>/dev/null | head -1)
-          [ -n "$AI" ] || { echo "::error::sharun AppImage не найден"; exit 1; }
-          echo "=== $AI --version (no extra system libs) ==="
-          OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$AI" --version)
-          echo "$OUT"
-          echo "$OUT" | grep -qE '^iptvplayer [0-9]'
-
-      # --- фаза 2: доустановить системный OpenGL/EGL для linuxdeploy ---
-      # linuxdeploy-AppImage сознательно не несёт libEGL/libOpenGL:
-      # приложение десктопное и должно использовать системный GPU-стек,
-      # иначе — краши на несовпадении с драйверами хоста.
       - name: Install OpenGL/EGL system libraries
         run: |
           set -euo pipefail
@@ -187,22 +161,58 @@ jobs:
             pacman -Sy --noconfirm mesa libglvnd
           fi
 
-      # --- фаза 3: linuxdeploy, теперь с системным OpenGL ---
-      - name: Verify linuxdeploy AppImage (uses system OpenGL)
+      - name: Pick AppImage
+        id: pick
         run: |
           set -euo pipefail
-          AI=$(ls dist/*.AppImage 2>/dev/null | grep -v -- '-sharun' | head -1)
-          [ -n "$AI" ] || { echo "::error::linuxdeploy AppImage не найден"; exit 1; }
-          echo "=== $AI --version ==="
+          shopt -s nullglob
+          case "${{ matrix.variant }}" in
+            sharun)
+              AIS=(dist/*-sharun.AppImage)
+              ;;
+            linuxdeploy)
+              AIS=()
+              for f in dist/*.AppImage; do
+                [[ "$f" == *-sharun.AppImage ]] && continue
+                AIS+=("$f")
+              done
+              ;;
+            *)
+              echo "::error::unknown variant: ${{ matrix.variant }}"
+              exit 1
+              ;;
+          esac
+          (( ${#AIS[@]} > 0 )) || { echo "::error::${{ matrix.variant }} AppImage не найден"; exit 1; }
+          AI="${AIS[0]}"
+          chmod +x "$AI"
+          echo "ai=$AI" >> "$GITHUB_OUTPUT"
+          echo "[i] выбран $AI"
+
+      - name: Extract AppImage
+        if: matrix.variant == 'linuxdeploy'
+        run: |
+          set -euo pipefail
+          AI="${{ steps.pick.outputs.ai }}"
+          DIR="extract-$(basename "$AI" .AppImage)"
+          rm -rf "$DIR"
+          mkdir -p "$DIR"
+          ( cd "$DIR" && "../$AI" --appimage-extract >/dev/null )
+          ls -la
+
+      - name: Verify --version
+        run: |
+          set -euo pipefail
+          AI="${{ steps.pick.outputs.ai }}"
+          echo "=== [${{ matrix.variant }}] $AI --version ==="
           OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$AI" --version)
           echo "$OUT"
           echo "$OUT" | grep -qE '^iptvplayer [0-9]'
 
-      - name: Verify resources (linuxdeploy)
+      - name: Verify resources
+        if: matrix.variant == 'linuxdeploy'
         run: |
           set -euo pipefail
-          AI=$(ls dist/*.AppImage | grep -v -- '-sharun' | head -1)
-          [ -n "$AI" ] || { echo "::error::linuxdeploy AppImage не найден"; exit 1; }
+          AI="${{ steps.pick.outputs.ai }}"
           DIR="extract-$(basename "$AI" .AppImage)"
           test -f "$DIR/squashfs-root/usr/share/applications/iptvplayer.desktop"
           test -f "$DIR/squashfs-root/usr/share/icons/hicolor/scalable/apps/iptvplayer.svg"
@@ -216,9 +226,7 @@ jobs:
       - name: Dynamic check (Xvfb, fallback weston)
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          APPIMAGES=(dist/*.AppImage)
-          (( ${#APPIMAGES[@]} > 0 )) || { echo "::error::No AppImage"; exit 1; }
+          AI="${{ steps.pick.outputs.ai }}"
 
           HEADLESS_PID=""
           cleanup() { [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true; }
@@ -248,44 +256,27 @@ jobs:
           fi
           sleep 3
 
-          declare -A RESULT
-          FAILED=0
+          echo "=== [${{ matrix.variant }}] $AI (15s run) ==="
+          APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
+          APP_PID=$!
+          sleep 15
 
-          for AI in "${APPIMAGES[@]}"; do
-            case "$AI" in
-              *-sharun.AppImage) VARIANT="sharun"      ;;
-              *)                 VARIANT="linuxdeploy" ;;
-            esac
-            echo ""
-            echo "=== [$VARIANT] $AI (15s run) ==="
-
-            APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
-            APP_PID=$!
-            sleep 15
-
-            if ! kill -0 "$APP_PID" 2>/dev/null; then
-              echo "::error::[$VARIANT] $AI crashed during startup"
-              wait "$APP_PID" 2>/dev/null || true
-              RESULT["$VARIANT"]="FAIL"
-              FAILED=1
-            else
-              echo "[✓][$VARIANT] survived 15s"
-              RESULT["$VARIANT"]="PASS"
-              kill "$APP_PID" 2>/dev/null || true
-              wait "$APP_PID" 2>/dev/null || true
-            fi
-          done
-
-          echo ""
-          echo "==================== SUMMARY ===================="
-          for V in sharun linuxdeploy; do
-            printf "  %-12s : %s\n" "$V" "${RESULT[$V]:-SKIPPED (нет файла)}"
-          done
-          echo "================================================="
-          exit "$FAILED"
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "::error::[${{ matrix.variant }}] $AI crashed during startup"
+            wait "$APP_PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "[✓][${{ matrix.variant }}] survived 15s"
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
 
   # =========================================================================
-  # Нативные .deb / .rpm: установка и запуск в родных контейнерах
+  # Нативные .deb / .rpm: установка, статические проверки и динамический
+  # запуск /usr/bin/iptvplayer. Каждый пакет — отдельная строка в UI.
+  #
+  # AppImage здесь больше не гоняются: они покрыты в smoke-appimage
+  # (в тех же самых контейнерах). Здесь проверяем именно установленный
+  # нативный пакет, включая его GUI-старт.
   # =========================================================================
   smoke-native:
     needs: fetch
@@ -294,10 +285,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: ubuntu-26.04, family: deb, container: 'ubuntu:26.04',             pkg_distro: ubuntu-24.04 }
-          - { target: debian-13,    family: deb, container: 'debian:13',                pkg_distro: debian-13 }
-          - { target: rocky-10,     family: rpm, container: 'rockylinux/rockylinux:10', pkg_distro: rocky-10 }
-          - { target: fedora-44,    family: rpm, container: 'fedora:44',                pkg_distro: rocky-10 }
+          - { family: deb, target: ubuntu-26.04, container: 'ubuntu:26.04',             pkg_distro: ubuntu-24.04 }
+          - { family: deb, target: debian-13,    container: 'debian:13',                pkg_distro: debian-13 }
+          - { family: rpm, target: rocky-10,     container: 'rockylinux/rockylinux:10', pkg_distro: rocky-10 }
+          - { family: rpm, target: fedora-44,    container: 'fedora:44',                pkg_distro: rocky-10 }
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -327,6 +318,21 @@ jobs:
             dnf install -y weston 2>/dev/null || true
             dnf group install -y "Xfce Desktop" 2>/dev/null \
               || dnf group install -y xfce-desktop 2>/dev/null || true
+          fi
+          
+      - name: Install OpenGL/EGL/Vulkan system libraries
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null; then
+            apt-get install -y --no-install-recommends \
+              libgl1 libegl1 libopengl0 libglvnd0 libglx0 \
+              libglx-mesa0 libgl1-mesa-dri libgbm1 libvulkan1
+          elif command -v dnf >/dev/null; then
+            dnf install -y mesa-libGL mesa-libEGL mesa-dri-drivers \
+                           libglvnd-glx libglvnd-egl libglvnd-opengl \
+                           mesa-libgbm vulkan-loader
+          elif command -v pacman >/dev/null; then
+            pacman -Sy --noconfirm mesa libglvnd vulkan-icd-loader
           fi
 
       - name: Install package
@@ -372,13 +378,9 @@ jobs:
           fi
           echo "OK"
 
-      # --- Фаза 3a: linuxdeploy, headless ---
-      - name: Dynamic check — linuxdeploy
-        if: always()
+      - name: Dynamic check (Xvfb, fallback weston)
         run: |
           set -euo pipefail
-          AI=$(ls dist/*.AppImage 2>/dev/null | grep -v -- '-sharun' | head -1)
-          [ -n "$AI" ] || { echo "::error::linuxdeploy AppImage не найден"; exit 1; }
 
           HEADLESS_PID=""
           cleanup() { [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true; }
@@ -408,64 +410,16 @@ jobs:
           fi
           sleep 3
 
-          echo "=== [linuxdeploy] $AI (15s run) ==="
-          APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
+          echo "=== [/usr/bin/iptvplayer] (15s run) ==="
+          /usr/bin/iptvplayer &
           APP_PID=$!
           sleep 15
+
           if ! kill -0 "$APP_PID" 2>/dev/null; then
-            echo "::error::[linuxdeploy] $AI crashed during startup"
+            echo "::error::/usr/bin/iptvplayer crashed during startup"
             wait "$APP_PID" 2>/dev/null || true
             exit 1
           fi
-          echo "[✓][linuxdeploy] survived 15s"
-          kill "$APP_PID" 2>/dev/null || true
-          wait "$APP_PID" 2>/dev/null || true
-
-      # --- Фаза 3b: sharun, headless ---
-      - name: Dynamic check — sharun
-        if: always()
-        run: |
-          set -euo pipefail
-          AI=$(ls dist/*-sharun.AppImage 2>/dev/null | head -1)
-          [ -n "$AI" ] || { echo "::error::sharun AppImage не найден"; exit 1; }
-
-          HEADLESS_PID=""
-          cleanup() { [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true; }
-          trap cleanup EXIT
-
-          if command -v Xvfb >/dev/null 2>&1; then
-            echo "[i] headless: Xvfb"
-            Xvfb :99 -screen 0 1440x900x24 &
-            HEADLESS_PID=$!
-            export DISPLAY=:99
-          elif command -v weston >/dev/null 2>&1; then
-            echo "[i] headless: weston"
-            export XDG_RUNTIME_DIR=/tmp/weston-runtime
-            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-            weston --backend=headless-backend.so --socket=wayland-1 \
-                   --width=1440 --height=900 &
-            HEADLESS_PID=$!
-            export WAYLAND_DISPLAY=wayland-1
-            export GDK_BACKEND=wayland
-            for _ in $(seq 1 20); do
-              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
-              sleep 0.5
-            done
-          else
-            echo "::error::ни Xvfb, ни weston недоступны"
-            exit 1
-          fi
-          sleep 3
-
-          echo "=== [sharun] $AI (15s run) ==="
-          APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
-          APP_PID=$!
-          sleep 15
-          if ! kill -0 "$APP_PID" 2>/dev/null; then
-            echo "::error::[sharun] $AI crashed during startup"
-            wait "$APP_PID" 2>/dev/null || true
-            exit 1
-          fi
-          echo "[✓][sharun] survived 15s"
+          echo "[✓] iptvplayer survived 15s"
           kill "$APP_PID" 2>/dev/null || true
           wait "$APP_PID" 2>/dev/null || true

@@ -13,6 +13,13 @@
 #   APPIMAGE_ARCH
 #   VERSION, VERSION_FILE
 #
+# Политика GPU-стека: linuxdeploy-AppImage использует СИСТЕМНЫЙ GPU-стек
+# (libEGL, libOpenGL, libGLX, libvulkan, libdrm, libgbm). Это соответствует
+# excludelist самого linuxdeploy и является стандартной практикой: на хосте
+# с проприетарным NVIDIA-драйвером бандленный mesa не сможет использовать
+# реальный GPU. Для максимальной переносимости — используйте sharun-вариант
+# (см. build-sharun.sh), он бандлит GPU-стек целиком.
+#
 # Функции:
 #   populate_appdir  — наполняет $APPDIR через linuxdeploy + GTK-плагин
 #   build_appimage   — упаковывает $APPDIR в .AppImage через appimagetool
@@ -95,6 +102,10 @@ populate_appdir() {
     # usr/lib/fallback. AppRun подключит их к LD_LIBRARY_PATH, только
     # если в системе их нет. FORBIDDEN_RE — то, что бандлить нельзя
     # (GPU-драйверы, DRM, X11/Wayland-сервер, libc и её спутники).
+    #
+    # libvulkan здесь сознательно: linuxdeploy-AppImage придерживается
+    # политики «GPU-стек системный», как и сам linuxdeploy в своём
+    # excludelist. Для self-contained варианта см. build-sharun.sh.
     local FORBIDDEN_RE='^(libEGL|libGLX|libGLdispatch|libOpenGL|libGLES|libGL\.|libGLU|libglapi|libvulkan|libdrm|libgbm|libva|libvdpau|libdisplay-info|libX11|libxcb|libwayland|libc\.so|ld-linux|libm\.so|libpthread|libdl\.so|librt\.so|libutil\.so|libresolv|libnss_|libgcc_s|libstdc\+\+|libz\.so)'
 
     echo "[+] Сбор NEEDED-списка из бинарника и библиотек в APPDIR..."
@@ -148,7 +159,11 @@ populate_appdir() {
 HERE="$(dirname "$(readlink -f "$0")")"
 export APPDIR="${APPDIR:-$HERE}"
 
-export LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/usr/lib/fallback:${LD_LIBRARY_PATH:-}"
+# Основной LD_LIBRARY_PATH — только linuxdeploy-деплой. Fallback-каталог
+# НЕ добавляем: он подключается через FB_TMP ниже, и только теми файлами,
+# которых нет в системе. Иначе бандленный fallback всегда перебивал бы
+# системные библиотеки.
+export LD_LIBRARY_PATH="$APPDIR/usr/lib:${LD_LIBRARY_PATH:-}"
 
 # Хук linuxdeploy-plugin-gtk.sh жёстко ставит GDK_BACKEND=x11 и
 # GTK_THEME=Adwaita:light|dark. Запоминаем пользовательские значения,
@@ -199,7 +214,9 @@ else
 fi
 unset _iptv_saved_gtk_theme _iptv_sys_theme _iptv_dir
 
-# Fallback: в LD_LIBRARY_PATH идут только те либы, которых нет в системе.
+# Fallback: подключаем к LD_LIBRARY_PATH только те бандленные библиотеки,
+# которых нет в системе. Если библиотека есть в системе — используем
+# системную, бандленная остаётся нетронутой на диске.
 if [ -d "$APPDIR/usr/lib/fallback" ]; then
     FB_TMP=$(mktemp -d -t iptvplayer-fb.XXXXXX) || FB_TMP=""
     if [ -n "$FB_TMP" ]; then
@@ -207,7 +224,8 @@ if [ -d "$APPDIR/usr/lib/fallback" ]; then
         for lib in "$APPDIR/usr/lib/fallback"/*.so*; do
             [ -e "$lib" ] || continue
             libname=$(basename "$lib")
-            if ! ldconfig -p 2>/dev/null | grep -q "$libname"; then
+            # Точное совпадение по столбцу, иначе libfoo.so.1 матчит libfoo.so.10.
+            if ! ldconfig -p 2>/dev/null | grep -qE "[[:space:]]${libname}([[:space:]]|$)"; then
                 ln -sf "$lib" "$FB_TMP/$libname"
                 fb_needed=1
             fi
@@ -223,6 +241,9 @@ fi
 
 BIN="$APPDIR/usr/bin/iptvplayer"
 if [ -x "$BIN" ]; then
+    # Проверяем «найдётся ли всё вообще», включая fallback-каталог.
+    # Это не то же самое, что фактический LD_LIBRARY_PATH, — просто
+    # гарантия, что у нас есть чем закрыть пропуски.
     missing=$(LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/usr/lib/fallback:${LD_LIBRARY_PATH:-}" \
               ldd "$BIN" 2>&1 | awk '/not found/ {print $1}' | sort -u)
     if [ -n "$missing" ]; then

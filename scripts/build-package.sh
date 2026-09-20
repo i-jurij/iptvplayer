@@ -162,11 +162,16 @@ sign_files() {
             done
         fi
 
-        # .rpm через rpm --addsign (без правки ~/.rpmmacros)
+        # .rpm через rpm --addsign.
+        # Локальный сценарий: никаких --passphrase-file / --pinentry-mode loopback
+        # в sign_cmd — gpg должен использовать системный gpg-agent + pinentry
+        # (та же логика, что у debsigs для .deb).
+        # CI-сценарий: если в PATH есть GPG_WRAPPER_DIR/gpg (см. release.yml),
+        # wrapper сам добавит --pinentry-mode loopback --passphrase-file <файл>.
         if command -v rpm >/dev/null 2>&1; then
             local real_gpg; real_gpg="$(command -v gpg)"
             local sign_cmd
-            sign_cmd='%{__gpg} --batch --pinentry-mode loopback --passphrase-file /dev/null -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
+            sign_cmd='%{__gpg} -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
 
             for file in "$dist_dir"/*.rpm; do
                 [ -f "$file" ] || continue
