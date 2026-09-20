@@ -395,6 +395,7 @@ if [[ "$SKIP_WX" != true ]]; then
         -DwxUSE_LIBWEBP=builtin \
         -DwxUSE_LIBJPEG=builtin \
         -DwxUSE_SVG=ON \
+        -DwxUSE_REGEX:BOOL=OFF \
         -DwxUSE_MEDIACTRL:BOOL=OFF \
         -DwxUSE_GSTREAMER:BOOL=OFF \
         -DwxUSE_WEBKIT:BOOL=OFF \
