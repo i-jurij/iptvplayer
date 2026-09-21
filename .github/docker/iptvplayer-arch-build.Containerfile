@@ -35,13 +35,11 @@ RUN pacman -Syu --noconfirm --needed \
 
 # Debloated Mesa. Скрипт скачивает mesa-mini, vulkan-*-mini и связанные
 # пакеты из archlinux-pkgs-debloated и ставит их через pacman -U.
-# --prefer-mini вместо --prefer-nano: nano собирается с -Os и по README
-# может иметь проблемы с производительностью (для плеера критично).
 RUN curl -fsSL \
         https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/main/useful-tools/get-debloated-pkgs.sh \
         -o /usr/local/bin/get-debloated-pkgs.sh \
     && chmod +x /usr/local/bin/get-debloated-pkgs.sh \
-    && /usr/local/bin/get-debloated-pkgs.sh --add-mesa --prefer-mini \
+    && /usr/local/bin/get-debloated-pkgs.sh --add-mesa \
     && pacman -Scc --noconfirm
 
 LABEL org.opencontainers.image.source="https://github.com/i-jurij/iptvplayer"
