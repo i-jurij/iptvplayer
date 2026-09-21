@@ -81,6 +81,8 @@ jobs:
     container:
       image: ${{ matrix.container }}
       options: --user root
+      env:
+        PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     defaults:
       run:
         shell: bash
