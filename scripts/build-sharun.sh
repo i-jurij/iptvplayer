@@ -147,14 +147,22 @@ build_sharun_appimage() {
     # =====================================================================
     # Проверка gdk-pixbuf SVG-loader.
     # =====================================================================
+    #
+    # quick-sharun ищет SVG-лоадер глобом по LIB_DIR (не через
+    # loaders.cache), поэтому при установленном librsvg он попадёт в бандл
+    # независимо от состояния кэша. А вот loaders.cache в рантайме
+    # обязателен: без него gdk-pixbuf не увидит НИ ОДНОГО лоадера, даже
+    # если .so лежат рядом. quick-sharun копирует кэш из
+    # $LIB_DIR/gdk-pixbuf-*/*/loaders.cache, который генерируется
+    # post-install-скриптом pacman. В Docker эти скрипты часто не
+    # отрабатывают — в Containerfile мы явно вызываем
+    # `gdk-pixbuf-query-loaders --update-cache`.
+    # =====================================================================
     _bundle_loader="$(find "$APPDIR" -type f \
                       -name 'libpixbufloader*svg*.so*' -print -quit 2>/dev/null || true)"
-    _bundle_cache="$(find "$APPDIR" -type f -name 'loaders.cache' -print -quit 2>/dev/null || true)"
 
-    if [ -z "$_bundle_loader" ] || [ -z "$_bundle_cache" ]; then
+    if [ -z "$_bundle_loader" ]; then
         echo "[!] quick-sharun не выложил gdk-pixbuf SVG-loader в бандл." >&2
-        echo "[!]   loader: ${_bundle_loader:-НЕТ}" >&2
-        echo "[!]   cache : ${_bundle_cache:-НЕТ}" >&2
         echo "[!] Установите на сборочной машине пакет с SVG-лоадером:" >&2
         echo "[!]   Debian/Ubuntu: librsvg2-common" >&2
         echo "[!]   Fedora/RHEL:   librsvg2" >&2
@@ -165,8 +173,45 @@ build_sharun_appimage() {
         rm -f "$QUICK_SHARUN"
         return 1
     fi
-
     echo "[+] gdk-pixbuf SVG-loader: ${_bundle_loader#"$APPDIR"}"
+
+    _bundle_cache="$(find "$APPDIR" -type f -name 'loaders.cache' -print -quit 2>/dev/null || true)"
+
+    if [ -z "$_bundle_cache" ]; then
+        # Fallback: собрать кэш самим из уже развёрнутых лоадеров.
+        # Страховка на случай, если в образе забыли прогнать
+        # gdk-pixbuf-query-loaders --update-cache.
+        if command -v gdk-pixbuf-query-loaders >/dev/null 2>&1; then
+            _loader_dir="$(dirname "$_bundle_loader")"
+            _generated="${_loader_dir}/loaders.cache"
+            echo "[i] loaders.cache отсутствует, генерирую из $_loader_dir..."
+            if gdk-pixbuf-query-loaders "$_loader_dir"/*.so* > "$_generated" 2>/dev/null \
+               && [ -s "$_generated" ]; then
+                # Убираем абсолютные пути — sharun резолвит голые имена
+                # через LD_LIBRARY_PATH (та же логика, что у quick-sharun).
+                sed -i \
+                    -e 's|/usr/lib/.*/loaders/||g' \
+                    -e "s|$_loader_dir/||g" \
+                    "$_generated"
+                _bundle_cache="$_generated"
+                echo "[+] Сгенерирован loaders.cache: ${_bundle_cache#"$APPDIR"}"
+            else
+                rm -f "$_generated"
+                echo "[!] не удалось сгенерировать loaders.cache" >&2
+            fi
+        fi
+    fi
+
+    if [ -z "$_bundle_cache" ]; then
+        echo "[!] loaders.cache отсутствует в бандле и не удалось его создать." >&2
+        echo "[!] Убедитесь, что в сборочном образе выполняется:" >&2
+        echo "[!]   gdk-pixbuf-query-loaders --update-cache" >&2
+        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
+              UPINFO GTK_CLASS_FIX DEPLOY_GDK \
+              DEPLOY_OPENGL DEPLOY_VULKAN
+        rm -f "$QUICK_SHARUN"
+        return 1
+    fi
     echo "[+] gdk-pixbuf loaders.cache: ${_bundle_cache#"$APPDIR"}"
 
     # Прописать GDK_PIXBUF_MODULE_FILE, если quick-sharun сам не сделал.
