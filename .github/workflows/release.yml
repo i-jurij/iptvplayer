@@ -354,120 +354,23 @@ jobs:
           name: arch-install
           path: install
 
-      - name: Restore executable bit
+      - name: Build Arch package
         run: |
           set -euo pipefail
-          # actions/upload-artifact не сохраняет режим файлов —
-          # всё выгружается как 644. Возвращаем +x бинарнику.
+          # actions/upload-artifact не сохраняет exec-бит, всё выгружается
+          # как 644. Возвращаем +x бинарнику до вызова скрипта.
           chmod +x install/bin/iptvplayer
           ls -la install/bin/
 
-      - name: Detect runtime dependencies
-        id: detect
-        run: |
-          set -euo pipefail
+          chmod +x scripts/build-package.sh \
+                   scripts/build-native.sh \
+                   scripts/build-sharun.sh \
+                   scripts/build-appimage.sh \
+                   scripts/common.sh
 
-          pacman -Fy >/dev/null 2>&1 || true
-
-          BIN="install/bin/iptvplayer"
-          [ -x "$BIN" ] || { echo "::error::$BIN не найден или не исполняем"; exit 1; }
-
-          ldd "$BIN" 2>/dev/null \
-            | awk '
-                /=>/ && $3 ~ /^\//  { print $3 }
-                /^\t\//              { print $1 }
-              ' \
-            | sort -u > /tmp/iptv-libs.txt
-
-          echo "=== resolved libraries ==="
-          cat /tmp/iptv-libs.txt
-
-          : > /tmp/iptv-pkgs.txt
-          while IFS= read -r lib; do
-            [ -z "$lib" ] && continue
-            pacman -Fq "$lib" 2>/dev/null \
-              | awk -F/ '{print $2}' >> /tmp/iptv-pkgs.txt || true
-          done < /tmp/iptv-libs.txt
-
-          DEPS=$(sort -u /tmp/iptv-pkgs.txt \
-                 | grep -vxE 'glibc|gcc-libs' \
-                 | grep -v '^$' \
-                 | tr '\n' ' ')
-
-          # Ручные runtime-зависимости, которые ldd не видит (dlopen).
-          #   mesa          — OpenGL/Vulkan ICD
-          #   gdk-pixbuf2   — pixbuf-лоадеры для иконок
-          #   librsvg       — SVG-лоадер для gdk-pixbuf
-          # HW-декодирование (libva-mesa-driver и т. п.) — на усмотрение
-          # пользователя, в depends не включаем.
-          EXTRA_DEPS="mesa gdk-pixbuf2 librsvg"
-
-          ALL_DEPS="$DEPS $EXTRA_DEPS"
-          echo "[i] auto-detected: $DEPS"
-          echo "[i] extras:       $EXTRA_DEPS"
-          echo "[i] final:        $ALL_DEPS"
-          echo "deps=$ALL_DEPS" >> "$GITHUB_OUTPUT"
-
-      - name: Create PKGBUILD
-        env:
-          DEPS: ${{ steps.detect.outputs.deps }}
-        run: |
-          set -euo pipefail
-          VERSION=$(tr -d '\n\r' < install/VERSION)
-
-          deps_array=""
-          for d in $DEPS; do
-            deps_array+="'$d' "
-          done
-
-          mkdir -p /tmp/archpkg
-          cat > /tmp/archpkg/PKGBUILD <<EOF
-          # Maintainer: i-jurij <mnisjil@duck.com>
-          pkgname=iptvplayer
-          pkgver=${VERSION}
-          pkgrel=1
-          pkgdesc="IPTV playlist player (wxWidgets + libmpv)"
-          arch=('x86_64')
-          url="https://github.com/i-jurij/iptvplayer"
-          license=('MIT')
-          depends=(${deps_array})
-          source=()
-
-          package() {
-            cd "\$startdir/install"
-            # Копируем только bin/ и share/, чтобы VERSION* не попали в /.
-            install -d "\$pkgdir/usr/bin" "\$pkgdir/usr/share"
-            cp -a bin/iptvplayer "\$pkgdir/usr/bin/"
-            cp -a share/. "\$pkgdir/usr/share/"
-          }
-          EOF
-
-          echo "=== PKGBUILD ==="
-          cat /tmp/archpkg/PKGBUILD
-
-      - name: Build .pkg.tar.zst
-        run: |
-          set -euo pipefail
-
-          # makepkg не работает от root. Создаём пользователя и отдаём
-          # ему изолированную директорию /tmp/archpkg. Репозиторий с
-          # third_party не трогаем — chown по нему занимает секунды.
-          useradd -m builder 2>/dev/null || true
-          cp -a install /tmp/archpkg/install
-          chown -R builder:builder /tmp/archpkg
-
-          cd /tmp/archpkg
-          # --nodeps: проверку зависимостей пропускаем, пакет несёт их
-          #           только как метаданные для конечного пользователя.
-          runuser -u builder -- /usr/bin/makepkg --nodeps --noconfirm
-
-          shopt -s nullglob
-          pkgs=(/tmp/archpkg/*.pkg.tar.zst)
-          (( ${#pkgs[@]} > 0 )) || { echo "::error::makepkg не создал .pkg.tar.zst"; exit 1; }
-
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          cp "${pkgs[@]}" "$GITHUB_WORKSPACE/dist/"
-          ls -la "$GITHUB_WORKSPACE/dist/"
+          # Вся логика — в build-native.sh:build_pkg_arch.
+          ./scripts/build-package.sh --native-arch --yes
+          ls -la dist/
 
       - name: Import GPG key
         id: gpg

@@ -163,7 +163,7 @@ EOF
     return 0
 }
 
-# ---- Нативный .pkg.tar.zst ----
+# ---- Нативный .pkg.tar.zst ARCH ----
 build_pkg_arch() {
     # На не-Arch системах этот путь недоступен (меню его не предлагает).
     # Явный вызов --native-arch на Ubuntu/Debian — ошибка пользователя.
@@ -182,10 +182,93 @@ build_pkg_arch() {
         fi
     fi
 
-    local workdir; workdir="$(mktemp -d)"
-    cd "$workdir"
+    # Артефакты CI (upload-artifact/download-artifact) теряют exec-бит.
+    # Локально он есть, но chmod идемпотентен — просто подстрахуемся.
+    chmod +x "$STAGING_DIR/usr/bin/$PACKAGE_NAME" 2>/dev/null || true
 
-    cat > PKGBUILD <<EOF
+    # -------------------------------------------------------------------------
+    # Автоопределение runtime-зависимостей.
+    #   ldd по бинарнику → список .so
+    #   pacman -Fq       → пакет-владелец каждой .so
+    #   минус glibc/gcc-libs (системные, не пакетные метаданные)
+    #   плюс EXTRA_DEPS для того, что грузится через dlopen и ldd его не видит.
+    # -------------------------------------------------------------------------
+    local BIN="$STAGING_DIR/usr/bin/$PACKAGE_NAME"
+    [ -x "$BIN" ] || { echo "[!] $BIN не исполняем" >&2; return 1; }
+
+    # pacman -Fy требует root; если не root — БД файлов могла быть
+    # синхронизирована раньше. Если её нет, автоопределение даст
+    # пустой результат, и мы упадём на fallback-список.
+    if [ "$(id -u)" -eq 0 ]; then
+        pacman -Fy >/dev/null 2>&1 || true
+    fi
+
+    local libs_tmp pkgs_tmp
+    libs_tmp=$(mktemp)
+    pkgs_tmp=$(mktemp)
+
+    ldd "$BIN" 2>/dev/null \
+      | awk '
+          /=>/ && $3 ~ /^\//  { print $3 }
+          /^\t\//              { print $1 }
+        ' \
+      | sort -u > "$libs_tmp"
+
+    : > "$pkgs_tmp"
+    while IFS= read -r lib; do
+        [ -z "$lib" ] && continue
+        pacman -Fq "$lib" 2>/dev/null \
+          | awk -F/ '{print $2}' >> "$pkgs_tmp" || true
+    done < "$libs_tmp"
+
+    local auto_deps
+    auto_deps=$(sort -u "$pkgs_tmp" \
+                | grep -vxE 'glibc|gcc-libs' \
+                | grep -v '^$' \
+                | tr '\n' ' ')
+    rm -f "$libs_tmp" "$pkgs_tmp"
+
+    # dlopen-зависимости, которые ldd не видит.
+    #   mesa        — OpenGL/Vulkan ICD (грузится через libGL/libvulkan)
+    #   gdk-pixbuf2 — pixbuf-лоадеры для иконок (GdkPixbuf API)
+    #   librsvg     — SVG-лоадер для gdk-pixbuf
+    local extra_deps="mesa gdk-pixbuf2 librsvg"
+
+    local all_deps="$auto_deps $extra_deps"
+
+    # Fallback: если автоопределение дало <3 пакетов (например,
+    # файловая БД pacman не синхронизирована и не root), используем
+    # минимальный проверенный список.
+    local auto_count
+    auto_count=$(printf '%s\n' $auto_deps | grep -c .)
+    if [ "$auto_count" -lt 3 ]; then
+        echo "[i] автоопределение зависимостей дало $auto_count пакет(ов) — используем fallback-список"
+        all_deps="mpv gtk3 gdk-pixbuf2 librsvg curl expat zlib mesa"
+    fi
+
+    echo "[i] auto-detected: $auto_deps"
+    echo "[i] extras:        $extra_deps"
+    echo "[i] final:         $all_deps"
+
+    # -------------------------------------------------------------------------
+    # PKGBUILD + makepkg.
+    # Работаем в изолированном $workdir, чтобы makepkg не трогал
+    # ни $STAGING_DIR, ни репозиторий.
+    # -------------------------------------------------------------------------
+    local workdir; workdir="$(mktemp -d)"
+
+    # Копируем staging с сохранением прав. makepkg потом переустановит
+    # права как надо при упаковке; нам важно только чтобы у builder
+    # был доступ на чтение.
+    cp -a "$STAGING_DIR/usr" "$workdir/staging_usr"
+
+    local deps_array=""
+    local d
+    for d in $all_deps; do
+        deps_array+="'$d' "
+    done
+
+    cat > "$workdir/PKGBUILD" <<EOF
 pkgname=$PACKAGE_NAME
 pkgver=$VERSION
 pkgrel=1
@@ -193,20 +276,43 @@ pkgdesc="IPTV Playlist Player"
 arch=('$APPIMAGE_ARCH')
 url="https://github.com/i-jurij/$PACKAGE_NAME"
 license=('MIT')
-depends=('mpv' 'gtk3' 'curl' 'expat' 'zlib')
+# !debug: без отдельного -debug пакета с символами — он не нужен
+# в релизе и удваивает размер артефактов.
+options=('!debug')
+depends=($deps_array)
 
 package() {
-    cp -a "$STAGING_DIR/usr" "\$pkgdir/"
+    install -d "\$pkgdir/usr"
+    cp -a "\$startdir/staging_usr/." "\$pkgdir/usr/"
 }
 EOF
 
-    if ! makepkg -f --nodeps --nocheck; then
-        echo "[!] makepkg упал (см. вывод выше)" >&2
-        cd "$PROJECT_ROOT"; rm -rf "$workdir"; return 1
+    # makepkg отказывается работать от root. Если мы root — создаём
+    # (идемпотентно) пользователя builder и отдаём ему workdir.
+    local makepkg_cmd
+    if [ "$(id -u)" -eq 0 ]; then
+        useradd -m builder 2>/dev/null || true
+        chown -R builder:builder "$workdir"
+        makepkg_cmd="runuser -u builder -- makepkg -f --nodeps --nocheck"
+    else
+        makepkg_cmd="makepkg -f --nodeps --nocheck"
     fi
 
+    (
+        cd "$workdir"
+        # shellcheck disable=SC2086
+        if ! $makepkg_cmd; then
+            echo "[!] makepkg упал (см. вывод выше)" >&2
+            exit 1
+        fi
+    ) || { cd "$PROJECT_ROOT"; rm -rf "$workdir"; return 1; }
+
+    # Фильтруем debug-пакет — даже при options=('!debug') подстрахуемся.
     local built
-    built=$(find "$workdir" -maxdepth 1 -name "*.pkg.tar.zst" -print -quit)
+    built=$(find "$workdir" -maxdepth 1 \
+              -name '*.pkg.tar.zst' \
+              ! -name '*-debug-*' \
+              -print -quit)
     if [ -n "$built" ]; then
         mv "$built" "$pkg_file"
         echo "[✓] Нативный .pkg.tar.zst: $pkg_file"
