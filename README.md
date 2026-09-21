@@ -1,6 +1,6 @@
 # IPTV Player
 
-A cross-platform IPTV player with M3U playlist support, favorites, channel logos, and an Electronic Program Guide (EPG).
+A IPTV player with M3U playlist support, favorites, channel logos, and an Electronic Program Guide (EPG).
 
 ---
 

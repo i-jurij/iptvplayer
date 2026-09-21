@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: '["ubuntu-24.04","debian-13","rocky-10"]'
+    secrets:
+      GPG_PRIVATE_KEY:
+        required: false
+      GPG_PASSPHRASE:
+        required: false
   workflow_dispatch:
     inputs:
       targets:
@@ -98,7 +103,8 @@ jobs:
             apt-get update -qq
             apt-get install -y --no-install-recommends \
               build-essential cmake git autoconf automake libtool pkg-config \
-              wget curl ca-certificates file xz-utils dpkg-dev fakeroot
+              wget curl ca-certificates file xz-utils dpkg-dev fakeroot \
+              gnupg debsigs
           elif [ "${{ matrix.pkgmgr }}" = "dnf" ]; then
             if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
               dnf install -y dnf-plugins-core
@@ -107,7 +113,7 @@ jobs:
             fi
             dnf install -y gcc gcc-c++ make cmake git autoconf automake libtool \
               pkgconf-pkg-config wget curl ca-certificates file xz \
-              rpm-build rpm-sign
+              rpm-build rpm-sign gnupg2
           fi
 
       - name: Install runtime + dev libs
@@ -136,6 +142,74 @@ jobs:
           ./scripts/setup-deps.sh --yes --skip-system
           ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
 
+      # Обёртка gpg в $GPG_WRAPPER_DIR + GPG_KEY_ID — чтобы sign_files()
+      # внутри build-package.sh подписал .deb/.rpm встроенной подписью.
+      # Идентично шагу Import GPG key в release.yml.
+      - name: Import GPG key
+        id: gpg
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GPG_PRIVATE_KEY:-}" ] || [ -z "${GPG_PASSPHRASE:-}" ]; then
+            echo "can_sign=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          export TMPDIR=/dev/shm
+          export GNUPGHOME="$(mktemp -d)"
+          chmod 700 "$GNUPGHOME"
+
+          cat > "$GNUPGHOME/gpg.conf" <<'EOF'
+          batch
+          no-tty
+          pinentry-mode loopback
+          EOF
+          cat > "$GNUPGHOME/gpg-agent.conf" <<'EOF'
+          allow-loopback-pinentry
+          pinentry-program /bin/false
+          EOF
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg-connect-agent /bye 2>/dev/null || true
+
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-file /dev/null --import
+
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg-connect-agent /bye 2>/dev/null || true
+
+          REAL_GPG="$(command -v gpg)"
+          WRAPPER_DIR="$(mktemp -d)"
+          chmod 700 "$WRAPPER_DIR"
+          PASSFILE="$WRAPPER_DIR/pass"
+          printf '%s' "$GPG_PASSPHRASE" > "$PASSFILE"
+          chmod 600 "$PASSFILE"
+          cat > "$WRAPPER_DIR/gpg" <<WRAPPER
+          #!/bin/bash
+          exec "$REAL_GPG" --batch --no-tty \
+            --pinentry-mode loopback --passphrase-file "$PASSFILE" "\$@"
+          WRAPPER
+          chmod +x "$WRAPPER_DIR/gpg"
+
+          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5;exit}')
+          if [ -z "$GPG_KEY_ID" ]; then
+            echo "can_sign=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if ! echo test | "$WRAPPER_DIR/gpg" --local-user "$GPG_KEY_ID" \
+                 --detach-sign -o /dev/null; then
+            echo "can_sign=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "GNUPGHOME=$GNUPGHOME"         >> $GITHUB_ENV
+          echo "GPG_KEY_ID=$GPG_KEY_ID"       >> $GITHUB_ENV
+          echo "GPG_WRAPPER_DIR=$WRAPPER_DIR" >> $GITHUB_ENV
+          echo "$WRAPPER_DIR"                 >> $GITHUB_PATH
+          echo "can_sign=true"                >> $GITHUB_OUTPUT
+
       - name: Build native package
         run: |
           set -euo pipefail
@@ -150,6 +224,8 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: native-${{ matrix.target }}
-          path: dist/*.${{ matrix.family }}
+          path: |
+            dist/*.${{ matrix.family }}
+            dist/*.${{ matrix.family }}.asc
           retention-days: 1
           if-no-files-found: error

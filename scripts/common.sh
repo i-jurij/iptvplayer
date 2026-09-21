@@ -301,9 +301,11 @@ check_deps() {
         command -v patchelf >/dev/null 2>&1 || required+=("patchelf")
     fi
 
-    if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]]; } && ! command -v debsigs >/dev/null 2>&1; then
-        optional+=("debsigs")
+    if [[ -n "${GPG_KEY_ID:-}" && "$need_native_deb" == true && "$pkgmgr" == deb ]] \
+       && ! command -v debsigs >/dev/null 2>&1; then
+        required+=("debsigs")
     fi
+
     if [[ "$need_appimage" == true ]] && ! command -v zsyncmake >/dev/null 2>&1; then
         optional+=("zsyncmake")
     fi
@@ -312,11 +314,11 @@ check_deps() {
         echo "[!] Не хватает обязательных инструментов: ${required[*]}"
         exit 1
     fi
+
     if [ ${#optional[@]} -ne 0 ]; then
         echo "[i] Опциональные инструменты не найдены: ${optional[*]}"
         for tool in "${optional[@]}"; do
             case "$tool" in
-                debsigs)   echo "    → .deb не будет подписан (sudo apt install debsigs)" ;;
                 zsyncmake) echo "    → .zsync не будет сгенерирован (sudo apt install zsync)" ;;
             esac
         done

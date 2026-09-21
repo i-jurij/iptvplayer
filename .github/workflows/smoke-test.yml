@@ -74,6 +74,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --dir dist \
             --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm' \
+            --pattern '*.asc' --pattern 'public-key.asc' \
             --clobber
           ls -la dist/
 
@@ -423,3 +424,103 @@ jobs:
           echo "[✓] iptvplayer survived 15s"
           kill "$APP_PID" 2>/dev/null || true
           wait "$APP_PID" 2>/dev/null || true
+
+      - name: Verify package signature (informational)
+        if: always()
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+
+          # --- инструменты для проверки ---------------------------------
+          # На apt-системах debsigs по умолчанию нет — доставим,
+          # чтобы проверка была содержательной, а не «нет утилиты».
+          if command -v apt-get >/dev/null 2>&1; then
+            if ! command -v debsigs >/dev/null 2>&1; then
+              apt-get install -y --no-install-recommends debsigs >/dev/null 2>&1 \
+                || echo "::warning::не удалось поставить debsigs — проверка встроенной подписи .deb пропущена"
+            fi
+            if ! command -v gpg >/dev/null 2>&1; then
+              apt-get install -y --no-install-recommends gnupg >/dev/null 2>&1 \
+                || echo "::warning::не удалось поставить gnupg — проверка .asc пропущена"
+            fi
+          elif command -v dnf >/dev/null 2>&1; then
+            if ! command -v gpg >/dev/null 2>&1; then
+              dnf install -y gnupg2 >/dev/null 2>&1 \
+                || echo "::warning::не удалось поставить gnupg2 — проверка .asc пропущена"
+            fi
+          fi
+
+          # --- импорт публичного ключа ---------------------------------
+          # Если ключ есть в релизе — импортируем, иначе gpg скажет
+          # «no public key», и это тоже будет видно в логе.
+          if [ -f dist/public-key.asc ] && command -v gpg >/dev/null 2>&1; then
+            if gpg --import dist/public-key.asc >/dev/null 2>&1; then
+              echo "[i] публичный ключ импортирован из dist/public-key.asc"
+            else
+              echo "::warning::не удалось импортировать dist/public-key.asc"
+            fi
+          else
+            echo "::warning::dist/public-key.asc отсутствует — проверка подписи будет неполной"
+          fi
+
+          # --- проверка по семейству -----------------------------------
+          case "${{ matrix.family }}" in
+            deb)
+              for f in dist/*.deb; do
+                [ -f "$f" ] || continue
+                base="$(basename "$f")"
+                echo ""
+                echo "=== [$base] встроенная подпись (debsigs) ==="
+                if command -v debsigs >/dev/null 2>&1; then
+                  if debsigs --verify "$f"; then
+                    echo "[✓] debsigs --verify OK"
+                  else
+                    echo "::warning::debsigs --verify не подтвердил $base"
+                  fi
+                else
+                  echo "::warning::debsigs недоступен — проверка встроенной подписи пропущена"
+                fi
+
+                echo "=== [$base.asc] внешняя подпись ==="
+                if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
+                  if gpg --verify "$f.asc" "$f" 2>/dev/null; then
+                    echo "[✓] gpg --verify OK"
+                  else
+                    echo "::warning::gpg --verify не подтвердил $base.asc"
+                  fi
+                else
+                  echo "::warning::$base.asc отсутствует — внешней подписи нет"
+                fi
+              done
+              ;;
+            rpm)
+              for f in dist/*.rpm; do
+                [ -f "$f" ] || continue
+                base="$(basename "$f")"
+                echo ""
+                echo "=== [$base] встроенная подпись (rpm --checksig) ==="
+                sig_out="$(rpm --checksig "$f" 2>&1 || true)"
+                echo "$sig_out"
+                if echo "$sig_out" | grep -q 'signatures OK'; then
+                  echo "[✓] rpm --checksig OK"
+                else
+                  echo "::warning::rpm --checksig не подтвердил $base"
+                fi
+
+                echo "=== [$base.asc] внешняя подпись ==="
+                if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
+                  if gpg --verify "$f.asc" "$f" 2>/dev/null; then
+                    echo "[✓] gpg --verify OK"
+                  else
+                    echo "::warning::gpg --verify не подтвердил $base.asc"
+                  fi
+                else
+                  echo "::warning::$base.asc отсутствует — внешней подписи нет"
+                fi
+              done
+              ;;
+            *)
+              echo "::warning::неизвестное семейство '${{ matrix.family }}' — проверка подписи пропущена"
+              ;;
+          esac

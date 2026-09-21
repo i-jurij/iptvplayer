@@ -1,3 +1,0 @@
-wxString getIconPath(const wxString &iconName)  переписать на 
-использование ICONSDIR вместо DATADIR?
-

@@ -183,7 +183,9 @@ jobs:
     uses: ./.github/workflows/native-packages.yml
     with:
       targets: '["ubuntu-24.04","debian-13","rocky-10"]'
-    secrets: inherit
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
 
   # =========================================================================
   # 4. Публикация: подпись + checksums + релиз
@@ -277,43 +279,13 @@ jobs:
           echo "$WRAPPER_DIR"                 >> $GITHUB_PATH
           echo "can_sign=true"                >> $GITHUB_OUTPUT
 
-      - name: Sign packages
+      # Пакеты уже подписаны в build-jobs (debsigs для .deb,
+      # rpm --addsign для .rpm, detached .asc для AppImage).
+      # Здесь мы только отдаём публичный ключ и подписываем checksums.txt.
+      - name: Export public key
         if: steps.gpg.outputs.can_sign == 'true'
         run: |
           set -euo pipefail
-          shopt -s nullglob
-
-          for f in dist/*.deb; do
-            if command -v debsigs >/dev/null 2>&1; then
-              debsigs --sign=origin --default-key="$GPG_KEY_ID" "$f" \
-                || gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
-            else
-              gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
-            fi
-          done
-
-          if command -v rpm >/dev/null 2>&1; then
-            REAL_GPG="$(command -v gpg)"
-            # --passphrase-file НЕ добавляем: его подставит wrapper из PATH
-            # (см. шаг Import GPG key). Если бы здесь был /dev/null, gpg взял бы
-            # последнее значение опции и проигнорировал wrapper.
-            SIGN_CMD='%{__gpg} --batch --pinentry-mode loopback -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
-            for f in dist/*.rpm; do
-              rpm --addsign \
-                  --define "_gpg_name $GPG_KEY_ID" \
-                  --define "_signature gpg" \
-                  --define "__gpg $REAL_GPG" \
-                  --define "__gpg_check_password_cmd /bin/true" \
-                  --define "__gpg_sign_cmd $SIGN_CMD" \
-                  "$f" 2>/dev/null \
-                || gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
-            done
-          fi
-
-          for f in dist/*.AppImage; do
-            gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f" || true
-          done
-
           gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
 
       - name: Generate checksums

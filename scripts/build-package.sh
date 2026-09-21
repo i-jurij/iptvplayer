@@ -148,52 +148,99 @@ sign_files() {
     fi
 
     if [ "$can_sign" = true ]; then
+        # В CI release.yml/native-packages.yml кладут в $GPG_WRAPPER_DIR
+        # обёртку gpg, которая сама добавляет --batch --no-tty
+        # --pinentry-mode loopback --passphrase-file <файл>. Используем её
+        # ТОЛЬКО для detached-подписей, которые вызываем сами (.asc,
+        # checksums.txt.asc).
+        #
+        # RPM получает passphrase-file внутри __gpg_sign_cmd и запускается
+        # через реальный /usr/bin/gpg. Если дать RPM обёртку из PATH,
+        # опции наложатся дважды (RPM + обёртка), и rpm --checksig потом
+        # скажет SIGNATURES NOT OK
+        local gpg_sign="gpg"
         if [ -n "${GPG_WRAPPER_DIR:-}" ] && [ -x "$GPG_WRAPPER_DIR/gpg" ]; then
-            export PATH="$GPG_WRAPPER_DIR:$PATH"
+            gpg_sign="$GPG_WRAPPER_DIR/gpg"
         fi
+
+        local gpg_real="/usr/bin/gpg"
+        [ -x "$gpg_real" ] || gpg_real="$(command -v gpg)"
+
         echo "[+] Подпись пакетов (ключ: $GPG_KEY_ID)..."
 
-        # .deb через debsigs
-        if command -v debsigs >/dev/null 2>&1; then
-            for file in "$dist_dir"/*.deb; do
-                [ -f "$file" ] || continue
-                debsigs --sign=origin --default-key="$GPG_KEY_ID" "$file" \
-                  || gpg --yes --detach-sign --armor --local-user "$GPG_KEY_ID" --output "$file.asc" "$file" || true
-            done
-        fi
+        # --- .deb: встроенная подпись через debsigs + detached .asc ---
+        for file in "$dist_dir"/*.deb; do
+            [ -f "$file" ] || continue
+            if command -v debsigs >/dev/null 2>&1; then
+                if debsigs --sign=origin --default-key="$GPG_KEY_ID" "$file"; then
+                    if ! debsigs --verify "$file" >/dev/null 2>&1; then
+                        warn "debsigs не подтвердил подпись $(basename "$file") — .deb уедет без встроенной подписи"
+                    fi
+                else
+                    warn "debsigs упал на $(basename "$file") — .deb уедет без встроенной подписи"
+                fi
+            else
+                warn "debsigs не установлен — .deb будет только с detached .asc"
+            fi
 
-        # .rpm через rpm --addsign.
-        # Локальный сценарий: никаких --passphrase-file / --pinentry-mode loopback
-        # в sign_cmd — gpg должен использовать системный gpg-agent + pinentry
-        # (та же логика, что у debsigs для .deb).
-        # CI-сценарий: если в PATH есть GPG_WRAPPER_DIR/gpg (см. release.yml),
-        # wrapper сам добавит --pinentry-mode loopback --passphrase-file <файл>.
+            "$gpg_sign" --yes --detach-sign --armor \
+                --local-user "$GPG_KEY_ID" \
+                --output "$file.asc" "$file" \
+              || warn "detached .asc для $(basename "$file") не создан"
+        done
+
+        # --- .rpm: встроенная подпись через rpm --addsign + detached .asc ---
+        # Локально: passphrase-file нет, работает системный gpg-agent+pinentry.
+        # В CI: passphrase передаётся явно в __gpg_sign_cmd, gpg — реальный.
         if command -v rpm >/dev/null 2>&1; then
-            local real_gpg; real_gpg="$(command -v gpg)"
-            local sign_cmd
-            sign_cmd='%{__gpg} -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
+            local passphrase_file=""
+            if [ -n "${GPG_WRAPPER_DIR:-}" ] && [ -f "$GPG_WRAPPER_DIR/pass" ]; then
+                passphrase_file="$GPG_WRAPPER_DIR/pass"
+            fi
+
+            local sign_cmd='%{__gpg} -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}'
+            if [ -n "$passphrase_file" ]; then
+                sign_cmd="%{__gpg} --batch --no-tty --pinentry-mode loopback --passphrase-file $passphrase_file -u \"%{_gpg_name}\" -sbo %{__signature_filename} %{__plaintext_filename}"
+            fi
 
             for file in "$dist_dir"/*.rpm; do
                 [ -f "$file" ] || continue
-                rpm --addsign \
+                if rpm --addsign \
                     --define "_gpg_name $GPG_KEY_ID" \
                     --define "_signature gpg" \
-                    --define "__gpg $real_gpg" \
+                    --define "__gpg $gpg_real" \
                     --define "__gpg_check_password_cmd /bin/true" \
                     --define "__gpg_sign_cmd $sign_cmd" \
-                    "$file" 2>/dev/null \
-                  || gpg --yes --detach-sign --armor --local-user "$GPG_KEY_ID" --output "$file.asc" "$file" || true
+                    "$file"; then
+                    if rpm --checksig "$file" 2>&1 | grep -q 'signatures OK'; then
+                        log "rpm --checksig OK: $(basename "$file")"
+                    else
+                        warn "rpm --checksig НЕ подтвердил $(basename "$file") — .rpm уедет без встроенной подписи"
+                    fi
+                else
+                    warn "rpm --addsign упал на $(basename "$file") — .rpm уедет без встроенной подписи"
+                fi
+
+                "$gpg_sign" --yes --detach-sign --armor \
+                    --local-user "$GPG_KEY_ID" \
+                    --output "$file.asc" "$file" \
+                  || warn "detached .asc для $(basename "$file") не создан"
             done
         fi
 
-        # AppImage (detached)
+        # --- AppImage: только detached .asc ---
         for file in "$dist_dir"/*.AppImage; do
             [ -f "$file" ] || continue
-            gpg --yes --detach-sign --armor --local-user "$GPG_KEY_ID" --output "$file.asc" "$file" || true
+            "$gpg_sign" --yes --detach-sign --armor \
+                --local-user "$GPG_KEY_ID" \
+                --output "$file.asc" "$file" \
+              || warn "detached .asc для $(basename "$file") не создан"
         done
     fi
 
-    # checksums
+    # checksums — генерируются и локально, и в CI (per-job).
+    # В release.yml полный checksums.txt пересчитывается поверх всех
+    # скачанных артефактов и перезаписывает этот файл.
     echo "[+] Генерация checksums.txt..."
     rm -f "$checksum_file" "$signature_file"
     (
@@ -209,7 +256,8 @@ sign_files() {
     ) > "$checksum_file" || true
 
     if [ "$can_sign" = true ]; then
-        gpg --yes --detach-sign --armor --local-user "$GPG_KEY_ID" \
+        "$gpg_sign" --yes --detach-sign --armor \
+            --local-user "$GPG_KEY_ID" \
             --output "$signature_file" "$checksum_file" || true
     fi
 }
