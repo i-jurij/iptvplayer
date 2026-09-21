@@ -280,6 +280,12 @@ jobs:
           name: arch-install
           path: install
 
+      - name: Restore executable bit
+        run: |
+          set -euo pipefail
+          chmod +x install/bin/iptvplayer
+          ls -la install/bin/
+
       - name: Build AppImage (sharun)
         run: |
           set -euo pipefail
@@ -347,6 +353,14 @@ jobs:
         with:
           name: arch-install
           path: install
+
+      - name: Restore executable bit
+        run: |
+          set -euo pipefail
+          # actions/upload-artifact не сохраняет режим файлов —
+          # всё выгружается как 644. Возвращаем +x бинарнику.
+          chmod +x install/bin/iptvplayer
+          ls -la install/bin/
 
       - name: Detect runtime dependencies
         id: detect
