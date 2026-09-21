@@ -462,11 +462,21 @@ if [[ "$SKIP_WXSQLITE3" != true ]]; then
     cd "$WXSQLITE3_DIR"
 
     WXSQLITE3_ARCHIVE="v$WXSQLITE3_VERSION.tar.gz"
-    WXSQLITE3_URL="https://github.com/utelle/wxsqlite3/archive/refs/tags/$WXSQLITE3_ARCHIVE"
+    # Первым — codeload.github.com напрямую: минует прокси github.com,
+    # который чаще всего и отдаёт 504 (см. transient-сбои в CI).
+    # Вторым — привычный github.com/.../archive/... (редиректит на тот же
+    # codeload, но иногда жив, когда прямой путь залип).
+    WXSQLITE3_URLS=(
+        "https://codeload.github.com/utelle/wxsqlite3/tar.gz/refs/tags/v$WXSQLITE3_VERSION"
+        "https://github.com/utelle/wxsqlite3/archive/refs/tags/$WXSQLITE3_ARCHIVE"
+    )
 
-    if ! download "$WXSQLITE3_URL" "$WXSQLITE3_ARCHIVE" "Mozilla/5.0"; then
+    # UA сохраняем — изначально он был нужен именно для codeload.
+    DOWNLOAD_UA="Mozilla/5.0"
+    if ! download_multi "$WXSQLITE3_ARCHIVE" "${WXSQLITE3_URLS[@]}"; then
         error "Скачивание wxSQLite3 не удалось"
     fi
+    unset DOWNLOAD_UA
 
     tar xf "$WXSQLITE3_ARCHIVE" && rm "$WXSQLITE3_ARCHIVE"
 

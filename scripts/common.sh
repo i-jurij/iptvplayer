@@ -126,9 +126,35 @@ download() {
             cat "$log" >&2
             echo "------------------------" >&2
         fi
-        ((i < tries)) && sleep 5
+        # Экспоненциальный backoff: 5, 10, 20, 30 (capped).
+        # Фиксированные 5s не выходят за пределы короткого transient-окна
+        # на стороне GitHub (504 от прокси github.com → codeload).
+        if ((i < tries)); then
+            local wait=$((5 * (2 ** (i - 1))))
+            (( wait > 30 )) && wait=30
+            sleep "$wait"
+        fi
     done
     rm -f "$log"
+    return 1
+}
+
+# Скачивание с несколькими fallback-URL.
+# $1 — путь назначения. Далее — URL'ы по приоритету: пробуем первый,
+# при полном провале — второй, и т. д.
+# UA — через переменную DOWNLOAD_UA (опционально).
+# Возвращает 0, если хотя бы один URL отдал файл.
+download_multi() {
+    local out="$1"
+    shift
+    local ua="${DOWNLOAD_UA:-}"
+    local url
+    for url in "$@"; do
+        if download "$url" "$out" "$ua"; then
+            return 0
+        fi
+        warn "URL исчерпан, переходим к следующему: $url"
+    done
     return 1
 }
 

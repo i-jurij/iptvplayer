@@ -1,0 +1,103 @@
+name: Import GPG key
+description: |
+  Импортирует ASCII-armored GPG-ключ, готовит обёртку gpg для
+  неинтерактивной подписи (--passphrase-file) и делает self-test.
+  Экспортирует GNUPGHOME, GPG_KEY_ID, GPG_WRAPPER_DIR в GITHUB_ENV,
+  добавляет WRAPPER_DIR в GITHUB_PATH, выдаёт output can_sign.
+
+inputs:
+  private_key:
+    description: ASCII-armored приватный ключ
+    required: false
+  passphrase:
+    description: Парольная фраза ключа
+    required: false
+
+outputs:
+  can_sign:
+    description: "true, если ключ импортирован и self-test прошёл"
+    value: ${{ steps.import.outputs.can_sign }}
+
+runs:
+  using: composite
+  steps:
+    - id: import
+      shell: bash
+      env:
+        GPG_PRIVATE_KEY: ${{ inputs.private_key }}
+        GPG_PASSPHRASE:  ${{ inputs.passphrase }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+          echo "can_sign=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [ -z "${GPG_PASSPHRASE:-}" ]; then
+          echo "::warning::GPG_PASSPHRASE не задан — подписи не будет"
+          echo "can_sign=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # ВАЖНО: НЕ /dev/shm. Он обычно смонтирован с noexec, а мы запускаем
+        # сгенерированную обёртку gpg из $WRAPPER_DIR. На noexec это даёт
+        # "Permission denied" и подписи молча не создаются.
+        # $RUNNER_TEMP (на hosted — /home/runner/work/_temp) exec; /tmp fallback.
+        TMP_BASE="${RUNNER_TEMP:-/tmp}"
+        mkdir -p "$TMP_BASE"
+        export TMPDIR="$TMP_BASE"
+
+        GNUPGHOME="$(mktemp -d)"
+        export GNUPGHOME
+        chmod 700 "$GNUPGHOME"
+
+        cat > "$GNUPGHOME/gpg.conf" <<'EOF'
+        batch
+        no-tty
+        pinentry-mode loopback
+        EOF
+        cat > "$GNUPGHOME/gpg-agent.conf" <<'EOF'
+        allow-loopback-pinentry
+        pinentry-program /bin/false
+        EOF
+        gpgconf --kill gpg-agent 2>/dev/null || true
+        gpg-connect-agent /bye 2>/dev/null || true
+
+        printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --yes \
+          --pinentry-mode loopback --passphrase-file /dev/null --import
+
+        gpgconf --kill gpg-agent 2>/dev/null || true
+        gpg-connect-agent /bye 2>/dev/null || true
+
+        REAL_GPG="$(command -v gpg)"
+        WRAPPER_DIR="$(mktemp -d)"
+        chmod 700 "$WRAPPER_DIR"
+        PASSFILE="$WRAPPER_DIR/pass"
+        printf '%s' "$GPG_PASSPHRASE" > "$PASSFILE"
+        chmod 600 "$PASSFILE"
+        cat > "$WRAPPER_DIR/gpg" <<WRAPPER
+        #!/bin/bash
+        exec "$REAL_GPG" --batch --no-tty \
+          --pinentry-mode loopback --passphrase-file "$PASSFILE" "\$@"
+        WRAPPER
+        chmod +x "$WRAPPER_DIR/gpg"
+
+        GPG_KEY_ID="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5;exit}')"
+        if [ -z "$GPG_KEY_ID" ]; then
+          echo "::warning::секретный ключ не найден — подписи не будет"
+          echo "can_sign=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if ! echo test | "$WRAPPER_DIR/gpg" --local-user "$GPG_KEY_ID" \
+               --detach-sign -o /dev/null; then
+          echo "::warning::self-test подписи провалился — подписи не будет"
+          echo "can_sign=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "GNUPGHOME=$GNUPGHOME"         >> "$GITHUB_ENV"
+        echo "GPG_KEY_ID=$GPG_KEY_ID"       >> "$GITHUB_ENV"
+        echo "GPG_WRAPPER_DIR=$WRAPPER_DIR" >> "$GITHUB_ENV"
+        echo "$WRAPPER_DIR"                 >> "$GITHUB_PATH"
+        echo "can_sign=true"                >> "$GITHUB_OUTPUT"

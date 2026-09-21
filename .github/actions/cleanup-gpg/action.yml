@@ -1,0 +1,17 @@
+name: Cleanup GPG
+description: |
+  Удаляет GNUPGHOME и GPG_WRAPPER_DIR, выставленные ранее composite-действием
+  import-gpg. Вызывать последним шагом job'а с if: always(), чтобы очистка
+  сработала и при падении любого предыдущего шага.
+
+  Отдельное действие, а не runs.post, потому что composite actions не
+  поддерживают post-хуки (actions/runner#1470).
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -uo pipefail
+        rm -rf "${GNUPGHOME:-}"       2>/dev/null || true
+        rm -rf "${GPG_WRAPPER_DIR:-}" 2>/dev/null || true
