@@ -8,20 +8,20 @@ Dockerfile для сборочного образа. Плюс эта справ�
 
 | Путь | Назначение |
 | --- | --- |
-| `workflows/` | GitHub Actions: релиз, smoke-тесты, обслуживание образа, Pages |
+| `workflows/` | GitHub Actions: релиз, smoke-тесты, обслуживание образов, Pages |
 | `actions/import-gpg/` | Composite action: импорт GPG-ключа и self-test подписи |
 | `actions/cleanup-gpg/` | Composite action: удаление временного GNUPGHOME |
-| `docker/iptvplayer-arch-build.Containerfile` | Образ для CI-сборки sharun-AppImage |
+| `docker/iptvplayer-arch-build.Containerfile` | Образ для сборки бинарника, sharun-AppImage и Arch-пакета |
 | `README.md` | Этот файл |
 
 ## Карта workflow
 
 | Файл | Триггер | Что делает |
 | --- | --- | --- |
-| `release.yml` | push в `VERSION`, `workflow_dispatch` | Оркестратор релиза: тег → Arch-образ → AppImage → native-пакеты → публикация |
+| `release.yml` | push в `VERSION`, `workflow_dispatch` | Оркестратор релиза: тег → Arch-образ → бинарник → AppImage + Arch-пакет + native `.deb`/`.rpm` → публикация |
 | `native-packages.yml` | вызов из `release.yml`, `workflow_dispatch` | Сборка `.deb`/`.rpm` в контейнерах. Reusable |
-| `rebuild-arch-image.yml` | cron (1 января/апреля/июля/октября, 04:00 UTC), push в Containerfile, `workflow_dispatch` | Проверка upstream-сигналов и пересборка Arch-образа при изменениях |
-| `smoke-test.yml` | завершение `release.yml`, `workflow_dispatch` | Проверка артефактов релиза в 5 контейнерах (AppImage) + 4 (native) |
+| `rebuild-arch-image.yml` | cron (1 янв/апр/июл/окт, 04:00 UTC), push в Containerfile, `workflow_dispatch` | Проверка upstream-сигналов и пересборка Arch-образа при изменениях |
+| `smoke-test.yml` | завершение `release.yml`, `workflow_dispatch` | Проверка артефактов релиза: 5 контейнеров AppImage + 5 native (deb/rpm/arch) |
 | `update-release.yml` | `workflow_dispatch` | Дозаливка/переподпись native-пакетов в существующий релиз |
 | `docs-pages-site.yml` | push в `docs/`, `workflow_dispatch` | Публикация `docs/` на GitHub Pages |
 
@@ -36,10 +36,11 @@ Dockerfile для сборочного образа. Плюс эта справ�
 
 Ручной запуск через `workflow_dispatch` форсирует `version_changed=true`.
 
-## Job `arch-image` — Arch-образ для AppImage
+## Job `arch-image` — Arch-образ
 
-**Зачем:** sharun-AppImage нужен Arch-контейнер с debloated mesa.
-Собирается один раз, живёт в GHCR (`ghcr.io/i-jurij/iptvplayer-arch-build`).
+**Зачем:** sharun-AppImage, бинарник и Arch-пакет собираются в Arch-контейнере
+с debloated mesa. Образ живёт в GHCR:
+`ghcr.io/i-jurij/iptvplayer-arch-build`.
 
 **Перед сборкой проверяет два сигнала:**
 
@@ -55,31 +56,50 @@ Dockerfile для сборочного образа. Плюс эта справ�
 - сигналы изменились;
 - в `workflow_dispatch` выставлен `rebuild_arch_image=true`.
 
-**Если сигналы не изменились** — job логирует «up to date», образ
-не пересобирается. Дальше `appimage` использует существующий.
+**Если сигналы совпадают** — job логирует «up to date», образ
+не пересобирается. Дальше все Arch-джобы используют существующий.
 
 **Квартальный cron** (`rebuild-arch-image.yml`) делает ровно ту же
 проверку вне релиза, чтобы образ обновлялся, даже если релизы не выходят.
+Push в Containerfile форсирует безусловную пересборку.
+
+## Job `arch-build` — бинарник
+
+Единственное место, где собирается бинарник для Arch-ветки.
+Собирает wxWidgets/wxSQLite3 в `third_party/` (с кэшем по
+`*-arch-appimage-third_party-<hash>`), потом `install/` через
+`build-release.sh`. Результат — артефакт `arch-install` (retention 3 дня).
+
+`--rebuild-deps` в `workflow_dispatch` инвалидирует кэш `third_party`.
 
 ## Job `appimage` — sharun-AppImage
 
-Работает **внутри** Arch-образа из `arch-image` (`container: image: ...`).
-Шаги:
-
-1. Кэш `third_party` по ключу `*-arch-appimage-third_party-<hash>`.
-   Ключ привязан к Arch — Ubuntu-кэш не подходит.
-2. `setup-deps.sh --yes --skip-system` — сборка wxWidgets/wxSQLite3.
-   `--rebuild-deps` игнорирует кэш.
-3. `build-release.sh --type release` — сборка бинарника.
-4. `build-package.sh --sharun --yes` — упаковка AppImage через
-   `quick-sharun.sh` (скачивается в момент сборки).
-5. Артефакт `packages` (retention 3 дня) + лог.
+Скачивает `arch-install`, кладёт в `install/`, вызывает
+`build-package.sh --sharun --yes`. Внутри работает `quick-sharun.sh`
+(скачивается в момент сборки), который разворачивает все зависимости,
+генерирует AppRun, .env и упаковывает через `appimagetool`.
 
 **Update-info:** в `build-sharun.sh` экспортируется `UPINFO` (не
 `UPDATE_INFORMATION` — quick-sharun читает именно `UPINFO`).
 appimagetool вшивает строку обновления и генерирует `.zsync`.
 
-## Job `native-packages` — .deb/.rpm
+Артефакт `packages` (retention 3 дня) + лог `appimage-build-log`.
+
+## Job `arch-pkg` — `.pkg.tar.zst`
+
+1. Скачивает `arch-install`.
+2. **Автодетект зависимостей:** `ldd` по бинарнику → `pacman -Fq` по
+   каждой библиотеке → список пакетов. Плюс `EXTRA_DEPS="mesa
+   gdk-pixbuf2 librsvg"` для `dlopen`-зависимостей, которые `ldd`
+   не видит. `glibc` и `gcc-libs` исключаются.
+3. Генерирует `PKGBUILD` с посчитанными `depends`.
+4. Собирает через `makepkg --nodeps` от пользователя `builder`.
+5. Подписывает `.asc` и заливает артефакт `native-arch`.
+
+`package()` копирует только `install/bin/` и `install/share/` — файлы
+`VERSION*` остаются вне пакета.
+
+## Job `native-packages` — `.deb`/`.rpm`
 
 Reusable workflow. Матрица из `setup` job:
 
@@ -90,13 +110,12 @@ Reusable workflow. Матрица из `setup` job:
 Каждый — в своём контейнере, `--user root`, `env.PATH` задан явно
 (иначе на Rocky `import-gpg` затирает PATH и bash не находится).
 
-Артефакты `native-<target>` (retention 3 дня) — только `.deb`/`.rpm`
-и их `.asc`. Подпись внутри job-а через `import-gpg` + `debsigs`/
-`rpm --addsign`.
+Артефакты `native-<target>` (retention 3 дня) — `.deb`/`.rpm` и их `.asc`.
 
 ## Job `release` — публикация
 
-1. Скачивает артефакты `packages` и `native-*` в `dist/`.
+1. Скачивает артефакты `packages`, `native-*` (включая `native-arch`)
+   в `dist/`.
 2. `import-gpg` → экспорт публичного ключа → `public-key.asc`.
 3. `checksums.txt` по всем файлам, подпись → `checksums.txt.asc`.
 4. Проверка, что есть хоть что-то. Если нет — релиз не создаётся.
@@ -107,26 +126,25 @@ Reusable workflow. Матрица из `setup` job:
 
 ## `smoke-test.yml`
 
-Запускается по завершении `release.yml` (любой исход, success/failure).
-Резолвит тег из VERSION на том же SHA, ждёт появления релиза до
-2 минут, потом:
+Запускается по завершении `release.yml` (любой исход).
+Резолвит тег из VERSION на том же SHA, ждёт релиз до 2 минут, потом:
 
 - скачивает артефакты релиза в artifact `release-assets` (retention 1 день);
 - `smoke-appimage` — 5 контейнеров (ubuntu:26.04, debian:13, fedora:44,
   rockylinux:10, archlinux) × 1 вариант (sharun);
-- `smoke-native` — 4 контейнера (ubuntu:26.04 + debian:13 + rocky-10 +
-  fedora:44), ставит пакет, проверяет `--version`, ресурсы, `ldd`,
-  Xvfb-запуск 15 секунд.
+- `smoke-native` — 5 контейнеров (ubuntu:26.04, debian:13, rocky-10,
+  fedora:44, archlinux): ставит `.deb`/`.rpm`/`.pkg.tar.zst`, проверяет
+  `--version`, ресурсы, `.desktop`, `ldd`, Xvfb-запуск 15 секунд.
+  Для Arch дополнительно проверяется, что `VERSION*` не попали в корень.
 
 ## `update-release.yml`
 
-Ручной ремонт. Берёт артефакты `native-*` из последнего успешного
-`Native packages` (или указанного `native_run_id`), переподписывает
-и заливает в указанный тег через `softprops`.
+Ручной ремонт. Берёт артефакты `native-*` (включая `native-arch`)
+из последнего успешного `Native packages` (или указанного
+`native_run_id`), переподписывает и заливает в указанный тег.
 
-**Ограничение:** workflow-артефакты живут 3 дня. Если прогон
-`Native packages` старше 3 дней, дозалить не получится — надо
-перезапускать `release.yml` целиком.
+**Ограничение:** workflow-артефакты живут 3 дня. Если прогон старше
+3 дней, дозалить не получится — надо перезапускать `release.yml` целиком.
 
 ## Composite actions
 
@@ -158,6 +176,11 @@ Reusable workflow. Матрица из `setup` job:
   в релиз не идёт).
 - `build-package.sh --sharun` — sharun-AppImage (то же, что в CI, но
   на системной mesa, а не debloated).
+- Arch `.pkg.tar.zst` локально не собирается — только в CI, через
+  `makepkg` в Arch-образе. Локально его можно воспроизвести
+  вручную: `podman run --rm -v "$PWD:/src:Z" -w /src
+  ghcr.io/i-jurij/iptvplayer-arch-build:latest ./scripts/build-release.sh ...`
+  потом `makepkg` вручную.
 
 ## Что менять в каком случае
 
@@ -165,8 +188,9 @@ Reusable workflow. Матрица из `setup` job:
 | --- | --- |
 | Новая версия пакета в релиз | `VERSION` |
 | Новый таргет native (.deb/.rpm) | `native-packages.yml` → `ALL`, `release.yml` → `targets` |
-| Новый контейнер в smoke | `smoke-test.yml` → `matrix.container` |
+| Новый контейнер в smoke | `smoke-test.yml` → `matrix.include` / `matrix.container` |
 | Правки тела релиза | `release.yml` → `Compose release body` |
 | Правки Arch-образа | `docker/iptvplayer-arch-build.Containerfile` |
+| Список `EXTRA_DEPS` для Arch-пакета | `release.yml` → `arch-pkg` → `Detect runtime dependencies` |
 | Принудительная пересборка образа | `workflow_dispatch` → `rebuild_arch_image=true` |
 | Принудительная пересборка third_party | `workflow_dispatch` → `rebuild_deps=true` |
