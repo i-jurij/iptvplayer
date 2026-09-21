@@ -47,3 +47,8 @@ LABEL org.opencontainers.image.description="Arch Linux build image for iptvplaye
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.iptvplayer.debloated-release-updated="${DEBLOATED_RELEASE_UPDATED}"
 LABEL org.iptvplayer.debloated-script-sha="${DEBLOATED_SCRIPT_SHA}"
+
+# Файловая база pacman (-Fy) нужна для автодетекта зависимостей нативного
+# пакета: ldd → pacman -Fq → имя пакета. Кэшируется в образе, чтобы
+# не тянуть ~100 МБ файловой базы на каждый релиз.
+RUN pacman -Fy

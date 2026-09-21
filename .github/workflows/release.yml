@@ -202,9 +202,9 @@ jobs:
           cache-to: type=gha,mode=max
 
   # =========================================================================
-  # 3. AppImage (quick-sharun) на подготовленном Arch-образе.
+  # 3. Сборка бинарника в Arch-образе. Один раз для appimage и arch-pkg.
   # =========================================================================
-  appimage:
+  arch-build:
     needs: [version, arch-image]
     if: needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-24.04
@@ -224,8 +224,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Кэш third_party. Ключ привязан к Arch: .a-файлы wxWidgets,
-      # собранные на Ubuntu, не подходят для Arch (другой glibc, ABI).
       - uses: actions/cache@v5
         with:
           path: third_party
@@ -235,8 +233,6 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/setup-deps.sh
-          # Системные пакеты уже в образе; setup-deps.sh собирает только
-          # third_party и не трогает пакетный менеджер.
           if [[ "${REBUILD_DEPS:-}" == "true" ]]; then
             ./scripts/setup-deps.sh --yes --skip-system --rebuild-deps
           else
@@ -248,6 +244,41 @@ jobs:
           set -euo pipefail
           chmod +x scripts/build-release.sh
           ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
+
+      - name: Upload install tree
+        uses: actions/upload-artifact@v5
+        with:
+          name: arch-install
+          path: install/
+          retention-days: 3
+          if-no-files-found: error
+
+  # =========================================================================
+  # 4. AppImage (quick-sharun) на подготовленном Arch-образе.
+  # =========================================================================
+  appimage:
+    needs: [version, arch-image, arch-build]
+    if: needs.version.outputs.version_changed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.arch-image.outputs.image_ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user root
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download install tree
+        uses: actions/download-artifact@v5
+        with:
+          name: arch-install
+          path: install
 
       - name: Build AppImage (sharun)
         run: |
@@ -289,7 +320,174 @@ jobs:
           if-no-files-found: ignore
 
   # =========================================================================
-  # 4. Нативные .deb / .rpm — каждый в своём контейнере
+  # 5. Нативный пакет для Arch (.pkg.tar.zst)
+  #
+  # Берёт готовый install/ из arch-build, формирует PKGBUILD с автоматически
+  # определёнными зависимостями (ldd + pacman -Fq) и собирает пакет через
+  # makepkg от непривилегированного пользователя.
+  # =========================================================================
+  arch-pkg:
+    needs: [version, arch-image, arch-build]
+    if: needs.version.outputs.version_changed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.arch-image.outputs.image_ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user root
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download install tree
+        uses: actions/download-artifact@v5
+        with:
+          name: arch-install
+          path: install
+
+      - name: Detect runtime dependencies
+        id: detect
+        run: |
+          set -euo pipefail
+
+          pacman -Fy >/dev/null 2>&1 || true
+
+          BIN="install/bin/iptvplayer"
+          [ -x "$BIN" ] || { echo "::error::$BIN не найден или не исполняем"; exit 1; }
+
+          ldd "$BIN" 2>/dev/null \
+            | awk '
+                /=>/ && $3 ~ /^\//  { print $3 }
+                /^\t\//              { print $1 }
+              ' \
+            | sort -u > /tmp/iptv-libs.txt
+
+          echo "=== resolved libraries ==="
+          cat /tmp/iptv-libs.txt
+
+          : > /tmp/iptv-pkgs.txt
+          while IFS= read -r lib; do
+            [ -z "$lib" ] && continue
+            pacman -Fq "$lib" 2>/dev/null \
+              | awk -F/ '{print $2}' >> /tmp/iptv-pkgs.txt || true
+          done < /tmp/iptv-libs.txt
+
+          DEPS=$(sort -u /tmp/iptv-pkgs.txt \
+                 | grep -vxE 'glibc|gcc-libs' \
+                 | grep -v '^$' \
+                 | tr '\n' ' ')
+
+          # Ручные runtime-зависимости, которые ldd не видит (dlopen).
+          #   mesa          — OpenGL/Vulkan ICD
+          #   gdk-pixbuf2   — pixbuf-лоадеры для иконок
+          #   librsvg       — SVG-лоадер для gdk-pixbuf
+          # HW-декодирование (libva-mesa-driver и т. п.) — на усмотрение
+          # пользователя, в depends не включаем.
+          EXTRA_DEPS="mesa gdk-pixbuf2 librsvg"
+
+          ALL_DEPS="$DEPS $EXTRA_DEPS"
+          echo "[i] auto-detected: $DEPS"
+          echo "[i] extras:       $EXTRA_DEPS"
+          echo "[i] final:        $ALL_DEPS"
+          echo "deps=$ALL_DEPS" >> "$GITHUB_OUTPUT"
+
+      - name: Create PKGBUILD
+        env:
+          DEPS: ${{ steps.detect.outputs.deps }}
+        run: |
+          set -euo pipefail
+          VERSION=$(tr -d '\n\r' < install/VERSION)
+
+          deps_array=""
+          for d in $DEPS; do
+            deps_array+="'$d' "
+          done
+
+          mkdir -p /tmp/archpkg
+          cat > /tmp/archpkg/PKGBUILD <<EOF
+          # Maintainer: i-jurij <mnisjil@duck.com>
+          pkgname=iptvplayer
+          pkgver=${VERSION}
+          pkgrel=1
+          pkgdesc="IPTV playlist player (wxWidgets + libmpv)"
+          arch=('x86_64')
+          url="https://github.com/i-jurij/iptvplayer"
+          license=('MIT')
+          depends=(${deps_array})
+          source=()
+
+          package() {
+            cd "\$startdir/install"
+            # Копируем только bin/ и share/, чтобы VERSION* не попали в /.
+            install -d "\$pkgdir/usr/bin" "\$pkgdir/usr/share"
+            cp -a bin/iptvplayer "\$pkgdir/usr/bin/"
+            cp -a share/. "\$pkgdir/usr/share/"
+          }
+          EOF
+
+          echo "=== PKGBUILD ==="
+          cat /tmp/archpkg/PKGBUILD
+
+      - name: Build .pkg.tar.zst
+        run: |
+          set -euo pipefail
+
+          # makepkg не работает от root. Создаём пользователя и отдаём
+          # ему изолированную директорию /tmp/archpkg. Репозиторий с
+          # third_party не трогаем — chown по нему занимает секунды.
+          useradd -m builder 2>/dev/null || true
+          cp -a install /tmp/archpkg/install
+          chown -R builder:builder /tmp/archpkg
+
+          cd /tmp/archpkg
+          # --nodeps: проверку зависимостей пропускаем, пакет несёт их
+          #           только как метаданные для конечного пользователя.
+          runuser -u builder -- /usr/bin/makepkg --nodeps --noconfirm
+
+          shopt -s nullglob
+          pkgs=(/tmp/archpkg/*.pkg.tar.zst)
+          (( ${#pkgs[@]} > 0 )) || { echo "::error::makepkg не создал .pkg.tar.zst"; exit 1; }
+
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "${pkgs[@]}" "$GITHUB_WORKSPACE/dist/"
+          ls -la "$GITHUB_WORKSPACE/dist/"
+
+      - name: Import GPG key
+        id: gpg
+        uses: ./.github/actions/import-gpg
+        with:
+          private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase:  ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Sign Arch package
+        if: steps.gpg.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in "$GITHUB_WORKSPACE"/dist/*.pkg.tar.zst; do
+            gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f"
+          done
+
+      - name: Upload Arch package
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: native-arch
+          path: |
+            dist/*.pkg.tar.zst
+            dist/*.pkg.tar.zst.asc
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Cleanup GPG
+        if: always()
+        uses: ./.github/actions/cleanup-gpg
+
+  # =========================================================================
+  # 6. Нативные .deb / .rpm — каждый в своём контейнере
   # =========================================================================
   native-packages:
     needs: version
@@ -302,10 +500,10 @@ jobs:
       GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
 
   # =========================================================================
-  # 5. Публикация: подпись + checksums + релиз
+  # 7. Публикация: подпись + checksums + релиз
   # =========================================================================
   release:
-    needs: [version, appimage, native-packages]
+    needs: [version, appimage, arch-pkg, native-packages]
     if: |
       always() &&
       needs.version.result == 'success' &&
@@ -376,6 +574,7 @@ jobs:
           sharun=(dist/*-sharun.AppImage)
           deb=(dist/*.deb)
           rpm=(dist/*.rpm)
+          arch_pkg=(dist/*.pkg.tar.zst)
 
           deb_ubuntu_count=0
           deb_ubuntu_distros=""
@@ -404,6 +603,7 @@ jobs:
           done
           rpm_distros="${rpm_distros%, }"
 
+          echo "Arch package:          ${#arch_pkg[@]}"
           echo "AppImage(sharun):      ${#sharun[@]}"
           echo ".deb (Ubuntu):         ${deb_ubuntu_count}  [${deb_ubuntu_distros}]"
           echo ".deb (Debian):         ${deb_debian_count}  [${deb_debian_distros}]"
@@ -413,6 +613,7 @@ jobs:
 
           {
             echo "have_sharun=$have_shr"
+            echo "arch_count=${#arch_pkg[@]}"
             echo "deb_ubuntu_count=$deb_ubuntu_count"
             echo "deb_ubuntu_distros=$deb_ubuntu_distros"
             echo "deb_debian_count=$deb_debian_count"
@@ -421,7 +622,7 @@ jobs:
             echo "rpm_distros=$rpm_distros"
           } >> $GITHUB_OUTPUT
 
-          total=$(( ${#sharun[@]} + ${#deb[@]} + ${#rpm[@]} ))
+          total=$(( ${#sharun[@]} + ${#deb[@]} + ${#rpm[@]} + ${#arch_pkg[@]} ))
           if (( total > 0 )); then
             echo "have_artifacts=true" >> $GITHUB_OUTPUT
           else
@@ -444,6 +645,12 @@ jobs:
           dd_d="${{ steps.check.outputs.deb_debian_distros }}"
           rc="${{ steps.check.outputs.rpm_count }}"
           rd="${{ steps.check.outputs.rpm_distros }}"
+          ac="${{ steps.check.outputs.arch_count }}"
+
+          arch_cell="❌ 0"
+          if [[ -n "$ac" && "$ac" != "0" ]]; then
+            arch_cell="✅ $ac"
+          fi
 
           deb_ubuntu_cell="❌ 0"
           if [[ -n "$du_c" && "$du_c" != "0" ]]; then
@@ -469,6 +676,7 @@ jobs:
           | Артефакт | Собрано | Описание |
           |:---|:---:|---|
           | \`*-sharun.AppImage\` | $SHR | quick-sharun — свой glibc и рантайм, GPU-стек в бандле |
+          | \`.pkg.tar.zst\` | $arch_cell | Arch Linux. Установка: \`pacman -U iptvplayer-*.pkg.tar.zst\` |
           | \`.deb\` (Ubuntu) | $deb_ubuntu_cell | Собран на Ubuntu 24.04. Проверен в CI на Ubuntu 26.04. |
           | \`.deb\` (Debian) | $deb_debian_cell | Собран на Debian 13. Проверен в CI на Debian 13. |
           | \`.rpm\` | $rpm_cell | Собран на Rocky 10. Проверен в CI на Rocky 10 и Fedora 44. |
@@ -476,6 +684,8 @@ jobs:
           ### Какой пакет выбрать
 
           <sub>Собранные пакеты могут теоретически работать и на других системах того же семейства с glibc не ниже версии сборочного контейнера.</sub>
+
+          **Arch Linux** → \`iptvplayer-*.pkg.tar.zst\` (установка через \`pacman -U\`)
 
           **Ubuntu 24.04+, Linux Mint 22+** (glibc 2.39) → \`iptvplayer_*_ubuntu-24.04_amd64.deb\`
 
@@ -503,6 +713,7 @@ jobs:
           files: |
             dist/*-sharun.AppImage
             dist/*-sharun.AppImage.zsync
+            dist/*.pkg.tar.zst
             dist/*.deb
             dist/*.rpm
             dist/*.asc

@@ -74,6 +74,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --dir dist \
             --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm' \
+            --pattern '*.pkg.tar.zst' \
             --pattern '*.asc' --pattern 'public-key.asc' \
             --clobber
           ls -la dist/
@@ -238,6 +239,7 @@ jobs:
           - { family: deb, target: debian-13,    container: 'debian:13',                pkg_distro: debian-13 }
           - { family: rpm, target: rocky-10,     container: 'rockylinux/rockylinux:10', pkg_distro: rocky-10 }
           - { family: rpm, target: fedora-44,    container: 'fedora:44',                pkg_distro: rocky-10 }
+          - { family: arch, target: arch,        container: 'archlinux:latest',         pkg_distro: arch }
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -267,6 +269,10 @@ jobs:
             dnf install -y weston 2>/dev/null || true
             dnf group install -y "Xfce Desktop" 2>/dev/null \
               || dnf group install -y xfce-desktop 2>/dev/null || true
+          elif command -v pacman >/dev/null; then
+            pacman -Syu --noconfirm --needed \
+              ca-certificates file xz zstd \
+              xorg-server-xvfb xfce4 desktop-file-utils
           fi
 
       - name: Install OpenGL/EGL/Vulkan system libraries
@@ -290,6 +296,7 @@ jobs:
           case "${{ matrix.family }}" in
             deb) apt-get install -y ./dist/*.deb ;;
             rpm) dnf install -y ./dist/*.rpm ;;
+            arch) pacman -U --noconfirm ./dist/*.pkg.tar.zst ;;
           esac
 
       - name: Verify --version
@@ -395,6 +402,11 @@ jobs:
               dnf install -y gnupg2 >/dev/null 2>&1 \
                 || echo "::warning::не удалось поставить gnupg2 — проверка .asc пропущена"
             fi
+          elif command -v pacman >/dev/null 2>&1; then
+            if ! command -v gpg >/dev/null 2>&1; then
+              pacman -S --noconfirm --needed gnupg >/dev/null 2>&1 \
+                || echo "::warning::не удалось поставить gnupg — проверка .asc пропущена"
+            fi
           fi
 
           # --- импорт публичного ключа ---------------------------------
@@ -452,6 +464,25 @@ jobs:
                   echo "::warning::rpm --checksig не подтвердил $base"
                 fi
 
+                echo "=== [$base.asc] внешняя подпись ==="
+                if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
+                  if gpg --verify "$f.asc" "$f" 2>/dev/null; then
+                    echo "[✓] gpg --verify OK"
+                  else
+                    echo "::warning::gpg --verify не подтвердил $base.asc"
+                  fi
+                else
+                  echo "::warning::$base.asc отсутствует — внешней подписи нет"
+                fi
+              done
+              ;;
+              arch)
+              # .pkg.tar.zst не имеет встроенной подписи, которую понимал бы
+              # pacman без настройки SigLevel. Проверяем только внешний .asc.
+              for f in dist/*.pkg.tar.zst; do
+                [ -f "$f" ] || continue
+                base="$(basename "$f")"
+                echo ""
                 echo "=== [$base.asc] внешняя подпись ==="
                 if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
                   if gpg --verify "$f.asc" "$f" 2>/dev/null; then
