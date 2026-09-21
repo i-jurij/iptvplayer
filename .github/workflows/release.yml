@@ -12,6 +12,10 @@ on:
         description: 'Принудительно пересобрать third_party (игнорировать кэш)'
         type: boolean
         default: false
+      rebuild_arch_image:
+        description: 'Принудительно пересобрать Arch-образ для sharun-AppImage'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -91,16 +95,128 @@ jobs:
           git push origin "refs/tags/${TAG}"
 
   # =========================================================================
-  # 2. AppImage (quick-sharun) на Ubuntu 24.04
+  # 2. Arch-образ для сборки sharun-AppImage.
   #
-  # В релиз идёт только sharun-вариант: он несёт свой glibc и рантайм,
-  # работает на старых glibc и musl-дистрибутивах. linuxdeploy-вариант
-  # собирается только локально (см. build-appimage.sh), в CI не участвует.
+  # Собирается, только если:
+  #   - образ ещё не существует в GHCR (первый прогон);
+  #   - upstream-сигналы изменились (updated_at релиза continuous в
+  #     pkgforge-dev/archlinux-pkgs-debloated или SHA256 скрипта);
+  #   - в workflow_dispatch явно запрошен rebuild_arch_image=true.
+  #
+  # Состояние хранится в LABEL-ах образа. Если сигналы совпадают,
+  # job логирует "up to date" и не пересобирает.
   # =========================================================================
-  appimage:
+  arch-image:
     needs: version
     if: needs.version.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.check.outputs.image_ref }}
+      rebuilt: ${{ steps.check.outputs.rebuilt }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if rebuild is needed
+        id: check
+        env:
+          FORCE_REBUILD: ${{ inputs.rebuild_arch_image }}
+        run: |
+          set -euo pipefail
+
+          IMAGE=$(echo "ghcr.io/${{ github.repository_owner }}/iptvplayer-arch-build" \
+                  | tr '[:upper:]' '[:lower:]')
+          echo "image_ref=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+
+          UPSTREAM_UPDATED=$(curl -fsSL \
+            "https://api.github.com/repos/pkgforge-dev/archlinux-pkgs-debloated/releases/tags/continuous" \
+            | jq -r '.updated_at // "unknown"' || echo "unknown")
+
+          SCRIPT_SHA=$(curl -fsSL \
+            "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/main/useful-tools/get-debloated-pkgs.sh" \
+            | sha256sum | awk '{print $1}' || echo "unknown")
+
+          echo "[i] upstream updated_at: $UPSTREAM_UPDATED"
+          echo "[i] upstream script sha: $SCRIPT_SHA"
+
+          EXISTING_UPDATED=""
+          EXISTING_SHA=""
+          if docker pull "$IMAGE:latest" >/dev/null 2>&1; then
+            LABELS=$(docker inspect "$IMAGE:latest" \
+                     --format '{{json .Config.Labels}}' 2>/dev/null || echo '{}')
+            EXISTING_UPDATED=$(echo "$LABELS" | jq -r \
+              '."org.iptvplayer.debloated-release-updated" // empty')
+            EXISTING_SHA=$(echo "$LABELS" | jq -r \
+              '."org.iptvplayer.debloated-script-sha" // empty')
+            echo "[i] existing updated_at: ${EXISTING_UPDATED:-<none>}"
+            echo "[i] existing script sha: ${EXISTING_SHA:-<none>}"
+          else
+            echo "[i] образ в GHCR пока не существует"
+          fi
+
+          REBUILT="false"
+          if [ "${FORCE_REBUILD:-false}" = "true" ]; then
+            REBUILT="true"
+            echo "[i] принудительная пересборка (workflow_dispatch)"
+          elif [ -z "$EXISTING_UPDATED" ] || [ -z "$EXISTING_SHA" ]; then
+            REBUILT="true"
+            echo "[i] образ отсутствует или LABEL-ы пусты — собираем"
+          elif [ "$EXISTING_UPDATED" != "$UPSTREAM_UPDATED" ] \
+            || [ "$EXISTING_SHA" != "$SCRIPT_SHA" ]; then
+            REBUILT="true"
+            echo "[i] upstream изменился — собираем"
+          else
+            echo "[i] образ актуален, пересборка не требуется"
+          fi
+
+          {
+            echo "rebuilt=$REBUILT"
+            echo "upstream_updated=$UPSTREAM_UPDATED"
+            echo "script_sha=$SCRIPT_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.check.outputs.rebuilt == 'true'
+
+      - name: Build and push image
+        if: steps.check.outputs.rebuilt == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/docker
+          file: .github/docker/iptvplayer-arch-build.Containerfile
+          push: true
+          tags: ${{ steps.check.outputs.image_ref }}
+          build-args: |
+            DEBLOATED_RELEASE_UPDATED=${{ steps.check.outputs.upstream_updated }}
+            DEBLOATED_SCRIPT_SHA=${{ steps.check.outputs.script_sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # =========================================================================
+  # 3. AppImage (quick-sharun) на подготовленном Arch-образе.
+  # =========================================================================
+  appimage:
+    needs: [version, arch-image]
+    if: needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.arch-image.outputs.image_ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user root
     env:
       REBUILD_DEPS: ${{ github.event.inputs.rebuild_deps }}
     steps:
@@ -108,25 +224,30 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Кэш third_party. Ключ привязан к Arch: .a-файлы wxWidgets,
+      # собранные на Ubuntu, не подходят для Arch (другой glibc, ABI).
       - uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-appimage-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-arch-appimage-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
 
-      - name: Install packaging tools + runtime libs
+      - name: Build third_party (wxWidgets, wxSQLite3)
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            cmake gnupg file tar wget xz-utils patchelf \
-            libmpv2 libgtk-3-0t64 libgdk-pixbuf2.0-bin \
-            libcurl4t64 libjpeg-turbo8 libexpat1 zlib1g
           chmod +x scripts/setup-deps.sh
+          # Системные пакеты уже в образе; setup-deps.sh собирает только
+          # third_party и не трогает пакетный менеджер.
           if [[ "${REBUILD_DEPS:-}" == "true" ]]; then
-            ./scripts/setup-deps.sh --yes --rebuild-deps
+            ./scripts/setup-deps.sh --yes --skip-system --rebuild-deps
           else
-            ./scripts/setup-deps.sh --yes
+            ./scripts/setup-deps.sh --yes --skip-system
           fi
+
+      - name: Build binary
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-release.sh
+          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
 
       - name: Build AppImage (sharun)
         run: |
@@ -155,7 +276,7 @@ jobs:
         with:
           name: packages
           path: dist/
-          retention-days: 1
+          retention-days: 3
           if-no-files-found: warn
 
       - name: Upload build log
@@ -164,11 +285,11 @@ jobs:
         with:
           name: appimage-build-log
           path: logs/build-package.log
-          retention-days: 1
+          retention-days: 3
           if-no-files-found: ignore
 
   # =========================================================================
-  # 3. Нативные .deb / .rpm — каждый в своём контейнере
+  # 4. Нативные .deb / .rpm — каждый в своём контейнере
   # =========================================================================
   native-packages:
     needs: version
@@ -181,7 +302,7 @@ jobs:
       GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
 
   # =========================================================================
-  # 4. Публикация: подпись + checksums + релиз
+  # 5. Публикация: подпись + checksums + релиз
   # =========================================================================
   release:
     needs: [version, appimage, native-packages]
@@ -191,9 +312,6 @@ jobs:
       needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
     steps:
-      # Локальный composite action ./.github/actions/import-gpg доступен
-      # только после checkout. Артефакты потом распакуются в dist/ поверх
-      # чистого workspace — дист в репо не хранится, конфликта нет.
       - uses: actions/checkout@v5
 
       - name: Download AppImage
@@ -216,9 +334,6 @@ jobs:
           private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase:  ${{ secrets.GPG_PASSPHRASE }}
 
-      # Пакеты уже подписаны в build-jobs (debsigs для .deb,
-      # rpm --addsign для .rpm, detached .asc для AppImage).
-      # Здесь мы только отдаём публичный ключ и подписываем checksums.txt.
       - name: Export public key
         if: steps.gpg.outputs.can_sign == 'true'
         run: |
@@ -262,7 +377,6 @@ jobs:
           deb=(dist/*.deb)
           rpm=(dist/*.rpm)
 
-          # Разделяем .deb по дистрибутиву (ubuntu-*, debian-*)
           deb_ubuntu_count=0
           deb_ubuntu_distros=""
           deb_debian_count=0
@@ -282,7 +396,6 @@ jobs:
           deb_ubuntu_distros="${deb_ubuntu_distros%, }"
           deb_debian_distros="${deb_debian_distros%, }"
 
-          # Разделяем .rpm по дистрибутиву
           rpm_distros=""
           for f in "${rpm[@]}"; do
             b=$(basename "$f" .rpm)
@@ -308,9 +421,6 @@ jobs:
             echo "rpm_distros=$rpm_distros"
           } >> $GITHUB_OUTPUT
 
-          # Релиз создаётся, если собран хотя бы один артефакт любого типа.
-          # Что именно не собралось — видно в таблице release body. Единственный
-          # случай, когда релиз не имеет смысла, — не собралось совсем ничего.
           total=$(( ${#sharun[@]} + ${#deb[@]} + ${#rpm[@]} ))
           if (( total > 0 )); then
             echo "have_artifacts=true" >> $GITHUB_OUTPUT

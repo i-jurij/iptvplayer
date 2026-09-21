@@ -168,7 +168,7 @@ jobs:
           path: |
             dist/*.${{ matrix.family }}
             dist/*.${{ matrix.family }}.asc
-          retention-days: 1
+          retention-days: 3
           if-no-files-found: error
 
       - name: Cleanup GPG
