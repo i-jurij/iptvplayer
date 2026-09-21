@@ -117,7 +117,7 @@ build_sharun_appimage() {
     export OUTNAME="$appimage_file"
     export ICON="$APPDIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME"
     export DESKTOP="$APPDIR/usr/share/applications/$PACKAGE_NAME.desktop"
-    export UPDATE_INFORMATION="gh-releases-zsync|i-jurij|iptvplayer|latest|iptvplayer-linux-*-sharun.AppImage.zsync"
+    export UPINFO="gh-releases-zsync|i-jurij|iptvplayer|latest|iptvplayer-linux-*-sharun.AppImage.zsync"
     # Поправляет WM_CLASS для GTK-приложений.
     export GTK_CLASS_FIX=1
     # Форсируем deployment gdk-pixbuf (SVG-лоадеры и кэш).
@@ -138,7 +138,7 @@ build_sharun_appimage() {
     if ! "$QUICK_SHARUN" "$APPDIR/usr/bin/$PACKAGE_NAME"; then
         echo "[!] quick-sharun (deploy) завершился с ошибкой" >&2
         unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
-              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK \
+              UPINFO GTK_CLASS_FIX DEPLOY_GDK \
               DEPLOY_OPENGL DEPLOY_VULKAN
         rm -f "$QUICK_SHARUN"
         return 1
@@ -160,7 +160,7 @@ build_sharun_appimage() {
         echo "[!]   Fedora/RHEL:   librsvg2" >&2
         echo "[!]   Arch:          librsvg" >&2
         unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
-              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK \
+              UPINFO GTK_CLASS_FIX DEPLOY_GDK \
               DEPLOY_OPENGL DEPLOY_VULKAN
         rm -f "$QUICK_SHARUN"
         return 1
@@ -190,14 +190,14 @@ build_sharun_appimage() {
     if ! "$QUICK_SHARUN" --make-appimage; then
         echo "[!] quick-sharun --make-appimage завершился с ошибкой" >&2
         unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
-              UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK \
+              UPINFO GTK_CLASS_FIX DEPLOY_GDK \
               DEPLOY_OPENGL DEPLOY_VULKAN
         rm -f "$QUICK_SHARUN"
         return 1
     fi
 
     unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
-          UPDATE_INFORMATION GTK_CLASS_FIX DEPLOY_GDK \
+          UPINFO GTK_CLASS_FIX DEPLOY_GDK \
           DEPLOY_OPENGL DEPLOY_VULKAN
 
     if [ ! -f "$OUTPUT_DIR/$appimage_file" ]; then

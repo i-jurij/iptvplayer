@@ -86,19 +86,13 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # AppImage: 5 контейнеров × 2 варианта = 10 отдельных строк в UI.
+  # AppImage (sharun): 5 контейнеров = 5 отдельных строк в UI.
   #
-  # Варианты:
-  #   *-sharun.AppImage     — quick-sharun. Несёт свой glibc и рантайм;
-  #                           как и linuxdeploy, использует системный
-  #                           GPU-стек (OpenGL/EGL/Mesa). Разница — в
-  #                           бандлинге glibc и пользовательских
-  #                           зависимостей, не в GPU.
-  #   *.AppImage            — linuxdeploy. Также системный GPU-стек.
+  # Единственный релизный вариант — quick-sharun. Несёт свой glibc и
+  # рантайм, GPU-стек в бандле (OpenGL/EGL/Vulkan + mesa ICD). Работает
+  # на старых glibc и musl-дистрибутивах.
   #
-  # Оба варианта нуждаются в системном OpenGL/EGL в динамической фазе:
-  # --version его не требует, GUI-ран — требует. Поэтому OpenGL ставится
-  # в обеих ветках матрицы.
+  # linuxdeploy-вариант в релиз не попадает и здесь не тестируется.
   # =========================================================================
   smoke-appimage:
     needs: fetch
@@ -112,7 +106,6 @@ jobs:
           - 'fedora:44'
           - 'rockylinux/rockylinux:10'
           - 'archlinux:latest'
-        variant: [sharun, linuxdeploy]
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -167,62 +160,21 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          case "${{ matrix.variant }}" in
-            sharun)
-              AIS=(dist/*-sharun.AppImage)
-              ;;
-            linuxdeploy)
-              AIS=()
-              for f in dist/*.AppImage; do
-                [[ "$f" == *-sharun.AppImage ]] && continue
-                AIS+=("$f")
-              done
-              ;;
-            *)
-              echo "::error::unknown variant: ${{ matrix.variant }}"
-              exit 1
-              ;;
-          esac
-          (( ${#AIS[@]} > 0 )) || { echo "::error::${{ matrix.variant }} AppImage не найден"; exit 1; }
+          AIS=(dist/*-sharun.AppImage)
+          (( ${#AIS[@]} > 0 )) || { echo "::error::sharun AppImage не найден"; exit 1; }
           AI="${AIS[0]}"
           chmod +x "$AI"
           echo "ai=$AI" >> "$GITHUB_OUTPUT"
           echo "[i] выбран $AI"
 
-      - name: Extract AppImage
-        if: matrix.variant == 'linuxdeploy'
-        run: |
-          set -euo pipefail
-          AI="${{ steps.pick.outputs.ai }}"
-          DIR="extract-$(basename "$AI" .AppImage)"
-          rm -rf "$DIR"
-          mkdir -p "$DIR"
-          ( cd "$DIR" && "../$AI" --appimage-extract >/dev/null )
-          ls -la
-
       - name: Verify --version
         run: |
           set -euo pipefail
           AI="${{ steps.pick.outputs.ai }}"
-          echo "=== [${{ matrix.variant }}] $AI --version ==="
+          echo "=== $AI --version ==="
           OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$AI" --version)
           echo "$OUT"
           echo "$OUT" | grep -qE '^iptvplayer [0-9]'
-
-      - name: Verify resources
-        if: matrix.variant == 'linuxdeploy'
-        run: |
-          set -euo pipefail
-          AI="${{ steps.pick.outputs.ai }}"
-          DIR="extract-$(basename "$AI" .AppImage)"
-          test -f "$DIR/squashfs-root/usr/share/applications/iptvplayer.desktop"
-          test -f "$DIR/squashfs-root/usr/share/icons/hicolor/scalable/apps/iptvplayer.svg"
-          test -f "$DIR/squashfs-root/usr/share/iptvplayer/about.html"
-          test -d "$DIR/squashfs-root/usr/share/iptvplayer/icons"
-
-          if command -v desktop-file-validate >/dev/null 2>&1; then
-            desktop-file-validate "$DIR/squashfs-root/usr/share/applications/iptvplayer.desktop"
-          fi
 
       - name: Dynamic check (Xvfb, fallback weston)
         run: |
@@ -257,27 +209,23 @@ jobs:
           fi
           sleep 3
 
-          echo "=== [${{ matrix.variant }}] $AI (15s run) ==="
+          echo "=== $AI (15s run) ==="
           APPIMAGE_EXTRACT_AND_RUN=1 "$AI" &
           APP_PID=$!
           sleep 15
 
           if ! kill -0 "$APP_PID" 2>/dev/null; then
-            echo "::error::[${{ matrix.variant }}] $AI crashed during startup"
+            echo "::error::$AI crashed during startup"
             wait "$APP_PID" 2>/dev/null || true
             exit 1
           fi
-          echo "[✓][${{ matrix.variant }}] survived 15s"
+          echo "[✓] survived 15s"
           kill "$APP_PID" 2>/dev/null || true
           wait "$APP_PID" 2>/dev/null || true
 
   # =========================================================================
   # Нативные .deb / .rpm: установка, статические проверки и динамический
   # запуск /usr/bin/iptvplayer. Каждый пакет — отдельная строка в UI.
-  #
-  # AppImage здесь больше не гоняются: они покрыты в smoke-appimage
-  # (в тех же самых контейнерах). Здесь проверяем именно установленный
-  # нативный пакет, включая его GUI-старт.
   # =========================================================================
   smoke-native:
     needs: fetch
@@ -320,7 +268,7 @@ jobs:
             dnf group install -y "Xfce Desktop" 2>/dev/null \
               || dnf group install -y xfce-desktop 2>/dev/null || true
           fi
-          
+
       - name: Install OpenGL/EGL/Vulkan system libraries
         run: |
           set -euo pipefail
@@ -433,8 +381,6 @@ jobs:
           shopt -s nullglob
 
           # --- инструменты для проверки ---------------------------------
-          # На apt-системах debsigs по умолчанию нет — доставим,
-          # чтобы проверка была содержательной, а не «нет утилиты».
           if command -v apt-get >/dev/null 2>&1; then
             if ! command -v debsigs >/dev/null 2>&1; then
               apt-get install -y --no-install-recommends debsigs >/dev/null 2>&1 \
@@ -452,8 +398,6 @@ jobs:
           fi
 
           # --- импорт публичного ключа ---------------------------------
-          # Если ключ есть в релизе — импортируем, иначе gpg скажет
-          # «no public key», и это тоже будет видно в логе.
           if [ -f dist/public-key.asc ] && command -v gpg >/dev/null 2>&1; then
             if gpg --import dist/public-key.asc >/dev/null 2>&1; then
               echo "[i] публичный ключ импортирован из dist/public-key.asc"

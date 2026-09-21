@@ -91,7 +91,11 @@ jobs:
           git push origin "refs/tags/${TAG}"
 
   # =========================================================================
-  # 2. AppImage (linuxdeploy + sharun) на Ubuntu 24.04
+  # 2. AppImage (quick-sharun) на Ubuntu 24.04
+  #
+  # В релиз идёт только sharun-вариант: он несёт свой glibc и рантайм,
+  # работает на старых glibc и musl-дистрибутивах. linuxdeploy-вариант
+  # собирается только локально (см. build-appimage.sh), в CI не участвует.
   # =========================================================================
   appimage:
     needs: version
@@ -124,34 +128,23 @@ jobs:
             ./scripts/setup-deps.sh --yes
           fi
 
-      - name: Build AppImages
+      - name: Build AppImage (sharun)
         run: |
-          # -e здесь намеренно НЕ ставим: rc обоих запусков собираем вручную,
-          # иначе первое падение убило бы шаг до попытки собрать второй вариант.
-          set -uo pipefail
+          set -euo pipefail
 
           mkdir -p logs
           chmod +x scripts/build-package.sh
 
-          rc_lld=0
-          rc_sharun=0
-
-          ./scripts/build-package.sh --appimage --yes 2>&1 \
-            | tee logs/build-package.log || rc_lld=$?
-
-          ./scripts/build-package.sh --sharun   --yes 2>&1 \
-            | tee -a logs/build-package.log || rc_sharun=$?
+          ./scripts/build-package.sh --sharun --yes 2>&1 \
+            | tee logs/build-package.log
 
           shopt -s nullglob
-          imgs=(dist/*.AppImage)
+          imgs=(dist/*-sharun.AppImage)
 
           if (( ${#imgs[@]} == 0 )); then
-            echo "::error::ни одного AppImage не собралось (linuxdeploy rc=$rc_lld, sharun rc=$rc_sharun)"
+            echo "::error::sharun AppImage не найден в dist/"
             exit 1
           fi
-
-          (( rc_lld    != 0 )) && echo "::warning::linuxdeploy AppImage не собрался (rc=$rc_lld)"
-          (( rc_sharun != 0 )) && echo "::warning::sharun AppImage не собрался (rc=$rc_sharun)"
 
           printf 'собрано AppImage: %d\n' "${#imgs[@]}"
           printf '  %s\n' "${imgs[@]}"
@@ -202,7 +195,7 @@ jobs:
       # только после checkout. Артефакты потом распакуются в dist/ поверх
       # чистого workspace — дист в репо не хранится, конфликта нет.
       - uses: actions/checkout@v5
-        
+
       - name: Download AppImage
         continue-on-error: true
         uses: actions/download-artifact@v5
@@ -265,10 +258,6 @@ jobs:
 
           shopt -s nullglob
 
-          lld=(); for f in dist/*.AppImage; do
-            [[ "$f" == *-sharun.AppImage ]] && continue
-            lld+=("$f")
-          done
           sharun=(dist/*-sharun.AppImage)
           deb=(dist/*.deb)
           rpm=(dist/*.rpm)
@@ -302,17 +291,14 @@ jobs:
           done
           rpm_distros="${rpm_distros%, }"
 
-          echo "AppImage(linuxdeploy): ${#lld[@]}"
           echo "AppImage(sharun):      ${#sharun[@]}"
           echo ".deb (Ubuntu):         ${deb_ubuntu_count}  [${deb_ubuntu_distros}]"
           echo ".deb (Debian):         ${deb_debian_count}  [${deb_debian_distros}]"
           echo ".rpm:                  ${#rpm[@]}  [${rpm_distros}]"
 
-          have_lld=false; (( ${#lld[@]}    > 0 )) && have_lld=true
           have_shr=false; (( ${#sharun[@]} > 0 )) && have_shr=true
 
           {
-            echo "have_linuxdeploy=$have_lld"
             echo "have_sharun=$have_shr"
             echo "deb_ubuntu_count=$deb_ubuntu_count"
             echo "deb_ubuntu_distros=$deb_ubuntu_distros"
@@ -325,7 +311,7 @@ jobs:
           # Релиз создаётся, если собран хотя бы один артефакт любого типа.
           # Что именно не собралось — видно в таблице release body. Единственный
           # случай, когда релиз не имеет смысла, — не собралось совсем ничего.
-          total=$(( ${#lld[@]} + ${#sharun[@]} + ${#deb[@]} + ${#rpm[@]} ))
+          total=$(( ${#sharun[@]} + ${#deb[@]} + ${#rpm[@]} ))
           if (( total > 0 )); then
             echo "have_artifacts=true" >> $GITHUB_OUTPUT
           else
@@ -340,7 +326,6 @@ jobs:
           V="${{ needs.version.outputs.version }}"
 
           mark() { [[ "$1" == "true" ]] && printf '✅' || printf '❌'; }
-          LLD=$(mark "${{ steps.check.outputs.have_linuxdeploy }}")
           SHR=$(mark "${{ steps.check.outputs.have_sharun }}")
 
           du_c="${{ steps.check.outputs.deb_ubuntu_count }}"
@@ -373,8 +358,7 @@ jobs:
 
           | Артефакт | Собрано | Описание |
           |:---|:---:|---|
-          | \`*.AppImage\` | $LLD | linuxdeploy — glibc ≥ 2.39, использует системный OpenGL/EGL |
-          | \`*-sharun.AppImage\` | $SHR | quick-sharun — свой glibc и рантайм; использует системный OpenGL/EGL |
+          | \`*-sharun.AppImage\` | $SHR | quick-sharun — свой glibc и рантайм, GPU-стек в бандле |
           | \`.deb\` (Ubuntu) | $deb_ubuntu_cell | Собран на Ubuntu 24.04. Проверен в CI на Ubuntu 26.04. |
           | \`.deb\` (Debian) | $deb_debian_cell | Собран на Debian 13. Проверен в CI на Debian 13. |
           | \`.rpm\` | $rpm_cell | Собран на Rocky 10. Проверен в CI на Rocky 10 и Fedora 44. |
@@ -389,7 +373,7 @@ jobs:
 
           **RHEL 10+, Rocky 10+, Alma 10+, Fedora 40+** (glibc 2.39) → \`iptvplayer-*.rocky-10.x86_64.rpm\`
 
-          **Любая Linux с системным OpenGL/EGL** (в т.ч. старые glibc, musl-дистрибутивы) → \`*-sharun.AppImage\`
+          **Любая Linux x86_64** (в т.ч. старые glibc, musl-дистрибутивы, NixOS) → \`*-sharun.AppImage\`
           EOF
           )
 
@@ -407,10 +391,10 @@ jobs:
           name: Release v${{ needs.version.outputs.version }}
           body: ${{ steps.body.outputs.body }}
           files: |
-            dist/*.AppImage
+            dist/*-sharun.AppImage
+            dist/*-sharun.AppImage.zsync
             dist/*.deb
             dist/*.rpm
-            dist/*.zsync
             dist/*.asc
             dist/checksums.txt
             dist/public-key.asc

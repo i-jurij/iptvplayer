@@ -269,7 +269,7 @@ APPRUN
 #                              APPIMAGE
 # =============================================================================
 build_appimage() {
-    local appimage_file="$OUTPUT_DIR/${PACKAGE_NAME}-linux-${APPIMAGE_ARCH}-${VERSION_FILE}.AppImage"
+    local appimage_file="$OUTPUT_DIR/${PACKAGE_NAME}-linux-${APPIMAGE_ARCH}-${VERSION_FILE}-linuxdeploy.AppImage"
 
     echo "[+] Создание AppImage ($APPIMAGE_ARCH)..."
 
@@ -306,8 +306,10 @@ build_appimage() {
 
     echo "[+] Упаковка AppDir в AppImage через appimagetool..."
     rm -f "$appimage_file"
+    local upd_info="gh-releases-zsync|i-jurij|iptvplayer|latest|iptvplayer-linux-*-linuxdeploy.AppImage.zsync"
     if ! APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$APPIMAGE_ARCH" "$APPIMAGETOOL" \
         --no-appstream \
+        -u "$upd_info" \
         "$APPDIR" "$appimage_file"; then
         echo "[!] appimagetool завершился с ошибкой" >&2
         return 1
@@ -319,12 +321,6 @@ build_appimage() {
     fi
 
     echo "[✓] AppImage: $appimage_file"
-
-    if command -v zsyncmake >/dev/null; then
-        if ! zsyncmake "$appimage_file" -o "$OUTPUT_DIR/$(basename "$appimage_file" .AppImage).zsync"; then
-            echo "[!] zsyncmake упал — .zsync не сгенерирован" >&2
-        fi
-    fi
 
     rm -f "${OUTPUT_DIR:?}/appinfo"
 
