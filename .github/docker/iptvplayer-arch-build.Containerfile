@@ -18,27 +18,36 @@ FROM archlinux:latest
 ARG DEBLOATED_RELEASE_UPDATED=unknown
 ARG DEBLOATED_SCRIPT_SHA=unknown
 
-# Минимальный GTK-рабочий стол Xfce и другие зависимости.
-# xorg-server-xvfb и weston — headless-серверы для трассировки dlopen (X11 и Wayland).
 RUN pacman -Syu --noconfirm --needed \
         base-devel \
         cmake git wget curl file tar xz zstd bzip2 patchelf \
         gnupg python \
+        `# --- Видео ---` \
         mpv \
+        `# --- GTK3-стек ---` \
+        gtk3 gdk-pixbuf2 librsvg \
+        `# --- Форматы данных и изображений ---` \
+        libjpeg-turbo expat zlib libwebp freetype2 libpng rapidjson \
+        `# --- X11 ---` \
+        libx11 libxcb \
+        `# --- Wayland ---` \
+        wayland wayland-protocols libxkbcommon \
+        `# --- GPU ---` \
+        mesa \
+        `# --- Минимальный GTK-рабочий стол Xfce (без thunar) ---` \
         xfwm4 xfce4-panel xfdesktop xfce4-session \
         xfce4-settings xfce4-appfinder xfconf \
-        gtk3 gdk-pixbuf2 librsvg \
+        `# --- GSettings-схемы ---` \
         gsettings-desktop-schemas dconf \
+        `# --- Иконки, шрифты, MIME ---` \
         hicolor-icon-theme adwaita-icon-theme \
         ttf-dejavu shared-mime-info \
-        libx11 libxcb \
-        wayland wayland-protocols libxkbcommon \
-        mesa \
+        `# --- Headless для трассировки (X11 + Wayland) ---` \
         xorg-server-xvfb xorg-xauth weston \
+        `# --- Генерация кэшей ---` \
         desktop-file-utils gtk-update-icon-cache \
     && pacman -Scc --noconfirm
 
-# Post-install хуки pacman в Docker могут не отработать — повторяем вручную.
 RUN gdk-pixbuf-query-loaders --update-cache \
     && fc-cache -f \
     && update-mime-database /usr/share/mime \
