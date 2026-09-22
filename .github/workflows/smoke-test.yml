@@ -297,7 +297,9 @@ jobs:
             deb) apt-get install -y ./dist/*.deb ;;
             rpm) dnf install -y ./dist/*.rpm ;;
             arch) 
-              pacman -Rdd --noconfirm pipewire-jack
+              if pacman -Q pipewire-jack >/dev/null 2>&1; then
+                pacman -Rdd --noconfirm pipewire-jack
+              fi
               pacman -U --noconfirm ./dist/*.pkg.tar.zst
               ;;
           esac
