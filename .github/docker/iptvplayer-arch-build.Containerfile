@@ -40,11 +40,6 @@ RUN pacman -Syu --noconfirm --needed \
     && chmod +x /usr/local/bin/get-debloated-pkgs.sh \
     && /usr/local/bin/get-debloated-pkgs.sh --add-mesa \
     && gdk-pixbuf-query-loaders --update-cache \
-    && ( ls /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders/ 2>/dev/null \
-         | grep -q pixbufloader \
-         || { echo "=== ERROR: gdk-pixbuf loaders missing ==="; \
-              ls -la /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders/ 2>&1; \
-              exit 1; } ) \
     && fc-cache -f \
     && update-mime-database /usr/share/mime \
     && glib-compile-schemas /usr/share/glib-2.0/schemas \
