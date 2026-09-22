@@ -133,9 +133,35 @@ build_sharun_appimage() {
     # остались в окружении от предыдущих версий скрипта.
     unset ANYLINUX_DO_NOT_LOAD_LIBS 2>/dev/null || true
 
+    # -------------------------------------------------------------------------
+    # Явно находим директорию gdk-pixbuf loaders и передаём её quick-sharun
+    # как аргумент-директорию. Обходит внутренний glob quick-sharun, который
+    # не срабатывает в Arch (имя libpixbufloader_svg.so с подчёркиванием,
+    # LIB_DIR может указывать не туда, и т.д.).
+    # -------------------------------------------------------------------------
+    if [ "$DEPLOY_GDK" = 1 ]; then
+        _gdk_loaders_dir=""
+        for _d in /usr/lib/gdk-pixbuf-*/*/loaders \
+                  /usr/lib64/gdk-pixbuf-*/*/loaders \
+                  /usr/lib/*-linux-gnu/gdk-pixbuf-*/*/loaders; do
+            [ -d "$_d" ] || continue
+            if ls "$_d"/*pixbufloader*svg*.so* >/dev/null 2>&1; then
+                _gdk_loaders_dir="$_d"
+                break
+            fi
+        done
+
+        if [ -n "$_gdk_loaders_dir" ]; then
+            echo "[i] gdk-pixbuf loaders dir: $_gdk_loaders_dir"
+            set -- "$@" "$_gdk_loaders_dir"
+        else
+            echo "[!] SVG-лоадер не найден в стандартных путях gdk-pixbuf" >&2
+        fi
+    fi
+
     # 1) Развёртывание зависимостей
     echo "[+] Развёртывание зависимостей через quick-sharun..."
-    if ! "$QUICK_SHARUN" "$APPDIR/usr/bin/$PACKAGE_NAME"; then
+    if ! "$QUICK_SHARUN" "$APPDIR/usr/bin/$PACKAGE_NAME" "$@"; then
         echo "[!] quick-sharun (deploy) завершился с ошибкой" >&2
         unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
               UPINFO GTK_CLASS_FIX DEPLOY_GDK \
@@ -158,8 +184,8 @@ build_sharun_appimage() {
     # отрабатывают — в Containerfile мы явно вызываем
     # `gdk-pixbuf-query-loaders --update-cache`.
     # =====================================================================
-    _bundle_loader="$(find "$APPDIR" -type f \
-                      -name 'libpixbufloader*svg*.so*' -print -quit 2>/dev/null || true)"
+    _bundle_loader="$(find "$APPDIR" \( -type f -o -type l \) \
+                      -name '*pixbufloader*svg*.so*' -print -quit 2>/dev/null || true)"
 
     if [ -z "$_bundle_loader" ]; then
         echo "[!] quick-sharun не выложил gdk-pixbuf SVG-loader в бандл." >&2
@@ -175,7 +201,8 @@ build_sharun_appimage() {
     fi
     echo "[+] gdk-pixbuf SVG-loader: ${_bundle_loader#"$APPDIR"}"
 
-    _bundle_cache="$(find "$APPDIR" -type f -name 'loaders.cache' -print -quit 2>/dev/null || true)"
+    _bundle_cache="$(find "$APPDIR" \( -type f -o -type l \) \
+                     -name 'loaders.cache' -print -quit 2>/dev/null || true)"
 
     if [ -z "$_bundle_cache" ]; then
         # Fallback: собрать кэш самим из уже развёрнутых лоадеров.
