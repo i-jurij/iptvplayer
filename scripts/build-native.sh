@@ -228,6 +228,15 @@ build_pkg_arch() {
                 | tr '\n' ' ')
     rm -f "$libs_tmp" "$pkgs_tmp"
 
+    case " $auto_deps " in
+        *" jack2 "*|*" pipewire-jack "*)
+            auto_deps=$(printf '%s' "$auto_deps" \
+                | sed -e 's/\bjack2\b//g' -e 's/\bpipewire-jack\b//g' \
+                | tr -s ' ')
+            auto_deps="$auto_deps jack"
+            ;;
+    esac
+    
     # dlopen-зависимости, которые ldd не видит.
     #   mesa        — OpenGL/Vulkan ICD (грузится через libGL/libvulkan)
     #   gdk-pixbuf2 — pixbuf-лоадеры для иконок (GdkPixbuf API)
@@ -270,7 +279,7 @@ build_pkg_arch() {
 
     deps_array=$(printf '%s' "$deps_array" | sed \
         -e "s/'libjack\.so[^']*'/'jack'/g")
-        
+
     cat > "$workdir/PKGBUILD" <<EOF
 pkgname=$PACKAGE_NAME
 pkgver=$VERSION
