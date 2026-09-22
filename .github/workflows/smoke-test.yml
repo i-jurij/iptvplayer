@@ -296,12 +296,7 @@ jobs:
           case "${{ matrix.family }}" in
             deb) apt-get install -y ./dist/*.deb ;;
             rpm) dnf install -y ./dist/*.rpm ;;
-            arch) 
-              if pacman -Q pipewire-jack >/dev/null 2>&1; then
-                pacman -Rdd --noconfirm pipewire-jack
-              fi
-              pacman -U --noconfirm ./dist/*.pkg.tar.zst
-              ;;
+            arch) pacman -U --noconfirm --assume-installed jack ./dist/*.pkg.tar.zst ;;
           esac
 
       - name: Verify --version

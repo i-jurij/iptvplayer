@@ -268,6 +268,9 @@ build_pkg_arch() {
         deps_array+="'$d' "
     done
 
+    deps_array=$(printf '%s' "$deps_array" | sed \
+        -e "s/'libjack\.so[^']*'/'jack'/g")
+        
     cat > "$workdir/PKGBUILD" <<EOF
 pkgname=$PACKAGE_NAME
 pkgver=$VERSION
