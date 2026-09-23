@@ -1148,57 +1148,75 @@ wxString FindAppDataFile(const wxString &filename) {
       searchPaths.Add(p);
   };
 
-  auto normalize = [](const wxString &p) -> wxString {
+  // Только MakeAbsolute: приводит относительный путь к абсолютному.
+  // Normalize() здесь нельзя — она резолвит симлинки (usr → /tmp/XXX
+  // внутри AppImage) и раскрывает env-переменные, что ломает пути из
+  // SHARUN_DIR/APPDIR.
+  auto makeAbs = [](const wxString &p) -> wxString {
     if (p.IsEmpty())
       return p;
     wxFileName fn(p);
     fn.MakeAbsolute();
-    fn.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
     return fn.GetFullPath();
   };
 
-  // 1. Runtime-provided roots. Перебираем 4 уровня вверх — покрывает
-  //    и <root>, и <root>/shared, и любые вложенные варианты.
+  // --- 1. Runtime-provided roots: $SHARUN_DIR, $APPDIR ---
+  // Подъём вверх — строковой арифметикой, без AppendDir/Normalize.
   for (const char *var : {"SHARUN_DIR", "APPDIR"}) {
     const char *v = std::getenv(var);
     if (!v || !*v)
       continue;
 
-    wxString probe = normalize(wxString::FromUTF8(v));
-    for (int up = 0; up < 4; ++up) {
-      pushUnique(probe + "/usr/share/" + APP_NAME);
+    wxString probe = makeAbs(wxString::FromUTF8(v));
+    // убираем хвостовой '/'
+    while (probe.Length() > 1 && probe.EndsWith("/"))
+      probe.RemoveLast();
+
+    for (int up = 0; up < 4 && probe.Length() > 1; ++up) {
+      // Порядок: сначала корневой share/ (canonical для sharun),
+      // затем usr/share/ — на случай старой раскладки.
       pushUnique(probe + "/share/" + APP_NAME);
-      wxFileName parent(probe);
-      parent.MakeAbsolute();
-      parent.AppendDir("..");
-      parent.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
-      probe = parent.GetPath();
+      pushUnique(probe + "/usr/share/" + APP_NAME);
+      pushUnique(probe + "/resources");
+      pushUnique(probe + "/share/" + APP_NAME + "/resources");
+
+      int slash = probe.Find('/', true);
+      if (slash <= 0)
+        break;
+      probe = probe.Left(slash);
     }
   }
 
-  // 2. Рядом с бинарником.
+  // --- 2. Рядом с бинарником ---
   {
-    wxFileName exeFn(wxStandardPaths::Get().GetExecutablePath());
+    wxString exePath = wxStandardPaths::Get().GetExecutablePath();
+    wxFileName exeFn(exePath);
     exeFn.MakeAbsolute();
-    exeFn.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
     wxString exeDir = exeFn.GetPath();
-    pushUnique(exeDir + "/../share/" + APP_NAME);
-    pushUnique(exeDir + "/../usr/share/" + APP_NAME);
+
+    pushUnique(exeDir);                // build/iptvplayer + build/icons/
+    pushUnique(exeDir + "/resources"); // build/iptvplayer + build/resources/
+    pushUnique(exeDir + "/../share/" +
+               APP_NAME); // install/bin/iptvplayer + install/share/iptvplayer
+    pushUnique(exeDir + "/../usr/share/" +
+               APP_NAME); // /usr/bin/iptvplayer + /usr/share/iptvplayer
+    pushUnique(exeDir + "/../Resources/" + APP_NAME); // macOS .app bundle
   }
 
-  // 3. Системная установка / пользовательский override.
-  pushUnique(wxStandardPaths::Get().GetLocalDataDir());
-  pushUnique(wxStandardPaths::Get().GetDataDir());
-  pushUnique(wxStandardPaths::Get().GetResourcesDir());
+  // --- 3. Системная / пользовательская установка ---
+  pushUnique(wxStandardPaths::Get().GetLocalDataDir() + "/" + APP_NAME);
+  pushUnique(wxStandardPaths::Get().GetDataDir() + "/" + APP_NAME);
+  pushUnique(wxStandardPaths::Get().GetResourcesDir() + "/" + APP_NAME);
 #ifdef DATADIR
   pushUnique(wxString::FromUTF8(DATADIR) + "/" + APP_NAME);
 #endif
 
-  // 4. Dev-фоллбэки.
+  // --- 4. Dev-фоллбэки относительно cwd ---
   pushUnique(wxGetCwd() + "/resources");
   pushUnique(wxGetCwd() + "/install/share/" + APP_NAME);
+  pushUnique(wxGetCwd() + "/install/share/" + APP_NAME + "/resources");
 
-  // Однократный дамп в лог — понять, какие пути реально пробуются.
+  // Однократный дамп в лог.
   static bool dumped = false;
   if (!dumped) {
     dumped = true;
