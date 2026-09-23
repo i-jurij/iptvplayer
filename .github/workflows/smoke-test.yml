@@ -8,8 +8,19 @@ on:
     inputs:
       tag:
         description: 'Release tag to test (e.g. v0.1.4)'
-        required: true
+        required: false
+        default: 'latest'
         type: string
+      only:
+        description: 'Что тестировать. "all" — по наличию артефактов в релизе.'
+        type: choice
+        default: 'all'
+        options:
+          - 'all'
+          - 'appimage'
+          - 'deb'
+          - 'rpm'
+          - 'arch'
 
 permissions:
   contents: read
@@ -34,6 +45,15 @@ jobs:
           REPO="${{ github.repository }}"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ inputs.tag }}"
+            if [ -z "$TAG" ] || [ "$TAG" = "latest" ]; then
+              TAG=$(gh release view --repo "$REPO" --json tagName -q .tagName)
+              if [ -z "$TAG" ]; then
+                echo "should_run=false" >> "$GITHUB_OUTPUT"
+                echo "[i] релизов в репозитории нет — пропускаем"
+                exit 0
+              fi
+              echo "[i] выбран последний релиз: $TAG"
+            fi
           else
             SHA="${{ github.event.workflow_run.head_sha }}"
             VERSION=$(gh api "/repos/$REPO/contents/VERSION?ref=$SHA" \
@@ -63,6 +83,11 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.should_run == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      have_appimage: ${{ steps.inspect.outputs.have_appimage }}
+      have_deb: ${{ steps.inspect.outputs.have_deb }}
+      have_rpm: ${{ steps.inspect.outputs.have_rpm }}
+      have_arch: ${{ steps.inspect.outputs.have_arch }}
     steps:
       - name: Download release assets
         env:
@@ -76,8 +101,31 @@ jobs:
             --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm' \
             --pattern '*.pkg.tar.zst' \
             --pattern '*.asc' --pattern 'public-key.asc' \
-            --clobber
+            --clobber || true
           ls -la dist/
+
+      - name: Inspect what's in the release
+        id: inspect
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          imgs=(dist/*-sharun.AppImage)
+          debs=(dist/*.deb)
+          rpms=(dist/*.rpm)
+          archs=(dist/*.pkg.tar.zst)
+
+          echo "have_appimage=$([ ${#imgs[@]}  -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "have_deb=$([ ${#debs[@]}   -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "have_rpm=$([ ${#rpms[@]}   -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "have_arch=$([ ${#archs[@]} -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+          echo "[i] AppImage: ${#imgs[@]}, deb: ${#debs[@]}, rpm: ${#rpms[@]}, arch: ${#archs[@]}"
+
+          if (( ${#imgs[@]} == 0 && ${#debs[@]} == 0 && ${#rpms[@]} == 0 && ${#archs[@]} == 0 )); then
+            echo "::error::в релизе не нашлось ни одного артефакта для тестирования"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v5
         with:
@@ -94,9 +142,15 @@ jobs:
   # на старых glibc и musl-дистрибутивах.
   #
   # linuxdeploy-вариант в релиз не попадает и здесь не тестируется.
+  #
+  # Пропускается, если в релизе нет AppImage или явно отфильтрован
+  # через inputs.only.
   # =========================================================================
   smoke-appimage:
     needs: fetch
+    if: |
+      needs.fetch.outputs.have_appimage == 'true' &&
+      (inputs.only == '' || inputs.only == 'all' || inputs.only == 'appimage')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -225,21 +279,22 @@ jobs:
           wait "$APP_PID" 2>/dev/null || true
 
   # =========================================================================
-  # Нативные .deb / .rpm: установка, статические проверки и динамический
-  # запуск /usr/bin/iptvplayer. Каждый пакет — отдельная строка в UI.
+  # Нативные .deb: установка, статические проверки, динамический запуск.
+  # Каждый таргет — отдельная строка в UI.
+  # Пропускается, если в релизе нет .deb или явно отфильтрован.
   # =========================================================================
-  smoke-native:
+  smoke-deb:
     needs: fetch
+    if: |
+      needs.fetch.outputs.have_deb == 'true' &&
+      (inputs.only == '' || inputs.only == 'all' || inputs.only == 'deb')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { family: deb, target: ubuntu-26.04, container: 'ubuntu:26.04',             pkg_distro: ubuntu-24.04 }
-          - { family: deb, target: debian-13,    container: 'debian:13',                pkg_distro: debian-13 }
-          - { family: rpm, target: rocky-10,     container: 'rockylinux/rockylinux:10', pkg_distro: rocky-10 }
-          - { family: rpm, target: fedora-44,    container: 'fedora:44',                pkg_distro: rocky-10 }
-          - { family: arch, target: arch,        container: 'archlinux:latest',         pkg_distro: arch }
+          - { family: deb, target: ubuntu-26.04, container: 'ubuntu:26.04', pkg_distro: ubuntu-24.04 }
+          - { family: deb, target: debian-13,    container: 'debian:13',    pkg_distro: debian-13 }
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -258,21 +313,6 @@ jobs:
             apt-get update -qq
             apt-get install -y --no-install-recommends \
               ca-certificates file xz-utils xvfb xfce4 desktop-file-utils
-          elif command -v dnf >/dev/null; then
-            if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
-              dnf install -y dnf-plugins-core
-              dnf config-manager --set-enabled crb 2>/dev/null || true
-              dnf install -y epel-release || true
-            fi
-            dnf install -y ca-certificates file xz gtk3 desktop-file-utils
-            dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
-            dnf install -y weston 2>/dev/null || true
-            dnf group install -y "Xfce Desktop" 2>/dev/null \
-              || dnf group install -y xfce-desktop 2>/dev/null || true
-          elif command -v pacman >/dev/null; then
-            pacman -Syu --noconfirm --needed \
-              ca-certificates file xz zstd \
-              xorg-server-xvfb xfce4 desktop-file-utils
           fi
 
       - name: Install OpenGL/EGL/Vulkan system libraries
@@ -282,22 +322,12 @@ jobs:
             apt-get install -y --no-install-recommends \
               libgl1 libegl1 libopengl0 libglvnd0 libglx0 \
               libglx-mesa0 libgl1-mesa-dri libgbm1 libvulkan1
-          elif command -v dnf >/dev/null; then
-            dnf install -y mesa-libGL mesa-libEGL mesa-dri-drivers \
-                           libglvnd-glx libglvnd-egl libglvnd-opengl \
-                           mesa-libgbm vulkan-loader
-          elif command -v pacman >/dev/null; then
-            pacman -Sy --noconfirm mesa libglvnd vulkan-icd-loader
           fi
 
       - name: Install package
         run: |
           set -euo pipefail
-          case "${{ matrix.family }}" in
-            deb) apt-get install -y ./dist/*.deb ;;
-            rpm) dnf install -y ./dist/*.rpm ;;
-            arch) pacman -U --noconfirm --assume-installed jack ./dist/*.pkg.tar.zst ;;
-          esac
+          apt-get install -y ./dist/*.deb
 
       - name: Verify --version
         run: |
@@ -387,7 +417,6 @@ jobs:
           set -uo pipefail
           shopt -s nullglob
 
-          # --- инструменты для проверки ---------------------------------
           if command -v apt-get >/dev/null 2>&1; then
             if ! command -v debsigs >/dev/null 2>&1; then
               apt-get install -y --no-install-recommends debsigs >/dev/null 2>&1 \
@@ -397,19 +426,8 @@ jobs:
               apt-get install -y --no-install-recommends gnupg >/dev/null 2>&1 \
                 || echo "::warning::не удалось поставить gnupg — проверка .asc пропущена"
             fi
-          elif command -v dnf >/dev/null 2>&1; then
-            if ! command -v gpg >/dev/null 2>&1; then
-              dnf install -y gnupg2 >/dev/null 2>&1 \
-                || echo "::warning::не удалось поставить gnupg2 — проверка .asc пропущена"
-            fi
-          elif command -v pacman >/dev/null 2>&1; then
-            if ! command -v gpg >/dev/null 2>&1; then
-              pacman -S --noconfirm --needed gnupg >/dev/null 2>&1 \
-                || echo "::warning::не удалось поставить gnupg — проверка .asc пропущена"
-            fi
           fi
 
-          # --- импорт публичного ключа ---------------------------------
           if [ -f dist/public-key.asc ] && command -v gpg >/dev/null 2>&1; then
             if gpg --import dist/public-key.asc >/dev/null 2>&1; then
               echo "[i] публичный ключ импортирован из dist/public-key.asc"
@@ -420,82 +438,388 @@ jobs:
             echo "::warning::dist/public-key.asc отсутствует — проверка подписи будет неполной"
           fi
 
-          # --- проверка по семейству -----------------------------------
-          case "${{ matrix.family }}" in
-            deb)
-              for f in dist/*.deb; do
-                [ -f "$f" ] || continue
-                base="$(basename "$f")"
-                echo ""
-                echo "=== [$base] встроенная подпись (debsigs) ==="
-                if command -v debsigs >/dev/null 2>&1; then
-                  if debsigs --verify "$f"; then
-                    echo "[✓] debsigs --verify OK"
-                  else
-                    echo "::warning::debsigs --verify не подтвердил $base"
-                  fi
-                else
-                  echo "::warning::debsigs недоступен — проверка встроенной подписи пропущена"
-                fi
+          for f in dist/*.deb; do
+            [ -f "$f" ] || continue
+            base="$(basename "$f")"
+            echo ""
+            echo "=== [$base] встроенная подпись (debsigs) ==="
+            if command -v debsigs >/dev/null 2>&1; then
+              if debsigs --verify "$f"; then
+                echo "[✓] debsigs --verify OK"
+              else
+                echo "::warning::debsigs --verify не подтвердил $base"
+              fi
+            else
+              echo "::warning::debsigs недоступен — проверка встроенной подписи пропущена"
+            fi
 
-                echo "=== [$base.asc] внешняя подпись ==="
-                if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
-                  if gpg --verify "$f.asc" "$f" 2>/dev/null; then
-                    echo "[✓] gpg --verify OK"
-                  else
-                    echo "::warning::gpg --verify не подтвердил $base.asc"
-                  fi
-                else
-                  echo "::warning::$base.asc отсутствует — внешней подписи нет"
-                fi
-              done
-              ;;
-            rpm)
-              for f in dist/*.rpm; do
-                [ -f "$f" ] || continue
-                base="$(basename "$f")"
-                echo ""
-                echo "=== [$base] встроенная подпись (rpm --checksig) ==="
-                sig_out="$(rpm --checksig "$f" 2>&1 || true)"
-                echo "$sig_out"
-                if echo "$sig_out" | grep -q 'signatures OK'; then
-                  echo "[✓] rpm --checksig OK"
-                else
-                  echo "::warning::rpm --checksig не подтвердил $base"
-                fi
+            echo "=== [$base.asc] внешняя подпись ==="
+            if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
+              if gpg --verify "$f.asc" "$f" 2>/dev/null; then
+                echo "[✓] gpg --verify OK"
+              else
+                echo "::warning::gpg --verify не подтвердил $base.asc"
+              fi
+            else
+              echo "::warning::$base.asc отсутствует — внешней подписи нет"
+            fi
+          done
 
-                echo "=== [$base.asc] внешняя подпись ==="
-                if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
-                  if gpg --verify "$f.asc" "$f" 2>/dev/null; then
-                    echo "[✓] gpg --verify OK"
-                  else
-                    echo "::warning::gpg --verify не подтвердил $base.asc"
-                  fi
-                else
-                  echo "::warning::$base.asc отсутствует — внешней подписи нет"
-                fi
-              done
-              ;;
-              arch)
-              # .pkg.tar.zst не имеет встроенной подписи, которую понимал бы
-              # pacman без настройки SigLevel. Проверяем только внешний .asc.
-              for f in dist/*.pkg.tar.zst; do
-                [ -f "$f" ] || continue
-                base="$(basename "$f")"
-                echo ""
-                echo "=== [$base.asc] внешняя подпись ==="
-                if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
-                  if gpg --verify "$f.asc" "$f" 2>/dev/null; then
-                    echo "[✓] gpg --verify OK"
-                  else
-                    echo "::warning::gpg --verify не подтвердил $base.asc"
-                  fi
-                else
-                  echo "::warning::$base.asc отсутствует — внешней подписи нет"
-                fi
-              done
-              ;;
-            *)
-              echo "::warning::неизвестное семейство '${{ matrix.family }}' — проверка подписи пропущена"
-              ;;
-          esac
+  # =========================================================================
+  # Нативные .rpm: установка, статические проверки, динамический запуск.
+  # Каждый таргет — отдельная строка в UI.
+  # Пропускается, если в релизе нет .rpm или явно отфильтрован.
+  # =========================================================================
+  smoke-rpm:
+    needs: fetch
+    if: |
+      needs.fetch.outputs.have_rpm == 'true' &&
+      (inputs.only == '' || inputs.only == 'all' || inputs.only == 'rpm')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { family: rpm, target: rocky-10,  container: 'rockylinux/rockylinux:10', pkg_distro: rocky-10 }
+          - { family: rpm, target: fedora-44, container: 'fedora:44',                pkg_distro: rocky-10 }
+    container:
+      image: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Install desktop stack
+        run: |
+          set -euo pipefail
+          if command -v dnf >/dev/null; then
+            if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
+              dnf install -y dnf-plugins-core
+              dnf config-manager --set-enabled crb 2>/dev/null || true
+              dnf install -y epel-release || true
+            fi
+            dnf install -y ca-certificates file xz gtk3 desktop-file-utils
+            dnf install -y xorg-x11-server-Xvfb 2>/dev/null || true
+            dnf install -y weston 2>/dev/null || true
+            dnf group install -y "Xfce Desktop" 2>/dev/null \
+              || dnf group install -y xfce-desktop 2>/dev/null || true
+          fi
+
+      - name: Install OpenGL/EGL/Vulkan system libraries
+        run: |
+          set -euo pipefail
+          if command -v dnf >/dev/null; then
+            dnf install -y mesa-libGL mesa-libEGL mesa-dri-drivers \
+                           libglvnd-glx libglvnd-egl libglvnd-opengl \
+                           mesa-libgbm vulkan-loader
+          fi
+
+      - name: Install package
+        run: |
+          set -euo pipefail
+          dnf install -y ./dist/*.rpm
+
+      - name: Verify --version
+        run: |
+          set -euo pipefail
+          OUT=$(/usr/bin/iptvplayer --version)
+          echo "$OUT"
+          echo "$OUT" | grep -qE '^iptvplayer [0-9]'
+
+      - name: Verify resources
+        run: |
+          set -euo pipefail
+          test -f /usr/share/applications/iptvplayer.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/iptvplayer.svg
+          test -f /usr/share/iptvplayer/about.html
+          test -d /usr/share/iptvplayer/icons
+          test -f /usr/share/metainfo/io.github.i_jurij.iptvplayer.metainfo.xml
+
+      - name: Validate .desktop
+        run: |
+          set -euo pipefail
+          if command -v desktop-file-validate >/dev/null 2>&1; then
+            desktop-file-validate /usr/share/applications/iptvplayer.desktop
+          else
+            echo "[i] desktop-file-validate отсутствует"
+          fi
+
+      - name: Static check (ldd)
+        run: |
+          set -euo pipefail
+          echo "=== ldd /usr/bin/iptvplayer ==="
+          if ldd /usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
+            ldd /usr/bin/iptvplayer | grep "not found"
+            exit 1
+          fi
+          echo "OK"
+
+      - name: Dynamic check (Xvfb, fallback weston)
+        run: |
+          set -euo pipefail
+
+          HEADLESS_PID=""
+          cleanup() { [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          if command -v Xvfb >/dev/null 2>&1; then
+            echo "[i] headless: Xvfb"
+            Xvfb :99 -screen 0 1440x900x24 &
+            HEADLESS_PID=$!
+            export DISPLAY=:99
+          elif command -v weston >/dev/null 2>&1; then
+            echo "[i] headless: weston"
+            export XDG_RUNTIME_DIR=/tmp/weston-runtime
+            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+            weston --backend=headless-backend.so --socket=wayland-1 \
+                   --width=1440 --height=900 &
+            HEADLESS_PID=$!
+            export WAYLAND_DISPLAY=wayland-1
+            export GDK_BACKEND=wayland
+            for _ in $(seq 1 20); do
+              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
+              sleep 0.5
+            done
+          else
+            echo "::error::ни Xvfb, ни weston недоступны"
+            exit 1
+          fi
+          sleep 3
+
+          echo "=== [/usr/bin/iptvplayer] (15s run) ==="
+          /usr/bin/iptvplayer &
+          APP_PID=$!
+          sleep 15
+
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "::error::/usr/bin/iptvplayer crashed during startup"
+            wait "$APP_PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "[✓] iptvplayer survived 15s"
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
+
+      - name: Verify package signature (informational)
+        if: always()
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+
+          if command -v dnf >/dev/null 2>&1; then
+            if ! command -v gpg >/dev/null 2>&1; then
+              dnf install -y gnupg2 >/dev/null 2>&1 \
+                || echo "::warning::не удалось поставить gnupg2 — проверка .asc пропущена"
+            fi
+          fi
+
+          if [ -f dist/public-key.asc ] && command -v gpg >/dev/null 2>&1; then
+            if gpg --import dist/public-key.asc >/dev/null 2>&1; then
+              echo "[i] публичный ключ импортирован из dist/public-key.asc"
+            else
+              echo "::warning::не удалось импортировать dist/public-key.asc"
+            fi
+          else
+            echo "::warning::dist/public-key.asc отсутствует — проверка подписи будет неполной"
+          fi
+
+          for f in dist/*.rpm; do
+            [ -f "$f" ] || continue
+            base="$(basename "$f")"
+            echo ""
+            echo "=== [$base] встроенная подпись (rpm --checksig) ==="
+            sig_out="$(rpm --checksig "$f" 2>&1 || true)"
+            echo "$sig_out"
+            if echo "$sig_out" | grep -q 'signatures OK'; then
+              echo "[✓] rpm --checksig OK"
+            else
+              echo "::warning::rpm --checksig не подтвердил $base"
+            fi
+
+            echo "=== [$base.asc] внешняя подпись ==="
+            if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
+              if gpg --verify "$f.asc" "$f" 2>/dev/null; then
+                echo "[✓] gpg --verify OK"
+              else
+                echo "::warning::gpg --verify не подтвердил $base.asc"
+              fi
+            else
+              echo "::warning::$base.asc отсутствует — внешней подписи нет"
+            fi
+          done
+
+  # =========================================================================
+  # Нативный .pkg.tar.zst для Arch: установка, статические проверки,
+  # динамический запуск. Отдельный job, чтобы после частичной пересборки
+  # только arch-пакета прогонялся только он.
+  # =========================================================================
+  smoke-arch:
+    needs: fetch
+    if: |
+      needs.fetch.outputs.have_arch == 'true' &&
+      (inputs.only == '' || inputs.only == 'all' || inputs.only == 'arch')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { family: arch, target: arch, container: 'archlinux:latest', pkg_distro: arch }
+    container:
+      image: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Install desktop stack
+        run: |
+          set -euo pipefail
+          if command -v pacman >/dev/null; then
+            pacman -Syu --noconfirm --needed \
+              ca-certificates file xz zstd \
+              xorg-server-xvfb xfce4 desktop-file-utils
+          fi
+
+      - name: Install OpenGL/EGL/Vulkan system libraries
+        run: |
+          set -euo pipefail
+          if command -v pacman >/dev/null; then
+            pacman -Sy --noconfirm mesa libglvnd vulkan-icd-loader
+          fi
+
+      - name: Install package
+        run: |
+          set -euo pipefail
+          pacman -U --noconfirm --assume-installed jack ./dist/*.pkg.tar.zst
+
+      - name: Verify --version
+        run: |
+          set -euo pipefail
+          OUT=$(/usr/bin/iptvplayer --version)
+          echo "$OUT"
+          echo "$OUT" | grep -qE '^iptvplayer [0-9]'
+
+      - name: Verify resources
+        run: |
+          set -euo pipefail
+          test -f /usr/share/applications/iptvplayer.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/iptvplayer.svg
+          test -f /usr/share/iptvplayer/about.html
+          test -d /usr/share/iptvplayer/icons
+          test -f /usr/share/metainfo/io.github.i_jurij.iptvplayer.metainfo.xml
+
+      - name: Validate .desktop
+        run: |
+          set -euo pipefail
+          if command -v desktop-file-validate >/dev/null 2>&1; then
+            desktop-file-validate /usr/share/applications/iptvplayer.desktop
+          else
+            echo "[i] desktop-file-validate отсутствует"
+          fi
+
+      - name: Static check (ldd)
+        run: |
+          set -euo pipefail
+          echo "=== ldd /usr/bin/iptvplayer ==="
+          if ldd /usr/bin/iptvplayer 2>&1 | grep -q "not found"; then
+            ldd /usr/bin/iptvplayer | grep "not found"
+            exit 1
+          fi
+          echo "OK"
+
+      - name: Dynamic check (Xvfb, fallback weston)
+        run: |
+          set -euo pipefail
+
+          HEADLESS_PID=""
+          cleanup() { [ -n "$HEADLESS_PID" ] && kill "$HEADLESS_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          if command -v Xvfb >/dev/null 2>&1; then
+            echo "[i] headless: Xvfb"
+            Xvfb :99 -screen 0 1440x900x24 &
+            HEADLESS_PID=$!
+            export DISPLAY=:99
+          elif command -v weston >/dev/null 2>&1; then
+            echo "[i] headless: weston"
+            export XDG_RUNTIME_DIR=/tmp/weston-runtime
+            mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+            weston --backend=headless-backend.so --socket=wayland-1 \
+                   --width=1440 --height=900 &
+            HEADLESS_PID=$!
+            export WAYLAND_DISPLAY=wayland-1
+            export GDK_BACKEND=wayland
+            for _ in $(seq 1 20); do
+              [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
+              sleep 0.5
+            done
+          else
+            echo "::error::ни Xvfb, ни weston недоступны"
+            exit 1
+          fi
+          sleep 3
+
+          echo "=== [/usr/bin/iptvplayer] (15s run) ==="
+          /usr/bin/iptvplayer &
+          APP_PID=$!
+          sleep 15
+
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "::error::/usr/bin/iptvplayer crashed during startup"
+            wait "$APP_PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "[✓] iptvplayer survived 15s"
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
+
+      - name: Verify package signature (informational)
+        if: always()
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+
+          if command -v pacman >/dev/null 2>&1; then
+            if ! command -v gpg >/dev/null 2>&1; then
+              pacman -S --noconfirm --needed gnupg >/dev/null 2>&1 \
+                || echo "::warning::не удалось поставить gnupg — проверка .asc пропущена"
+            fi
+          fi
+
+          if [ -f dist/public-key.asc ] && command -v gpg >/dev/null 2>&1; then
+            if gpg --import dist/public-key.asc >/dev/null 2>&1; then
+              echo "[i] публичный ключ импортирован из dist/public-key.asc"
+            else
+              echo "::warning::не удалось импортировать dist/public-key.asc"
+            fi
+          else
+            echo "::warning::dist/public-key.asc отсутствует — проверка подписи будет неполной"
+          fi
+
+          # .pkg.tar.zst не имеет встроенной подписи, которую понимал бы
+          # pacman без настройки SigLevel. Проверяем только внешний .asc.
+          for f in dist/*.pkg.tar.zst; do
+            [ -f "$f" ] || continue
+            base="$(basename "$f")"
+            echo ""
+            echo "=== [$base.asc] внешняя подпись ==="
+            if [ -f "$f.asc" ] && command -v gpg >/dev/null 2>&1; then
+              if gpg --verify "$f.asc" "$f" 2>/dev/null; then
+                echo "[✓] gpg --verify OK"
+              else
+                echo "::warning::gpg --verify не подтвердил $base.asc"
+              fi
+            else
+              echo "::warning::$base.asc отсутствует — внешней подписи нет"
+            fi
+          done

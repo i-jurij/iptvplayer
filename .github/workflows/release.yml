@@ -16,6 +16,22 @@ on:
         description: 'Принудительно пересобрать Arch-образ для sharun-AppImage'
         type: boolean
         default: false
+      reuse_install_from:
+        description: 'Run ID с готовым install/. Пусто = последний успешный, 0 = собрать заново.'
+        type: string
+        default: ''
+      skip_appimage:
+        description: 'Не собирать AppImage'
+        type: boolean
+        default: false
+      skip_arch_pkg:
+        description: 'Не собирать .pkg.tar.zst'
+        type: boolean
+        default: false
+      skip_native:
+        description: 'Не собирать .deb/.rpm'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -93,6 +109,67 @@ jobs:
           fi
           git tag -a "${TAG}" -m "Release ${TAG} (CI)"
           git push origin "refs/tags/${TAG}"
+
+  # =========================================================================
+  # 1.5. Определяем, откуда брать install/: свежая сборка или готовый run.
+  #    - push-trigger: всегда свежая сборка (VERSION изменился → новый бинарник);
+  #    - workflow_dispatch с reuse_install_from="" → последний неистёкший
+  #      артефакт arch-install, кроме текущего run;
+  #    - workflow_dispatch с reuse_install_from="0" → принудительно свежая;
+  #    - workflow_dispatch с reuse_install_from="<N>" → конкретный run N.
+  # =========================================================================
+  resolve:
+    needs: version
+    if: needs.version.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run_id: ${{ steps.resolve.outputs.run_id }}
+    steps:
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT: ${{ inputs.reuse_install_from }}
+          CURRENT_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            echo "[i] push-trigger — бинарник собирается с нуля"
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$INPUT" = "0" ]; then
+            echo "[i] reuse_install_from=0 — бинарник собирается с нуля"
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$INPUT" ]; then
+            echo "[i] reuse_install_from=$INPUT — используем указанный run"
+            echo "run_id=$INPUT" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Авто-режим. Ищем последний неистёкший артефакт arch-install,
+          # исключая текущий run (в нём ещё нет готового install).
+          RID=$(gh api \
+            "/repos/${{ github.repository }}/actions/artifacts?name=arch-install&per_page=50" \
+            --jq '.artifacts[] | select(.expired == false) | "\(.created_at)\t\(.workflow_run.id)"' \
+            | sort -r \
+            | awk -v cur="$CURRENT_RUN" -F'\t' '$2 != cur {print $2; exit}' || true)
+
+          if [ -n "$RID" ]; then
+            echo "[i] авто-режим — используем run $RID"
+            echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+          else
+            echo "[i] авто-режим — подходящих артефактов нет, бинарник собирается с нуля"
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+          fi
 
   # =========================================================================
   # 2. Arch-образ для сборки sharun-AppImage.
@@ -203,10 +280,13 @@ jobs:
 
   # =========================================================================
   # 3. Сборка бинарника в Arch-образе. Один раз для appimage и arch-pkg.
+  #    Пропускается, если resolve нашёл готовый install/ для переиспользования.
   # =========================================================================
   arch-build:
-    needs: [version, arch-image]
-    if: needs.version.outputs.version_changed == 'true'
+    needs: [version, resolve, arch-image]
+    if: |
+      needs.version.outputs.version_changed == 'true' &&
+      needs.resolve.outputs.run_id == ''
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -257,12 +337,17 @@ jobs:
   # 4. AppImage (quick-sharun) на подготовленном Arch-образе.
   # =========================================================================
   appimage:
-    needs: [version, arch-image, arch-build]
-    if: needs.version.outputs.version_changed == 'true'
+    needs: [version, resolve, arch-image, arch-build]
+    if: |
+      always() &&
+      needs.version.result == 'success' &&
+      needs.version.outputs.version_changed == 'true' &&
+      inputs.skip_appimage != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
+      actions: read
     container:
       image: ${{ needs.arch-image.outputs.image_ref }}
       credentials:
@@ -274,7 +359,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download install tree
+      - name: Download install tree (reuse from previous run)
+        if: needs.resolve.outputs.run_id != ''
+        uses: actions/download-artifact@v5
+        with:
+          name: arch-install
+          path: install
+          run-id: ${{ needs.resolve.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download install tree (fresh)
+        if: needs.resolve.outputs.run_id == ''
         uses: actions/download-artifact@v5
         with:
           name: arch-install
@@ -328,17 +423,23 @@ jobs:
   # =========================================================================
   # 5. Нативный пакет для Arch (.pkg.tar.zst)
   #
-  # Берёт готовый install/ из arch-build, формирует PKGBUILD с автоматически
-  # определёнными зависимостями (ldd + pacman -Fq) и собирает пакет через
-  # makepkg от непривилегированного пользователя.
+  # Берёт готовый install/ из arch-build или из предыдущего run'а,
+  # формирует PKGBUILD с автоматически определёнными зависимостями
+  # (ldd + pacman -Fq) и собирает пакет через makepkg от непривилегированного
+  # пользователя.
   # =========================================================================
   arch-pkg:
-    needs: [version, arch-image, arch-build]
-    if: needs.version.outputs.version_changed == 'true'
+    needs: [version, resolve, arch-image, arch-build]
+    if: |
+      always() &&
+      needs.version.result == 'success' &&
+      needs.version.outputs.version_changed == 'true' &&
+      inputs.skip_arch_pkg != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
+      actions: read
     container:
       image: ${{ needs.arch-image.outputs.image_ref }}
       credentials:
@@ -348,7 +449,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download install tree
+      - name: Download install tree (reuse from previous run)
+        if: needs.resolve.outputs.run_id != ''
+        uses: actions/download-artifact@v5
+        with:
+          name: arch-install
+          path: install
+          run-id: ${{ needs.resolve.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download install tree (fresh)
+        if: needs.resolve.outputs.run_id == ''
         uses: actions/download-artifact@v5
         with:
           name: arch-install
@@ -407,8 +518,12 @@ jobs:
   # 6. Нативные .deb / .rpm — каждый в своём контейнере
   # =========================================================================
   native-packages:
-    needs: version
-    if: needs.version.outputs.version_changed == 'true'
+    needs: [version, resolve]
+    if: |
+      always() &&
+      needs.version.result == 'success' &&
+      needs.version.outputs.version_changed == 'true' &&
+      inputs.skip_native != true
     uses: ./.github/workflows/native-packages.yml
     with:
       targets: '["ubuntu-24.04","debian-13","rocky-10"]'
@@ -418,9 +533,13 @@ jobs:
 
   # =========================================================================
   # 7. Публикация: подпись + checksums + релиз
+  #
+  # При частичной пересборке (skip_*) к уже существующему релизу
+  # подкладываются новые ассеты поверх старых. Старые ассеты, которых
+  # нет в этом run'е, сохраняются — action-gh-release их не удаляет.
   # =========================================================================
   release:
-    needs: [version, appimage, arch-pkg, native-packages]
+    needs: [version, resolve, appimage, arch-pkg, native-packages]
     if: |
       always() &&
       needs.version.result == 'success' &&
@@ -429,12 +548,42 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download AppImage
+      # Скачиваем уже опубликованные ассеты — чтобы при частичной
+      # пересборке (skip_appimage/skip_arch_pkg/skip_native) в итоговом
+      # checksums.txt были хеши ВСЕХ файлов релиза, а не только свежих.
+      # Ошибки глушим — на первом релизе этого шага просто нет.
+      - name: Download existing release assets
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          mkdir -p dist
+          TAG="v${{ needs.version.outputs.version }}"
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --dir dist \
+            --clobber \
+            --pattern '*-sharun.AppImage' \
+            --pattern '*-sharun.AppImage.zsync' \
+            --pattern '*.pkg.tar.zst' \
+            --pattern '*.pkg.tar.zst.asc' \
+            --pattern '*.deb' \
+            --pattern '*.deb.asc' \
+            --pattern '*.rpm' \
+            --pattern '*.rpm.asc' \
+            || true
+          ls -la dist/ || true
+
+      # Свежие ассеты из текущего run'а перезаписывают существующие.
+      - name: Download AppImage (current run)
         continue-on-error: true
         uses: actions/download-artifact@v5
-        with: { name: packages, path: dist }
+        with:
+          name: packages
+          path: dist
 
-      - name: Download all native packages
+      - name: Download all native packages (current run)
         continue-on-error: true
         uses: actions/download-artifact@v5
         with:

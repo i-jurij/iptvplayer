@@ -165,10 +165,19 @@ EOF
 
 # ---- Нативный .pkg.tar.zst ARCH ----
 build_pkg_arch() {
-    # На не-Arch системах этот путь недоступен (меню его не предлагает).
-    # Явный вызов --native-arch на Ubuntu/Debian — ошибка пользователя.
+    # На не-Arch системах makepkg нет. Явный вызов --native-arch
+    # на Ubuntu/Debian — ошибка пользователя.
     if ! command -v makepkg >/dev/null 2>&1; then
         echo "[!] makepkg не найден. Сборка .pkg.tar.zst возможна только на Arch/Manjaro."
+        return 1
+    fi
+
+    # Пустой STAGING_DIR опаснее отсутствующего: проверки вида
+    # "$STAGING_DIR/usr/bin/$PACKAGE_NAME" без него схлопываются в
+    # /usr/bin/... и функция может случайно работать с системными
+    # файлами вместо staging.
+    if [ -z "$STAGING_DIR" ] || [ ! -d "$STAGING_DIR" ]; then
+        echo "[!] STAGING_DIR не установлен или не существует: ${STAGING_DIR:-<empty>}" >&2
         return 1
     fi
 
@@ -182,30 +191,56 @@ build_pkg_arch() {
         fi
     fi
 
-    # Артефакты CI (upload-artifact/download-artifact) теряют exec-бит.
-    # Локально он есть, но chmod идемпотентен — просто подстрахуемся.
+    # actions/upload-artifact теряет exec-бит.
     chmod +x "$STAGING_DIR/usr/bin/$PACKAGE_NAME" 2>/dev/null || true
 
-    # -------------------------------------------------------------------------
-    # Автоопределение runtime-зависимостей.
-    #   ldd по бинарнику → список .so
-    #   pacman -Fq       → пакет-владелец каждой .so
-    #   минус glibc/gcc-libs (системные, не пакетные метаданные)
-    #   плюс EXTRA_DEPS для того, что грузится через dlopen и ldd его не видит.
-    # -------------------------------------------------------------------------
+    # Автоопределение зависимостей: ldd -> .so -> pacman -Fq -> пакет-владелец.
     local BIN="$STAGING_DIR/usr/bin/$PACKAGE_NAME"
     [ -x "$BIN" ] || { echo "[!] $BIN не исполняем" >&2; return 1; }
 
-    # pacman -Fy требует root; если не root — БД файлов могла быть
-    # синхронизирована раньше. Если её нет, автоопределение даст
-    # пустой результат, и мы упадём на fallback-список.
+    # Файловая БД pacman (нужна для pacman -Fq) синхронизируется
+    # командой 'pacman -Fy', которая требует root. В CI мы root —
+    # вызываем напрямую. Локально — повышаем привилегии через
+    # sudo/doas/run0/pkexec. Если ни одно не сработало — падаем:
+    # без БД автоопределение даст пустой результат, а собирать
+    # пакет с выдуманными зависимостями хуже, чем не собрать вовсе.
     if [ "$(id -u)" -eq 0 ]; then
-        pacman -Fy >/dev/null 2>&1 || true
+        echo "[i] Синхронизация файловой БД pacman (pacman -Fy)..."
+        if ! timeout 120 pacman -Fy >/dev/null; then
+            echo "[!] 'pacman -Fy' завершился с ошибкой" >&2
+            return 1
+        fi
+    else
+        local _sudo="" _c
+        for _c in sudo doas run0 pkexec; do
+            if command -v "$_c" >/dev/null 2>&1; then
+                _sudo="$_c"
+                break
+            fi
+        done
+        if [ -z "$_sudo" ]; then
+            echo "[!] Для 'pacman -Fy' нужен root, но ни sudo, ни doas, ни run0, ни pkexec не найдены." >&2
+            echo "[!] Установите sudo или запустите сборку от root." >&2
+            return 1
+        fi
+        echo "[i] Синхронизация файловой БД pacman через '$_sudo pacman -Fy'..."
+        # stderr не глушим — пользователь увидит запрос пароля
+        # (sudo/doas/run0) или сообщение об отказе в правах.
+        if ! timeout 300 "$_sudo" pacman -Fy >/dev/null; then
+            echo "[!] '$_sudo pacman -Fy' завершился с ошибкой" >&2
+            return 1
+        fi
     fi
 
-    local libs_tmp pkgs_tmp
-    libs_tmp=$(mktemp)
-    pkgs_tmp=$(mktemp)
+    # Временные файлы и workdir. trap RETURN срабатывает на любом
+    # выходе из функции, включая ранние return 1. workdir остаётся
+    # только если keep_workdir=1 — это для отладки упавшего makepkg.
+    local libs_tmp pkgs_tmp workdir keep_workdir=0
+    libs_tmp=$(mktemp) || { echo "[!] mktemp для libs_tmp упал" >&2; return 1; }
+    pkgs_tmp=$(mktemp) || { echo "[!] mktemp для pkgs_tmp упал" >&2; return 1; }
+    workdir=$(mktemp -d) || { echo "[!] mktemp для workdir упал" >&2; return 1; }
+    # shellcheck disable=SC2064
+    trap 'rm -f "$libs_tmp" "$pkgs_tmp"; [ "$keep_workdir" = 1 ] || rm -rf "$workdir"' RETURN
 
     ldd "$BIN" 2>/dev/null \
       | awk '
@@ -217,70 +252,73 @@ build_pkg_arch() {
     : > "$pkgs_tmp"
     while IFS= read -r lib; do
         [ -z "$lib" ] && continue
+        # pacman -Fq не находит владельца для библиотек вне пакетов
+        # (собрано вручную, /usr/local/lib). Это норма, не ошибка.
         pacman -Fq "$lib" 2>/dev/null \
           | awk -F/ '{print $2}' >> "$pkgs_tmp" || true
     done < "$libs_tmp"
 
-    local auto_deps
-    auto_deps=$(sort -u "$pkgs_tmp" \
-                | grep -vxE 'glibc|gcc-libs' \
-                | grep -v '^$' \
-                | tr '\n' ' ')
-    rm -f "$libs_tmp" "$pkgs_tmp"
+    # Конфликтующие пары: несколько пакетов предоставляют один soname
+    # (jack2/pipewire-jack для libjack.so.0). Их нельзя ставить
+    # одновременно, но оба попадают в вывод pacman -Fq. Решение:
+    # для каждого пакета находим виртуальное имя, которое он
+    # предоставляет через Provides, и пишем его в depends. Если
+    # виртуального имени нет — оставляем имя пакета.
+    #
+    # mesa-amber — legacy-пакет, конфликтует с mesa на уровне файлов.
+    # Виртуального имени у него нет, поэтому фильтруем отдельно.
+    local raw_deps
+    raw_deps=$(sort -u "$pkgs_tmp" \
+                | grep -vxE 'glibc|gcc-libs|mesa-amber' \
+                | grep -v '^$')
 
-    case " $auto_deps " in
-        *" jack2 "*|*" pipewire-jack "*)
-            auto_deps=$(printf '%s' "$auto_deps" \
-                | sed -e 's/\bjack2\b//g' -e 's/\bpipewire-jack\b//g' \
-                | tr -s ' ')
-            auto_deps="$auto_deps jack"
-            ;;
-    esac
-    
-    # dlopen-зависимости, которые ldd не видит.
-    #   mesa        — OpenGL/Vulkan ICD (грузится через libGL/libvulkan)
-    #   gdk-pixbuf2 — pixbuf-лоадеры для иконок (GdkPixbuf API)
-    #   librsvg     — SVG-лоадер для gdk-pixbuf
-    local extra_deps="mesa gdk-pixbuf2 librsvg"
+    local auto_deps=""
+    local _owner _virtual _seen=" "
+    while IFS= read -r _owner; do
+        [ -z "$_owner" ] && continue
+        _virtual=$(pacman -Si "$_owner" 2>/dev/null \
+                    | awk -F': ' '/^Provides/{print $2}' \
+                    | tr ' ' '\n' | grep -vx "$_owner" | head -n1)
+        if [ -z "$_virtual" ]; then
+            _virtual="$_owner"
+        fi
+        case "$_seen" in
+            *" $_virtual "*) continue ;;
+        esac
+        _seen="$_seen$_virtual "
+        auto_deps="$auto_deps $_virtual"
+    done <<EOF
+$raw_deps
+EOF
+    auto_deps=$(printf '%s\n' $auto_deps | sort -u | tr '\n' ' ')
 
-    local all_deps="$auto_deps $extra_deps"
-
-    # Fallback: если автоопределение дало <3 пакетов (например,
-    # файловая БД pacman не синхронизирована и не root), используем
-    # минимальный проверенный список.
-    local auto_count
-    auto_count=$(printf '%s\n' $auto_deps | grep -c .)
-    if [ "$auto_count" -lt 3 ]; then
-        echo "[i] автоопределение зависимостей дало $auto_count пакет(ов) — используем fallback-список"
-        all_deps="mpv gtk3 gdk-pixbuf2 librsvg curl expat zlib mesa"
+    if [ -z "${auto_deps// }" ]; then
+        echo "[!] Автоопределение зависимостей не дало ни одного пакета." >&2
+        echo "[!] Это значит, что 'pacman -Fq' не смог найти владельцев ни одной библиотеки." >&2
+        echo "[!] Проверьте: sudo pacman -Fy && pacman -Fq /usr/lib/libgtk-3.so.0" >&2
+        return 1
     fi
 
+    # extra_deps не нужен: mesa и gdk-pixbuf2 приходят из ldd,
+    # librsvg в Arch не предоставляет .so-загрузчик для gdk-pixbuf
+    # (SVG идёт через glycin, который тянется с gtk3).
+    local all_deps
+    all_deps=$(printf '%s\n' $auto_deps | sort -u | tr '\n' ' ')
+
     echo "[i] auto-detected: $auto_deps"
-    echo "[i] extras:        $extra_deps"
     echo "[i] final:         $all_deps"
 
-    # -------------------------------------------------------------------------
-    # PKGBUILD + makepkg.
-    # Работаем в изолированном $workdir, чтобы makepkg не трогал
-    # ни $STAGING_DIR, ни репозиторий.
-    # -------------------------------------------------------------------------
-    local workdir; workdir="$(mktemp -d)"
-
-    # Копируем staging с сохранением прав. makepkg потом переустановит
-    # права как надо при упаковке; нам важно только чтобы у builder
-    # был доступ на чтение.
     cp -a "$STAGING_DIR/usr" "$workdir/staging_usr"
 
-    local deps_array=""
+    # depends=('a' 'b' 'c') — через printf, чтобы не собирать строку руками.
+    local -a deps_array=()
     local d
     for d in $all_deps; do
-        deps_array+="'$d' "
+        deps_array+=("$d")
     done
 
-    deps_array=$(printf '%s' "$deps_array" | sed \
-        -e "s/'libjack\.so[^']*'/'jack'/g")
-
-    cat > "$workdir/PKGBUILD" <<EOF
+    {
+        cat <<EOF
 pkgname=$PACKAGE_NAME
 pkgver=$VERSION
 pkgrel=1
@@ -291,13 +329,18 @@ license=('MIT')
 # !debug: без отдельного -debug пакета с символами — он не нужен
 # в релизе и удваивает размер артефактов.
 options=('!debug')
-depends=($deps_array)
+EOF
+        printf "depends=("
+        printf "'%s' " "${deps_array[@]}"
+        printf ")\n"
+        cat <<EOF
 
 package() {
     install -d "\$pkgdir/usr"
     cp -a "\$startdir/staging_usr/." "\$pkgdir/usr/"
 }
 EOF
+    } > "$workdir/PKGBUILD"
 
     # makepkg отказывается работать от root. Если мы root — создаём
     # (идемпотентно) пользователя builder и отдаём ему workdir.
@@ -310,14 +353,12 @@ EOF
         makepkg_cmd="makepkg -f --nodeps --nocheck"
     fi
 
-    (
-        cd "$workdir"
-        # shellcheck disable=SC2086
-        if ! $makepkg_cmd; then
-            echo "[!] makepkg упал (см. вывод выше)" >&2
-            exit 1
-        fi
-    ) || { cd "$PROJECT_ROOT"; rm -rf "$workdir"; return 1; }
+    if ! ( cd "$workdir" && $makepkg_cmd ); then
+        keep_workdir=1
+        echo "[!] makepkg упал. Логи и PKGBUILD: $workdir" >&2
+        echo "[!] Для отладки: cd $workdir && cat PKGBUILD" >&2
+        return 1
+    fi
 
     # Фильтруем debug-пакет — даже при options=('!debug') подстрахуемся.
     local built
@@ -329,11 +370,10 @@ EOF
         mv "$built" "$pkg_file"
         echo "[✓] Нативный .pkg.tar.zst: $pkg_file"
     else
-        echo "[!] makepkg не создал пакет" >&2
-        cd "$PROJECT_ROOT"; rm -rf "$workdir"; return 1
+        keep_workdir=1
+        echo "[!] makepkg не создал пакет. Содержимое: $workdir" >&2
+        return 1
     fi
 
-    cd "$PROJECT_ROOT"
-    rm -rf "$workdir"
     return 0
 }
