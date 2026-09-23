@@ -1154,7 +1154,7 @@ wxString FindAppDataFile(const wxString &filename) {
     wxFileName fn(p);
     fn.MakeAbsolute();
     fn.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
-    return fn.GetPath();
+    return fn.GetFullPath();
   };
 
   // 1. Runtime-provided roots. Перебираем 4 уровня вверх — покрывает
