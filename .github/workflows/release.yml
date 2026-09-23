@@ -784,7 +784,6 @@ jobs:
             dist/*.rpm
             dist/*.asc
             dist/checksums.txt
-            dist/public-key.asc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
