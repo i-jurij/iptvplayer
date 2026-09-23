@@ -278,7 +278,10 @@ build_pkg_arch() {
         [ -z "$_owner" ] && continue
         _virtual=$(pacman -Si "$_owner" 2>/dev/null \
                     | awk -F': ' '/^Provides/{print $2}' \
-                    | tr ' ' '\n' | grep -vx "$_owner" | head -n1)
+                    | tr ' ' '\n' \
+                    | grep -vx "$_owner" \
+                    | grep -vx 'None' \
+                    | head -n1)
         if [ -z "$_virtual" ]; then
             _virtual="$_owner"
         fi
