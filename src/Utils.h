@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ConfigManager.h"
+#include <curl/curl.h>
 #include <mpv/client.h>
 
 #include <wx/app.h>
@@ -13,6 +14,11 @@
 #include <functional>
 #include <string>
 
+// Применяет путь к CA-bundle из переменной окружения IPTVPLAYER_CA_BUNDLE
+// (устанавливается хуком внутри sharun-AppImage). Если переменная не задана —
+// ничего не делает, libcurl использует свой зашитый путь. Безопасно
+// вызывать для любого CURL*.
+void ApplyCurlCaBundle(CURL *handle);
 
 int MeasureWrappedTextHeight(wxWindow *parent, const wxString &text,
                              int wrapWidth, const wxFont &font);

@@ -394,6 +394,43 @@ Then install the clangd extension in VSCode — it will use
 
 ---
 
+## Environment variables
+
+### `IPTVPLAYER_CA_BUNDLE`
+
+Path to a PEM file with trusted CA certificates. Read at application
+startup and applied to every libcurl handle via `CURLOPT_CAINFO`.
+
+**When you need it.** Bundled `libcurl` (used in `*-sharun.AppImage`)
+is built with a hardcoded CA path from the build host. If that path
+does not exist on your system (for example, Arch's
+`/etc/ssl/certs/ca-certificates.crt` on Fedora, where the bundle lives
+at `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`), HTTPS requests
+fail with `Problem with the SSL CA cert`. Setting this variable points
+libcurl at the correct file.
+
+**How it is set automatically.** Inside `*-sharun.AppImage` a hook
+(`bin/ca-bundle.hook`) picks the first existing file from a list of
+well-known locations and exports this variable before the application
+starts. No action needed for typical systems.
+
+**How to set it manually.** If your CA bundle lives somewhere unusual,
+or if you use the plain (linuxdeploy) AppImage and want to override
+the default:
+
+    IPTVPLAYER_CA_BUNDLE=/path/to/ca-bundle.pem ./iptvplayer-linux-x86_64-*.AppImage
+
+For the sharun variant, this can also be persisted via the runtime's
+`.env` file next to the AppImage:
+
+    echo 'IPTVPLAYER_CA_BUNDLE=/path/to/ca-bundle.pem' >> iptvplayer-linux-x86_64-*-sharun.AppImage.env
+
+**Native packages** (`.deb`, `.rpm`, `.pkg.tar.zst`) use the system
+`libcurl`, which already knows the right path. The variable is
+optional there — if unset, libcurl falls back to its built-in default.
+
+---
+
 ## Notes
 
 - The scripts are designed for Linux; Windows and macOS will have separate

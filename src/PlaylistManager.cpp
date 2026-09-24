@@ -163,6 +163,8 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
     return ErrorCode::CurlInitError;
   }
 
+  ApplyCurlCaBundle(sess.get());
+  
   content.clear();
   content.reserve(256 * 1024);
 

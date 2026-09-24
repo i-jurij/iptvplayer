@@ -235,7 +235,7 @@ build_sharun_appimage() {
     # ---------------------------------------------------------------------
     echo "[+] Создание ca-bundle.hook..."
 
-    cat > "$APPDIR/bin/ca-bundle.hook" << 'EOF'
+    cat > "$APPDIR/bin/99-ca_bundle.hook" << 'EOF'
 #!/bin/sh
 # Runtime-детект системного CA-bundle. Выполняется AppRun.sh перед exec,
 # поэтому переменные гарантированно доезжают до libcurl внутри песочницы.
@@ -248,14 +248,12 @@ for c in \
     /var/lib/ca-certificates/ca-bundle.pem
 do
     if [ -f "$c" ]; then
-        export CURL_CA_BUNDLE="$c"
-        export SSL_CERT_FILE="$c"
-        export REQUESTS_CA_BUNDLE="$c"
+        export IPTVPLAYER_CA_BUNDLE="$c"
         break
     fi
 done
 EOF
-    chmod +x "$APPDIR/bin/ca-bundle.hook"
+    chmod +x "$APPDIR/bin/99-ca_bundle.hook"
 
     # ---------------------------------------------------------------------
     # Упаковка

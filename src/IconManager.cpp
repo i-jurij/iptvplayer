@@ -1,6 +1,7 @@
 #include "IconManager.h"
 #include "LogControl.h"
 #include "Profiler.h"
+#include "Utils.h"
 
 #include <curl/curl.h>
 #include <webp/decode.h> // WebPGetInfo, WebPDecodeRGBA, WebPFree
@@ -575,6 +576,8 @@ bool IconManager::DownloadIconToBuffer(const std::string &url,
     wxLogWarning("IconManager: curl_easy_init() failed.");
     return false;
   }
+
+  ApplyCurlCaBundle(curl);
 
   buffer.clear();
   DownloadContext ctx(&buffer);

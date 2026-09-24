@@ -113,6 +113,15 @@ static size_t HeaderCallback(char *buffer, size_t size, size_t nitems,
   return size * nitems;
 }
 
+void ApplyCurlCaBundle(CURL *handle) {
+  if (!handle)
+    return;
+  const char *ca = std::getenv("IPTVPLAYER_CA_BUNDLE");
+  if (ca && *ca) {
+    curl_easy_setopt(handle, CURLOPT_CAINFO, ca);
+  }
+}
+
 UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
                                            const std::string &userAgent,
                                            int timeoutSeconds,
@@ -135,6 +144,8 @@ UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
     return result;
   }
 
+  ApplyCurlCaBundle(curl);
+  
   // Общие опции
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
