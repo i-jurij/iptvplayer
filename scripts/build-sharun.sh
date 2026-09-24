@@ -229,6 +229,37 @@ build_sharun_appimage() {
         echo "[i] GDK_PIXBUF_MODULE_FILE не прописан (нет loaders.cache)"
     fi
 
+    # ---------------------------------------------------------------------
+    # Хук для CA-bundle. AppRun.sh автоматически выполняет *.hook из bin/
+    # через source, поэтому export'ы из хука наследуются приложением.
+    # ---------------------------------------------------------------------
+    echo "[+] Создание ca-bundle.hook..."
+
+    cat > "$APPDIR/bin/ca-bundle.hook" << 'EOF'
+#!/bin/sh
+# Runtime-детект системного CA-bundle. Выполняется AppRun.sh перед exec,
+# поэтому переменные гарантированно доезжают до libcurl внутри песочницы.
+for c in \
+    /etc/ssl/certs/ca-certificates.crt \
+    /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+    /etc/pki/tls/cert.pem \
+    /etc/pki/tls/cacert.pem \
+    /etc/ssl/cert.pem \
+    /var/lib/ca-certificates/ca-bundle.pem
+do
+    if [ -f "$c" ]; then
+        export CURL_CA_BUNDLE="$c"
+        export SSL_CERT_FILE="$c"
+        export REQUESTS_CA_BUNDLE="$c"
+        break
+    fi
+done
+EOF
+    chmod +x "$APPDIR/bin/ca-bundle.hook"
+
+    # ---------------------------------------------------------------------
+    # Упаковка
+    # ---------------------------------------------------------------------
     echo "[+] Упаковка AppDir в AppImage..."
     if ! "$QUICK_SHARUN" --make-appimage; then
         echo "[!] quick-sharun --make-appimage завершился с ошибкой" >&2
