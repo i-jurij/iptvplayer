@@ -1,0 +1,1 @@
+check playlist download - certificates into sharun appimage

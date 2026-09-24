@@ -37,6 +37,15 @@ static void print_help() {
                "  -h, --help           Show this help and exit\n"
                "  -V, --version        Show version and exit\n"
                "\n"
+               "Environment:\n"
+               "  IPTVPLAYER_CA_BUNDLE Path to a PEM file with trusted CA\n"
+               "                       certificates. Used by libcurl via\n"
+               "                       CURLOPT_CAINFO. Linux/BSD only; on\n"
+               "                       Windows/macOS libcurl uses the system\n"
+               "                       store and this is ignored.\n"
+               "                       Inside *-sharun.AppImage it is set\n"
+               "                       automatically by bin/ca-bundle.hook.\n"
+               "\n"
                "Without options, the application starts normally.\n";
 }
 

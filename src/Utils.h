@@ -15,9 +15,12 @@
 #include <string>
 
 // Применяет путь к CA-bundle из переменной окружения IPTVPLAYER_CA_BUNDLE
-// (устанавливается хуком внутри sharun-AppImage). Если переменная не задана —
-// ничего не делает, libcurl использует свой зашитый путь. Безопасно
-// вызывать для любого CURL*.
+// к переданному curl-хендлу через CURLOPT_CAINFO.
+//
+// Linux/BSD: если переменная задана — использует её; иначе no-op, libcurl
+//   берёт свой зашитый путь.
+// Windows/macOS: всегда no-op — Schannel и SecureTransport читают
+//   системный store / Keychain и в подсказке не нуждаются.
 void ApplyCurlCaBundle(CURL *handle);
 
 int MeasureWrappedTextHeight(wxWindow *parent, const wxString &text,

@@ -116,10 +116,19 @@ static size_t HeaderCallback(char *buffer, size_t size, size_t nitems,
 void ApplyCurlCaBundle(CURL *handle) {
   if (!handle)
     return;
+
+#if defined(_WIN32) || defined(__APPLE__)
+  // Windows: libcurl использует Schannel → системный certificate store.
+  // macOS:   libcurl использует SecureTransport → Keychain.
+  // В обоих случаях CURLOPT_CAINFO игнорируется или не нужен.
+  (void)handle;
+  return;
+#else
   const char *ca = std::getenv("IPTVPLAYER_CA_BUNDLE");
   if (ca && *ca) {
     curl_easy_setopt(handle, CURLOPT_CAINFO, ca);
   }
+#endif
 }
 
 UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
