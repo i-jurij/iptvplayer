@@ -91,9 +91,6 @@ void MainFrame::onToggleFavoritesView(wxCommandEvent &) {
 }
 
 void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
-  LOG_DEBUG("MainFrame::OnEpgProgress: stage=%d, percent=%d, text=%s",
-            static_cast<int>(info.stage), info.percent, info.stageText.c_str());
-
   bool isActive = (info.stage != EpgProgressStage::None &&
                    info.stage != EpgProgressStage::Done &&
                    info.stage != EpgProgressStage::Cancelled &&
