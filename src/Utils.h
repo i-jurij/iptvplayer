@@ -152,9 +152,6 @@ inline void CallAfterSafeById(int winId, F &&fn) {
   CallAfterSafeById(winId, std::function<void(wxWindow *)>(std::move(wrapper)));
 }
 
-bool NeedsEmbeddedVideoBackend(ConfigManager *cfg);
-bool EnsureXWaylandForEmbeddedVideo(bool needsEmbeddedVideo);
-
 // Ищет файл в каталогах данных приложения: $APPDIR/usr/share/iptvplayer и т.д.
 // filename — "about.html", "icons/play.svg".
 wxString FindAppDataFile(const wxString &filename);
