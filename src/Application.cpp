@@ -82,6 +82,8 @@ bool Application::OnInit() {
 
     // log enable
     wxLog::SetLogLevel(wxLOG_Debug);
+    // wxLog::SetLogLevel(wxLOG_Info);
+    // wxLog::SetLogLevel(wxLOG_Error);
     wxLog::SetActiveTarget(new wxLogStderr());
 
     wxInitAllImageHandlers();

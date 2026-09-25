@@ -224,6 +224,21 @@
         See <a href="https://github.com/i-jurij/iptvplayer/blob/main/SECURITY.md">SECURITY.md</a> for verification
         instructions.</p>
 
+    <h3>Codec for H.264 streams</h3>
+
+    <p>Most IPTV streams are H.264. Some distributions do not include a decoder for it by default, and
+        playback fails with a black screen or <code>Unable to create decoder for h264</code>.</p>
+
+    <ul>
+        <li><strong>Fedora / RHEL:</strong> <code>sudo dnf install openh264</code>.</li>
+        <li><strong>Debian / Ubuntu:</strong> <code>sudo apt install libopenh264-7</code>.
+            If the package is not found, try <code>sudo apt install libavcodec-extra</code>.</li>
+        <li><strong>Arch / Manjaro:</strong> <code>sudo pacman -S ffmpeg</code> (H.264 decoding is
+            included). Optionally also <code>sudo pacman -S openh264</code>.</li>
+    </ul>
+
+    <p>Then restart the application.</p>
+
     <h2>First launch</h2>
 
     <ol>
@@ -624,6 +639,23 @@
         Инструкции по проверке — в
         <a href="https://github.com/i-jurij/iptvplayer/blob/main/SECURITY.md">SECURITY.md</a>.
     </p>
+
+    <h3>Кодек для потоков H.264</h3>
+
+    <p>Большинство IPTV-потоков — H.264. В некоторых дистрибутивах декодер для него не входит в
+        стандартную поставку, и воспроизведение падает с чёрным экраном или ошибкой
+        <code>Unable to create decoder for h264</code>.
+    </p>
+
+    <ul>
+        <li><strong>Fedora / RHEL:</strong> <code>sudo dnf install openh264</code>.</li>
+        <li><strong>Debian / Ubuntu:</strong> <code>sudo apt install libopenh264-7</code>.
+            Если пакет не найден, попробуйте <code>sudo apt install libavcodec-extra</code>.</li>
+        <li><strong>Arch / Manjaro:</strong> <code>sudo pacman -S ffmpeg</code> (декодер H.264 уже
+            входит). Дополнительно можно установить <code>sudo pacman -S openh264</code>.</li>
+    </ul>
+
+    <p>После установки перезапустите приложение.</p>
 
     <h2>Первый запуск</h2>
 

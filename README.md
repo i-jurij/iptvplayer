@@ -58,6 +58,19 @@ See [SECURITY.md](SECURITY.md) for verification instructions.
 
 See [Building and packaging](#building-and-packaging) below.
 
+### Codec for H.264
+
+Most IPTV streams are H.264. Some distributions do not include a decoder for it by default, and
+playback fails with a black screen or `Unable to create decoder for h264`.
+
+- **Fedora / RHEL:** `sudo dnf install openh264`.
+- **Debian / Ubuntu:** `sudo apt install libopenh264-7`. If the package is not found, try
+  `sudo apt install libavcodec-extra`.
+- **Arch / Manjaro:** `sudo pacman -S ffmpeg` (H.264 decoding is included). Optionally also
+  `sudo pacman -S openh264`.
+
+Then restart the application.
+
 ### Hardware decoding
 
 For smooth HD playback, install VA-API drivers (`va-driver-all` on Debian/Ubuntu, `mesa-va-drivers` on Fedora/RHEL, `libva-mesa-driver` on Arch, `nvidia-vaapi-driver` for NVIDIA).
@@ -433,6 +446,22 @@ For the sharun variant, the value can also be persisted in the runtime's
 existing file from a list of well-known Linux locations and exports the
 variable before the application starts. On other platforms the hook does
 not exist and is not needed.
+
+### Other variables
+
+The AppImage runtime (`sharun` / `Anylinux-sharun`) supports additional
+environment variables for debugging, overriding library paths, and
+fine-tuning GPU behaviour. See the upstream documentation for the full
+list:
+
+- <https://github.com/VHSgunzo/sharun> (base runtime)
+- <https://github.com/pkgforge-dev/Anylinux-sharun> (fork used in this project)
+
+One variable worth knowing: `SHARUN_MESA_PATH` — points to an external
+Mesa installation (e.g. `SHARUN_MESA_PATH=/usr`) to use the system GL
+stack instead of the bundled one. Useful on systems where the bundled
+Mesa misbehaves (virgl in VMs, certain NVIDIA setups), but may fail if
+the system Mesa is too old for OpenGL 3.3 Core.
 
 ---
 
