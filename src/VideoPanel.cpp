@@ -669,7 +669,6 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
   if (!m_progress || !m_timeCurrentLabel)
     return;
 
-  // Не обновляем, если пользователь тянет слайдер
   if (!m_isDraggingProgress) {
     bool isStream = (info.duration <= 0 || info.duration > 1000000);
     int value = isStream ? static_cast<int>(info.cachePercent * 10)
@@ -678,6 +677,40 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
   }
 
   UpdateProgressDisplay(info);
+
+  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+  if (!frame || !frame->GetStatusBar())
+    return;
+
+  if (info.pausedForCache && !m_isLoading) {
+    if (!m_bufferingStatusShown) {
+      m_bufferingStatusShown = true;
+      frame->SetStatusText("Buffering...", 0);
+    }
+  } else if (m_bufferingStatusShown) {
+    m_bufferingStatusShown = false;
+    wxString statusText;
+    switch (m_tempState) {
+    case TempPlayState::Idle:
+    case TempPlayState::Stopped:
+    case TempPlayState::Error:
+      statusText = "";
+      break;
+    case TempPlayState::Requesting:
+    case TempPlayState::Loading:
+    case TempPlayState::FileLoaded:
+    case TempPlayState::Starting:
+      statusText = "Loading...";
+      break;
+    case TempPlayState::Playing:
+      statusText = "Playing";
+      break;
+    case TempPlayState::Paused:
+      statusText = "Paused";
+      break;
+    }
+    frame->SetStatusText(statusText, 0);
+  }
 }
 
 void VideoPanel::UpdateProgressDisplay(const ProgressInfo &info) {

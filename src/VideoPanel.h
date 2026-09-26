@@ -145,6 +145,7 @@ private:
   double m_eofLastPos = -1.0;
 
   bool m_isLoading = false;
+  bool m_bufferingStatusShown = false;
   int m_loadAttempts = 0;
   wxString m_errorMessage;
   void SetErrorStatus(const wxString &errorMsg);
