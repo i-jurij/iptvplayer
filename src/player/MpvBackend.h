@@ -39,6 +39,8 @@ public:
   void ResizeEmbeddedWindow(int width, int height) override;
   void SetFullscreen(bool fullscreen) override;
 
+  void ShowOsdText(const std::string &text, int durationMs) override;
+
   void Shutdown() override;
   void SeekRelative(int seconds) override;
   void SeekAbsolute(int percent) override;
@@ -81,6 +83,8 @@ public:
 private:
   bool m_isRecording = false;
   RecordStateCallback m_recordStateCb;
+
+  bool m_osdBufferingShown = false;
 
   mpv_handle *m_mpv = nullptr;
   wxWindow *m_parentWindow = nullptr;

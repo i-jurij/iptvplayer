@@ -95,6 +95,8 @@ void MpvBackend::Shutdown() {
 
   //LOG_DEBUG("MpvBackend::Shutdown()");
 
+  ShowOsdText("", 0);
+  
   // 0. Сначала отцепляем canvas и уничтожаем render_context
   if (m_window) {
     MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_window);
@@ -291,6 +293,8 @@ void MpvBackend::Pause() {
 void MpvBackend::Stop() {
   if (!m_mpv)
     return;
+  ShowOsdText("", 0);
+  m_osdBufferingShown = false;
   const char *cmd[] = {"stop", nullptr};
   mpv_command(m_mpv, cmd);
 }
@@ -719,4 +723,22 @@ void MpvBackend::StopRecording() {
     if (m_recordStateCb)
       m_recordStateCb(true, "", mpv_error_string(ret));
   }
+}
+
+void MpvBackend::ShowOsdText(const std::string &text, int durationMs) {
+  if (!m_mpv)
+    return;
+
+  std::string escaped;
+  escaped.reserve(text.size());
+  for (char c : text) {
+    if (c == '"' || c == '\\')
+      escaped += '\\';
+    escaped += c;
+  }
+
+  int dur = (durationMs <= 0) ? -1 : durationMs;
+
+  std::string cmd = "show-text \"" + escaped + "\" " + std::to_string(dur);
+  mpv_command_string(m_mpv, cmd.c_str());
 }

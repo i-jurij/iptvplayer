@@ -60,6 +60,8 @@ public:
 
   void ResizeEmbeddedWindow(int width, int height);
 
+  void ShowOsdText(const std::string &text, int durationMs = 0);
+
   PlayerState GetState() const { return m_state; }
 
   void Shutdown();

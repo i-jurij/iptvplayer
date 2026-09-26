@@ -56,7 +56,10 @@ public:
 
   virtual void SetFullscreen(bool fullscreen) = 0;
 
+  virtual void ShowOsdText(const std::string &text, int durationMs) = 0;
+
   virtual void Shutdown() = 0;
+  
   virtual void SeekRelative(int seconds) = 0;
   virtual void SeekAbsolute(int percent) = 0;
 

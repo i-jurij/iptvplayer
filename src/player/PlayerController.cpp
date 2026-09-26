@@ -207,6 +207,11 @@ void PlayerController::ResizeEmbeddedWindow(int width, int height) {
     m_backend->ResizeEmbeddedWindow(width, height);
 }
 
+void PlayerController::ShowOsdText(const std::string &text, int durationMs) {
+  if (m_backend)
+    m_backend->ShowOsdText(text, durationMs);
+}
+
 std::string PlayerController::GetBackendName() const {
   if (!m_backend)
     return "none";

@@ -292,6 +292,9 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_btnStop->Bind(wxEVT_BUTTON, &VideoPanel::OnStop, this);
   ctrlSizer->Add(m_btnStop, 0, wxALL, FromDIP(5));
 
+  // --- Spacer ---
+  ctrlSizer->AddStretchSpacer(1);
+  
   // --- Record ---
   m_btnRecord = new wxButton(m_controlsPanel, wxID_ANY, "");
   {
@@ -686,6 +689,8 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
     if (!m_bufferingStatusShown) {
       m_bufferingStatusShown = true;
       frame->SetStatusText("Buffering...", 0);
+      if (m_playerController)
+        m_playerController->ShowOsdText("Buffering...", 0);
     }
   } else if (m_bufferingStatusShown) {
     m_bufferingStatusShown = false;
@@ -710,6 +715,8 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
       break;
     }
     frame->SetStatusText(statusText, 0);
+    if (m_playerController)
+      m_playerController->ShowOsdText("", 0);
   }
 }
 
