@@ -31,6 +31,11 @@ private:
   GLuint m_spinnerVBO = 0;
   GLint m_spinnerColorLoc = -1; // uniform для цвета
   GLint m_spinnerPosLoc = -1;   // атрибут позиции (layout=0)
+  GLint m_spinnerScaleLoc = -1; // компенсация aspect ratio
+  GLint m_spinnerRadiusLoc = -1;
+  GLint m_spinnerThicknessLoc = -1;
+  GLint m_spinnerStartAngleLoc = -1;
+  GLint m_spinnerEndAngleLoc = -1;
 
   void InitSpinnerResources();
   void DestroySpinnerResources();
@@ -110,6 +115,8 @@ private:
   PFNGLUSEPROGRAMPROC p_glUseProgram = nullptr;
   PFNGLGETUNIFORMLOCATIONPROC p_glGetUniformLocation = nullptr;
   PFNGLUNIFORM1IPROC p_glUniform1i = nullptr;
+  PFNGLUNIFORM1FPROC p_glUniform1f = nullptr;
+  PFNGLUNIFORM2FPROC p_glUniform2f = nullptr;
   PFNGLUNIFORM4FPROC p_glUniform4f = nullptr;
 
   // -----------------------------

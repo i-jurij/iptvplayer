@@ -56,17 +56,48 @@ void MpvGLCanvas::InitSpinnerResources() {
   const char *vsSrc = R"(
         #version 330 core
         layout(location = 0) in vec2 aPos;
+        out vec2 vPos;
         void main() {
+            vPos = aPos;
             gl_Position = vec4(aPos, 0.0, 1.0);
         }
     )";
 
   const char *fsSrc = R"(
         #version 330 core
-        uniform vec4 uColor;
+        in vec2 vPos;
         out vec4 FragColor;
+
+        uniform vec4  uColor;
+        uniform vec2  uScale;
+        uniform float uRadius;
+        uniform float uThickness;
+        uniform float uStartAngle;
+        uniform float uEndAngle;
+
+        const float TWO_PI = 6.28318530718;
+
+        float arcDistance(vec2 p, float r, float a0, float a1) {
+            float ang = atan(p.y, p.x);
+            float span = a1 - a0;
+            float rel = mod(ang - a0, TWO_PI);
+            if (rel <= span) {
+                return abs(length(p) - r);
+            }
+            vec2 e0 = r * vec2(cos(a0), sin(a0));
+            vec2 e1 = r * vec2(cos(a1), sin(a1));
+            return min(length(p - e0), length(p - e1));
+        }
+
         void main() {
-            FragColor = uColor;
+            vec2 p = vPos / uScale;
+            float d = arcDistance(p, uRadius, uStartAngle, uEndAngle);
+
+            float halfT = uThickness * 0.5;
+            float aa = fwidth(d) * 1.5;
+
+            float alpha = 1.0 - smoothstep(halfT - aa, halfT + aa, d);
+            FragColor = vec4(uColor.rgb, uColor.a * alpha);
         }
     )";
 
@@ -74,21 +105,31 @@ void MpvGLCanvas::InitSpinnerResources() {
   GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fsSrc);
   m_spinnerProgram = LinkProgram(vs, fs);
 
-  // Получаем location uniform'а цвета
   m_spinnerColorLoc = p_glGetUniformLocation(m_spinnerProgram, "uColor");
-  if (m_spinnerColorLoc == -1) {
-    LOG_ERROR("Failed to get uColor location in spinner shader");
+  m_spinnerScaleLoc = p_glGetUniformLocation(m_spinnerProgram, "uScale");
+  m_spinnerRadiusLoc = p_glGetUniformLocation(m_spinnerProgram, "uRadius");
+  m_spinnerThicknessLoc =
+      p_glGetUniformLocation(m_spinnerProgram, "uThickness");
+  m_spinnerStartAngleLoc =
+      p_glGetUniformLocation(m_spinnerProgram, "uStartAngle");
+  m_spinnerEndAngleLoc = p_glGetUniformLocation(m_spinnerProgram, "uEndAngle");
+
+  if (m_spinnerColorLoc == -1 || m_spinnerScaleLoc == -1 ||
+      m_spinnerRadiusLoc == -1 || m_spinnerThicknessLoc == -1 ||
+      m_spinnerStartAngleLoc == -1 || m_spinnerEndAngleLoc == -1) {
+    LOG_ERROR("Failed to get one of spinner uniform locations");
   }
 
-  // Создаём VAO и VBO для линии (достаточно для 64 сегментов)
+  const float quad[] = {
+      -1.f, -1.f, 1.f, -1.f, 1.f, 1.f, -1.f, 1.f,
+  };
+
   p_glGenVertexArrays(1, &m_spinnerVAO);
   p_glBindVertexArray(m_spinnerVAO);
 
   p_glGenBuffers(1, &m_spinnerVBO);
   p_glBindBuffer(GL_ARRAY_BUFFER, m_spinnerVBO);
-  // Выделяем память для 64 вершин (по 2 float каждая) – пока пустой буфер
-  p_glBufferData(GL_ARRAY_BUFFER, 64 * 2 * sizeof(float), nullptr,
-               GL_DYNAMIC_DRAW);
+  p_glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
 
   p_glEnableVertexAttribArray(0);
   p_glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -116,42 +157,39 @@ void MpvGLCanvas::DrawSpinner() {
   if (!m_spinnerProgram || !m_spinnerVAO)
     return;
 
-  const int segments = 40;
-  const float radius = 0.08f;   // размер 
-  const float lineWidth = 4.0f; // толщина линии 
+  int w = 0, h = 0;
+  GetClientSize(&w, &h);
+  if (w <= 0 || h <= 0)
+    return;
+
+  const float radius = 0.04f;
+  const float thickness = 0.006f;
 
   float angle = m_spinnerAngle * M_PI / 180.0f;
   float progress = fmod(m_spinnerAngle / 120.0f, 1.0f);
   float startAngle = angle;
   float endAngle = angle + progress * 2.0f * M_PI;
 
-  int numVerts = segments + 1;
-  float *verts = new float[numVerts * 2];
-  for (int i = 0; i <= segments; i++) {
-    float t = (float)i / segments;
-    float a = startAngle + t * (endAngle - startAngle);
-    verts[i * 2] = radius * cos(a);
-    verts[i * 2 + 1] = radius * sin(a);
-  }
-
-  p_glBindBuffer(GL_ARRAY_BUFFER, m_spinnerVBO);
-  p_glBufferSubData(GL_ARRAY_BUFFER, 0, numVerts * 2 * sizeof(float), verts);
-  p_glBindBuffer(GL_ARRAY_BUFFER, 0);
-  delete[] verts;
+  float aspect = (float)w / (float)h;
 
   p_glUseProgram(m_spinnerProgram);
   p_glBindVertexArray(m_spinnerVAO);
 
   p_glUniform4f(m_spinnerColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
-  glLineWidth(lineWidth);
-  glDrawArrays(GL_LINE_STRIP, 0, numVerts);
+  p_glUniform2f(m_spinnerScaleLoc, 1.0f, aspect);
+  p_glUniform1f(m_spinnerRadiusLoc, radius);
+  p_glUniform1f(m_spinnerThicknessLoc, thickness);
+  p_glUniform1f(m_spinnerStartAngleLoc, startAngle);
+  p_glUniform1f(m_spinnerEndAngleLoc, endAngle);
+
+  glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
   p_glBindVertexArray(0);
   p_glUseProgram(0);
 }
 
 void MpvGLCanvas::OnSpinnerTimer(wxTimerEvent &) {
-  m_spinnerAngle += 6.0f;
+  m_spinnerAngle += 5.0f;
   if (m_spinnerAngle >= 360.0f)
     m_spinnerAngle -= 360.0f;
   if (m_showSpinner)
@@ -256,6 +294,8 @@ void MpvGLCanvas::LoadGLFunctions() {
   load(p_glUseProgram, "glUseProgram");
   load(p_glGetUniformLocation, "glGetUniformLocation");
   load(p_glUniform1i, "glUniform1i");
+  load(p_glUniform1f, "glUniform1f");
+  load(p_glUniform2f, "glUniform2f");
   load(p_glUniform4f, "glUniform4f");
 
   // --- FBO ---
