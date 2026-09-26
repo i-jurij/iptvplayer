@@ -23,7 +23,7 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   // Базовые опции
   mpv_set_option_string(m_mpv, "config", "no");
   mpv_set_option_string(m_mpv, "terminal", "no");
-  mpv_set_option_string(m_mpv, "msg-level", "all");
+  mpv_set_option_string(m_mpv, "msg-level", "warn");
 
   // Критично для render API: vo=libmpv, без собственного окна
   mpv_set_option_string(m_mpv, "vo", "libmpv");
@@ -47,11 +47,11 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   // LOG_DEBUG("mpv_initialize returned %d", st);
 
   mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG);
-  //LOG_DEBUG("MpvBackend: observing property 'pause'");
 
-  // Enable tick events for regular progress updates
-  mpv_request_event(m_mpv, MPV_EVENT_TICK, 1);
-  //LOG_DEBUG("MpvBackend: requested MPV_EVENT_TICK");
+  mpv_observe_property(m_mpv, 1, "playback-time", MPV_FORMAT_DOUBLE);
+  mpv_observe_property(m_mpv, 2, "demuxer-cache-duration", MPV_FORMAT_DOUBLE);
+  mpv_observe_property(m_mpv, 3, "cache-buffering-state", MPV_FORMAT_INT64);
+  mpv_observe_property(m_mpv, 4, "paused-for-cache", MPV_FORMAT_FLAG);
 
   // ВАЖНО: вместо отдельного потока — wakeup callback
   mpv_set_wakeup_callback(m_mpv, &MpvBackend::WakeupCallback, this);
@@ -212,30 +212,31 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
     std::string name(prop->name);
 
     if (name == "pause") {
-      // Для MPV_FORMAT_FLAG prop->data приходит как int64_t
       int64_t val = 0;
       if (prop->data) {
-        // prop->data указывает на значение в формате mpv, безопасно читать как
-        // int64_t
         val = *static_cast<int64_t *>(prop->data);
       }
       bool paused = (val != 0);
-      //LOG_DEBUG("MpvBackend: property change pause=%d", paused ? 1 : 0);
       if (m_stateCallback) {
-        m_stateCallback(paused ? 3 : 1); // 3 = Paused, 1 = Playing
+        m_stateCallback(paused ? 3 : 1);
       }
-      EmitProgress(); // Update progress on pause/play
+      EmitProgress();
       break;
     }
 
-    if (prop && std::string(prop->name) == "video-params") {
+    if (name == "video-params") {
       EmitStreamInfo();
+      break;
     }
-    break;
-  }
-  case MPV_EVENT_TICK: {
-    // Regular progress update during playback
-    EmitProgress();
+
+    if (name == "playback-time" || name == "demuxer-cache-duration" ||
+        name == "cache-buffering-state" || name == "paused-for-cache") {
+      if (prop->format == MPV_FORMAT_NONE)
+        break;
+      EmitProgress();
+      break;
+    }
+
     break;
   }
   case MPV_EVENT_END_FILE: {
@@ -410,7 +411,7 @@ double MpvBackend::GetTimePos() const {
   if (!m_mpv)
     return 0.0;
   double pos = 0.0;
-  SafeGetProperty(m_mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos);
+  SafeGetProperty(m_mpv, "playback-time", MPV_FORMAT_DOUBLE, &pos);
   return pos < 0 ? 0.0 : pos;
 }
 
