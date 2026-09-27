@@ -525,24 +525,27 @@ int GetNormDPI(wxWindow *ctx) {
 
 int GetDpiLogoSizeList(wxWindow *ctx) {
   int dpi = GetNormDPI(ctx);
-
   double scale = dpi / 96.0;
-  int size = (int)std::round(32 * scale);
+
+  int size = (int)std::round(LIST_LOGO_SIZE_DIP * scale);
 
   if (size < 24)
     size = 24;
-  if (size > 64)
-    size = 64;
+  if (size > 128)
+    size = 128;
 
   return size;
 }
 
 std::pair<int, int> GetCardSizeForDPI(int dpi) {
+  // Логический размер ≈ 340×90 на всех бакетах.
   if (dpi < 110)
-    return {340, 90};
+    return {340, 90}; // 96  → 340/1.00 = 340×90
   if (dpi < 150)
-    return {420, 110};
-  return {500, 130};
+    return {420, 110}; // 120 → 420/1.25 = 336×88
+  if (dpi < 190)
+    return {500, 130}; // 144 → 500/1.50 = 333×87
+  return {680, 180};   // 192 → 680/2.00 = 340×90
 }
 
 int GetScaledCardSize(int dipValue, int dpi) {
@@ -550,21 +553,41 @@ int GetScaledCardSize(int dipValue, int dpi) {
   return static_cast<int>(dipValue * scale + 0.5);
 }
 
+namespace {
+inline int StarSizeForCardH(int cardH) {
+  return std::max(24, (int)(cardH * 0.6));
+}
+} // namespace
+
+CardLayoutInfo ComputeCardLayoutForDPI(int normDPI) {
+  CardLayoutInfo L;
+  auto cs = GetCardSizeForDPI(normDPI);
+  L.cardW = cs.first; // ← БЕЗ GetScaledCardSize (был баг двойного масштаба)
+  L.cardH = cs.second;
+
+  // pad / logoGap — DIP-величины, их масштабируем корректно:
+  L.pad = GetScaledCardSize(4, normDPI);
+  L.logoGap = GetScaledCardSize(1, normDPI);
+
+  L.favZoneSize = L.cardH;
+  L.logoZoneLeft = L.pad;
+  L.logoZoneRight = L.cardW - L.pad - L.favZoneSize;
+  L.logoZoneW = std::max(1, L.logoZoneRight - L.logoZoneLeft - L.logoGap);
+  L.logoH = std::max(1, L.cardH - 2 * L.pad);
+  L.starSize = StarSizeForCardH(L.cardH);
+
+  L.logoW = L.logoZoneW; // как и было: L.logoW == logoZoneW
+  L.logoDx = L.logoZoneLeft;
+  L.logoDy = L.pad + (L.cardH - 2 * L.pad - L.logoH) / 2;
+  L.starDx = L.logoZoneRight + L.logoGap + (L.favZoneSize - L.starSize) / 2;
+  L.starDy = (L.cardH - L.starSize) / 2;
+
+  return L;
+}
+
 std::pair<int, int> ComputeLogoSizeForDPI(int dpi) {
-  auto cs = GetCardSizeForDPI(dpi);
-  int cardW = GetScaledCardSize(cs.first, dpi);
-  int cardH = GetScaledCardSize(cs.second, dpi);
-
-  int pad = GetScaledCardSize(6, dpi);
-  int logoGap = GetScaledCardSize(10, dpi);
-  int favZoneSize = cardH;
-
-  int logoZoneLeft = pad;
-  int logoZoneRight = cardW - pad - favZoneSize;
-  int logoZoneW = std::max(1, logoZoneRight - logoZoneLeft - logoGap);
-  int logoH = std::max(1, cardH - 2 * pad);
-
-  return {logoZoneW, logoH};
+  auto L = ComputeCardLayoutForDPI(NormalizeDpi(dpi));
+  return {L.logoZoneW, L.logoH};
 }
 
 // ============================================================================

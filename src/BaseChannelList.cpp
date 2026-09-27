@@ -218,7 +218,7 @@ void BaseChannelList::InitColumns() {
       ->SetSortable(false);
 
   AppendColumn(new wxDataViewColumn("Logo", new ChannelListLogoRenderer(), 1,
-                                    40, wxALIGN_CENTER,
+                                    LIST_LOGO_SIZE_DIP, wxALIGN_CENTER,
                                     wxDATAVIEW_COL_RESIZABLE));
 
   AppendTextColumn("Name", 2, wxDATAVIEW_CELL_INERT, wxCOL_WIDTH_AUTOSIZE,

@@ -86,9 +86,41 @@ wxString getIconPath(const wxString &iconName);
 int GetRawDPI(wxWindow *ctx);
 int NormalizeDpi(int dpiY);
 int GetNormDPI(wxWindow *ctx);
-/// Возвращает DPI-адаптивный размер логотипа для списков (24–64 px)
+
+// ============================================================================
+//  Размер логотипа в режиме "список" (DIP).
+//  Должен совпадать:
+//    - с шириной колонки Logo (BaseChannelList::InitColumns);
+//    - с wxSize из ChannelListLogoRenderer::GetSize().
+//  Bitmap запрашивается как LIST_LOGO_SIZE_DIP * (normDPI/96.0)
+//  ФИЗИЧЕСКИХ пикселей — тогда в ячейке он отрисуется 1:1, без апскейла.
+// ============================================================================
+inline constexpr int LIST_LOGO_SIZE_DIP = 40;
+
+/// Возвращает DPI-адаптивный ФИЗИЧЕСКИЙ размер логотипа для списков.
+/// Логический размер всегда LIST_LOGO_SIZE_DIP, физический = DIP * scale.
 int GetDpiLogoSizeList(wxWindow *ctx);
+
 std::pair<int, int> GetCardSizeForDPI(int dpi);
+// ============================================================================
+//  Единый источник правды для layout карточки канала.
+//  Используется и CardsBase::ComputeLayout, и ComputeLogoSizeForDPI,
+//  чтобы ключи scaled-кэша <W>x<H>|<dpi> всегда совпадали.
+// ============================================================================
+struct CardLayoutInfo {
+  int cardW = 0, cardH = 0;
+  int pad = 0, logoGap = 0;
+  int starSize = 0;
+  int logoZoneLeft = 0, logoZoneRight = 0, logoZoneW = 0;
+  int favZoneSize = 0;
+  int logoW = 0, logoH = 0; // = logoZoneW / logoH (для ключа кэша)
+  int logoDx = 0, logoDy = 0;
+  int starDx = 0, starDy = 0;
+};
+
+// normDPI — уже нормализованный (96 / 120 / 144 / 192).
+CardLayoutInfo ComputeCardLayoutForDPI(int normDPI);
+
 int GetScaledCardSize(int dipValue, int dpi);
 std::pair<int, int> ComputeLogoSizeForDPI(int dpi);
 

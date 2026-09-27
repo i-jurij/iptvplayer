@@ -2,6 +2,7 @@
 
 #include "LogoCache.h"
 #include "Profiler.h"
+#include "Utils.h"
 
 #include <string>
 #include <wx/app.h>
@@ -47,7 +48,9 @@ public:
     return true;
   }
 
-  wxSize GetSize() const override { return wxSize(40, 40); }
+  wxSize GetSize() const override {
+    return wxSize(LIST_LOGO_SIZE_DIP, LIST_LOGO_SIZE_DIP);
+  }
 
   bool Render(wxRect rect, wxDC *dc, int) override {
     PROFILE_SCOPE("ChannelListLogoRenderer::Render");

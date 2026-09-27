@@ -245,42 +245,23 @@ void CardsBase::InvalidateCardClientRectByIndex(int cardIndex,
 }
 
 CardsBase::LayoutInfo CardsBase::ComputeLayout(int normDPI) const {
-  auto cs = GetCardSizeForDPI(normDPI);
-  int cardW = GetScaledCardSize(cs.first, normDPI);
-  int cardH = GetScaledCardSize(cs.second, normDPI);
-
-  int pad = GetScaledCardSize(4, normDPI);
-  int logoGap = GetScaledCardSize(1, normDPI);
-
-  int favZoneSize = cardH;
-  int logoZoneLeft = pad;
-  int logoZoneRight = cardW - pad - favZoneSize;
-  int logoZoneW = std::max(1, logoZoneRight - logoZoneLeft - logoGap);
-  int logoH = std::max(1, cardH - 2 * pad);
-
-  int starSize = GetStarSizeForCardH(cardH);
-
-  int logoX = logoZoneLeft;
-  int logoY = pad + (cardH - 2 * pad - logoH) / 2;
-  int starX = logoZoneRight + logoGap + (favZoneSize - starSize) / 2;
-  int starY = (cardH - starSize) / 2;
-
+  auto c = ComputeCardLayoutForDPI(normDPI);
   LayoutInfo L;
-  L.cardW = cardW;
-  L.cardH = cardH;
-  L.pad = pad;
-  L.logoGap = logoGap;
-  L.starSize = starSize;
-  L.logoZoneLeft = logoZoneLeft;
-  L.logoZoneRight = logoZoneRight;
-  L.logoZoneW = logoZoneW;
-  L.favZoneSize = favZoneSize;
-  L.logoW = logoZoneW;
-  L.logoH = logoH;
-  L.logoDx = logoX;
-  L.logoDy = logoY;
-  L.starDx = starX;
-  L.starDy = starY;
+  L.cardW = c.cardW;
+  L.cardH = c.cardH;
+  L.pad = c.pad;
+  L.logoGap = c.logoGap;
+  L.starSize = c.starSize;
+  L.logoZoneLeft = c.logoZoneLeft;
+  L.logoZoneRight = c.logoZoneRight;
+  L.logoZoneW = c.logoZoneW;
+  L.favZoneSize = c.favZoneSize;
+  L.logoW = c.logoW;
+  L.logoH = c.logoH;
+  L.logoDx = c.logoDx;
+  L.logoDy = c.logoDy;
+  L.starDx = c.starDx;
+  L.starDy = c.starDy;
   return L;
 }
 

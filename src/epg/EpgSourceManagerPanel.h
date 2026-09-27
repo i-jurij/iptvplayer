@@ -18,7 +18,7 @@
 class MainFrame;
 class EPGManager;
 class wxWindow;
-class EpgProgressInfo;
+struct EpgProgressInfo;
 
 class EpgSourceManagerPanel : public wxPanel {
 public:
