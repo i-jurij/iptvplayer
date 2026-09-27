@@ -97,8 +97,7 @@ inline constexpr int LIST_LOGO_SIZE_DIP = 40;
 inline constexpr int CARD_BASE_W_DIP = 340;
 inline constexpr int CARD_BASE_H_DIP = 90;
 
-// Ширина карточки по ширине клиентской области. 5 брейкпойнтов.
-int CardWidthForClientWidth(int clientW);
+int CardWidthForClientWidth(int displayW);
 
 // ============================================================================
 // Единый layout карточки в DIP.
@@ -114,7 +113,7 @@ struct CardLayoutInfo {
   int starDx = 0, starDy = 0;
 };
 
-CardLayoutInfo ComputeCardLayoutForWidth(int clientW);
+CardLayoutInfo ComputeCardLayoutForWidth(int displayW);
 
 // ============================================================================
 // Авто-определение лимитов LRU по доступной памяти

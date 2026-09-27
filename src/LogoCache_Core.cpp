@@ -129,6 +129,9 @@ void LogoCache::ClearPlaylist(const std::string &p) {
 }
 
 void LogoCache::ClearScaled() {
+  LOG_DEBUG("ClearScaled: scaled=%zu masters=%zu", s_scaledIndex.size(),
+            s_cache.size());
+
   std::lock_guard<std::mutex> lock(s_mutex);
   // Вызываем все ожидающие scaled-колбэки с nullptr
   for (auto &kv : s_scaledPending) {
@@ -295,8 +298,6 @@ void LogoCache::DropMaster(const std::string &p, const std::string &c) {
           s_lru.remove(mk);
         }
       }
-
-      void LogoCache::OnDPIChanged(int) { ClearScaled(); }
 
       LogoCache::LogoBitmapPtr LogoCache::GetCachedBitmapPtr(
           const std::string &key) {

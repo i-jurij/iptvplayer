@@ -66,10 +66,9 @@ public:
   std::string MakeCacheKey(const std::string &playlist,
                            const std::string &channelOrUrl, int size,
                            int dpi) const;
-  // Единый источник ключа scaled-кэша для строки: использует m_logoSize и
-  // m_lastDpi, зафиксированные в SetChannels/AppendChannels. Гарантирует
-  // побитовое совпадение с ключом, которым GetValueByRow заполняет wxVariant.
+  // Единый источник ключа scaled-кэша для строки
   std::string MakeCacheKeyForRow(unsigned int row) const;
+  
   int GetLogoPhysSize() const { return m_logoPhysSize; }
   double GetContentScale() const { return m_contentScale; }
 
@@ -109,8 +108,6 @@ private:
   bool m_disableSorting;
 
   void Resort() override;
-
-  int m_logoSize;
 
   // model version to invalidate in-flight callbacks
   std::atomic<uint64_t> m_channelsVersion{0};

@@ -155,14 +155,32 @@ void CardsBase::RenderTile(size_t index) {
   AddTileToLRU(index, m_tileCache[index]);
 }
 
-void CardsBase::OnDPIChanged(wxDPIChangedEvent &evt) {
-  ClearAllCaches(true, true);
-  LogoCache::ClearScaled();
-  UpdateLayout();
-  InitLRULimits();
-  CallAfter([this]() { WarmUpTiles(); });
-  Refresh();
+void CardsBase::OnEnvironmentChanged(wxEvent &evt) {
+  // Оба события (DPI_CHANGED, DISPLAY_CHANGED) могут прийти в одном цикле
+  // обработки сообщений. Коалесцируем: только первый запускает пересборку,
+  // остальные игнорируются, пока запланированная не выполнится.
   evt.Skip();
+
+  bool expected = false;
+  if (!m_layoutRebuildScheduled.compare_exchange_strong(expected, true))
+    return;
+
+  CallAfter([this]() {
+    m_layoutRebuildScheduled.store(false);
+    if (m_closing)
+      return;
+
+    double oldCS = m_contentScale;
+
+    UpdateLayout();
+    InitLRULimits();
+
+    if (std::abs(m_contentScale - oldCS) > 0.001)
+      LogoCache::ClearScaled();
+
+    WarmUpTiles();
+    Refresh();
+  });
 }
 
 int CardsBase::GetStarSizeForCardH(int cardH) {

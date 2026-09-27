@@ -290,8 +290,6 @@ void MainFrame::SetShowLogoFromSettings(bool show) {
 }
 
 static void clearScaledCache(bool /*removeGrid*/, bool /*removeList*/) {
-  // В Шаге 1 чистим весь scaled-кэш. Точечную очистку по (physW, physH,
-  // scale100) добавим в CardsBase::OnResize (Шаг 2).
   LogoCache::ClearScaled();
 }
 

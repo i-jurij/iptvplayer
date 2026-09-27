@@ -54,9 +54,12 @@ wxBEGIN_EVENT_TABLE(CardsBase, wxScrolledWindow) EVT_PAINT(CardsBase::OnPaint)
   SetBackgroundStyle(wxBG_STYLE_PAINT);
   SetDoubleBuffered(true);
   SetScrollRate(0, 20);
+
   Bind(wxEVT_TIMER, &CardsBase::OnRedrawTimer, this, m_redrawTimer.GetId());
   Bind(wxEVT_TIMER, &CardsBase::ProcessLogoQueue, this, m_logoTimer.GetId());
-  Bind(wxEVT_DPI_CHANGED, &CardsBase::OnDPIChanged, this);
+  Bind(wxEVT_DPI_CHANGED, &CardsBase::OnEnvironmentChanged, this);
+  Bind(wxEVT_DISPLAY_CHANGED, &CardsBase::OnEnvironmentChanged, this);
+
   SetFocusIgnoringChildren();
   SetWindowStyleFlag(GetWindowStyleFlag() | wxWANTS_CHARS);
 

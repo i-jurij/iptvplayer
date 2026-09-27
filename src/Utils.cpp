@@ -509,21 +509,21 @@ double GetContentScale(wxWindow *ctx) {
 // ============================================================================
 // Responsive layout (DIP)
 // ============================================================================
-int CardWidthForClientWidth(int clientW) {
-  if (clientW >= 3200)
+int CardWidthForClientWidth(int displayW) {
+  if (displayW >= 3200)
     return 480;
-  if (clientW >= 2400)
+  if (displayW >= 2400)
     return 420;
-  if (clientW >= 1800)
+  if (displayW >= 1800)
     return 360;
-  if (clientW >= 1300)
+  if (displayW >= 1300)
     return 320;
   return 280;
 }
 
-CardLayoutInfo ComputeCardLayoutForWidth(int clientW) {
+CardLayoutInfo ComputeCardLayoutForWidth(int displayW) {
   CardLayoutInfo L;
-  L.cardW = CardWidthForClientWidth(clientW);
+  L.cardW = CardWidthForClientWidth(displayW);
   L.cardH =
       (int)std::round((double)L.cardW * CARD_BASE_H_DIP / CARD_BASE_W_DIP);
   if (L.cardH < 1)

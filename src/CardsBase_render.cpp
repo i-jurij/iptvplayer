@@ -4,6 +4,8 @@
 #include "Utils.h"
 #include "VP_SvgIcon.h"
 
+#include <wx/display.h>
+
 #include <algorithm>
 
 void CardsBase::UpdateLayout() {
@@ -16,7 +18,19 @@ void CardsBase::UpdateLayout() {
   if (clientW <= 0)
     clientW = 800;
 
-  auto L = ComputeCardLayoutForWidth(clientW);
+  // Размер карточки — по ширине монитора, не окна.
+  // Число колонок ниже — по ширине окна.
+  int displayW = clientW; // fallback
+  {
+    int displayIdx = wxDisplay::GetFromWindow(this);
+    if (displayIdx == wxNOT_FOUND)
+      displayIdx = 0;
+    wxRect area = wxDisplay(displayIdx).GetClientArea();
+    if (area.GetWidth() > 0)
+      displayW = area.GetWidth();
+  }
+
+  auto L = ComputeCardLayoutForWidth(displayW);
 
   m_cardW = L.cardW;
   m_cardH = L.cardH;

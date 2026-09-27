@@ -146,7 +146,9 @@ protected:
   void OnMouseWheel(wxMouseEvent &evt);
   void OnMouseEnter(wxMouseEvent &evt);
 
-  void OnDPIChanged(wxDPIChangedEvent &evt);
+  std::atomic<bool> m_layoutRebuildScheduled{false};
+  // Единый обработчик для wxEVT_DPI_CHANGED и wxEVT_DISPLAY_CHANGED.
+  void OnEnvironmentChanged(wxEvent &evt);
 
   void EnqueueLogoPriority(size_t index, int priority);
 

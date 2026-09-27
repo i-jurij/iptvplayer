@@ -221,7 +221,6 @@ void ChannelDataModel::SetChannels(const std::vector<Channel> &channels,
       ch.setPlaylistName(m_playlistName);
   }
   m_favorites.assign(m_channels.size(), false);
-  m_logoSize = m_logoPhysSize;
 
   if (!m_disableSorting)
     Resort();
@@ -249,7 +248,6 @@ void ChannelDataModel::AppendChannels(const std::vector<Channel> &channels,
   }
 
   m_favorites.resize(m_channels.size(), false);
-  m_logoSize = m_logoPhysSize;
 
   if (!m_disableSorting)
     Resort();
