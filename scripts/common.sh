@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # common.sh – общие утилиты для скриптов сборки iptvplayer
 # =============================================================================
@@ -195,9 +195,11 @@ detect_distro() {
 detect_pkgmgr() {
     if [ -n "${DISTRO:-}" ]; then
         case "$DISTRO" in
-            ubuntu-*|debian-*|linuxmint-*|pop-*) echo "deb" ;;
+            alt|alt-*|altlinux|altlinux-*)          echo "apt-rpm" ;;
+            rosa|rosa-*)                            echo "rpm" ;;
+            ubuntu-*|debian-*|linuxmint-*|pop-*)    echo "deb" ;;
             fedora-*|rocky-*|rhel-*|centos-*|almalinux-*|opensuse*|sles*) echo "rpm" ;;
-            arch|arch-*|manjaro*|endeavouros*) echo "arch" ;;
+            arch|arch-*|manjaro*|endeavouros*|cachyos*)      echo "arch" ;;
             *) echo "unknown" ;;
         esac
     else
@@ -284,16 +286,36 @@ prepare_staging() {
     return 0
 }
 
+# === Формирование %files-секции для RPM-spec ===
+# Строит список путей по фактическому содержимому $STAGING_DIR.
+# Требует: STAGING_DIR, PACKAGE_NAME, ICON_NAME, METAINFO_NAME.
+# Возвращает через stdout многострочный блок (без заголовка %files).
+rpm_files_block() {
+    local entries=()
+
+    [ -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]                         && entries+=("%{_bindir}/$PACKAGE_NAME")
+    [ -d "$STAGING_DIR/usr/share/$PACKAGE_NAME" ]                       && entries+=("%{_datadir}/$PACKAGE_NAME/")
+    [ -f "$STAGING_DIR/usr/share/applications/$PACKAGE_NAME.desktop" ]  && entries+=("%{_datadir}/applications/$PACKAGE_NAME.desktop")
+    [ -f "$STAGING_DIR/usr/share/icons/hicolor/scalable/apps/$ICON_NAME" ] \
+        && entries+=("%{_datadir}/icons/hicolor/scalable/apps/$ICON_NAME")
+    [ -f "$STAGING_DIR/usr/share/metainfo/$METAINFO_NAME" ]             && entries+=("%{_datadir}/metainfo/$METAINFO_NAME")
+    [ -d "$STAGING_DIR/usr/share/doc/$PACKAGE_NAME" ]                   && entries+=("%{_datadir}/doc/$PACKAGE_NAME")
+    [ -d "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME" ]              && entries+=("%{_datadir}/licenses/$PACKAGE_NAME")
+
+    printf '%s\n' "${entries[@]}"
+}
+
 # === Проверка зависимостей ===
-# $1 — pkgmgr (deb/rpm/arch/unknown)
 check_deps() {
     local pkgmgr="$1"
     shift
     local need_native_deb=$1
     local need_native_rpm=$2
     local need_native_arch=$3
-    local need_appimage=$4
-    local need_sharun=$5
+    local need_native_alt=$4
+    local need_native_rosa=$5      # <— ROSA
+    local need_appimage=$6
+    local need_sharun=$7
 
     local required=()
     local optional=()
@@ -306,13 +328,11 @@ check_deps() {
         command -v gpg >/dev/null 2>&1 || required+=("gpg")
     fi
 
-    if { [[ "$need_native_deb" == true && "$pkgmgr" == deb ]]; }; then
-        command -v dpkg-deb >/dev/null 2>&1 || required+=("dpkg-deb")
-    fi
     if [[ "$need_native_deb" == true && "$pkgmgr" == deb ]]; then
+        command -v dpkg-deb      >/dev/null 2>&1 || required+=("dpkg-deb")
         command -v dpkg-shlibdeps >/dev/null 2>&1 || required+=("dpkg-shlibdeps")
     fi
-    if { [[ "$need_native_rpm" == true && "$pkgmgr" == rpm ]]; }; then
+    if [[ "$need_native_rpm" == true && "$pkgmgr" == rpm ]]; then
         for tool in rpmbuild rpm; do
             command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
         done
@@ -320,10 +340,22 @@ check_deps() {
     if [[ "$need_native_arch" == true && "$pkgmgr" == arch ]]; then
         command -v makepkg >/dev/null 2>&1 || required+=("makepkg")
     fi
+    if [[ "$need_native_alt" == true && "$pkgmgr" == apt-rpm ]]; then
+        for tool in rpmbuild rpm; do
+            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
+        done
+    fi
+    # ROSA: rpmbuild + rpm (как на Fedora).
+    if [[ "$need_native_rosa" == true && "$pkgmgr" == rpm ]]; then
+        for tool in rpmbuild rpm; do
+            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
+        done
+    fi
+
     if [[ "$need_appimage" == true || "$need_sharun" == true ]]; then
         command -v wget >/dev/null 2>&1 || required+=("wget")
     fi
-        if [[ "$need_sharun" == true ]]; then
+    if [[ "$need_sharun" == true ]]; then
         command -v patchelf >/dev/null 2>&1 || required+=("patchelf")
     fi
 
@@ -337,17 +369,12 @@ check_deps() {
     fi
 
     if [ ${#required[@]} -ne 0 ]; then
-        echo "[!] Не хватает обязательных инструментов: ${required[*]}"
+        echo "[!] Не хватает обязательных инструментов: ${required[*]}. Установите."
         exit 1
     fi
 
     if [ ${#optional[@]} -ne 0 ]; then
-        echo "[i] Опциональные инструменты не найдены: ${optional[*]}"
-        for tool in "${optional[@]}"; do
-            case "$tool" in
-                zsyncmake) echo "    → .zsync не будет сгенерирован (sudo apt install zsync)" ;;
-            esac
-        done
+        echo "[i] Опциональные инструменты не найдены: ${optional[*]}. Установите при необходимости."
     fi
 }
 

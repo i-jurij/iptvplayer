@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # build-native.sh – нативные .deb / .rpm / .pkg.tar.zst из системных библиотек
 # =============================================================================
@@ -105,6 +105,9 @@ build_rpm_native() {
     cd "$STAGING_DIR" && tar -czf "$SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
         --transform="flags=r;s,^,$PACKAGE_NAME-$VERSION/," . && cd - > /dev/null
 
+    local files_block
+    files_block=$(rpm_files_block)
+
     cat > "$SPEC_DIR/${PACKAGE_NAME}.spec" << EOF
 %define debug_package %{nil}
 %define _topdir $SPEC_DIR
@@ -132,15 +135,10 @@ mkdir -p \$RPM_BUILD_ROOT
 tar -xzf %{SOURCE0} -C \$RPM_BUILD_ROOT --strip-components=1
 
 %files
-%{_bindir}/$PACKAGE_NAME
-%{_datadir}/$PACKAGE_NAME/
-%{_datadir}/applications/$PACKAGE_NAME.desktop
-%{_datadir}/icons/hicolor/scalable/apps/$ICON_NAME
-%{_datadir}/metainfo/$METAINFO_NAME
-%{_datadir}/doc/$PACKAGE_NAME/copyright
-%{_datadir}/licenses/$PACKAGE_NAME/LICENSE
+$files_block
 
 %post
+
 if [ -x /usr/bin/update-icon-caches ]; then
     /usr/bin/update-icon-caches /usr/share/icons/hicolor || true
 fi

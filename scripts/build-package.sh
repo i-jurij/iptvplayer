@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # =============================================
 # build-package.sh – Сборка пакетов .deb, .rpm, .pkg.tar.zst, .AppImage
 #
@@ -9,6 +9,8 @@
 #   --native-deb      Нативный .deb (системные библиотеки, Ubuntu/Debian)
 #   --native-rpm      Нативный .rpm (Fedora/Rocky/RHEL/openSUSE)
 #   --native-arch     Нативный .pkg.tar.zst (Arch/Manjaro)
+#   --native-alt      Нативный .rpm для ALT Linux
+#   --native-rosa     Нативный .rpm для ROSA Linux
 #   --appimage        AppImage (linuxdeploy + appimagetool)
 #   --sharun          AppImage (quick-sharun, максимальная переносимость)
 #
@@ -34,10 +36,11 @@
 # Все эти переменные устанавливаются в main() до вызова packagers.
 # =============================================
 
-# --- Проверка наличия Bash ---
+# --- POSIX-бутстрап: гарантирует bash; при отсутствии — скачивает статический ---
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/bootstrap-bash.sh" || exit 1
+
 if [ -z "${BASH_VERSION:-}" ]; then
-    echo "Ошибка: этот скрипт требует Bash, но он не установлен или не используется." >&2
-    echo "Установите Bash (например, 'apt install bash' или 'apk add bash') и запустите снова." >&2
+    echo "[!] bootstrap-bash.sh не передал управление bash." >&2
     exit 1
 fi
 
@@ -52,6 +55,8 @@ cd "$PROJECT_ROOT"
 # ---- Общие утилиты и packagers ----
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/build-native.sh"
+source "$SCRIPT_DIR/build-native-alt.sh"
+source "$SCRIPT_DIR/build-native-rosa.sh"
 source "$SCRIPT_DIR/build-appimage.sh"
 source "$SCRIPT_DIR/build-sharun.sh"
 
@@ -118,10 +123,14 @@ build_binary() {
 # === Очистка ===
 cleanup() {
     echo "[+] Очистка временных каталогов..."
-    rm -rf "${STAGING_DIR:?}" "${APPDIR:?}" "$PROJECT_ROOT/pkg-rpm"
+    rm -rf "${STAGING_DIR:?}" "${APPDIR:?}"
+    rm -rf "$PROJECT_ROOT/pkg-rpm" \
+           "$PROJECT_ROOT/pkg-rpm-alt" \
+           "$PROJECT_ROOT/pkg-rpm-rosa"
     rm -rf "$PROJECT_ROOT/AppDir"
     rm -f  "${OUTPUT_DIR:?}/appinfo"
 }
+
 trap cleanup EXIT INT TERM
 
 # =============================================================================
@@ -273,6 +282,8 @@ show_help() {
   --native-deb      .deb из системных библиотек (Ubuntu/Debian)
   --native-rpm      .rpm из системных библиотек (Fedora/Rocky/RHEL/openSUSE)
   --native-arch     .pkg.tar.zst (Arch/Manjaro)
+  --native-alt      .rpm для ALT Linux
+  --native-rosa     .rpm для ROSA Linux
   --appimage        AppImage (linuxdeploy + appimagetool)
   --sharun          AppImage через quick-sharun (максимальная переносимость:
                     старые glibc, musl-системы, NixOS)
@@ -304,11 +315,16 @@ show_menu() {
     local -a actions=()
 
     local native_label=""
-    case "$pkgmgr" in
-        deb)  native_label="Нативный .deb (системные библиотеки)" ;;
-        rpm)  native_label="Нативный .rpm (системные библиотеки)" ;;
-        arch) native_label="Нативный .pkg.tar.zst (системные библиотеки)" ;;
-    esac
+    if [[ "$DISTRO" == rosa* ]]; then
+        native_label="Нативный .rpm для ROSA Linux (системные библиотеки)"
+    else
+        case "$pkgmgr" in
+            deb)     native_label="Нативный .deb (системные библиотеки)" ;;
+            rpm)     native_label="Нативный .rpm (системные библиотеки)" ;;
+            arch)    native_label="Нативный .pkg.tar.zst (системные библиотеки)" ;;
+            apt-rpm) native_label="Нативный .rpm для ALT Linux (системные библиотеки)" ;;
+        esac
+    fi
 
     if [ -n "$native_label" ]; then
         labels+=("$native_label")
@@ -352,30 +368,45 @@ show_menu() {
 
     case "$action" in
         native)
-            case "$pkgmgr" in
-                deb)  BUILD_NATIVE_DEB=true ;;
-                rpm)  BUILD_NATIVE_RPM=true ;;
-                arch) BUILD_NATIVE_ARCH=true ;;
-            esac
+            if [[ "$DISTRO" == rosa* ]]; then
+                BUILD_NATIVE_ROSA=true
+            else
+                case "$pkgmgr" in
+                    deb)     BUILD_NATIVE_DEB=true ;;
+                    rpm)     BUILD_NATIVE_RPM=true ;;
+                    arch)    BUILD_NATIVE_ARCH=true ;;
+                    apt-rpm) BUILD_NATIVE_ALT=true ;;
+                esac
+            fi
             ;;
-        appimage) BUILD_APPIMAGE=true ;;
-        sharun)   BUILD_SHARUN=true ;;
         native+appimage)
-            case "$pkgmgr" in
-                deb)  BUILD_NATIVE_DEB=true ;;
-                rpm)  BUILD_NATIVE_RPM=true ;;
-                arch) BUILD_NATIVE_ARCH=true ;;
-            esac
+            if [[ "$DISTRO" == rosa* ]]; then
+                BUILD_NATIVE_ROSA=true
+            else
+                case "$pkgmgr" in
+                    deb)     BUILD_NATIVE_DEB=true ;;
+                    rpm)     BUILD_NATIVE_RPM=true ;;
+                    arch)    BUILD_NATIVE_ARCH=true ;;
+                    apt-rpm) BUILD_NATIVE_ALT=true ;;
+                esac
+            fi
             BUILD_APPIMAGE=true
             ;;
         native+sharun)
-            case "$pkgmgr" in
-                deb)  BUILD_NATIVE_DEB=true ;;
-                rpm)  BUILD_NATIVE_RPM=true ;;
-                arch) BUILD_NATIVE_ARCH=true ;;
-            esac
+            if [[ "$DISTRO" == rosa* ]]; then
+                BUILD_NATIVE_ROSA=true
+            else
+                case "$pkgmgr" in
+                    deb)     BUILD_NATIVE_DEB=true ;;
+                    rpm)     BUILD_NATIVE_RPM=true ;;
+                    arch)    BUILD_NATIVE_ARCH=true ;;
+                    apt-rpm) BUILD_NATIVE_ALT=true ;;
+                esac
+            fi
             BUILD_SHARUN=true
             ;;
+        appimage) BUILD_APPIMAGE=true ;;
+        sharun)   BUILD_SHARUN=true ;;
     esac
 }
 
@@ -386,6 +417,8 @@ main() {
     BUILD_NATIVE_DEB=false
     BUILD_NATIVE_RPM=false
     BUILD_NATIVE_ARCH=false
+    BUILD_NATIVE_ALT=false
+    BUILD_NATIVE_ROSA=false
     BUILD_APPIMAGE=false
     BUILD_SHARUN=false
     SHOW_MENU=true
@@ -395,11 +428,13 @@ main() {
             --native-deb)    BUILD_NATIVE_DEB=true ;;
             --native-rpm)    BUILD_NATIVE_RPM=true ;;
             --native-arch)   BUILD_NATIVE_ARCH=true ;;
+            --native-alt)    BUILD_NATIVE_ALT=true ;;
+            --native-rosa)   BUILD_NATIVE_ROSA=true ;;
             --appimage)      BUILD_APPIMAGE=true ;;
             --sharun)        BUILD_SHARUN=true ;;
-            --native)        BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true ;;
-            --native-appimage) BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_APPIMAGE=true ;;
-            --all)           BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_APPIMAGE=true ; BUILD_SHARUN=true ;;
+            --native)        BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_NATIVE_ALT=true; BUILD_NATIVE_ROSA=true ;;
+            --native-appimage) BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_NATIVE_ALT=true; BUILD_NATIVE_ROSA=true; BUILD_APPIMAGE=true ;;
+            --all)           BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_NATIVE_ALT=true; BUILD_NATIVE_ROSA=true; BUILD_APPIMAGE=true; BUILD_SHARUN=true ;;
             --rebuild)       FORCE_REBUILD=true ;;
             --clean)         DO_CLEAN=true ;;
             --clean-only)    DO_CLEAN=true; CLEAN_ONLY=true ;;
@@ -426,7 +461,8 @@ main() {
 
     # Если ничего не выбрано и меню разрешено — показать меню
     if [[ "$BUILD_NATIVE_DEB" == false && "$BUILD_NATIVE_RPM" == false && \
-          "$BUILD_NATIVE_ARCH" == false && "$BUILD_APPIMAGE" == false && \
+          "$BUILD_NATIVE_ARCH" == false && "$BUILD_NATIVE_ALT" == false && \
+          "$BUILD_NATIVE_ROSA" == false && "$BUILD_APPIMAGE" == false && \
           "$BUILD_SHARUN" == false ]]; then
         if [[ "$SHOW_MENU" == true && "$NON_INTERACTIVE" == false ]]; then
             show_menu "$pkgmgr"
@@ -437,8 +473,13 @@ main() {
     fi
 
     check_deps "$pkgmgr" \
-               "$BUILD_NATIVE_DEB" "$BUILD_NATIVE_RPM" "$BUILD_NATIVE_ARCH" \
-               "$BUILD_APPIMAGE" "$BUILD_SHARUN"
+               "$BUILD_NATIVE_DEB" \
+               "$BUILD_NATIVE_RPM" \
+               "$BUILD_NATIVE_ARCH" \
+               "$BUILD_NATIVE_ALT" \
+               "$BUILD_NATIVE_ROSA" \
+               "$BUILD_APPIMAGE" \
+               "$BUILD_SHARUN"
     setup_dirs
 
     if ! build_binary; then
@@ -469,12 +510,14 @@ main() {
         fi
     fi
     if [[ "$BUILD_NATIVE_RPM" == true ]]; then
-        if [[ "$pkgmgr" == "rpm" ]]; then
+        if [[ "$pkgmgr" == "rpm" && "$DISTRO" != rosa* ]]; then
             if ! prepare_staging; then
                 FAILED+=("native-rpm")
             elif ! build_rpm_native; then
                 FAILED+=("native-rpm")
             fi
+        elif [[ "$DISTRO" == rosa* ]]; then
+            echo "[i] --native-rpm на ROSA заменён на --native-rosa — пропускаем."
         else
             echo "[!] --native-rpm недоступен на $DISTRO — пропускаем."
         fi
@@ -491,6 +534,30 @@ main() {
         fi
     fi
 
+    if [[ "$BUILD_NATIVE_ALT" == true ]]; then
+        if [[ "$pkgmgr" == "apt-rpm" ]]; then
+            if ! prepare_staging; then
+                FAILED+=("native-alt")
+            elif ! build_rpm_alt; then
+                FAILED+=("native-alt")
+            fi
+        else
+            echo "[!] --native-alt доступен только на ALT Linux — пропускаем."
+        fi
+    fi
+
+    if [[ "$BUILD_NATIVE_ROSA" == true ]]; then
+        if [[ "$pkgmgr" == "rpm" && "$DISTRO" == rosa* ]]; then
+            if ! prepare_staging; then
+                FAILED+=("native-rosa")
+            elif ! build_rpm_rosa; then
+                FAILED+=("native-rosa")
+            fi
+        else
+            echo "[!] --native-rosa доступен только на ROSA Linux — пропускаем."
+        fi
+    fi
+    
     if [[ "$BUILD_APPIMAGE" == true ]]; then
         if ! build_appimage; then FAILED+=("appimage"); fi
     fi

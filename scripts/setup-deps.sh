@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # =============================================================================
 # setup-deps.sh – установка зависимостей iptvplayer
@@ -29,10 +29,11 @@
 #   ./scripts/setup-deps.sh --yes --rebuild-deps         # принудительная пересборка third_party
 # =============================================================================
 
-# --- Проверка наличия Bash ---
+# --- POSIX-бутстрап: гарантирует bash; при отсутствии — скачивает статический ---
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/bootstrap-bash.sh" || exit 1
+
 if [ -z "${BASH_VERSION:-}" ]; then
-    echo "Ошибка: этот скрипт требует Bash, но он не установлен или не используется." >&2
-    echo "Установите Bash (например, 'apt install bash' или 'apk add bash') и запустите снова." >&2
+    echo "[!] bootstrap-bash.sh не передал управление bash." >&2
     exit 1
 fi
 
@@ -112,7 +113,7 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
             PKG_MANAGER="apt"
             INSTALL_CMD="$SUDO apt-get install -y"
             ;;
-        fedora|rhel|centos|rocky)
+        fedora|rhel|centos|rocky|almalinux)
             PKG_MANAGER="dnf"
             if ! command -v dnf &>/dev/null; then
                 PKG_MANAGER="yum"
@@ -120,6 +121,14 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
             else
                 INSTALL_CMD="$SUDO dnf install -y"
             fi
+            ;;
+        alt|altlinux|alt-*)
+            PKG_MANAGER="apt-rpm"
+            INSTALL_CMD="$SUDO apt-get install -y"
+            ;;
+        rosa|rosa-*)
+            PKG_MANAGER="rosa"
+            INSTALL_CMD="$SUDO dnf install -y"
             ;;
         arch|manjaro)
             PKG_MANAGER="pacman"
@@ -131,6 +140,47 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
     esac
 
     log "Пакетный менеджер: $PKG_MANAGER"
+
+    # RHEL-семейство: mpv-devel (RHEL 9/10) требует EPEL,
+    # mpv-libs-devel (RHEL 8) требует RPM Fusion.
+    # rapidjson-devel везде в базовых репозиториях.
+    # Fedora сюда не входит: у неё оба пакета в базовых репозиториях.
+    if [[ "$PKG_MANAGER" == "dnf" ]]; then
+        case "$OS_ID" in
+            rhel|rocky|almalinux|centos)
+                _rhel_major="${OS_VERSION%%.*}"
+                case "$_rhel_major" in
+                    8)
+                        _repo_pkg="rpmfusion-free-release"
+                        _repo_name="RPM Fusion"
+                        _mpv_pkg="mpv-libs-devel"
+                        _repo_url="https://download1.rpmfusion.org/free/el/rpmfusion-free-release-${_rhel_major}.noarch.rpm"
+                        ;;
+                    9|10)
+                        _repo_pkg="epel-release"
+                        _repo_name="EPEL ${_rhel_major}"
+                        _mpv_pkg="mpv-devel"
+                        _repo_url="https://dl.fedoraproject.org/pub/epel/epel-release-latest-${_rhel_major}.noarch.rpm"
+                        ;;
+                    *)
+                        _repo_pkg=""
+                        ;;
+                esac
+
+                if [[ -n "$_repo_pkg" ]] && ! rpm -q "$_repo_pkg" &>/dev/null; then
+                    echo
+                    warn "Для сборки на $OS_ID $_rhel_major требуется репозиторий $_repo_name"
+                    warn "(пакет $_mpv_pkg доступен только оттуда)."
+                    if ask "Подключить $_repo_name? [Y/n]:" y; then
+                        $SUDO dnf install -y "$_repo_url" \
+                            || error "Не удалось подключить $_repo_name."
+                    else
+                        error "Без $_repo_name сборка невозможна."
+                    fi
+                fi
+                ;;
+        esac
+    fi
 
     # =========================================================================
     # ОПРЕДЕЛЕНИЕ ПАКЕТОВ ДЛЯ УСТАНОВКИ
@@ -226,6 +276,69 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
                 [freetype-dev]="freetype2"
             )
             ;;
+        apt-rpm)
+            PACKAGES=(
+                [build-essential]="gcc-c++ make glibc-devel kernel-headers-common"
+                [cmake]="cmake"
+                [git]="git"
+                [autoconf]="autoconf"
+                [automake]="automake"
+                [libtool]="libtool"
+                [gnupg]="gnupg"
+                [pkg-config]="pkg-config"
+                [wget]="wget"
+                [curl]="curl"
+                [curl-dev]="libcurl-devel"
+                [mpv-dev]="libmpv-devel"
+                [rapidjson-dev]="rapidjson-devel"
+                [gtk3-dev]="libgtk+3-devel"
+                [rsvg-common]="librsvg"
+                [x11-dev]="libX11-devel"
+                [x11-xcb-dev]="libxcb-devel"
+                [gl-dev]="libGL-devel"
+                [egl-dev]="libEGL-devel"
+                [png-dev]="libpng-devel"
+                [jpeg-dev]="libjpeg-turbo-devel"
+                [webp-dev]="libwebp-devel"
+                [zlib-dev]="zlib-devel"
+                [expat-dev]="libexpat-devel"
+                [freetype-dev]="libfreetype-devel"
+            )
+            ;;
+        rosa)
+            _pkgprefix="lib64"
+            if [[ "$(uname -m)" == "i686" || "$(uname -m)" == "i386" ]]; then
+                _pkgprefix="lib"
+            fi
+
+            PACKAGES=(
+                [build-essential]="gcc-c++ make glibc-devel"
+                [cmake]="cmake"
+                [git]="git"
+                [autoconf]="autoconf"
+                [automake]="automake"
+                [libtool]="libtool"
+                [gnupg]="gnupg"
+                [pkg-config]="pkg-config"
+                [wget]="wget"
+                [curl]="curl"
+                [curl-dev]="${_pkgprefix}curl-devel"
+                [mpv-dev]="${_pkgprefix}mpv-devel"
+                [rapidjson-dev]="rapidjson-devel"
+                [gtk3-dev]="${_pkgprefix}gtk+3.0-devel"
+                [rsvg-common]="librsvg2"
+                [x11-dev]="${_pkgprefix}x11-devel"
+                [x11-xcb-dev]="${_pkgprefix}xcb-devel"
+                [gl-dev]="${_pkgprefix}gl-devel"
+                [egl-dev]="${_pkgprefix}egl-devel"
+                [png-dev]="${_pkgprefix}png-devel"
+                [jpeg-dev]="${_pkgprefix}jpeg-devel"
+                [webp-dev]="${_pkgprefix}webp-devel"
+                [zlib-dev]="${_pkgprefix}zlib-devel"
+                [expat-dev]="${_pkgprefix}expat-devel"
+                [freetype-dev]="${_pkgprefix}freetype-devel"
+            )
+            ;;
     esac
 
     # =========================================================================
@@ -256,8 +369,20 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
                         break
                     fi
                     ;;
+                apt-rpm)
+                    if rpm -q "$pkg" &>/dev/null; then
+                        FOUND=true
+                        break
+                    fi
+                    ;;
                 pacman)
                     if pacman -Q "$pkg" &>/dev/null; then
+                        FOUND=true
+                        break
+                    fi
+                    ;;
+                rosa)
+                    if rpm -q "$pkg" &>/dev/null; then
                         FOUND=true
                         break
                     fi
@@ -300,7 +425,8 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
         log "Обновление индексов пакетного менеджера..."
         case "$PKG_MANAGER" in
             apt)    $SUDO apt-get update -qq ;;
-            dnf)    $SUDO dnf makecache -q ;;
+            apt-rpm) $SUDO apt-get update -qq ;;
+            dnf|rosa) $SUDO dnf makecache -q ;;
             pacman) $SUDO pacman -Sy --noconfirm > /dev/null ;;
         esac
 
