@@ -12,6 +12,7 @@ pkg-*/
 linuxdeploy*
 appimagetool*
 quick-sharun*
+bash-static-*
 
 # -------------------------------
 # IDE и редакторы
