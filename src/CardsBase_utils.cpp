@@ -47,7 +47,7 @@ wxString CardsBase::GetTruncatedText(const Channel &ch) {
 }
 
 wxBitmap m_cachedTileBG;
-int m_cachedTileBG_DPI = 0;
+double m_cachedTileBG_CS = 0.0;
 
 // argb32
 wxBitmap CardsBase::CreateTileBackground(int w, int h) {
@@ -66,34 +66,44 @@ void CardsBase::RenderTile(size_t index) {
   if (index >= m_channels.size())
     return;
 
-  // Кеш инвалидируется если размер или DPI изменился
-  if (!m_cachedTileBG.IsOk() || m_cachedTileBG_DPI != m_currentDPI ||
-      m_cachedTileBG.GetWidth() != m_cardW ||
-      m_cachedTileBG.GetHeight() != m_cardH) {
-    m_cachedTileBG = CreateTileBackground(m_cardW, m_cardH);
-    m_cachedTileBG_DPI = m_currentDPI;
+  double cs = m_contentScale;
+  int physCardW = std::max(1, (int)std::round(m_cardW * cs));
+  int physCardH = std::max(1, (int)std::round(m_cardH * cs));
+  int physLogoW = std::max(1, (int)std::round(m_logoW * cs));
+  int physLogoH = std::max(1, (int)std::round(m_logoH * cs));
+  int scale100 = std::max(100, (int)std::round(cs * 100.0));
+
+  // Background-тайл нужен только чтобы не пересоздавать фон.
+  if (!m_cachedTileBG.IsOk() || m_cachedTileBG_CS != cs ||
+      m_cachedTileBG.GetWidth() != physCardW ||
+      m_cachedTileBG.GetHeight() != physCardH) {
+    m_cachedTileBG = CreateTileBackground(physCardW, physCardH);
+    m_cachedTileBG.SetScaleFactor(cs);
+    m_cachedTileBG_CS = cs;
   }
 
-  wxBitmap bmp(m_cardW, m_cardH);
+  wxBitmap bmp(physCardW, physCardH);
+  bmp.SetScaleFactor(cs);
   wxMemoryDC mdc(bmp);
+
+  // DC работает в DIP-координатах (bitmap с scaleFactor=cs).
+  // Вложенные bitmap'ы тоже должны иметь SetScaleFactor(cs),
+  // тогда draw-операции корректны в DIP.
   mdc.DrawBitmap(m_cachedTileBG, 0, 0);
 
   const Channel &ch = m_channels[index];
-  int dpi = m_currentDPI;
 
-  const std::string key = MakeLogoCacheKey(
+  const std::string key = LogoCache::MakeScaledKey(
       ch.getPlaylistName(), ch.getName().empty() ? ch.getLogo() : ch.getName(),
-      m_logoW, m_logoH, dpi);
+      physLogoW, physLogoH, scale100);
 
   LogoCache::LogoBitmapPtr logoPtr = LogoCache::GetCachedBitmapPtr(key);
-
-  if (!logoPtr) {
+  if (!logoPtr)
     RequestLogo(index);
-  }
 
   bool realLogo = (logoPtr && logoPtr->IsOk());
 
-  const LayoutInfo &L = GetLayoutInfoForDPI(m_currentDPI);
+  const LayoutInfo &L = m_layout;
 
   if (realLogo) {
     mdc.DrawBitmap(*logoPtr, L.logoDx, L.logoDy, true);
@@ -126,11 +136,9 @@ void CardsBase::RenderTile(size_t index) {
     int tx = logoAreaLeft + (logoAreaW - tw) / 2;
     int ty = L.logoDy + (m_logoH - th) / 2;
 
-    // mdc.SetTextForeground(*wxWHITE);
     static auto fg = wxColour(32, 32, 32);
-    if (wxSystemSettings::GetAppearance().IsDark()) {
+    if (wxSystemSettings::GetAppearance().IsDark())
       fg = wxColour(240, 240, 240);
-    }
     mdc.SetTextForeground(fg);
     mdc.DrawText(text, tx, ty);
   }
@@ -143,32 +151,13 @@ void CardsBase::RenderTile(size_t index) {
 
   mdc.SelectObject(wxNullBitmap);
 
-  m_tileCacheDPI[dpi][index] = std::make_shared<wxBitmap>(bmp);
-  AddTileToLRU(index, m_tileCacheDPI[dpi][index]);
-}
-
-int CardsBase::GetCurrentDPI() const {
-  wxWindow *win = const_cast<CardsBase *>(this);
-  return GetNormDPI(win);
+  m_tileCache[index] = std::make_shared<wxBitmap>(std::move(bmp));
+  AddTileToLRU(index, m_tileCache[index]);
 }
 
 void CardsBase::OnDPIChanged(wxDPIChangedEvent &evt) {
-  m_currentDPI = GetCurrentDPI();
-  LogoCache::OnDPIChanged(m_currentDPI);
   ClearAllCaches(true, true);
-
-  // Удаляем все DPI-слои, кроме текущего
-  for (auto it = m_tileCacheDPI.begin(); it != m_tileCacheDPI.end();) {
-    if (it->first != m_currentDPI)
-      it = m_tileCacheDPI.erase(it);
-    else
-      ++it;
-  }
-
-  // Сбрасываем LRU
-  m_tileLRU.clear();
-  m_tileLRUCache.clear();
-
+  LogoCache::ClearScaled();
   UpdateLayout();
   InitLRULimits();
   CallAfter([this]() { WarmUpTiles(); });
@@ -182,9 +171,8 @@ int CardsBase::GetStarSizeForCardH(int cardH) {
 
 wxRect CardsBase::GetStarRect(int col, int row) const {
   wxRect cardRect = GetCardRect(col, row);
-  const LayoutInfo &L = GetLayoutInfoForDPI(m_currentDPI);
-  return wxRect(cardRect.x + L.starDx, cardRect.y + L.starDy, L.starSize,
-                L.starSize);
+  return wxRect(cardRect.x + m_layout.starDx, cardRect.y + m_layout.starDy,
+                m_layout.starSize, m_layout.starSize);
 }
 
 wxRect CardsBase::GetCardRect(int col, int row) const {
@@ -242,37 +230,6 @@ void CardsBase::InvalidateCardClientRectByIndex(int cardIndex,
   if (!clientRect.IsEmpty()) {
     RefreshRect(clientRect, eraseBackground);
   }
-}
-
-CardsBase::LayoutInfo CardsBase::ComputeLayout(int normDPI) const {
-  auto c = ComputeCardLayoutForDPI(normDPI);
-  LayoutInfo L;
-  L.cardW = c.cardW;
-  L.cardH = c.cardH;
-  L.pad = c.pad;
-  L.logoGap = c.logoGap;
-  L.starSize = c.starSize;
-  L.logoZoneLeft = c.logoZoneLeft;
-  L.logoZoneRight = c.logoZoneRight;
-  L.logoZoneW = c.logoZoneW;
-  L.favZoneSize = c.favZoneSize;
-  L.logoW = c.logoW;
-  L.logoH = c.logoH;
-  L.logoDx = c.logoDx;
-  L.logoDy = c.logoDy;
-  L.starDx = c.starDx;
-  L.starDy = c.starDy;
-  return L;
-}
-
-CardsBase::LayoutInfo CardsBase::GetLayoutInfoForDPI(int rawDPI) const {
-  int normDPI = NormalizeDpi(rawDPI);
-  std::lock_guard<std::mutex> lock(m_layoutCacheMutex);
-  auto it = m_layoutCache.find(normDPI);
-  if (it != m_layoutCache.end())
-    return it->second;
-  m_layoutCache[normDPI] = ComputeLayout(normDPI);
-  return m_layoutCache[normDPI];
 }
 
 bool CardsBase::IsBitmapNonEmpty(const wxBitmap &bmp) {
@@ -420,20 +377,16 @@ bool CardsBase::RemoveChannel(const std::string &name,
   {
     std::lock_guard<std::mutex> lock(m_cacheMutex);
 
-    // 1) Перестраиваем DPI-кэш
-    std::unordered_map<int,
-                       std::unordered_map<size_t, LogoCache::LogoBitmapPtr>>
-        newCache;
-    for (auto &dpiLayer : m_tileCacheDPI) {
-      for (auto &kv : dpiLayer.second) {
-        size_t oldIdx = kv.first;
-        if (oldIdx == removedIndex)
-          continue; // удалённый тайл пропускаем
-        size_t newIdx = (oldIdx > removedIndex) ? oldIdx - 1 : oldIdx;
-        newCache[dpiLayer.first][newIdx] = kv.second;
-      }
+    // 1) Перестраиваем m_tileCache
+    std::unordered_map<size_t, LogoCache::LogoBitmapPtr> newCache;
+    for (auto &kv : m_tileCache) {
+      size_t oldIdx = kv.first;
+      if (oldIdx == removedIndex)
+        continue;
+      size_t newIdx = (oldIdx > removedIndex) ? oldIdx - 1 : oldIdx;
+      newCache[newIdx] = kv.second;
     }
-    m_tileCacheDPI = std::move(newCache);
+    m_tileCache = std::move(newCache);
 
     // 2) Перестраиваем LRU
     std::list<size_t> newLRU;

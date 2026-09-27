@@ -21,7 +21,7 @@ void CardsBase::InitLRULimits() {
   int prefetchTiles = visibleCols * 6;
   int favTiles = 50;
 
-  int dpiLayers = std::max(1, (int)m_tileCacheDPI.size());
+  const int dpiLayers = 1; // один активный слой
 
   size_t ramMB = GetAvailableRAM_MB();
   double ramFactor = std::clamp(ramMB / 8000.0, 0.5, 4.0);
@@ -59,7 +59,6 @@ wxBEGIN_EVENT_TABLE(CardsBase, wxScrolledWindow) EVT_PAINT(CardsBase::OnPaint)
   Bind(wxEVT_DPI_CHANGED, &CardsBase::OnDPIChanged, this);
   SetFocusIgnoringChildren();
   SetWindowStyleFlag(GetWindowStyleFlag() | wxWANTS_CHARS);
-  m_currentDPI = GetCurrentDPI();
 
 #if defined(wxEVT_SCROLLWIN_LINEUP)
   Bind(wxEVT_SCROLLWIN_LINEUP, &CardsBase::OnScroll, this);
@@ -132,10 +131,9 @@ void CardsBase::SetChannelsBase(const std::vector<Channel> &channels) {
   m_dirtyCards.clear();
   m_textCache.clear();
   m_textSizeCache.clear();
-  m_layoutCache.clear();
 
   m_logoQueuePQ.clear();
-  m_tileCacheDPI.clear();
+  m_tileCache.clear();
   m_tileLRU.clear();
   m_tileLRUCache.clear();
 
@@ -156,10 +154,6 @@ void CardsBase::SetChannelsBase(const std::vector<Channel> &channels) {
     self->InitLRULimits();
     self->Refresh();
 
-    // debug ----------------------
-    LogoCache::DebugMemoryUsage();
-    // --------------------------------------
-
     CallAfterSafeById(winId, [](wxWindow *w2) {
       auto *self2 = dynamic_cast<CardsBase *>(w2);
       if (!self2)
@@ -174,7 +168,7 @@ void CardsBase::SetChannelsBase(const std::vector<Channel> &channels) {
 }
 
 void CardsBase::RefreshCards() {
-  m_tileCacheDPI.clear();
+  m_tileCache.clear();
   m_tileLRUCache.clear();
   UpdateLayout();
   InitLRULimits();

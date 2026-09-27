@@ -17,10 +17,6 @@ class LogoCache {
 public:
   static wxColour GetDefaultCardBgColor();
 
-  //for debug only -------------
-  static void DebugMemoryUsage();
-  //------------------------------
-
   static void DropMaster(const std::string &playlist,
                          const std::string &channel);
 
@@ -38,7 +34,8 @@ public:
 
   static void GetLogoAsync(const std::string &playlist,
                            const std::string &channel, const std::string &url,
-                           int targetW, int targetH, int dpiY, LogoCallback cb);
+                           int targetW, int targetH, int dpiY, LogoCallback cb,
+                           double scaleFactor = 1.0);
 
   static bool HasMaster(const std::string &playlist,
                         const std::string &channel);
@@ -83,6 +80,10 @@ public:
   static void
   RegisterScaledReadyCallback(std::function<void(const std::string &)> cb);
 
+  static std::string MakeScaledKey(const std::string &playlist,
+                                   const std::string &channel, int w, int h,
+                                   int scale100);
+
 private:
   LogoCache() = delete;
   // pause control for rescale/serve operations
@@ -91,15 +92,11 @@ private:
   static std::string MakeMasterKey(const std::string &playlist,
                                    const std::string &channel);
 
-  static std::string MakeScaledKey(const std::string &playlist,
-                                   const std::string &channel, int w, int h,
-                                   int dpiBucket);
-
   // --- Worker‑функции ---
   static void RescaleAsync(const LogoBitmapPtr &master,
                            const std::string &playlist,
                            const std::string &channel, int w, int h,
-                           int dpiBucket, LogoCallback cb);
+                           int scale100, double scaleFactor, LogoCallback cb);
 
   static void EnsureMasterAsync(const std::string &playlist,
                                 const std::string &channel,

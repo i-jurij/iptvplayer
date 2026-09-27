@@ -496,98 +496,58 @@ wxString getIconPath(const wxString &iconName) {
 // DPI-утилиты
 // ============================================================================
 
-int NormalizeDpi(int dpiY) {
-  if (dpiY < 110)
-    return 96;
-  if (dpiY < 150)
-    return 120;
-  if (dpiY < 190)
-    return 144;
-  return 192;
+// ============================================================================
+// ContentScale
+// ============================================================================
+double GetContentScale(wxWindow *ctx) {
+  if (!ctx)
+    return 1.0;
+  double cs = ctx->GetContentScaleFactor();
+  return cs < 1.0 ? 1.0 : cs;
 }
 
-int GetRawDPI(wxWindow *ctx) {
-  int dpi;
-  if (ctx && ctx->GetDPI().y > 0)
-    dpi = ctx->GetDPI().y;
-  else
-    dpi = wxSystemSettings::GetMetric(wxSYS_SCREEN_Y);
-
-  if (dpi <= 0)
-    dpi = 96;
-  return dpi;
+// ============================================================================
+// Responsive layout (DIP)
+// ============================================================================
+int CardWidthForClientWidth(int clientW) {
+  if (clientW >= 3200)
+    return 480;
+  if (clientW >= 2400)
+    return 420;
+  if (clientW >= 1800)
+    return 360;
+  if (clientW >= 1300)
+    return 320;
+  return 280;
 }
 
-int GetNormDPI(wxWindow *ctx) {
-  int raw = GetRawDPI(ctx);
-  return NormalizeDpi(raw);
-}
-
-int GetDpiLogoSizeList(wxWindow *ctx) {
-  int dpi = GetNormDPI(ctx);
-  double scale = dpi / 96.0;
-
-  int size = (int)std::round(LIST_LOGO_SIZE_DIP * scale);
-
-  if (size < 24)
-    size = 24;
-  if (size > 128)
-    size = 128;
-
-  return size;
-}
-
-std::pair<int, int> GetCardSizeForDPI(int dpi) {
-  // Логический размер ≈ 340×90 на всех бакетах.
-  if (dpi < 110)
-    return {340, 90}; // 96  → 340/1.00 = 340×90
-  if (dpi < 150)
-    return {420, 110}; // 120 → 420/1.25 = 336×88
-  if (dpi < 190)
-    return {500, 130}; // 144 → 500/1.50 = 333×87
-  return {680, 180};   // 192 → 680/2.00 = 340×90
-}
-
-int GetScaledCardSize(int dipValue, int dpi) {
-  double scale = dpi / 96.0;
-  return static_cast<int>(dipValue * scale + 0.5);
-}
-
-namespace {
-inline int StarSizeForCardH(int cardH) {
-  return std::max(24, (int)(cardH * 0.6));
-}
-} // namespace
-
-CardLayoutInfo ComputeCardLayoutForDPI(int normDPI) {
+CardLayoutInfo ComputeCardLayoutForWidth(int clientW) {
   CardLayoutInfo L;
-  auto cs = GetCardSizeForDPI(normDPI);
-  L.cardW = cs.first; // ← БЕЗ GetScaledCardSize (был баг двойного масштаба)
-  L.cardH = cs.second;
+  L.cardW = CardWidthForClientWidth(clientW);
+  L.cardH =
+      (int)std::round((double)L.cardW * CARD_BASE_H_DIP / CARD_BASE_W_DIP);
+  if (L.cardH < 1)
+    L.cardH = 1;
 
-  // pad / logoGap — DIP-величины, их масштабируем корректно:
-  L.pad = GetScaledCardSize(4, normDPI);
-  L.logoGap = GetScaledCardSize(1, normDPI);
+  // Пропорционально базовому дизайну 340×90.
+  const double k = (double)L.cardW / CARD_BASE_W_DIP;
+  L.pad = std::max(2, (int)std::round(4.0 * k));
+  L.logoGap = std::max(1, (int)std::round(1.0 * k));
 
   L.favZoneSize = L.cardH;
   L.logoZoneLeft = L.pad;
   L.logoZoneRight = L.cardW - L.pad - L.favZoneSize;
   L.logoZoneW = std::max(1, L.logoZoneRight - L.logoZoneLeft - L.logoGap);
   L.logoH = std::max(1, L.cardH - 2 * L.pad);
-  L.starSize = StarSizeForCardH(L.cardH);
+  L.starSize = std::max(24, (int)(L.cardH * 0.6));
 
-  L.logoW = L.logoZoneW; // как и было: L.logoW == logoZoneW
+  L.logoW = L.logoZoneW;
   L.logoDx = L.logoZoneLeft;
   L.logoDy = L.pad + (L.cardH - 2 * L.pad - L.logoH) / 2;
   L.starDx = L.logoZoneRight + L.logoGap + (L.favZoneSize - L.starSize) / 2;
   L.starDy = (L.cardH - L.starSize) / 2;
 
   return L;
-}
-
-std::pair<int, int> ComputeLogoSizeForDPI(int dpi) {
-  auto L = ComputeCardLayoutForDPI(NormalizeDpi(dpi));
-  return {L.logoZoneW, L.logoH};
 }
 
 // ============================================================================

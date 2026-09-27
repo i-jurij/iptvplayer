@@ -21,19 +21,6 @@
 
 class MainFrame;
 
-// Вспомогательная функция: унифицированный ключ кэша (совместим с
-// IconManager) Формат: "playlist_channel_WxH"
-inline std::string MakeLogoCacheKey(const std::string &playlist,
-                                    const std::string &channelOrUrl, int w,
-                                    int h, int dpi) {
-  // playlist может быть пустым — тогда используем URL как идентификатор
-  std::string id =
-      playlist.empty() ? channelOrUrl : playlist + "|" + channelOrUrl;
-
-  return id + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" +
-         std::to_string(dpi);
-}
-
 class CardsBase : public wxScrolledWindow {
 public:
   MainFrame *GetMainFrame() const;
@@ -62,7 +49,6 @@ public:
   void SetSelectCallback(SelectCallback cb) { m_onSelect = std::move(cb); }
   void SetChannelsBase(const std::vector<Channel> &channels);
   void RefreshCards();
-  static std::pair<int, int> ComputeLogoSize(int dpi);
 
   // Инициализация лимитов кэша (вызывать один раз при старте приложения)
   void InitLRULimits();
@@ -132,6 +118,17 @@ public:
   const std::vector<Channel> &GetChannels() const { return m_channels; }
 
 protected:
+  // Активный layout карточки (в DIP), обновляется в UpdateLayout().
+  LayoutInfo m_layout;
+
+  // Текущий content scale (1.0 / 1.25 / 2.0 / ...). Обновляется в
+  // UpdateLayout().
+  double m_contentScale = 1.0;
+
+  // Кэш тайлов карточек (один размер — один слой).
+  // Ключ — index; при смене breakpoint или scale полностью очищается.
+  std::unordered_map<size_t, LogoCache::LogoBitmapPtr> m_tileCache;
+  
   void OnContextMenu(wxContextMenuEvent &evt);
   
   bool m_mouseInside = false;
@@ -150,7 +147,6 @@ protected:
   void OnMouseEnter(wxMouseEvent &evt);
 
   void OnDPIChanged(wxDPIChangedEvent &evt);
-  int GetCurrentDPI() const;
 
   void EnqueueLogoPriority(size_t index, int priority);
 
@@ -211,13 +207,6 @@ protected:
   int m_lastScrollY = 0;
   int m_scrollDirection = 0; // -1 вверх, +1 вниз
 
-  // DPI-aware caches
-  std::unordered_map<int, std::unordered_map<size_t, LogoCache::LogoBitmapPtr>>
-      m_tileCacheDPI;
-
-  // текущий DPI
-  int m_currentDPI = 0;
-
   void RenderTile(size_t index);
 
   bool RemoveChannel(const std::string &name, const std::string &playlistName);
@@ -225,14 +214,9 @@ protected:
 private:
   wxBitmap CreateTileBackground(int w, int h);
   // --- DPI & Layout ---
-  LayoutInfo ComputeLayout(int normDPI) const;
-  LayoutInfo GetLayoutInfoForDPI(int rawDPI) const;
   bool IsBitmapNonEmpty(const wxBitmap &bmp);
 
   // Cache: normalized DPI -> LayoutInfo (thread-safe)
-  mutable std::map<int, LayoutInfo> m_layoutCache;
-  mutable std::mutex m_layoutCacheMutex;
-
   wxBitmap GetScaledStar(const wxBitmap &star, int size);
   // text cache
   std::unordered_map<std::string, wxString> m_textCache;

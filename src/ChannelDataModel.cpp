@@ -22,20 +22,9 @@
 // По умолчанию семплируем 1 из N сообщений; для отладки можно включить полный
 // вывод, установив соответствующие флаги в true.
 // ---------------------------------------------------------------------------
-static std::atomic<bool> s_verboseGetValue{false};
-static std::atomic<uint32_t> s_getValueCounter{0};
-static constexpr uint32_t SAMPLE_N_GETVALUE = 1000;
-
 static std::atomic<bool> s_verboseRequestEnqueue{false};
 static std::atomic<uint32_t> s_requestEnqueueCounter{0};
 static constexpr uint32_t SAMPLE_N_REQ = 1000;
-
-static inline bool ShouldLogGetValue() {
-  if (s_verboseGetValue.load(std::memory_order_relaxed))
-    return true;
-  uint32_t c = s_getValueCounter.fetch_add(1, std::memory_order_relaxed);
-  return (c % SAMPLE_N_GETVALUE) == 0;
-}
 
 static inline bool ShouldLogRequestEnqueue() {
   if (s_verboseRequestEnqueue.load(std::memory_order_relaxed))
@@ -56,9 +45,18 @@ std::string ChannelDataModel::MakeCacheKey(const std::string &playlist,
          std::to_string(dpi);
 }
 
+std::string ChannelDataModel::MakeCacheKeyForRow(unsigned int row) const {
+  if (row >= m_channels.size())
+    return {};
+  const Channel &ch = m_channels[row];
+  int size = m_logoPhysSize > 0 ? m_logoPhysSize : LIST_LOGO_SIZE_DIP;
+  int scale100 = std::max(100, (int)std::round(m_contentScale * 100.0));
+  return MakeCacheKey(ch.getPlaylistName(), ch.getName(), size, scale100);
+}
+
 ChannelDataModel::ChannelDataModel()
     : wxDataViewVirtualListModel(0), m_sortColumn(-1), m_sortAscending(true),
-      m_disableSorting(false), m_lastDpi(0) {}
+      m_disableSorting(false) {}
 
 unsigned int ChannelDataModel::GetColumnCount() const { return 7; }
 
@@ -90,15 +88,7 @@ void ChannelDataModel::GetValueByRow(wxVariant &variant, unsigned int row,
         break;
       }
 
-      int size = m_logoSize > 0 ? m_logoSize : GetDpiLogoSizeList(nullptr);
-      int dpi = m_lastDpi > 0 ? m_lastDpi : GetNormDPI(wxTheApp->GetTopWindow());
-      if (dpi <= 0)
-        dpi = 96;
-
-      const std::string pl = ch.getPlaylistName();
-      const std::string nm = ch.getName();
-
-      std::string key = MakeCacheKey(pl, nm, size, dpi);
+      std::string key = MakeCacheKeyForRow(row);
 
       // Сохраняем последний рассчитанный ключ для этой строки
       m_rowKeyCache[row] = key;
@@ -162,27 +152,6 @@ void ChannelDataModel::ChangeValue(const wxVariant & /*variant*/,
   RowChanged(row);
 }
 
-void ChannelDataModel::CheckDpiReset() {
-  int currentDpi = GetNormDPI(wxTheApp->GetTopWindow());
-  if (currentDpi <= 0)
-    currentDpi = 96;
-
-  if (m_lastDpi == currentDpi)
-    return;
-
-  if (m_lastDpi != 0) {
-    double changePercent = std::abs(currentDpi - m_lastDpi) * 100.0 / m_lastDpi;
-
-    if (changePercent < 15.0)
-      return;
-
-    wxLogInfo("ChannelDataModel: DPI changed (%d → %d, %.1f%%) → clearing",
-              m_lastDpi, currentDpi, changePercent);
-  }
-
-  m_lastDpi = currentDpi;
-}
-
 void ChannelDataModel::UpdateRowByName(const std::string &playlist,
                                        const std::string &name) {
   for (size_t row = 0; row < m_channels.size(); ++row) {
@@ -237,58 +206,53 @@ void ChannelDataModel::SafeUpdateRowByName(
 
 void ChannelDataModel::SetChannels(const std::vector<Channel> &channels,
                                    const std::string &playlistName,
-                                   int logoSize, int dpi) {
+                                   int logoPhysSize, double contentScale) {
   PROFILE_SCOPE("ChannelDataModel::SetChannels");
 
-  m_lastDpi = dpi;
-  CheckDpiReset();
+  m_logoPhysSize = logoPhysSize > 0 ? logoPhysSize : LIST_LOGO_SIZE_DIP;
+  m_contentScale = contentScale > 0.0 ? contentScale : 1.0;
 
   m_channelsVersion.fetch_add(1, std::memory_order_relaxed);
   m_channels = channels;
   m_playlistName = playlistName;
 
   for (auto &ch : m_channels) {
-    if (ch.getPlaylistName().empty()) {
+    if (ch.getPlaylistName().empty())
       ch.setPlaylistName(m_playlistName);
-    }
   }
   m_favorites.assign(m_channels.size(), false);
-  m_logoSize = (logoSize > 0 ? logoSize : GetDpiLogoSizeList(nullptr));
+  m_logoSize = m_logoPhysSize;
 
-  if (!m_disableSorting) {
+  if (!m_disableSorting)
     Resort();
-  }
 
   m_rowKeyCache.clear();
-
   Reset(m_channels.size());
 }
 
 void ChannelDataModel::AppendChannels(const std::vector<Channel> &channels,
                                       const std::string &playlistName,
-                                      size_t /*preloadCount*/, int dpi) {
+                                      size_t /*preloadCount*/, int logoPhysSize,
+                                      double contentScale) {
   PROFILE_SCOPE("ChannelDataModel::AppendChannels");
 
-  m_lastDpi = dpi;
-  CheckDpiReset();
+  m_logoPhysSize = logoPhysSize > 0 ? logoPhysSize : m_logoPhysSize;
+  m_contentScale = contentScale > 0.0 ? contentScale : m_contentScale;
 
   size_t oldSize = m_channels.size();
   m_channels.insert(m_channels.end(), channels.begin(), channels.end());
   m_playlistName = playlistName;
 
   for (size_t i = oldSize; i < m_channels.size(); ++i) {
-    if (m_channels[i].getPlaylistName().empty()) {
+    if (m_channels[i].getPlaylistName().empty())
       m_channels[i].setPlaylistName(m_playlistName);
-    }
   }
 
   m_favorites.resize(m_channels.size(), false);
+  m_logoSize = m_logoPhysSize;
 
-  m_logoSize = (m_logoSize > 0 ? m_logoSize : GetDpiLogoSizeList(nullptr));
-
-  if (!m_disableSorting) {
+  if (!m_disableSorting)
     Resort();
-  }
 
   Reset(m_channels.size());
 }
@@ -343,13 +307,7 @@ ChannelDataModel::RequestLogoLoadIfMissing(unsigned int row,
     }
   }
 
-  int logoSize = m_logoSize > 0 ? m_logoSize : GetDpiLogoSizeList(nullptr);
-  int dpi = m_lastDpi > 0 ? m_lastDpi : GetNormDPI(wxTheApp->GetTopWindow());
-  if (dpi <= 0)
-    dpi = 96;
-
-  std::string key =
-      MakeCacheKey(ch.getPlaylistName(), ch.getName(), logoSize, dpi);
+  std::string key = MakeCacheKeyForRow(row);
 
   auto bmpPtr = LogoCache::GetCachedBitmapPtr(key);
   if (bmpPtr && bmpPtr->IsOk()) {

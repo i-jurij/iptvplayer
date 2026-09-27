@@ -62,19 +62,14 @@ public:
     if (!bmpPtr || !bmpPtr->IsOk())
       return false;
 
-    int bw = bmpPtr->GetWidth();
-    int bh = bmpPtr->GetHeight();
+    // Битмап приходит с корректным SetScaleFactor. Его логический размер
+    // уже равен LIST_LOGO_SIZE_DIP. Центрируем без ручного масштабирования.
+    wxSize ls = bmpPtr->GetLogicalSize();
+    if (ls.x <= 0 || ls.y <= 0)
+      return false;
 
-    double scaleX = (double)rect.width / bw;
-    double scaleY = (double)rect.height / bh;
-    double scale = std::min(scaleX, scaleY);
-
-    int w = std::max(1, (int)(bw * scale));
-    int h = std::max(1, (int)(bh * scale));
-
-    int x = rect.x + (rect.width - w) / 2;
-    int y = rect.y + (rect.height - h) / 2;
-
+    int x = rect.x + (rect.width - ls.x) / 2;
+    int y = rect.y + (rect.height - ls.y) / 2;
     dc->DrawBitmap(*bmpPtr, x, y, true);
     return true;
   }

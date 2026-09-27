@@ -266,8 +266,11 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
 
               chList->m_ignoreSelectionEvents = true;
 
+              double cs = GetContentScale(chList);
+              int physSize =
+                  std::max(1, (int)std::round(LIST_LOGO_SIZE_DIP * cs));
               chList->GetModel()->AppendChannels(copyBatch, playlistName, 0,
-                                                 GetNormDPI(chList));
+                                                 physSize, cs);
 
               chList->m_ignoreSelectionEvents = false;
 

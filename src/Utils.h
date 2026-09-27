@@ -82,30 +82,26 @@ void showInfo(wxWindow *parent, const wxString &message,
 /// файла
 wxString getIconPath(const wxString &iconName);
 
-// DPI и масштабирование
-int GetRawDPI(wxWindow *ctx);
-int NormalizeDpi(int dpiY);
-int GetNormDPI(wxWindow *ctx);
+// ============================================================================
+// DPI / ContentScale
+// ============================================================================
+// Единственная функция, связывающая логические (DIP) и физические пиксели.
+// Не меньше 1.0. Используется: (а) для запроса физического размера
+// растровых битмапов; (б) в ключе scaled-кэша (<int(scale*100)>).
+double GetContentScale(wxWindow *ctx);
 
 // ============================================================================
-//  Размер логотипа в режиме "список" (DIP).
-//  Должен совпадать:
-//    - с шириной колонки Logo (BaseChannelList::InitColumns);
-//    - с wxSize из ChannelListLogoRenderer::GetSize().
-//  Bitmap запрашивается как LIST_LOGO_SIZE_DIP * (normDPI/96.0)
-//  ФИЗИЧЕСКИХ пикселей — тогда в ячейке он отрисуется 1:1, без апскейла.
+// Логические размеры (DIP). Не зависят от DPI и масштаба.
 // ============================================================================
 inline constexpr int LIST_LOGO_SIZE_DIP = 40;
+inline constexpr int CARD_BASE_W_DIP = 340;
+inline constexpr int CARD_BASE_H_DIP = 90;
 
-/// Возвращает DPI-адаптивный ФИЗИЧЕСКИЙ размер логотипа для списков.
-/// Логический размер всегда LIST_LOGO_SIZE_DIP, физический = DIP * scale.
-int GetDpiLogoSizeList(wxWindow *ctx);
+// Ширина карточки по ширине клиентской области. 5 брейкпойнтов.
+int CardWidthForClientWidth(int clientW);
 
-std::pair<int, int> GetCardSizeForDPI(int dpi);
 // ============================================================================
-//  Единый источник правды для layout карточки канала.
-//  Используется и CardsBase::ComputeLayout, и ComputeLogoSizeForDPI,
-//  чтобы ключи scaled-кэша <W>x<H>|<dpi> всегда совпадали.
+// Единый layout карточки в DIP.
 // ============================================================================
 struct CardLayoutInfo {
   int cardW = 0, cardH = 0;
@@ -113,16 +109,12 @@ struct CardLayoutInfo {
   int starSize = 0;
   int logoZoneLeft = 0, logoZoneRight = 0, logoZoneW = 0;
   int favZoneSize = 0;
-  int logoW = 0, logoH = 0; // = logoZoneW / logoH (для ключа кэша)
+  int logoW = 0, logoH = 0;
   int logoDx = 0, logoDy = 0;
   int starDx = 0, starDy = 0;
 };
 
-// normDPI — уже нормализованный (96 / 120 / 144 / 192).
-CardLayoutInfo ComputeCardLayoutForDPI(int normDPI);
-
-int GetScaledCardSize(int dipValue, int dpi);
-std::pair<int, int> ComputeLogoSizeForDPI(int dpi);
+CardLayoutInfo ComputeCardLayoutForWidth(int clientW);
 
 // ============================================================================
 // Авто-определение лимитов LRU по доступной памяти

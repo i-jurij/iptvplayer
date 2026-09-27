@@ -9,14 +9,14 @@
 void CardsBase::UpdateLayout() {
   const int oldCols = m_cols;
   const int oldHover = m_hoverIndex;
+  const int oldCardW = m_cardW;
+  const double oldCS = m_contentScale;
 
   int clientW = GetClientSize().GetWidth();
-  if (clientW <= 0) {
+  if (clientW <= 0)
     clientW = 800;
-  }
 
-  int dpi = m_currentDPI;
-  auto L = GetLayoutInfoForDPI(dpi);
+  auto L = ComputeCardLayoutForWidth(clientW);
 
   m_cardW = L.cardW;
   m_cardH = L.cardH;
@@ -26,6 +26,23 @@ void CardsBase::UpdateLayout() {
   m_logoW = L.logoW;
   m_logoH = L.logoH;
 
+  m_layout.cardW = L.cardW;
+  m_layout.cardH = L.cardH;
+  m_layout.pad = L.pad;
+  m_layout.logoGap = L.logoGap;
+  m_layout.starSize = L.starSize;
+  m_layout.logoZoneLeft = L.logoZoneLeft;
+  m_layout.logoZoneRight = L.logoZoneRight;
+  m_layout.logoZoneW = L.logoZoneW;
+  m_layout.favZoneSize = L.favZoneSize;
+  m_layout.logoW = L.logoW;
+  m_layout.logoH = L.logoH;
+  m_layout.logoDx = L.logoDx;
+  m_layout.logoDy = L.logoDy;
+  m_layout.starDx = L.starDx;
+  m_layout.starDy = L.starDy;
+
+  // Гэпы — в DIP.
   m_gapX = FromDIP(6);
   m_gapY = FromDIP(6);
 
@@ -47,6 +64,24 @@ void CardsBase::UpdateLayout() {
   int totalW = std::max(clientW, totalGridWidth);
   int totalH = (int)rows * m_rowH;
   SetVirtualSize(totalW, totalH);
+
+  double newCS = GetContentScale(this);
+  m_contentScale = newCS;
+
+  if (oldCardW != m_cardW || oldCS != newCS) {
+    const int oldPhysW = std::max(1, (int)std::round(oldCardW * oldCS));
+    const int oldPhysH =
+        std::max(1, (int)std::round((double)oldCardW * CARD_BASE_H_DIP /
+                                    CARD_BASE_W_DIP * oldCS));
+    const int oldScale100 = std::max(100, (int)std::round(oldCS * 100.0));
+
+    LogoCache::ClearScaledRemoveSizes(
+        {std::make_tuple(oldPhysW, oldPhysH, oldScale100)});
+
+    m_tileCache.clear();
+    m_tileLRU.clear();
+    m_tileLRUCache.clear();
+  }
 
   Refresh(false);
 
@@ -107,20 +142,24 @@ void CardsBase::DrawCardFrame(wxDC &dc, int index, const wxColour &color,
                    m_cardH - thickness);
 }
 
-wxBitmap CardsBase::GetScaledStar(const wxBitmap &star, int size) {
+wxBitmap CardsBase::GetScaledStar(const wxBitmap &star, int sizeDip) {
   if (!star.IsOk())
     return wxBitmap();
 
+  double cs = m_contentScale;
+  int sizePhys = std::max(1, (int)std::round(sizeDip * cs));
   wxImage img = star.ConvertToImage();
-  img.Rescale(size, size, wxIMAGE_QUALITY_HIGH);
-  return wxBitmap(img);
+  img.Rescale(sizePhys, sizePhys, wxIMAGE_QUALITY_HIGH);
+  wxBitmap bmp(img);
+  bmp.SetScaleFactor(cs); // логический размер = sizeDip
+  return bmp;
 }
 
 void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
                              bool /*hovered*/) {
   const Channel &ch = m_channels[index];
   const int pad = m_pad;
-  const LayoutInfo &L = GetLayoutInfoForDPI(m_currentDPI);
+  const LayoutInfo &L = m_layout;
 
   dc.SetBrush(wxBrush(LogoCache::GetDefaultCardBgColor()));
   dc.SetPen(*wxTRANSPARENT_PEN);
@@ -128,11 +167,14 @@ void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
 
   LogoCache::LogoBitmapPtr bmpPtr = nullptr;
   const std::string &url = ch.getLogo();
-  int dpi = GetNormDPI(this);
+  double cs = m_contentScale;
+  int physW = std::max(1, (int)std::round(m_logoW * cs));
+  int physH = std::max(1, (int)std::round(m_logoH * cs));
+  int scale100 = std::max(100, (int)std::round(cs * 100.0));
 
   if (!url.empty()) {
-    const std::string key = MakeLogoCacheKey(ch.getPlaylistName(), ch.getName(),
-                                             m_logoW, m_logoH, dpi);
+    const std::string key = LogoCache::MakeScaledKey(
+        ch.getPlaylistName(), ch.getName(), physW, physH, scale100);
 
     bmpPtr = LogoCache::GetCachedBitmapPtr(key);
 
@@ -179,19 +221,16 @@ void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
     int tx = logoAreaLeft + (logoAreaW - tw) / 2;
     int ty = rect.y + L.logoDy + (m_logoH - th) / 2;
 
-    // dc.SetTextForeground(*wxWHITE);
     static auto fg = wxColour(32, 32, 32);
-    if (wxSystemSettings::GetAppearance().IsDark()) {
+    if (wxSystemSettings::GetAppearance().IsDark())
       fg = wxColour(240, 240, 240);
-    }
     dc.SetTextForeground(fg);
     dc.SetFont(font);
     dc.DrawText(text, tx, ty);
   }
 
-  if (hasLogo) {
+  if (hasLogo)
     dc.DrawBitmap(*bmpPtr, rect.x + L.logoDx, rect.y + L.logoDy, true);
-  }
 
   wxBitmap star = GetStarBitmap(ch);
   if (star.IsOk()) {
@@ -264,9 +303,6 @@ void CardsBase::OnPaint(wxPaintEvent &) {
   if (lastRow > (int)maxRows)
     lastRow = (int)maxRows;
 
-  int dpi = m_currentDPI;
-
-  // tile‑only: рисуем по тайлам
   for (int row = firstRow; row < lastRow; ++row) {
     int y = row * m_rowH;
     for (int col = 0; col < m_cols; ++col) {
@@ -274,20 +310,18 @@ void CardsBase::OnPaint(wxPaintEvent &) {
       if (index >= (int)m_channels.size())
         break;
 
-      auto it = m_tileCacheDPI[dpi].find(index);
+      auto it = m_tileCache.find((size_t)index);
 
-      // --- REUSE: если тайл уже есть, просто рисуем ---
-      if (it != m_tileCacheDPI[dpi].end() && it->second && it->second->IsOk()) {
+      if (it != m_tileCache.end() && it->second && it->second->IsOk()) {
         int x = m_gridOffsetX + col * m_colW;
         dc.DrawBitmap(*it->second, x, y, true);
         continue;
       }
 
-      // --- FALLBACK: тайла нет → создаём ---
-      RenderTile(index);
+      RenderTile((size_t)index);
 
-      it = m_tileCacheDPI[dpi].find(index);
-      if (it != m_tileCacheDPI[dpi].end() && it->second && it->second->IsOk()) {
+      it = m_tileCache.find((size_t)index);
+      if (it != m_tileCache.end() && it->second && it->second->IsOk()) {
         int x = m_gridOffsetX + col * m_colW;
         dc.DrawBitmap(*it->second, x, y, true);
       }

@@ -289,33 +289,10 @@ void MainFrame::SetShowLogoFromSettings(bool show) {
   ApplyChannelsNoLogoToViews();
 }
 
-static void clearScaledCache(bool removeGrid = false, bool removeList = false) {
-  std::vector<std::tuple<int, int, int>> remove;
-
-  int normDpi = 96;
-  if (wxTheApp && wxTheApp->GetTopWindow()) {
-    normDpi = GetNormDPI(wxTheApp->GetTopWindow());
-  }
-
-  if (removeList) {
-    int listLogoSize = GetDpiLogoSizeList(wxTheApp->GetTopWindow());
-    if (listLogoSize > 0) {
-      remove.emplace_back(listLogoSize, listLogoSize, normDpi);
-    }
-  }
-
-  if (removeGrid) {
-    auto [cardlogoW, cardlogoH] = ComputeLogoSizeForDPI(normDpi);
-    if (cardlogoW > 0 && cardlogoH > 0) {
-      remove.emplace_back(cardlogoW, cardlogoH, normDpi);
-    }
-  }
-
-  if (remove.empty()) {
-    return;
-  }
-
-  LogoCache::ClearScaledRemoveSizes(remove);
+static void clearScaledCache(bool /*removeGrid*/, bool /*removeList*/) {
+  // В Шаге 1 чистим весь scaled-кэш. Точечную очистку по (physW, physH,
+  // scale100) добавим в CardsBase::OnResize (Шаг 2).
+  LogoCache::ClearScaled();
 }
 
 void MainFrame::ApplyInitialViewMode() {

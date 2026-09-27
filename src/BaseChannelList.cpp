@@ -299,10 +299,8 @@ void BaseChannelList::LoadChannels(const std::vector<Channel> &channels,
   m_ignoreSelectionEvents = true;
 
   m_playlistName = playlistName;
-  int logoSize = GetDpiLogoSizeList(this);
-  if (logoSize <= 0)
-    logoSize = 40;
-  int dpi = GetNormDPI(this);
+  double cs = GetContentScale(this);
+  int physSize = std::max(1, (int)std::round(LIST_LOGO_SIZE_DIP * cs));
 
   const size_t initialCount = std::min<size_t>(50, channels.size());
   std::vector<Channel> initialBatch(channels.begin(),
@@ -312,7 +310,7 @@ void BaseChannelList::LoadChannels(const std::vector<Channel> &channels,
     if (ch.getPlaylistName().empty())
       ch.setPlaylistName(playlistName);
 
-  m_model->SetChannels(initialBatch, playlistName, logoSize, dpi);
+  m_model->SetChannels(initialBatch, playlistName, physSize, cs);
 
   ResetVisibleRange();
 
@@ -359,13 +357,10 @@ void BaseChannelList::LoadFavoritesChannels(
     const std::vector<Channel> &channels, const std::string &playlistName) {
   m_ignoreSelectionEvents = true;
 
-  int logoSize = GetDpiLogoSizeList(this);
-  if (logoSize <= 0)
-    logoSize = 40;
+  double cs = GetContentScale(this);
+  int physSize = std::max(1, (int)std::round(LIST_LOGO_SIZE_DIP * cs));
 
-  int dpi = GetNormDPI(this);
-
-  m_model->SetChannels(channels, playlistName, logoSize, dpi);
+  m_model->SetChannels(channels, playlistName, physSize, cs);
 
   m_ignoreSelectionEvents = false;
 }
@@ -523,9 +518,9 @@ void BaseChannelList::HandleVisibleRangeChange() {
 
   size_t visibleCount = (size_t)GetCountPerPage();
   if (visibleCount == 0) {
-    int rowH = GetDpiLogoSizeList(this);
+    int rowH = (int)std::round(LIST_LOGO_SIZE_DIP * GetContentScale(this));
     if (rowH <= 0)
-      rowH = 40;
+      rowH = LIST_LOGO_SIZE_DIP;
     int h = GetClientSize().GetHeight();
     if (h > 0)
       visibleCount = std::max<size_t>(1, (size_t)(h / rowH));
@@ -578,13 +573,8 @@ void BaseChannelList::EnqueueRowLoad(size_t row, bool highPriority) {
   if (url.empty())
     return;
 
-  int logoSize = GetDpiLogoSizeList(this);
-  if (logoSize <= 0)
-    logoSize = 40;
-  int dpi = GetNormDPI(this);
-
-  std::string key =
-      m_model->MakeCacheKey(ch.getPlaylistName(), ch.getName(), logoSize, dpi);
+  // Ключ берём из модели
+  std::string key = m_model->MakeCacheKeyForRow((unsigned int)row);
   uint64_t now = NowMs();
 
   {
@@ -608,9 +598,7 @@ void BaseChannelList::EnqueueRowLoad(size_t row, bool highPriority) {
 
       if (!m_loadQueue.empty()) {
         const QueueItem &back = m_loadQueue.back();
-        const Channel &qc = m_model->GetChannel((unsigned int)back.row);
-        std::string qkey = m_model->MakeCacheKey(qc.getPlaylistName(),
-                                                 qc.getName(), logoSize, dpi);
+        std::string qkey = m_model->MakeCacheKeyForRow((unsigned int)back.row);
         m_queuedKeys.erase(qkey);
         m_loadQueue.pop_back();
       }
@@ -642,11 +630,6 @@ void BaseChannelList::processLoadQueue() {
     return;
   if (m_queuePaused.load() || m_loadingPaused.load())
     return;
-
-  int logoSize = GetDpiLogoSizeList(this);
-  if (logoSize <= 0)
-    logoSize = 40;
-  int dpi = GetNormDPI(this);
 
   bool expected = false;
   if (!m_processing.compare_exchange_strong(expected, true))
@@ -691,8 +674,8 @@ void BaseChannelList::processLoadQueue() {
         continue;
       }
 
-      std::string key = m_model->MakeCacheKey(c.getPlaylistName(), c.getName(),
-                                              logoSize, dpi);
+      // Ключ — из модели. Совпадает с тем, что заполнил GetValueByRow.
+      std::string key = m_model->MakeCacheKeyForRow((unsigned int)qi.row);
 
       if (m_pendingLogoLoads.count(key)) {
         ++it;
@@ -710,7 +693,6 @@ void BaseChannelList::processLoadQueue() {
         m_lruIter.erase(itLru);
       }
 
-      // Удаляем из m_keyToRow (маппинг key->row)
       RemoveKeyMapping(key);
 
       it = m_loadQueue.erase(it);
@@ -731,13 +713,16 @@ void BaseChannelList::processLoadQueue() {
     if (url.empty())
       continue;
 
-    int logoSize = GetDpiLogoSizeList(this);
-    if (logoSize <= 0)
-      logoSize = 40;
-    int dpi = GetNormDPI(this);
+    // Ключ — из модели.
+    std::string key = m_model->MakeCacheKeyForRow((unsigned int)row);
 
-    std::string key = m_model->MakeCacheKey(ch.getPlaylistName(), ch.getName(),
-                                            logoSize, dpi);
+    // Физический размер bitmap и scale — из модели (зафиксированы в
+    // SetChannels/AppendChannels). Ключ — тоже из модели.
+    int logoPhysSize = m_model->GetLogoPhysSize();
+    if (logoPhysSize <= 0)
+      logoPhysSize = std::max(
+          1, (int)std::round(LIST_LOGO_SIZE_DIP * GetContentScale(this)));
+    double cs = m_model->GetContentScale();
 
     {
       std::lock_guard<std::mutex> lk(m_queueMutex);
@@ -750,7 +735,6 @@ void BaseChannelList::processLoadQueue() {
       m_inflightPerHost[host] = m_inflightPerHost[host] + 1;
     }
 
-    // Создаём RAII guard для inflight-счётчика
     std::shared_ptr<InflightGuard> inflightGuard =
         std::make_shared<InflightGuard>(m_inflightLoads);
     m_diag_started.fetch_add(1);
@@ -762,31 +746,27 @@ void BaseChannelList::processLoadQueue() {
     const std::string urlCopy = url;
     const std::string keyCopy = key;
     size_t rowCopy = row;
-    int currentDpi = m_lastDpi; // сохраняем DPI на момент запроса
 
     LogoCache::GetLogoAsync(
-        pl, nm, urlCopy, logoSize, logoSize, dpi,
-        [localWinId, keyCopy, rowCopy, pl, nm, urlCopy, expectedModelVer,
-         currentDpi, inflightGuard, qi](LogoCache::LogoBitmapPtr bmpPtr) {
+        pl, nm, urlCopy, logoPhysSize, logoPhysSize, /*dpiY=*/0,
+        [localWinId, keyCopy, rowCopy, pl, nm, urlCopy, expectedModelVer, cs,
+         inflightGuard, qi](LogoCache::LogoBitmapPtr bmpPtr) {
           auto bmp_copy = bmpPtr;
 
           CallAfterSafeById(localWinId, [keyCopy, rowCopy, pl, nm, urlCopy,
-                                         expectedModelVer, currentDpi,
-                                         inflightGuard, bmp_copy,
-                                         qi](wxWindow *w) {
+                                         expectedModelVer, cs, inflightGuard,
+                                         bmp_copy, qi](wxWindow *w) {
             auto *list = dynamic_cast<BaseChannelList *>(w);
             if (!list || list->m_closing.load()) {
-              // guard сам уменьшит m_inflightLoads при выходе
               return;
             }
 
-            // Проверка DPI
-            int nowDpi = GetNormDPI(w);
-            if (nowDpi != currentDpi) {
-              // DPI изменился – игнорируем результат
+            // Если content scale между запросом и ответом изменился —
+            // отбрасываем результат.
+            double nowCs = GetContentScale(w);
+            if (std::abs(nowCs - cs) > 0.001) {
               std::lock_guard<std::mutex> lk(list->m_queueMutex);
               list->m_pendingLogoLoads.erase(keyCopy);
-              // Хост-счётчик уменьшаем
               std::string host = ExtractHostSimple(urlCopy);
               auto hit = list->m_inflightPerHost.find(host);
               if (hit != list->m_inflightPerHost.end()) {
@@ -797,9 +777,7 @@ void BaseChannelList::processLoadQueue() {
               return;
             }
 
-            // Обработка загруженного битмапа
             if (!bmp_copy || !bmp_copy->IsOk()) {
-              // Неудачная загрузка – возможно, повторная попытка
               {
                 std::lock_guard<std::mutex> lk(list->m_queueMutex);
                 list->m_pendingLogoLoads.erase(keyCopy);
@@ -812,7 +790,6 @@ void BaseChannelList::processLoadQueue() {
                     list->m_inflightPerHost.erase(hit);
                 }
 
-                // Повторная постановка с учётом retryCount
                 if (list->m_queuedKeys.find(keyCopy) ==
                     list->m_queuedKeys.end()) {
                   int newRetry = qi.retryCount + 1;
@@ -824,7 +801,6 @@ void BaseChannelList::processLoadQueue() {
                     list->m_lruQueuedKeys.push_back(keyCopy);
                     list->m_lruIter[keyCopy] =
                         std::prev(list->m_lruQueuedKeys.end());
-                    // Восстанавливаем маппинг key->row для watchdog
                     list->AddKeyMapping(keyCopy, rowCopy);
                   } else {
                     LOG_DEBUG("Logo load permanently failed for key=%s",
@@ -836,7 +812,6 @@ void BaseChannelList::processLoadQueue() {
               return;
             }
 
-            // Успешная загрузка
             {
               std::lock_guard<std::mutex> lk(list->m_queueMutex);
               list->m_pendingLogoLoads.erase(keyCopy);
@@ -857,7 +832,8 @@ void BaseChannelList::processLoadQueue() {
 
             list->ScheduleProcessLoadQueue();
           });
-        });
+        },
+        cs);
   }
 
   m_processing.store(false);
@@ -1029,19 +1005,14 @@ void BaseChannelList::AddPendingKeys(const std::vector<std::string> &keys) {
 void BaseChannelList::OnDPIChanged(wxDPIChangedEvent &evt) {
   PROFILE_SCOPE("BaseChannelList::OnDPIChanged");
 
-  int newDpi = GetNormDPI(this);
-  m_lastDpi = newDpi;
-
   PauseLogoLoading();
-  LogoCache::OnDPIChanged(newDpi);
+  LogoCache::ClearScaled();
 
   m_ignoreSelectionEvents = true;
-  if (m_model) {
-    m_model->CheckDpiReset();
+  if (m_model)
     m_model->Reset(m_model->GetCount());
-  }
   m_ignoreSelectionEvents = false;
-  
+
   int localWinId = GetId();
   CallAfterSafeById(localWinId, [](wxWindow *w) {
     auto *self = dynamic_cast<BaseChannelList *>(w);
@@ -1122,9 +1093,9 @@ int BaseChannelList::GetAccurateTopRow() {
     return 0;
   }
 
-  int rowH = GetDpiLogoSizeList(this);
+  int rowH = (int)std::round(LIST_LOGO_SIZE_DIP * GetContentScale(this));
   if (rowH <= 0)
-    rowH = 40;
+    rowH = LIST_LOGO_SIZE_DIP;
 
   int scrollPos = 0;
   if (GetScrollThumb(wxVERTICAL) > 0) {

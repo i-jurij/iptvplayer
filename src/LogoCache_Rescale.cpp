@@ -82,10 +82,9 @@ static void EnsureRescalePoolInitialized() {
 
 // --- RescaleAsync ---
 void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
-                             const std::string &c, int w, int h, int dpi,
-                             LogoCallback cb) {
+                             const std::string &c, int w, int h, int scale100,
+                             double scaleFactor, LogoCallback cb) {
   PROFILE_SCOPE("LogoCache::RescaleAsync");
-  // --- Проверка параметров и паузы ---
   if (w <= 0 || h <= 0 || !master || !master->IsOk() ||
       s_paused.load(std::memory_order_relaxed)) {
     if (cb) {
@@ -94,15 +93,15 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
     }
     return;
   }
+  if (scaleFactor < 1.0)
+    scaleFactor = 1.0;
 
-  auto sk = MakeScaledKey(p, c, w, h, dpi);
+  auto sk = MakeScaledKey(p, c, w, h, scale100);
   auto mk = MakeMasterKey(p, c);
   bool needRescale = false;
 
-  // --- Блок синхронизации: проверка кэша и установка pending ---
   {
     std::lock_guard<std::mutex> lock(s_mutex);
-    // Проверка кэша на случай, если битмап уже появился
     auto itCache = s_scaledIndex.find(sk);
     if (itCache != s_scaledIndex.end()) {
       auto sp = itCache->second.lock();
@@ -140,20 +139,11 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
   if (!needRescale) {
     return;
   }
-  // rescale
-  if (w <= 0 || h <= 0 || !master || !master->IsOk() ||
-      s_paused.load(std::memory_order_relaxed)) {
-    if (cb) {
-      auto cb_copy = cb;
-      wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
-    }
-    return;
-  }
 
   LogoBitmapPtr masterCopy = master;
   EnsureRescalePoolInitialized();
 
-  s_rescalePool->Enqueue([masterCopy, p, c, w, h, dpi, cb]() {
+  s_rescalePool->Enqueue([masterCopy, p, c, w, h, scale100, scaleFactor, cb]() {
     wxImage img = masterCopy->ConvertToImage();
     if (!img.IsOk() || img.GetWidth() <= 1 || img.GetHeight() <= 1) {
       if (cb) {
@@ -163,9 +153,7 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
       return;
     }
 
-    // Trim transparent edges
     if (img.HasAlpha()) {
-      // ... (вся логика обрезки)
       int iw = img.GetWidth(), ih = img.GetHeight();
       int minX = iw, minY = ih, maxX = -1, maxY = -1;
       const unsigned char *alpha = img.GetAlpha();
@@ -185,19 +173,17 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
           img.GetSubImage(wxRect(minX, minY, maxX - minX + 1, maxY - minY + 1));
     }
 
-    // Scale
     int origW = img.GetWidth(), origH = img.GetHeight();
     double scale = std::min((double)w / origW, (double)h / origH);
     int newW = std::max(1, (int)(origW * scale));
     int newH = std::max(1, (int)(origH * scale));
     img.Rescale(newW, newH, wxIMAGE_QUALITY_HIGH);
 
-    // Final composition
     auto cb_copy = cb;
-    auto mk = LogoCache::MakeMasterKey(p, c);
-    auto sk = LogoCache::MakeScaledKey(p, c, w, h, dpi);
-    wxTheApp->CallAfter([img = std::move(img), newW, newH, w, h, cb_copy, mk,
-                         sk]() {
+    auto mk_l = LogoCache::MakeMasterKey(p, c);
+    auto sk_l = LogoCache::MakeScaledKey(p, c, w, h, scale100);
+    wxTheApp->CallAfter([img = std::move(img), newW, newH, w, h, cb_copy, mk_l,
+                         sk_l, scaleFactor]() {
       if (w <= 0 || h <= 0) {
         if (cb_copy)
           cb_copy(nullptr);
@@ -205,39 +191,45 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
       }
 
       wxBitmap finalBmp(w, h);
-      wxMemoryDC dc(finalBmp);
-      dc.SetBackground(wxBrush(GetDefaultCardBgColor()));
-      dc.Clear();
-
-      int x = (w - newW) / 2, y = (h - newH) / 2;
-
-      // Dim logo detection and outline
-      bool dim = false;
       {
-        long sum = 0;
-        int cnt = newW * newH;
-        const unsigned char *rgb = img.GetData();
-        for (int i = 0; i < cnt; i++) {
-          int r = rgb[i * 3], g = rgb[i * 3 + 1], b = rgb[i * 3 + 2];
-          sum += (r * 299 + g * 587 + b * 114) / 1000;
+        wxMemoryDC dc(finalBmp);
+        dc.SetBackground(wxBrush(GetDefaultCardBgColor()));
+        dc.Clear();
+
+        int x = (w - newW) / 2, y = (h - newH) / 2;
+
+        bool dim = false;
+        {
+          long sum = 0;
+          int cnt = newW * newH;
+          const unsigned char *rgb = img.GetData();
+          for (int i = 0; i < cnt; i++) {
+            int r = rgb[i * 3], g = rgb[i * 3 + 1], b = rgb[i * 3 + 2];
+            sum += (r * 299 + g * 587 + b * 114) / 1000;
+          }
+          dim = (sum / cnt < 80);
         }
-        dim = (sum / cnt < 80);
+
+        if (dim) {
+          wxImage outline(newW, newH);
+          outline.SetRGB(wxRect(0, 0, newW, newH), 255, 255, 255);
+          outline.InitAlpha();
+          const unsigned char *alpha =
+              img.HasAlpha() ? img.GetAlpha() : nullptr;
+          unsigned char *oa = outline.GetAlpha();
+          for (int i = 0; i < newW * newH; i++) {
+            oa[i] = alpha ? (unsigned char)(alpha[i] * 0.35) : 90;
+          }
+          dc.DrawBitmap(wxBitmap(outline), x + 1, y + 1, true);
+        }
+
+        dc.DrawBitmap(wxBitmap(img), x, y, true);
+        dc.SelectObject(wxNullBitmap);
       }
 
-      if (dim) {
-        wxImage outline(newW, newH);
-        outline.SetRGB(wxRect(0, 0, newW, newH), 255, 255, 255);
-        outline.InitAlpha();
-        const unsigned char *alpha = img.HasAlpha() ? img.GetAlpha() : nullptr;
-        unsigned char *oa = outline.GetAlpha();
-        for (int i = 0; i < newW * newH; i++) {
-          oa[i] = alpha ? (unsigned char)(alpha[i] * 0.35) : 90;
-        }
-        dc.DrawBitmap(wxBitmap(outline), x + 1, y + 1, true);
-      }
-
-      dc.DrawBitmap(wxBitmap(img), x, y, true);
-      dc.SelectObject(wxNullBitmap);
+      // Помечаем битмап как физический с данным scale factor:
+      // DrawBitmap отрисует его как (w/scaleFactor) × (h/scaleFactor) DIP.
+      finalBmp.SetScaleFactor(scaleFactor);
 
       if (!finalBmp.IsOk()) {
         if (cb_copy)
@@ -249,39 +241,37 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
 
       {
         std::lock_guard<std::mutex> lock(s_mutex);
-        auto itMaster = s_cache.find(mk);
+        auto itMaster = s_cache.find(mk_l);
         if (itMaster == s_cache.end()) {
-          // Мастер удалён – не сохраняем, вызываем pending-колбэки с nullptr
-          auto pendingIt = s_scaledPending.find(sk);
+          auto pendingIt = s_scaledPending.find(sk_l);
           if (pendingIt != s_scaledPending.end()) {
             for (auto &pcb : pendingIt->second.callbacks) {
               if (pcb) {
-                auto cb_copy = pcb;
-                wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+                auto cb_copy2 = pcb;
+                wxTheApp->CallAfter([cb_copy2]() { cb_copy2(nullptr); });
               }
             }
             s_scaledPending.erase(pendingIt);
           }
-          // Выходим, не вызывая дополнительных колбэков (уже вызваны через pending)
           return;
         }
-        // Иначе сохраняем в кэш
-        auto &entry = s_cache[mk];
-        entry.scaled[sk] = bmpPtr; 
-        auto now = std::chrono::steady_clock::now();
-        entry.scaledLastAccess[sk] = now;
-        entry.lastAccess = now;
-        s_scaledIndex[sk] = bmpPtr; 
-        TouchEntry(mk);
 
-        // Вызываем все ожидающие колбэки с результатом
-        auto pendingIt = s_scaledPending.find(sk);
+        auto &entry = s_cache[mk_l];
+        entry.scaled[sk_l] = bmpPtr;
+        auto now = std::chrono::steady_clock::now();
+        entry.scaledLastAccess[sk_l] = now;
+        entry.lastAccess = now;
+        s_scaledIndex[sk_l] = bmpPtr;
+        TouchEntry(mk_l);
+
+        auto pendingIt = s_scaledPending.find(sk_l);
         if (pendingIt != s_scaledPending.end()) {
           for (auto &pcb : pendingIt->second.callbacks) {
             if (pcb) {
-              auto cb_copy = pcb;
+              auto cb_copy2 = pcb;
               auto bmp_copy = bmpPtr;
-              wxTheApp->CallAfter([cb_copy, bmp_copy]() { cb_copy(bmp_copy); });
+              wxTheApp->CallAfter(
+                  [cb_copy2, bmp_copy]() { cb_copy2(bmp_copy); });
             }
           }
           s_scaledPending.erase(pendingIt);
@@ -292,7 +282,7 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
       EnforceLimits();
 
       if (LogoCache::s_onScaledReady) {
-        std::string sk_copy = sk;
+        std::string sk_copy = sk_l;
         wxTheApp->CallAfter([sk_copy]() {
           std::lock_guard<std::mutex> lk(s_mutex);
           if (LogoCache::s_onScaledReady)
@@ -305,36 +295,32 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
 
 // --- Main async API ---
 void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
-                             const std::string &url, int w, int h, int dpiY,
-                             LogoCallback cb) {
+                             const std::string &url, int w, int h, int /*dpiY*/,
+                             LogoCallback cb, double scaleFactor) {
   PROFILE_SCOPE("LogoCache::GetLogoAsync");
   if (w <= 0 || h <= 0) {
     if (cb)
       wxTheApp->CallAfter([=]() { cb(nullptr); });
     return;
   }
+  if (scaleFactor < 1.0)
+    scaleFactor = 1.0;
+  int scale100 = std::max(100, (int)std::round(scaleFactor * 100.0));
 
-  int dpi = NormalizeDpi(dpiY);
   auto mk = MakeMasterKey(p, c);
-  auto sk = MakeScaledKey(p, c, w, h, dpi);
+  auto sk = MakeScaledKey(p, c, w, h, scale100);
 
   LogoBitmapPtr masterCopy = nullptr;
-
   {
     std::lock_guard<std::mutex> lock(s_mutex);
     auto it = s_cache.find(mk);
     if (it != s_cache.end()) {
       auto &e = it->second;
-
-      // --- scaled найден ---
       auto it2 = e.scaled.find(sk);
       if (it2 != e.scaled.end() && it2->second && it2->second->IsOk()) {
-
-        // NEW: обновляем timestamp scaled
         auto now = std::chrono::steady_clock::now();
         e.scaledLastAccess[sk] = now;
         e.lastAccess = now;
-
         if (cb) {
           auto cb_copy = cb;
           auto bmp_copy = it2->second;
@@ -342,12 +328,8 @@ void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
         }
         return;
       }
-
-      // --- master найден ---
       if (e.master && e.master->IsOk()) {
         masterCopy = e.master;
-
-        // обновляем timestamp master
         e.lastAccess = std::chrono::steady_clock::now();
         TouchEntry(mk);
       }
@@ -361,7 +343,7 @@ void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
   }
 
   if (masterCopy) {
-    RescaleAsync(masterCopy, p, c, w, h, dpi, cb);
+    RescaleAsync(masterCopy, p, c, w, h, scale100, scaleFactor, cb);
     return;
   }
 
@@ -371,6 +353,6 @@ void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
         cb(nullptr);
       return;
     }
-    RescaleAsync(masterPtr, p, c, w, h, dpi, cb);
+    RescaleAsync(masterPtr, p, c, w, h, scale100, scaleFactor, cb);
   });
 }

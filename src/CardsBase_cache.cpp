@@ -34,10 +34,13 @@ void CardsBase::RequestLogo(size_t index) {
   if (url.empty())
     return;
 
-  int dpi = GetNormDPI(this);
+  double cs = GetContentScale(this);
+  int physW = std::max(1, (int)std::round(m_logoW * cs));
+  int physH = std::max(1, (int)std::round(m_logoH * cs));
+  int scale100 = std::max(100, (int)std::round(cs * 100.0));
 
-  const std::string key = MakeLogoCacheKey(
-      chCopy.getPlaylistName(), chCopy.getName(), m_logoW, m_logoH, dpi);
+  const std::string key = LogoCache::MakeScaledKey(
+      chCopy.getPlaylistName(), chCopy.getName(), physW, physH, scale100);
 
   if (LogoCache::GetCachedBitmapPtr(key))
     return;
@@ -49,7 +52,8 @@ void CardsBase::RequestLogo(size_t index) {
   m_lastLoadStart = wxGetUTCTimeMillis();
 
   LogoCache::GetLogoAsync(
-      chCopy.getPlaylistName(), chCopy.getName(), url, m_logoW, m_logoH, dpi,
+      chCopy.getPlaylistName(), chCopy.getName(), url, physW, physH,
+      /*dpiY=*/0,
       [this, index, ver, cacheVer, key,
        chCopy](LogoCache::LogoBitmapPtr bmpPtr) {
         auto bmp_copy = bmpPtr;
@@ -85,7 +89,8 @@ void CardsBase::RequestLogo(size_t index) {
           if (!m_logoQueuePQ.empty() && !m_logoTimer.IsRunning())
             m_logoTimer.Start(20);
         });
-      });
+      },
+      cs);
 }
 
 void CardsBase::ProcessLogoQueue(wxTimerEvent &) {
@@ -136,11 +141,15 @@ void CardsBase::ProcessLogoQueue(wxTimerEvent &) {
   if (url.empty())
     return;
 
-  const int dpi = GetNormDPI(this);
+  double cs = GetContentScale(this);
+  int physW = std::max(1, (int)std::round(m_logoW * cs));
+  int physH = std::max(1, (int)std::round(m_logoH * cs));
+  int scale100 = std::max(100, (int)std::round(cs * 100.0));
   const uint64_t ver = m_channelsVersion.load(std::memory_order_relaxed);
 
-  const std::string key = MakeLogoCacheKey(ch.getPlaylistName(), ch.getName(),
-                                           m_logoW, m_logoH, dpi);
+  const std::string key = LogoCache::MakeScaledKey(
+      ch.getPlaylistName(), ch.getName(), physW, physH, scale100);
+
   if (LogoCache::GetCachedBitmapPtr(key))
     return;
 
@@ -178,8 +187,8 @@ void CardsBase::ProcessLogoQueue(wxTimerEvent &) {
         const Channel preCh = m_channels[predictedIndex];
         const std::string preUrl = preCh.getLogo();
         if (!preUrl.empty()) {
-          const std::string preKey = MakeLogoCacheKey(
-              preCh.getPlaylistName(), preCh.getName(), m_logoW, m_logoH, dpi);
+          const std::string preKey = LogoCache::MakeScaledKey(
+              preCh.getPlaylistName(), preCh.getName(), physW, physH, scale100);
           if (!LogoCache::GetCachedBitmapPtr(preKey)) {
             EnqueueLogoPriority(predictedIndex, 2);
           }
@@ -209,7 +218,7 @@ void CardsBase::ProcessLogoQueue(wxTimerEvent &) {
   m_lastLoadStart = wxGetUTCTimeMillis();
 
   LogoCache::GetLogoAsync(
-      ch.getPlaylistName(), ch.getName(), url, m_logoW, m_logoH, dpi,
+      ch.getPlaylistName(), ch.getName(), url, physW, physH, /*dpiY=*/0,
       [this, index, ver, cacheVer, key, ch](LogoCache::LogoBitmapPtr bmpPtr) {
         auto bmp_copy = bmpPtr;
         auto key_copy = key;
@@ -247,7 +256,8 @@ void CardsBase::ProcessLogoQueue(wxTimerEvent &) {
           if (!m_logoQueuePQ.empty() && !m_logoTimer.IsRunning())
             m_logoTimer.Start(20);
         });
-      });
+      },
+      cs);
 }
 
 void CardsBase::EnqueueLogoPriority(size_t index, int priority) {
@@ -280,7 +290,10 @@ void CardsBase::WarmUpFavorites() {
 
   if (MainFrame *mf2 = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
     auto &favMgr = mf2->getApplication()->getFavoritesManager();
-    int dpi = GetCurrentDPI();
+    double cs = GetContentScale(this);
+    int physW = std::max(1, (int)std::round(m_logoW * cs));
+    int physH = std::max(1, (int)std::round(m_logoH * cs));
+    int scale100 = std::max(100, (int)std::round(cs * 100.0));
     const uint64_t ver = m_channelsVersion.load(std::memory_order_relaxed);
 
     for (size_t i = 0; i < m_channels.size(); ++i) {
@@ -291,13 +304,14 @@ void CardsBase::WarmUpFavorites() {
       if (url.empty())
         continue;
 
-      const std::string key = MakeLogoCacheKey(
-          ch.getPlaylistName(), ch.getName(), m_logoW, m_logoH, dpi);
+      const std::string key = LogoCache::MakeScaledKey(
+          ch.getPlaylistName(), ch.getName(), physW, physH, scale100);
+
       if (LogoCache::GetCachedBitmapPtr(key))
         continue;
 
       LogoCache::GetLogoAsync(
-          ch.getPlaylistName(), ch.getName(), url, m_logoW, m_logoH, dpi,
+          ch.getPlaylistName(), ch.getName(), url, physW, physH, /*dpiY=*/0,
           [this, i, ver, key, ch](LogoCache::LogoBitmapPtr bmpPtr) {
             auto bmp_copy = bmpPtr;
             auto key_copy = key;
@@ -322,7 +336,8 @@ void CardsBase::WarmUpFavorites() {
               RenderTile(idx_copy);
               MarkCardDirty((int)idx_copy);
             });
-          });
+          },
+          cs);
     }
   }
 }
@@ -366,10 +381,11 @@ void CardsBase::WarmUpTiles() {
   if (lastRow >= totalRows)
     lastRow = totalRows - 1;
 
-  const int dpi = GetCurrentDPI();
+  double cs = GetContentScale(this);
+  int physW = std::max(1, (int)std::round(m_logoW * cs));
+  int physH = std::max(1, (int)std::round(m_logoH * cs));
+  int scale100 = std::max(100, (int)std::round(cs * 100.0));
   m_scaledKeyToIndices.clear();
-
-  int enqueued = 0;
 
   for (int row = firstRow; row <= lastRow; ++row) {
     for (int col = 0; col < m_cols; ++col) {
@@ -382,24 +398,22 @@ void CardsBase::WarmUpTiles() {
       if (url.empty())
         continue;
 
-      const std::string key = MakeLogoCacheKey(
-          ch.getPlaylistName(), ch.getName(), m_logoW, m_logoH, dpi);
+      const std::string key = LogoCache::MakeScaledKey(
+          ch.getPlaylistName(), ch.getName(), physW, physH, scale100);
 
       m_scaledKeyToIndices[key].push_back(index);
 
       // логотип уже есть → убедиться, что тайл создан
       if (LogoCache::GetCachedBitmapPtr(key)) {
-        auto it = m_tileCacheDPI[dpi].find(index);
-        if (it == m_tileCacheDPI[dpi].end() || !it->second ||
-            !it->second->IsOk()) {
-          RenderTile(index);
+        auto it = m_tileCache.find((size_t)index);
+        if (it == m_tileCache.end() || !it->second || !it->second->IsOk()) {
+          RenderTile((size_t)index);
         }
         continue;
       }
 
       // логотипа нет → ставим в очередь
       EnqueueLogoPriority(index, 1);
-      ++enqueued;
     }
   }
 
@@ -414,8 +428,6 @@ void CardsBase::WarmUpTiles() {
     m_warmupCounter = 0;
     TrimTextCache();
   }
-
-  LogoCache::DebugMemoryUsage();
 }
 
 void CardsBase::AddTileToLRU(size_t index,
@@ -439,9 +451,7 @@ void CardsBase::AddTileToLRU(size_t index,
     m_tileLRU.pop_back();
     m_tileLRUCache.erase(old);
 
-    for (auto &kv : m_tileCacheDPI) {
-      kv.second.erase(old);
-    }
+    m_tileCache.erase(old);
   }
 }
 
@@ -462,10 +472,9 @@ void CardsBase::ClearAllCaches(bool clearLRU, bool clearTextLayout) {
     if (clearTextLayout) {
       m_textCache.clear();
       m_textSizeCache.clear();
-      m_layoutCache.clear();
     }
 
-    m_tileCacheDPI.clear();
+    m_tileCache.clear();
 
     if (clearLRU) {
       m_tileLRU.clear();

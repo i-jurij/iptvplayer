@@ -36,11 +36,12 @@ public:
                    unsigned int col);
 
   void SetChannels(const std::vector<Channel> &channels,
-                   const std::string &playlistName, int logoSize, int dpi);
+                   const std::string &playlistName, int logoPhysSize,
+                   double contentScale);
 
   void AppendChannels(const std::vector<Channel> &channels,
                       const std::string &playlistName, size_t preloadCount,
-                      int dpi);
+                      int logoPhysSize, double contentScale);
 
   const Channel &GetChannel(unsigned int row) const;
   bool IsFavorite(unsigned int row) const;
@@ -65,7 +66,12 @@ public:
   std::string MakeCacheKey(const std::string &playlist,
                            const std::string &channelOrUrl, int size,
                            int dpi) const;
-  void CheckDpiReset();
+  // Единый источник ключа scaled-кэша для строки: использует m_logoSize и
+  // m_lastDpi, зафиксированные в SetChannels/AppendChannels. Гарантирует
+  // побитовое совпадение с ключом, которым GetValueByRow заполняет wxVariant.
+  std::string MakeCacheKeyForRow(unsigned int row) const;
+  int GetLogoPhysSize() const { return m_logoPhysSize; }
+  double GetContentScale() const { return m_contentScale; }
 
   void UpdateRowByName(const std::string &playlist, const std::string &name);
 
@@ -88,6 +94,9 @@ public:
   void RemoveChannel(const std::string &name, const std::string &url);
 
 private:
+  int m_logoPhysSize = 0;      // физический размер bitmap логотипа (px)
+  double m_contentScale = 1.0; // во сколько раз физический больше DIP
+
   mutable std::unordered_map<unsigned int, std::string> m_rowKeyCache;
 
   std::vector<Channel> m_channels;
@@ -100,8 +109,6 @@ private:
   bool m_disableSorting;
 
   void Resort() override;
-
-  int m_lastDpi = 0;
 
   int m_logoSize;
 
