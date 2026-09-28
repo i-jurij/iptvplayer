@@ -33,20 +33,68 @@
 #include <fstream>
 #include <future>
 #include <memory>
-#include <regex>
 #include <unordered_set>
 
 namespace {
 // Сжатие множественных пробелов и удаление ведущих/завершающих пробелов
 static void TrimAndCollapseSpaces(std::string &s) {
-  s = std::regex_replace(s, std::regex("\\s+"), " ");
-  s = std::regex_replace(s, std::regex("^\\s+|\\s+$"), "");
+  std::string out;
+  out.reserve(s.size());
+  size_t i = 0;
+  const size_t n = s.size();
+
+  while (i < n && std::isspace((unsigned char)s[i]))
+    ++i;
+
+  bool pendingSpace = false;
+  for (; i < n; ++i) {
+    unsigned char c = (unsigned char)s[i];
+    if (std::isspace(c)) {
+      pendingSpace = true;
+    } else {
+      if (pendingSpace && !out.empty())
+        out.push_back(' ');
+      pendingSpace = false;
+      out.push_back((char)c);
+    }
+  }
+  s = std::move(out);
 }
 
 // Удаление суффикса качества (число+p/i в скобках) в конце строки
 static std::string RemoveQualityNumericSuffix(const std::string &s) {
-  static std::regex pattern(R"(\s*\(\s*\d+[pi]\s*\)\s*$)");
-  return std::regex_replace(s, pattern, "");
+  const size_t n = s.size();
+  size_t i = n;
+  while (i > 0 && std::isspace((unsigned char)s[i - 1]))
+    --i;
+  if (i == 0 || s[i - 1] != ')')
+    return s;
+
+  size_t k = i - 1; // позиция ')'
+  while (k > 0 && std::isspace((unsigned char)s[k - 1]))
+    --k;
+  if (k == 0)
+    return s;
+  char c = s[k - 1];
+  if (c != 'p' && c != 'i')
+    return s;
+  --k;
+  while (k > 0 && std::isspace((unsigned char)s[k - 1]))
+    --k;
+  size_t digitsEnd = k;
+  while (k > 0 && std::isdigit((unsigned char)s[k - 1]))
+    --k;
+  if (k == digitsEnd)
+    return s;
+  while (k > 0 && std::isspace((unsigned char)s[k - 1]))
+    --k;
+  if (k == 0 || s[k - 1] != '(')
+    return s;
+
+  size_t cut = k - 1;
+  while (cut > 0 && std::isspace((unsigned char)s[cut - 1]))
+    --cut;
+  return s.substr(0, cut);
 }
 
 // --------------------------------------------------------------------------
@@ -1070,16 +1118,28 @@ void EPGManager::RebuildNormalizedCache() {
   if (!m_db || !m_db->IsOpen())
     return;
 
-  auto channels = m_db->GetAllChannels(); // vector<pair<id, display_name>>
+  auto channels = m_db->GetAllChannels();
   std::vector<NormalizedChannel> newCache;
   newCache.reserve(channels.size());
 
-  for (const auto &p : channels) {
+  const size_t total = channels.size();
+  const size_t reportEvery = std::max<size_t>(1, total / 20);
+
+  for (size_t i = 0; i < total; ++i) {
+    const auto &p = channels[i];
     NormalizedChannel nc;
     nc.id = p.first;
-    nc.displayName = p.second;             // сохраняем оригинальное имя
-    NormalizeWithAttributes(p.second, nc); // заполняет baseName, регион и т.д.
+    nc.displayName = p.second;
+    NormalizeWithAttributes(p.second, nc);
     newCache.push_back(std::move(nc));
+
+    if ((i + 1) % reportEvery == 0 || i + 1 == total) {
+      EpgProgressInfo info;
+      info.stage = EpgProgressStage::Matching;
+      info.percent = total > 0 ? (int)((i + 1) * 100 / total) : 100;
+      info.stageText = "Preparing EPG index";
+      UpdateProgress(info);
+    }
   }
 
   {
@@ -1400,6 +1460,17 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
                                const std::string &playlistId,
                                MatchCallback callback) {
   MatchingSession session(m_activeMatchings, this);
+
+  // Сразу уведомляем UI — иначе RebuildNormalizedCache может занять
+  // время, а панель всё это время будет «мёртвой» (индикатор не
+  // запустится, кнопки не заблокируются).
+  {
+    EpgProgressInfo info;
+    info.stage = EpgProgressStage::Matching;
+    info.percent = 0;
+    info.stageText = "Preparing EPG index";
+    UpdateProgress(info);
+  }
 
   // Проверка наличия источников EPG
   if (m_sources.empty()) {
@@ -2017,16 +2088,23 @@ void EPGManager::NormalizeWithAttributes(const std::string &rawName,
 
   std::string name = ToLower(rawName);
   name = RemoveRatingSuffixes(name);
-  name = CleanPunctuation(name); // очистка перед удалением стоп‑слов
+  name = CleanPunctuation(name);
 
-  name = RemoveStopwords(name);
+  // ВАЖНО: суффиксы (регион/качество/версия) снимаем ДО стоп-слов.
+  // Иначе "Матч ТВ HD" и "Матч ТВ" дадут разные baseName
+  // ("матч тв" vs "матч"), и точное совпадение развалится в substring.
   name = ExtractSuffix(name, m_regionalSuffixes, out.region);
   name = ExtractSuffix(name, m_qualitySuffixes, out.quality);
   name = ExtractSuffix(name, m_versionSuffixes, out.version);
   name = CleanPunctuation(name);
+
+  // Хвостовые стоп-слова удаляем в самом конце — тогда " тв"/" tv"/
+  // " channel" действительно оказываются в хвосте и корректно снимаются.
+  name = RemoveStopwords(name);
+  name = CleanPunctuation(name);
   out.baseName = name;
 
-  // Токены (без стоп‑слов)
+  // Токены (без стоп‑слов) — без изменений
   std::istringstream iss(name);
   std::string token;
   while (iss >> token) {
@@ -2418,45 +2496,82 @@ std::string EPGManager::ToLower(const std::string &str) {
 
 // RemoveRatingSuffixes
 std::string EPGManager::RemoveRatingSuffixes(const std::string &str) {
-  std::regex rating_pattern(R"(\(\s*(\d+)\s*\+\s*\))");
-  std::string result = std::regex_replace(str, rating_pattern, "");
-  TrimAndCollapseSpaces(result);
-  return result;
+  std::string out;
+  out.reserve(str.size());
+  size_t i = 0;
+  const size_t n = str.size();
+
+  while (i < n) {
+    if (str[i] == '(') {
+      size_t j = i + 1;
+      while (j < n && std::isspace((unsigned char)str[j]))
+        ++j;
+      size_t digitsStart = j;
+      while (j < n && std::isdigit((unsigned char)str[j]))
+        ++j;
+      if (j > digitsStart) {
+        while (j < n && std::isspace((unsigned char)str[j]))
+          ++j;
+        if (j < n && str[j] == '+') {
+          ++j;
+          while (j < n && std::isspace((unsigned char)str[j]))
+            ++j;
+          if (j < n && str[j] == ')') {
+            i = j + 1;
+            continue;
+          }
+        }
+      }
+      out.push_back(str[i]);
+      ++i;
+    } else {
+      out.push_back(str[i]);
+      ++i;
+    }
+  }
+  TrimAndCollapseSpaces(out);
+  return out;
 }
 
-// RemoveStopwords (использует TrimAndCollapseSpaces вместо повторяющегося
-// regex)
 std::string EPGManager::RemoveStopwords(const std::string &str) const {
   std::string result = str;
   for (const auto &sw : m_stopwords) {
-    // В конце: " стоп-слово"
-    std::string pattern1 = " " + sw + "$";
-    if (result.length() >= pattern1.length() &&
-        result.compare(result.length() - pattern1.length(), pattern1.length(),
-                       pattern1) == 0) {
-      result.erase(result.length() - pattern1.length());
+    if (sw.empty())
+      continue;
+
+    // " sw" в конце
+    std::string trailing = " " + sw;
+    if (result.length() >= trailing.length() &&
+        result.compare(result.length() - trailing.length(), trailing.length(),
+                       trailing) == 0) {
+      result.erase(result.length() - trailing.length());
       TrimAndCollapseSpaces(result);
     }
-    // В скобках: (стоп-слово)
-    std::regex pattern2("\\(" + sw + "\\)");
-    result = std::regex_replace(result, pattern2, "");
+
+    // "(sw)" в любом месте — literal find без regex
+    std::string paren = "(" + sw + ")";
+    size_t pos;
+    while ((pos = result.find(paren)) != std::string::npos) {
+      result.erase(pos, paren.length());
+    }
     TrimAndCollapseSpaces(result);
   }
   return result;
 }
 
-// ExtractSuffix (использует TrimAndCollapseSpaces)
 std::string EPGManager::ExtractSuffix(const std::string &str,
                                       const std::vector<std::string> &suffixes,
                                       std::string &outSuffix) const {
   std::string result = str;
   outSuffix.clear();
 
-  // Обрезаем завершающие пробелы
-  result.erase(result.find_last_not_of(" \t\n\r") + 1);
+  while (!result.empty() && std::isspace((unsigned char)result.back()))
+    result.pop_back();
 
   for (const auto &suf : suffixes) {
-    // Ищем " suf" в конце
+    if (suf.empty())
+      continue;
+
     std::string pattern = " " + suf;
     if (result.length() >= pattern.length() &&
         result.compare(result.length() - pattern.length(), pattern.length(),
@@ -2466,11 +2581,14 @@ std::string EPGManager::ExtractSuffix(const std::string &str,
       TrimAndCollapseSpaces(result);
       break;
     }
-    // Ищем "(suf)" в любом месте
-    std::regex pattern2("\\(" + suf + "\\)");
-    if (std::regex_search(result, pattern2)) {
+
+    std::string paren = "(" + suf + ")";
+    size_t pos;
+    if ((pos = result.find(paren)) != std::string::npos) {
       outSuffix = suf;
-      result = std::regex_replace(result, pattern2, "");
+      while ((pos = result.find(paren)) != std::string::npos) {
+        result.erase(pos, paren.length());
+      }
       TrimAndCollapseSpaces(result);
       break;
     }

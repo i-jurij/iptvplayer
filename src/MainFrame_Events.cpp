@@ -161,8 +161,11 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
         parts += wxString::Format("Favorites %d/%d", info.favoritesMatched,
                                   info.favoritesTotal);
       }
-      if (!parts.IsEmpty())
+      if (!parts.IsEmpty()) {
         details += " (" + parts + ")";
+      } else if (info.percent >= 0) {
+        details += wxString::Format(" (%d%%)", info.percent);
+      }
     } else if (info.percent >= 0) {
       details += wxString::Format(" (%d%%)", info.percent);
     }
