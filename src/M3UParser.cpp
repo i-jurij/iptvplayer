@@ -114,15 +114,24 @@ Channel M3UParser::parseExtInfLine(const std::string &extinf,
   std::string tvgName = extractAttribute(extinf, "tvg-name");
   std::string tvgLogo = extractAttribute(extinf, "tvg-logo");
   std::string groupTitle = extractAttribute(extinf, "group-title");
+  std::string series = extractAttribute(extinf, "series");
+  std::string season = extractAttribute(extinf, "season");
 
   if (!tvgId.empty())
     channel.setTvgId(tvgId);
+
   if (!tvgName.empty())
     channel.setTvgName(tvgName);
+
   if (!tvgLogo.empty())
     channel.setLogo(tvgLogo);
+
   if (!groupTitle.empty())
     channel.setGroupTitle(groupTitle);
+  if (!series.empty())
+    channel.setSeries(series);
+  if (!season.empty())
+    channel.setSeason(season);
 
   try {
     channel.attributes() = extractAllAttributes(extinf);

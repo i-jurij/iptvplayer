@@ -233,6 +233,10 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
     setLastError(result.error);
     return result.code;
   }
+  if (result.channels.empty()) {
+    setLastError("Parser returned empty channel list");
+    return ErrorCode::Unknown;
+  }
 
   playlist->setChannels(std::move(result.channels));
   return ErrorCode::OK;

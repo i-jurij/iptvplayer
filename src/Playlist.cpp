@@ -164,6 +164,16 @@ std::string Playlist::toJson() const {
                     rapidjson::Value(ch.getCategory().c_str(), alloc), alloc);
     chObj.AddMember("tvgLogo", rapidjson::Value(ch.getLogo().c_str(), alloc),
                     alloc);
+    chObj.AddMember("tvg-id", rapidjson::Value(ch.getTvgId().c_str(), alloc),
+                    alloc);
+    chObj.AddMember("tvg-name",
+                    rapidjson::Value(ch.getTvgName().c_str(), alloc), alloc);
+    chObj.AddMember("playlistId",
+                    rapidjson::Value(ch.getPlaylistId().c_str(), alloc), alloc);
+    chObj.AddMember("series", rapidjson::Value(ch.getSeries().c_str(), alloc),
+                    alloc);
+    chObj.AddMember("season", rapidjson::Value(ch.getSeason().c_str(), alloc),
+                    alloc);
 
     for (const auto &[key, value] : ch.attributes()) {
       chObj.AddMember(rapidjson::Value(key.c_str(), alloc),
@@ -215,25 +225,47 @@ bool Playlist::fromJson(const std::string &json) {
     Channel ch;
     if (chVal.HasMember("name") && chVal["name"].IsString())
       ch.setName(chVal["name"].GetString());
+
     if (chVal.HasMember("url") && chVal["url"].IsString())
       ch.setUrl(chVal["url"].GetString());
+
     if (chVal.HasMember("groupTitle") && chVal["groupTitle"].IsString())
       ch.setGroupTitle(chVal["groupTitle"].GetString());
+
     if (chVal.HasMember("country") && chVal["country"].IsString())
       ch.setCountry(chVal["country"].GetString());
+
     if (chVal.HasMember("language") && chVal["language"].IsString())
       ch.setLanguage(chVal["language"].GetString());
+
     if (chVal.HasMember("category") && chVal["category"].IsString())
       ch.setCategory(chVal["category"].GetString());
+
     if (chVal.HasMember("tvgLogo") && chVal["tvgLogo"].IsString())
       ch.setLogo(chVal["tvgLogo"].GetString());
+
+    if (chVal.HasMember("tvg-id") && chVal["tvg-id"].IsString())
+      ch.setTvgId(chVal["tvg-id"].GetString());
+
+    if (chVal.HasMember("tvg-name") && chVal["tvg-name"].IsString())
+      ch.setTvgName(chVal["tvg-name"].GetString());
+
+    if (chVal.HasMember("playlistId") && chVal["playlistId"].IsString())
+      ch.setPlaylistId(chVal["playlistId"].GetString());
+
+    if (chVal.HasMember("series") && chVal["series"].IsString())
+      ch.setSeries(chVal["series"].GetString());
+    
+    if (chVal.HasMember("season") && chVal["season"].IsString())
+      ch.setSeason(chVal["season"].GetString());
 
     // Дополнительные атрибуты
     for (auto it = chVal.MemberBegin(); it != chVal.MemberEnd(); ++it) {
       std::string key = it->name.GetString();
       if (key != "name" && key != "url" && key != "groupTitle" &&
           key != "country" && key != "language" && key != "category" &&
-          key != "tvgLogo") {
+          key != "tvgLogo" && key != "tvg-id" && key != "tvg-name" &&
+          key != "playlistId" && key != "series" && key != "season") {
         if (it->value.IsString()) {
           ch.attributes()[key] = it->value.GetString();
         }
