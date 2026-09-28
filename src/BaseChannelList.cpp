@@ -518,9 +518,7 @@ void BaseChannelList::HandleVisibleRangeChange() {
 
   size_t visibleCount = (size_t)GetCountPerPage();
   if (visibleCount == 0) {
-    int rowH = (int)std::round(LIST_LOGO_SIZE_DIP * GetContentScale(this));
-    if (rowH <= 0)
-      rowH = LIST_LOGO_SIZE_DIP;
+    const int rowH = LIST_LOGO_SIZE_DIP;
     int h = GetClientSize().GetHeight();
     if (h > 0)
       visibleCount = std::max<size_t>(1, (size_t)(h / rowH));
@@ -1093,9 +1091,7 @@ int BaseChannelList::GetAccurateTopRow() {
     return 0;
   }
 
-  int rowH = (int)std::round(LIST_LOGO_SIZE_DIP * GetContentScale(this));
-  if (rowH <= 0)
-    rowH = LIST_LOGO_SIZE_DIP;
+  const int rowH = LIST_LOGO_SIZE_DIP;
 
   int scrollPos = 0;
   if (GetScrollThumb(wxVERTICAL) > 0) {

@@ -5,9 +5,9 @@
 #include <mpv/client.h>
 
 #include <wx/app.h>
+#include <wx/font.h>
 #include <wx/string.h>
 #include <wx/window.h>
-#include <wx/font.h>
 
 #include <cstddef>
 #include <ctime>
@@ -97,7 +97,7 @@ inline constexpr int LIST_LOGO_SIZE_DIP = 40;
 inline constexpr int CARD_BASE_W_DIP = 340;
 inline constexpr int CARD_BASE_H_DIP = 90;
 
-int CardWidthForClientWidth(int displayW);
+int CardWidthForDisplay(int displayW);
 
 // ============================================================================
 // Единый layout карточки в DIP.
@@ -113,7 +113,7 @@ struct CardLayoutInfo {
   int starDx = 0, starDy = 0;
 };
 
-CardLayoutInfo ComputeCardLayoutForWidth(int displayW);
+CardLayoutInfo ComputeCardLayoutForDisplay(int displayW);
 
 // ============================================================================
 // Авто-определение лимитов LRU по доступной памяти

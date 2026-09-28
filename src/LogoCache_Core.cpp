@@ -129,10 +129,11 @@ void LogoCache::ClearPlaylist(const std::string &p) {
 }
 
 void LogoCache::ClearScaled() {
+  std::lock_guard<std::mutex> lock(s_mutex);
+
   LOG_DEBUG("ClearScaled: scaled=%zu masters=%zu", s_scaledIndex.size(),
             s_cache.size());
 
-  std::lock_guard<std::mutex> lock(s_mutex);
   // Вызываем все ожидающие scaled-колбэки с nullptr
   for (auto &kv : s_scaledPending) {
     for (auto &cb : kv.second.callbacks) {

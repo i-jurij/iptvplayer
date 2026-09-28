@@ -54,12 +54,10 @@ public:
       const std::vector<std::tuple<int, int, int>> &keepSizes);
   // Удалить из scaled-кэша только записи, соответствующие размерам в
   // removeSizes.
-  // removeSizes — вектор кортежей (w, h, dpi). Если removeSizes.empty() —
-  // ничего не делает.
+  // Каждый кортеж — (physW, physH, scale100), где scale100 — целое
+  // (100 = cs 1.0, 200 = cs 2.0). Если removeSizes.empty() — ничего не делает.
   static void ClearScaledRemoveSizes(
       const std::vector<std::tuple<int, int, int>> &removeSizes);
-
-  static void OnDPIChanged(int newDpiY);
 
   // Возвращает shared_ptr к cached scaled bitmap или nullptr
   static LogoBitmapPtr GetCachedBitmapPtr(const std::string &key);

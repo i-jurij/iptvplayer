@@ -289,10 +289,6 @@ void MainFrame::SetShowLogoFromSettings(bool show) {
   ApplyChannelsNoLogoToViews();
 }
 
-static void clearScaledCache(bool /*removeGrid*/, bool /*removeList*/) {
-  LogoCache::ClearScaled();
-}
-
 void MainFrame::ApplyInitialViewMode() {
   auto *cfg = getConfigManager();
   std::string mode =
@@ -369,7 +365,7 @@ void MainFrame::TeardownListResources() {
     m_channelList->PauseLogoLoading();
     LogoCache::PauseLoading();
     IconManager::PauseLoading();
-    clearScaledCache(false, true);
+    LogoCache::ClearScaled();
   }
 }
 
@@ -386,8 +382,7 @@ void MainFrame::TeardownGridResources() {
     m_channelCards->IncrementCacheVersion();
     LogoCache::PauseLoading();
     IconManager::PauseLoading();
-
-    clearScaledCache(true, false);
+    LogoCache::ClearScaled();
 
     m_channelCards->ClearAllCaches(/*clearLRU=*/true,
                                    /*clearTextLayout=*/false);

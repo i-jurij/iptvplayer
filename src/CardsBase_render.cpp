@@ -30,7 +30,7 @@ void CardsBase::UpdateLayout() {
       displayW = area.GetWidth();
   }
 
-  auto L = ComputeCardLayoutForWidth(displayW);
+  auto L = ComputeCardLayoutForDisplay(displayW);
 
   m_cardW = L.cardW;
   m_cardH = L.cardH;

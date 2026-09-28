@@ -65,10 +65,10 @@ public:
 
   std::string MakeCacheKey(const std::string &playlist,
                            const std::string &channelOrUrl, int size,
-                           int dpi) const;
+                           int scale100) const;
   // Единый источник ключа scaled-кэша для строки
   std::string MakeCacheKeyForRow(unsigned int row) const;
-  
+
   int GetLogoPhysSize() const { return m_logoPhysSize; }
   double GetContentScale() const { return m_contentScale; }
 

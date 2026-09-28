@@ -1,4 +1,4 @@
-#include "Utils.h" 
+#include "Utils.h"
 #include "LogControl.h"
 
 #include <curl/curl.h>
@@ -154,7 +154,7 @@ UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
   }
 
   ApplyCurlCaBundle(curl);
-  
+
   // Общие опции
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -509,7 +509,7 @@ double GetContentScale(wxWindow *ctx) {
 // ============================================================================
 // Responsive layout (DIP)
 // ============================================================================
-int CardWidthForClientWidth(int displayW) {
+int CardWidthForDisplay(int displayW) {
   if (displayW >= 3200)
     return 480;
   if (displayW >= 2400)
@@ -521,9 +521,9 @@ int CardWidthForClientWidth(int displayW) {
   return 280;
 }
 
-CardLayoutInfo ComputeCardLayoutForWidth(int displayW) {
+CardLayoutInfo ComputeCardLayoutForDisplay(int displayW) {
   CardLayoutInfo L;
-  L.cardW = CardWidthForClientWidth(displayW);
+  L.cardW = CardWidthForDisplay(displayW);
   L.cardH =
       (int)std::round((double)L.cardW * CARD_BASE_H_DIP / CARD_BASE_W_DIP);
   if (L.cardH < 1)

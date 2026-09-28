@@ -37,12 +37,12 @@ static inline bool ShouldLogRequestEnqueue() {
 
 std::string ChannelDataModel::MakeCacheKey(const std::string &playlist,
                                            const std::string &channelOrUrl,
-                                           int size, int dpi) const {
+                                           int size, int scale100) const {
   std::string id =
       playlist.empty() ? channelOrUrl : playlist + "|" + channelOrUrl;
 
   return id + "|" + std::to_string(size) + "x" + std::to_string(size) + "|" +
-         std::to_string(dpi);
+         std::to_string(scale100);
 }
 
 std::string ChannelDataModel::MakeCacheKeyForRow(unsigned int row) const {
