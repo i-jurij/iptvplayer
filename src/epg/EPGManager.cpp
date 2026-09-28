@@ -982,19 +982,33 @@ EPGManager::GetProgramsForChannel(const std::string &tvgId,
 
   {
     std::shared_lock lock(m_mappingMutex);
+
+    // Ручной маппинг приоритетнее авто — это явный выбор пользователя.
     if (!tvgId.empty()) {
-      auto it = m_channelMapping.find(tvgId);
-      if (it != m_channelMapping.end())
-        channelId = it->second;
+      auto itm = m_manualMapping.find(tvgId);
+      if (itm != m_manualMapping.end())
+        channelId = itm->second;
+      if (channelId.empty()) {
+        auto it = m_channelMapping.find(tvgId);
+        if (it != m_channelMapping.end())
+          channelId = it->second;
+      }
     }
     if (channelId.empty() && !channelName.empty()) {
       std::string normalized = NormalizeName(channelName);
-      auto it = m_channelMapping.find("name:" + normalized);
-      if (it != m_channelMapping.end())
-        channelId = it->second;
+      std::string nameKey = "name:" + normalized;
+
+      auto itm = m_manualMapping.find(nameKey);
+      if (itm != m_manualMapping.end())
+        channelId = itm->second;
+      if (channelId.empty()) {
+        auto it = m_channelMapping.find(nameKey);
+        if (it != m_channelMapping.end())
+          channelId = it->second;
+      }
     }
   }
-
+  
   if (channelId.empty())
     return result;
 
@@ -1016,9 +1030,14 @@ EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {
 
   {
     std::shared_lock lock(m_mappingMutex);
-    auto it = m_channelMapping.find(tvgId);
-    if (it != m_channelMapping.end())
-      channelId = it->second;
+    auto itm = m_manualMapping.find(tvgId);
+    if (itm != m_manualMapping.end())
+      channelId = itm->second;
+    if (channelId.empty()) {
+      auto it = m_channelMapping.find(tvgId);
+      if (it != m_channelMapping.end())
+        channelId = it->second;
+    }
   }
 
   if (channelId.empty())
@@ -1063,10 +1082,9 @@ std::string EPGManager::NormalizeName(const std::string &name) const {
   // Удаляем возрастные рейтинги
   result = RemoveRatingSuffixes(result);
 
-  // Удаляем суффиксы качества и версионные (НО НЕ региональные)
+  // Удаляем суффиксы качества (НО НЕ региональные)
   std::string dummy;
   result = ExtractSuffix(result, m_qualitySuffixes, dummy);
-  result = ExtractSuffix(result, m_versionSuffixes, dummy);
 
   // Заменяем & на and
   size_t pos = result.find('&');
@@ -1142,10 +1160,27 @@ void EPGManager::RebuildNormalizedCache() {
     }
   }
 
+  // Прямой индекс EPG-id: точное совпадение строк, без нормализации.
+  {
+    std::unordered_map<std::string, std::string> newIdIndex;
+    newIdIndex.reserve(newCache.size());
+    for (const auto &nc : newCache) {
+      if (!nc.id.empty() && newIdIndex.find(nc.id) == newIdIndex.end()) {
+        newIdIndex.emplace(nc.id, nc.id);
+      }
+    }
+    std::unique_lock lock(m_epgIdIndexMutex);
+    m_epgIdIndex.swap(newIdIndex);
+  }
+
   {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
     m_normalizedCache = std::move(newCache);
   }
+
+  // Перестраиваем индекс алиасов — он зависит от m_normalizedCache.
+  // Без этого вызова алиасы не работают: в конструкторе кэш ещё пуст.
+  RebuildAliasIndex();
 }
 
 EPGManager::MatchResult
@@ -1171,49 +1206,24 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   NormalizedChannel playlistNorm;
   NormalizeWithAttributes(channelName, playlistNorm);
   LOG_DEBUG("FindBestMatch: normalized: baseName='%s', region='%s', "
-            "quality='%s', version='%s'",
+            "quality='%s'",
             playlistNorm.baseName.c_str(), playlistNorm.region.c_str(),
-            playlistNorm.quality.c_str(), playlistNorm.version.c_str());
+            playlistNorm.quality.c_str());
 
-  // ========================================================================
-  // ЭТАП 1: tvg‑id (улучшенная нормализация через NormalizeWithAttributes)
-  // ========================================================================
   std::string tvgId = playlistChannel.getTvgId();
   if (!tvgId.empty()) {
-    NormalizedChannel tvgNorm;
-    NormalizeWithAttributes(tvgId, tvgNorm);
-    LOG_DEBUG("FindBestMatch: tvgNorm.baseName='%s', region='%s'",
-              tvgNorm.baseName.c_str(), tvgNorm.region.c_str());
-
-    // Сначала ищем по полному baseName (как ключ)
-    {
-      std::shared_lock lock(m_tvgIndexMutex);
-      auto it = m_tvgIdIndex.find(tvgNorm.baseName);
-      if (it != m_tvgIdIndex.end()) {
-        result.channelId = it->second;
-        result.method = "tvg-id";
-        result.score = 100;
-        result.confidence = "high";
-        LOG_DEBUG("FindBestMatch: TVG-ID MATCH (baseName) -> epgId='%s'",
-                  result.channelId.c_str());
-        return result;
-      }
-    }
-
-    // Затем ищем по region-версии
-    if (!tvgNorm.region.empty()) {
-      std::shared_lock lock(m_tvgIndexMutex);
-      std::string regionKey = tvgNorm.baseName + "." + tvgNorm.region;
-      auto it = m_tvgIdIndex.find(regionKey);
-      if (it != m_tvgIdIndex.end()) {
-        result.channelId = it->second;
-        result.method = "tvg-id-region";
-        result.score = 100;
-        result.confidence = "high";
-        LOG_DEBUG("FindBestMatch: TVG-ID MATCH (region) -> epgId='%s'",
-                  result.channelId.c_str());
-        return result;
-      }
+    // Прямой матч: playlist.tvg-id точно равен XMLTV <channel id>.
+    // Без нормализации — этот путь для согласованных источников.
+    std::shared_lock lock(m_epgIdIndexMutex);
+    auto it = m_epgIdIndex.find(tvgId);
+    if (it != m_epgIdIndex.end()) {
+      result.channelId = it->second;
+      result.method = "tvg-id-direct";
+      result.score = 100;
+      result.confidence = "high";
+      LOG_DEBUG("FindBestMatch: TVG-ID DIRECT '%s' -> epgId='%s'",
+                tvgId.c_str(), result.channelId.c_str());
+      return result;
     }
   } else {
     LOG_DEBUG("FindBestMatch: no tvg-id present");
@@ -1233,12 +1243,8 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
         if (!playlistNorm.region.empty() && !epg.region.empty() &&
             playlistNorm.region != epg.region)
           regionOk = false;
-        bool versionOk = true;
-        if (!playlistNorm.version.empty() && !epg.version.empty() &&
-            playlistNorm.version != epg.version)
-          versionOk = false;
         // quality НЕ проверяем – HD и SD считаем одним каналом
-        if (regionOk && versionOk) {
+        if (regionOk) {
           result.channelId = epg.id;
           result.method = "exact_name";
           result.score = 100;
@@ -1259,7 +1265,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     std::string id;
     std::string baseName;
     std::vector<std::string> tokens;
-    std::string region, version, quality;
+    std::string region, quality;
     int score = 0;
     double ratio = 0.0;
     bool fromSubstring = false;
@@ -1273,18 +1279,13 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       if (!playlistNorm.region.empty() && !epg.region.empty() &&
           playlistNorm.region != epg.region)
         regionOk = false;
-      bool versionOk = true;
-      if (!playlistNorm.version.empty() && !epg.version.empty() &&
-          playlistNorm.version != epg.version)
-        versionOk = false;
       // quality НЕ проверяем
-      if (regionOk && versionOk) {
+      if (regionOk) {
         Candidate cand;
         cand.id = epg.id;
         cand.baseName = epg.baseName;
         cand.tokens = epg.tokens;
         cand.region = epg.region;
-        cand.version = epg.version;
         cand.quality = epg.quality;
         candidates.push_back(cand);
       }
@@ -1346,6 +1347,16 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       }
       size_t uni = set1.size() + set2.size() - inter;
       cand.ratio = (uni > 0) ? static_cast<double>(inter) / uni : 0.0;
+
+      // Строгое подмножество: одна сторона целиком внутри другой плюс
+      // лишние токены. "black" ⊂ "axn black", "sci fi" ⊂ "sony sci fi",
+      // "nick jr" ⊂ "nick jr too". Равенство (set1 == set2) сюда не попадает.
+      // ВАЖНО: без continue — падаем в else ниже и обнуляем score.
+      if (set1 != set2 && inter == std::min(set1.size(), set2.size())) {
+        LOG_DEBUG("FindBestMatch: strict-subset rejected '%s'",
+                  cand.baseName.c_str());
+        cand.ratio = 0.0;
+      }
     }
 
     if (cand.ratio >= m_tokenHigh) {
@@ -1521,6 +1532,23 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   if (batchSize < 10)
     batchSize = 10;
 
+  // Загружаем существующие ручные маппинги для этого плейлиста из БД.
+  // Их нужно: (а) пропустить при матчинге, (б) вернуть в
+  // SavePlaylistMapping — иначе Save снесёт их своим DELETE.
+  std::unordered_map<std::string, std::string> manualMapping;
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (m_db && m_db->IsOpen()) {
+      std::unordered_map<std::string, std::string> dummyAuto;
+      size_t cc = 0;
+      std::string chash, ehash;
+      m_db->LoadPlaylistMapping(playlistId, dummyAuto, manualMapping, cc, chash,
+                                ehash);
+    }
+  }
+  LOG_DEBUG("MatchChannels: loaded %zu manual mappings for playlist '%s'",
+            manualMapping.size(), playlistId.c_str());
+
   std::vector<std::vector<Channel>> batches;
   batches.reserve(threads);
   for (int i = 0; i < total; i += batchSize) {
@@ -1543,7 +1571,8 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   for (const auto &batch : batches) {
     futures.push_back(
         std::async(std::launch::async, [this, batch, &processed, &totalMatched,
-                                        reportInterval, total, callback]() {
+                                        &manualMapping, reportInterval, total,
+                                        callback]() {
           std::unordered_map<std::string, std::string> localMapping;
           localMapping.reserve(batch.size());
 
@@ -1551,7 +1580,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
             if (m_cancelMatching) {
               wxTheApp->CallAfter([this]() {
                 UpdateProgress({EpgProgressStage::Cancelled, 0,
-                               std::string(_("Cancelled").ToUTF8().data())});
+                                std::string(_("Cancelled").ToUTF8().data())});
               });
               break;
             }
@@ -1559,13 +1588,18 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
             if (m_cancelMatching)
               break;
 
-            MatchResult match = FindBestMatch(ch);
-            if (!match.channelId.empty()) {
-              std::string key = ch.getTvgId();
-              if (key.empty())
-                key = "name:" + NormalizeName(ch.getName());
-              localMapping[key] = match.channelId;
-              totalMatched++;
+            std::string key = ch.getTvgId();
+            if (key.empty())
+              key = "name:" + NormalizeName(ch.getName());
+
+            // Ручной маппинг — не трогаем, сохранится как есть.
+            bool isManual = (manualMapping.find(key) != manualMapping.end());
+            if (!isManual) {
+              MatchResult match = FindBestMatch(ch);
+              if (!match.channelId.empty()) {
+                localMapping[key] = match.channelId;
+                totalMatched++;
+              }
             }
 
             int current = processed.fetch_add(1) + 1;
@@ -1587,7 +1621,6 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   }
 
   std::unordered_map<std::string, std::string> newMapping;
-  std::unordered_map<std::string, std::string> newManualMapping;
   size_t matchedCount = 0;
 
   for (auto &fut : futures) {
@@ -1605,7 +1638,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   std::string channelHash = ComputePlaylistHash(playlistChannels);
   {
     std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-    if (!m_db->SavePlaylistMapping(playlistId, newMapping, newManualMapping,
+    if (!m_db->SavePlaylistMapping(playlistId, newMapping, manualMapping,
                                    playlistChannels.size(), channelHash,
                                    m_epgChannelsHash)) {
       LOG_ERROR("Failed to save playlist mapping to DB");
@@ -1615,10 +1648,8 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   {
     std::unique_lock lock(m_mappingMutex);
     m_channelMapping = newMapping;
-    m_manualMapping = newManualMapping;
+    m_manualMapping = manualMapping;
   }
-
-  RebuildTvgIdIndex();
 
   LOG_INFO("EPGManager: Matched %zu/%d channels (parallel)", matchedCount,
            total);
@@ -1825,7 +1856,6 @@ bool EPGManager::LoadMappingForPlaylist(const std::string &playlistId,
     m_mappingStale = false;
   }
   m_currentPlaylistId = playlistId;
-  RebuildTvgIdIndex();
   return true;
 }
 
@@ -1846,7 +1876,6 @@ void EPGManager::InvalidatePlaylistMapping(const std::string &playlistId) {
     m_channelMapping.clear();
     m_manualMapping.clear();
   }
-  RebuildTvgIdIndex();
 }
 
 // --------------------------------------------------------------------------
@@ -1962,15 +1991,6 @@ void EPGManager::LoadMatchingRules() {
   // Дефолты
   m_qualitySuffixes = {"hd",   "fhd",  "sd",   "4k",      "uhd",     "1080p",
                        "576p", "480p", "720p", "full hd", "ultra hd"};
-  m_versionSuffixes = {
-      "plus",      "premium",       "extra",     "gold",      "classic",
-      "deluxe",    "international", "europe",    "asia",      "world",
-      "global",    "ultimate",      "platinum",  "exclusive", "special",
-      "edition",   "hit",           "series",    "serial",    "cinema",
-      "film",      "movie",         "live",      "news",      "sport",
-      "music",     "doc",           "kids",      "family",    "travel",
-      "nature",    "wildlife",      "adventure", "history",   "science",
-      "education", "entertainment"};
   m_stopwords = {"tv",
                  "тв",
                  "канал",
@@ -2021,7 +2041,6 @@ void EPGManager::LoadMatchingRules() {
         };
         loadArray("regional_suffixes", m_regionalSuffixes);
         loadArray("quality_suffixes", m_qualitySuffixes);
-        loadArray("version_suffixes", m_versionSuffixes);
         loadArray("stopwords", m_stopwords);
 
         if (doc.HasMember("token_high") && doc["token_high"].IsNumber())
@@ -2040,10 +2059,8 @@ void EPGManager::LoadMatchingRules() {
       }
     }
   }
-  LOG_DEBUG("EPGManager: Loaded matching rules (quality=%zu, version=%zu, "
-            "stopwords=%zu)",
-            m_qualitySuffixes.size(), m_versionSuffixes.size(),
-            m_stopwords.size());
+  LOG_DEBUG("EPGManager: Loaded matching rules (quality=%zu, stopwords=%zu)",
+            m_qualitySuffixes.size(), m_stopwords.size());
 }
 
 void EPGManager::LoadChannelAliases() {
@@ -2065,12 +2082,15 @@ void EPGManager::LoadChannelAliases() {
       doc.Parse(jsonContent.ToUTF8().data());
       if (!doc.HasParseError() && doc.IsObject()) {
         for (auto it = doc.MemberBegin(); it != doc.MemberEnd(); ++it) {
-          if (it->value.IsString()) {
-            std::string key = it->name.GetString();
-            std::string value = it->value.GetString();
-            std::string normKey = NormalizeAliasKey(key);
+          if (!it->value.IsString())
+            continue;
+          std::string key = it->name.GetString();
+          if (key == "comment")
+            continue; // служебное поле, не алиас
+          std::string value = it->value.GetString();
+          std::string normKey = NormalizeAliasKey(key);
+          if (!normKey.empty())
             m_channelAliases[normKey] = value;
-          }
         }
       }
     }
@@ -2083,19 +2103,42 @@ void EPGManager::NormalizeWithAttributes(const std::string &rawName,
   out.baseName.clear();
   out.region.clear();
   out.quality.clear();
-  out.version.clear();
   out.tokens.clear();
 
   std::string name = ToLower(rawName);
   name = RemoveRatingSuffixes(name);
   name = CleanPunctuation(name);
 
-  // ВАЖНО: суффиксы (регион/качество/версия) снимаем ДО стоп-слов.
-  // Иначе "Матч ТВ HD" и "Матч ТВ" дадут разные baseName
-  // ("матч тв" vs "матч"), и точное совпадение развалится в substring.
-  name = ExtractSuffix(name, m_regionalSuffixes, out.region);
-  name = ExtractSuffix(name, m_qualitySuffixes, out.quality);
-  name = ExtractSuffix(name, m_versionSuffixes, out.version);
+  // Суффиксы (регион/качество) снимаем ДО стоп-слов. Иначе
+  // "Матч ТВ HD" и "Матч ТВ" дадут разные baseName.
+  //
+  // Идём циклом: region → quality → region → … — потому что
+  // порядок суффиксов в разных источниках разный:
+  //   "Discovery Russia HD" — region в середине, quality в конце;
+  //   "Discovery HD Russia" — quality в середине, region в конце.
+  // Цикл покрывает оба порядка, не меняя их местами.
+  while (true) {
+    std::string tmp;
+    std::string before = name;
+
+    // region — одиночный (снять одну региональную метку)
+    name = ExtractSuffix(name, m_regionalSuffixes, tmp, false);
+    if (name != before) {
+      if (out.region.empty())
+        out.region = tmp;
+      continue;
+    }
+
+    // quality — loop (снять все подряд: "HD 1080p 4K")
+    name = ExtractSuffix(name, m_qualitySuffixes, tmp, true);
+    if (name != before) {
+      if (out.quality.empty())
+        out.quality = tmp;
+      continue;
+    }
+
+    break;
+  }
   name = CleanPunctuation(name);
 
   // Хвостовые стоп-слова удаляем в самом конце — тогда " тв"/" tv"/
@@ -2386,38 +2429,6 @@ int EPGManager::GetUpdateIntervalHours() const { return m_updateIntervalHours; }
 void EPGManager::SetDaysToKeep(int days) { m_daysToKeep = days; }
 int EPGManager::GetDaysToKeep() const { return m_daysToKeep; }
 
-void EPGManager::RebuildTvgIdIndex() {
-  std::unordered_map<std::string, std::string> tmp;
-  {
-    std::shared_lock lock(m_mappingMutex);
-    tmp.reserve(m_channelMapping.size());
-    for (const auto &[key, epgId] : m_channelMapping) {
-      if (key.rfind("name:", 0) == 0)
-        continue;
-      std::string normalized = key;
-      std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                     ::tolower);
-      normalized.erase(std::remove(normalized.begin(), normalized.end(), ' '),
-                       normalized.end());
-      normalized.erase(std::remove(normalized.begin(), normalized.end(), '.'),
-                       normalized.end());
-      normalized.erase(std::remove(normalized.begin(), normalized.end(), '-'),
-                       normalized.end());
-      normalized.erase(std::remove(normalized.begin(), normalized.end(), '_'),
-                       normalized.end());
-      if (normalized.empty())
-        continue;
-      if (tmp.find(normalized) == tmp.end()) {
-        tmp.emplace(std::move(normalized), epgId);
-      }
-    }
-  }
-  {
-    std::unique_lock lock(m_tvgIndexMutex);
-    m_tvgIdIndex.swap(tmp);
-  }
-}
-
 void EPGManager::RemoveMappingEntry(const std::string &playlistId,
                                     const std::string &key) {
   if (playlistId.empty() || key.empty()) {
@@ -2561,37 +2572,56 @@ std::string EPGManager::RemoveStopwords(const std::string &str) const {
 
 std::string EPGManager::ExtractSuffix(const std::string &str,
                                       const std::vector<std::string> &suffixes,
-                                      std::string &outSuffix) const {
+                                      std::string &outSuffix, bool loop) const {
   std::string result = str;
   outSuffix.clear();
 
   while (!result.empty() && std::isspace((unsigned char)result.back()))
     result.pop_back();
 
-  for (const auto &suf : suffixes) {
-    if (suf.empty())
-      continue;
+  // Одна попытка снять любой суффикс (trailing или в скобках).
+  auto tryOne = [&]() -> bool {
+    for (const auto &suf : suffixes) {
+      if (suf.empty())
+        continue;
 
-    std::string pattern = " " + suf;
-    if (result.length() >= pattern.length() &&
-        result.compare(result.length() - pattern.length(), pattern.length(),
-                       pattern) == 0) {
-      outSuffix = suf;
-      result.erase(result.length() - pattern.length());
-      TrimAndCollapseSpaces(result);
-      break;
-    }
-
-    std::string paren = "(" + suf + ")";
-    size_t pos;
-    if ((pos = result.find(paren)) != std::string::npos) {
-      outSuffix = suf;
-      while ((pos = result.find(paren)) != std::string::npos) {
-        result.erase(pos, paren.length());
+      std::string pattern = " " + suf;
+      if (result.length() >= pattern.length() &&
+          result.compare(result.length() - pattern.length(), pattern.length(),
+                         pattern) == 0) {
+        // Guard: не снимаем, если baseName станет пустым.
+        if (result.length() == pattern.length())
+          continue;
+        outSuffix = suf;
+        result.erase(result.length() - pattern.length());
+        TrimAndCollapseSpaces(result);
+        return true;
       }
-      TrimAndCollapseSpaces(result);
-      break;
+
+      std::string paren = "(" + suf + ")";
+      size_t pos = result.find(paren);
+      if (pos != std::string::npos) {
+        // Guard: аналогично trailing-ветке — после удаления
+        // должно остаться непустое имя.
+        size_t after = result.length() - paren.length();
+        if (after == 0)
+          continue;
+        outSuffix = suf;
+        while ((pos = result.find(paren)) != std::string::npos) {
+          result.erase(pos, paren.length());
+        }
+        TrimAndCollapseSpaces(result);
+        return true;
+      }
     }
+    return false;
+  };
+
+  if (loop) {
+    while (tryOne()) {
+    }
+  } else {
+    tryOne();
   }
   return result;
 }
@@ -2894,7 +2924,5 @@ void EPGManager::AddAutoMapping(const std::string &playlistId,
   {
     std::unique_lock lock(m_mappingMutex);
     m_channelMapping[key] = epgId;
-    // если существовал ручной – не трогаем
   }
-  RebuildTvgIdIndex();
 }

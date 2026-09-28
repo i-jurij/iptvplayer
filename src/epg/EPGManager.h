@@ -273,11 +273,11 @@ private:
     std::string method;
   };
 
-  std::unordered_map<std::string, std::string>
-      m_tvgIdIndex;                          // normalized tvgId → epgChannelId
-  mutable std::shared_mutex m_tvgIndexMutex; // защита индекса
-
-  void RebuildTvgIdIndex();
+  // Прямой индекс EPG-id → EPG-id. Точное совпадение строк, без нормализации.
+  // Работает, когда playlist.tvg-id совпадает с XMLTV <channel id> —
+  // т.е. источники согласованы.
+  std::unordered_map<std::string, std::string> m_epgIdIndex;
+  mutable std::shared_mutex m_epgIdIndexMutex;
 
   wxTimer *m_startupUpdateTimer = nullptr;
   void OnStartupUpdateTimer(wxTimerEvent &event);
@@ -335,12 +335,11 @@ private:
   std::string ComputePlaylistHash(const std::vector<Channel> &channels) const;
 
   struct NormalizedChannel {
-    std::string id; // EPG channel id
-    std::string displayName;   // оригинальное display‑name (для индекса алиасов)
-    std::string baseName; // очищенное имя без суффиксов и стоп-слов
-    std::string region;   // ru, us и т.п. (из региональных суффиксов)
-    std::string quality;  // hd, 1080p и т.п.
-    std::string version;  // plus, premium и т.п.
+    std::string id;          // EPG channel id
+    std::string displayName; // оригинальное display‑name (для индекса алиасов)
+    std::string baseName;    // очищенное имя без суффиксов и стоп-слов
+    std::string region;      // ru, us и т.п. (из региональных суффиксов)
+    std::string quality;     // hd, 1080p и т.п.
     std::vector<std::string> tokens; // слова из baseName (уже без стоп-слов)
   };
 
@@ -365,7 +364,6 @@ private:
 
   // Правила (загружаются из файлов)
   std::vector<std::string> m_qualitySuffixes;
-  std::vector<std::string> m_versionSuffixes;
   std::vector<std::string> m_stopwords;
   std::unordered_map<std::string, std::string> m_channelAliases;
 
@@ -383,7 +381,7 @@ private:
   std::string RemoveStopwords(const std::string &str) const;
   std::string ExtractSuffix(const std::string &str,
                             const std::vector<std::string> &suffixes,
-                            std::string &outSuffix) const;
+                            std::string &outSuffix, bool loop = false) const;
   std::string CleanPunctuation(const std::string &str) const;
 
   std::string NormalizeAliasKey(const std::string &name) const;
