@@ -200,6 +200,18 @@ public:
   void MatchFavoritesAsync(bool force = false);
 
 private:
+  // RAII-обёртка над m_activeMatchings. Гарантирует декремент счётчика
+  // даже если async-задача матчинга завершилась исключением или ранним
+  // return. Когда счётчик падает до нуля, посылает в UI финальный
+  // EpgProgressStage::Done, чтобы кнопки разблокировались и индикатор
+  // остановился.
+  struct MatchingSession {
+    std::atomic<int> &counter;
+    EPGManager *owner;
+
+    MatchingSession(std::atomic<int> &c, EPGManager *o);
+    ~MatchingSession();
+  };
   // Управление матчингом избранного
   std::atomic<bool> m_cancelFavoritesMatching{false};
   std::future<void> m_favoritesMatchFuture;

@@ -304,6 +304,39 @@ EPGManager::~EPGManager() {
   }
 }
 
+EPGManager::MatchingSession::MatchingSession(std::atomic<int> &c, EPGManager *o)
+    : counter(c), owner(o) {
+  int prev = counter.fetch_add(1, std::memory_order_acq_rel);
+  if (prev == 0 && owner) {
+    std::lock_guard<std::mutex> lock(owner->m_matchAggMutex);
+    owner->m_matchAgg = MatchAggregate{};
+  }
+}
+
+EPGManager::MatchingSession::~MatchingSession() {
+  int remaining = counter.fetch_sub(1, std::memory_order_acq_rel) - 1;
+  if (remaining > 0)
+    return;
+  if (!owner || !wxTheApp)
+    return;
+
+  // Снимаем финальную сводку агрегата под мьютексом, чтобы UI получил
+  // точные counters для правого статус-бара.
+  EpgProgressInfo info;
+  {
+    std::lock_guard<std::mutex> lock(owner->m_matchAggMutex);
+    info.matched = owner->m_matchAgg.matchedCh;
+    info.totalChannels = owner->m_matchAgg.totalCh;
+    info.favoritesMatched = owner->m_matchAgg.matchedFav;
+    info.favoritesTotal = owner->m_matchAgg.totalFav;
+  }
+  info.stage = EpgProgressStage::Done;
+  info.percent = 100;
+  info.stageText = "Done";
+
+  wxTheApp->CallAfter([owner = owner, info]() { owner->UpdateProgress(info); });
+}
+
 wxString EPGManager::GetConfigDirectory() const {
   if (m_configManager)
     return m_configManager->getConfigDirectory();
@@ -347,6 +380,8 @@ void EPGManager::UpdateProgress(const EpgProgressInfo &info) {
 
 void EPGManager::UpdateMatchProgress(bool isFavorites, int processed,
                                      int matched, int total, bool finished) {
+  (void)finished;
+
   EpgProgressInfo info;
   {
     std::lock_guard<std::mutex> lock(m_matchAggMutex);
@@ -370,18 +405,8 @@ void EPGManager::UpdateMatchProgress(bool isFavorites, int processed,
     info.favoritesTotal = m_matchAgg.totalFav;
   }
 
-  if (finished) {
-    int remaining = m_activeMatchings.fetch_sub(1) - 1;
-    info.stage =
-        (remaining <= 0) ? EpgProgressStage::Done : EpgProgressStage::Matching;
-  } else {
-    info.stage = EpgProgressStage::Matching;
-  }
-
-  info.stageText = (info.stage == EpgProgressStage::Done)
-                       ? std::string(_("Done").ToUTF8().data())
-                       : std::string(_("Matching").ToUTF8().data());
-
+  info.stage = EpgProgressStage::Matching;
+  info.stageText = "Matching";
   UpdateProgress(info);
 }
 
@@ -1374,13 +1399,7 @@ EPGManager::GetAllEpgChannels() const {
 void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
                                const std::string &playlistId,
                                MatchCallback callback) {
-  {
-    int prev = m_activeMatchings.fetch_add(1);
-    if (prev == 0) {
-      std::lock_guard<std::mutex> lock(m_matchAggMutex);
-      m_matchAgg = MatchAggregate{};
-    }
-  }
+  MatchingSession session(m_activeMatchings, this);
 
   // Проверка наличия источников EPG
   if (m_sources.empty()) {
@@ -2543,17 +2562,11 @@ void EPGManager::MatchFavoritesAsync(bool force) {
     return;
   }
 
-  // Открываем сессию матчинга избранного
-  {
-    int prev = m_activeMatchings.fetch_add(1);
-    if (prev == 0) {
-      std::lock_guard<std::mutex> lock(m_matchAggMutex);
-      m_matchAgg = MatchAggregate{};
-    }
-  }
-
-  // 3) Запуск асинхронной задачи
+  // 3) Запуск асинхронной задачи. Сессия создаётся внутри лямбды —
+  // тогда счётчик инкрементируется ровно при старте работы, а dtor
+  // сработает и при исключении, и при отмене.
   m_favoritesMatchFuture = std::async(std::launch::async, [this, force]() {
+    MatchingSession session(m_activeMatchings, this);
     LOG_DEBUG("MatchFavoritesAsync: starting background task (force=%d)",
               force);
 

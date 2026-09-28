@@ -78,7 +78,11 @@ bool EPGDatabase::Open(const std::string &dbPath) {
     m_db.ExecuteUpdate("PRAGMA journal_mode = WAL");
     m_db.ExecuteUpdate("PRAGMA synchronous = NORMAL");
     m_db.ExecuteUpdate("PRAGMA foreign_keys = ON");
-    m_db.ExecuteUpdate("PRAGMA busy_timeout = 5000");
+    m_db.ExecuteUpdate("PRAGMA busy_timeout = 10000");
+    m_db.ExecuteUpdate("PRAGMA wal_autocheckpoint = 10000");
+    // Раз в старте схлопываем WAL: сбрасывает накопленные блокировки,
+    // дальнейшие чтения идут напрямую из БД.
+    m_db.ExecuteUpdate("PRAGMA wal_checkpoint(TRUNCATE)");
 
     if (!TableExists("channels")) {
       if (!CreateTables()) {
