@@ -81,7 +81,8 @@ public:
 
   // Обновление при выборе плейлиста
   void loadPlaylistChannels(const std::vector<Channel> &channels,
-                            const wxString &title);
+                            const wxString &title,
+                            const std::string &playlistId);
 
   void refreshFavorites();
 

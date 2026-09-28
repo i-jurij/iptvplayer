@@ -109,19 +109,16 @@ void ChannelCards::OnCardClick(size_t index, bool fav, const wxRect &rect) {
     if (MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
       auto &fm = mf->getApplication()->getFavoritesManager();
 
-      bool isFav = fm.isFavorite(ch);
-      if (isFav)
-        fm.remove(ch.getName(), ch.getPlaylistName());
+      if (fm.isFavorite(ch))
+        fm.remove(ch);
       else
         fm.add(ch);
 
       mf->refreshFavorites();
     }
 
-    // TILE-ONLY обновление
     RenderTile(index);
     MarkCardDirty((int)index);
-
     return;
   }
 

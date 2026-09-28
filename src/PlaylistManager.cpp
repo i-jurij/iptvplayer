@@ -555,7 +555,9 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
                                         const std::string &source,
                                         const std::string &userAgent,
                                         bool autoUpdate) {
+  setLastError("");
   bool sourceChanged = false;
+  std::string oldTitle;
   {
     std::lock_guard<std::mutex> lock(m_playlistsMutex);
     if (index >= m_playlists.size()) {
@@ -567,6 +569,7 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
       setLastError("Null playlist pointer");
       return ErrorCode::Unknown;
     }
+    oldTitle = pl->getTitle();
     sourceChanged = (pl->getSource() != source);
     pl->setTitle(title);
     pl->setSource(source);
@@ -594,7 +597,32 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
     }
   }
 
-  return savePlaylist(nullptr, index);
+  ErrorCode ec = savePlaylist(nullptr, index);
+  if (ec != ErrorCode::OK)
+    return ec;
+
+  // Если title изменился — удалить старый файл <oldTitle>.json,
+  // чтобы loadPlaylists при следующем запуске не нашёл дубликат.
+  if (!oldTitle.empty() && oldTitle != title) {
+    namespace fs = std::filesystem;
+    fs::path dir = fs::path(m_configDir) / "playlists";
+    fs::path oldPath = dir / makePlaylistFileName(oldTitle);
+
+    if (fs::exists(oldPath)) {
+      std::error_code rmEc;
+      bool removed = fs::remove(oldPath, rmEc);
+
+      if (rmEc || !removed) {
+        setLastError("Playlist renamed successfully, but old file could not be "
+                     "removed:\n" +
+                     oldPath.string() +
+                     "\nPlease delete it manually to avoid a duplicate on next "
+                     "start.");
+      }
+    }
+  }
+
+  return ErrorCode::OK;
 }
 
 Playlist *PlaylistManager::getPlaylist(std::size_t idx) {

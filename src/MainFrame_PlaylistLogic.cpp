@@ -122,7 +122,8 @@ void MainFrame::enablePlaylistButtons(bool enable) {
 }
 
 void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
-                                     const wxString &title) {
+                                     const wxString &title,
+                                     const std::string &playlistId) {
   m_hasLastSelectedChannel = false;
 
   if (IsBeingDeleted())
@@ -132,8 +133,17 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
       wxString::Format("Playlist: %s / Channels: %zu", title, channels.size());
   m_channelsHeader->SetLabel(header);
 
-  // 1) Сохраняем оригинальный список каналов для фильтрации/сортировки
+  // 1) Сохраняем оригинальный список каналов. Проставляем playlistName и
+  // playlistId, если они ещё не заполнены (для каналов, впервые попадающих
+  // в UI). Если уже заполнены — не перезаписываем (защита от «чужих» каналов).
+  std::string plName = title.ToStdString();
   m_allChannels = channels;
+  for (auto &ch : m_allChannels) {
+    if (ch.getPlaylistName().empty())
+      ch.setPlaylistName(plName);
+    if (ch.getPlaylistId().empty())
+      ch.setPlaylistId(playlistId);
+  }
 
   // Ensure filter UI exists before we try to populate it
   if (!m_filterPanel) {
@@ -220,7 +230,7 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
 void MainFrame::refreshFavorites() {
   PROFILE_SCOPE("MainFrame::refreshFavorites");
   m_hasLastSelectedFavorite = false;
-  
+
   if (!m_application)
     return;
 
@@ -235,16 +245,9 @@ void MainFrame::refreshFavorites() {
     m_favList->loadChannels(favChannels);
   }
 
-  std::vector<std::pair<std::string, std::string>> favKeys;
-  favKeys.reserve(favChannels.size());
-  
-  for (const auto &c : favChannels)
-    favKeys.emplace_back(c.getName(), c.getPlaylistName());
-
   if (m_favCards) {
-    CallAfter([this, favChannels, favKeys]() {
+    CallAfter([this, favChannels]() {
       m_favCards->SetChannels(favChannels);
-      m_favCards->SyncFavorites(favKeys);
       m_favCards->RefreshCards();
       m_favCards->Refresh();
     });
@@ -253,9 +256,6 @@ void MainFrame::refreshFavorites() {
   }
 
   if (m_channelList) {
-    m_channelList->BeginFavoritesSync();
-    m_channelList->GetModel()->SetFavorites(favKeys);
-    m_channelList->EndFavoritesSync();
     m_channelList->Refresh();
   } else {
     LOG_DEBUG("refreshFavorites: m_channelList is null");
@@ -435,7 +435,14 @@ void MainFrame::updatePlaylistFromDialog(int index,
 
   savePlaylistsToConfig();
   RefreshPlaylistView();
-  showInfo(this, "Playlist saved.");
+
+  std::string warning = mgr->getLastError();
+  if (!warning.empty()) {
+    wxMessageBox("Playlist saved, but:\n\n" + wxString::FromUTF8(warning),
+                 "Warning", wxOK | wxICON_WARNING, this);
+  } else {
+    showInfo(this, "Playlist saved.");
+  }
 }
 
 void MainFrame::startAutoUpdateFromSavedPlaylists() {
@@ -660,8 +667,9 @@ bool MainFrame::ReloadPlaylistIfCurrent(Playlist *pl) {
 
   const auto &channels = pl->getChannels();
   const std::string &plName = pl->getTitle();
+  const std::string &plId = pl->getUniqueId();
 
-  loadPlaylistChannels(channels, wxString::FromUTF8(plName));
+  loadPlaylistChannels(channels, wxString::FromUTF8(plName), plId);
   refreshFavorites();
 
   LOG_INFO("Playlist '%s' reloaded after update", plName);
@@ -832,7 +840,7 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
               LOG_DEBUG("RemoveChannelFromPlaylist[bg]: EPG mappings removed");
             }
           }
-          app->getFavoritesManager().remove(chNameBg, playlistName);
+          app->getFavoritesManager().remove(ch);
           LOG_DEBUG("RemoveChannelFromPlaylist[bg]: removed from favorites");
         }
 

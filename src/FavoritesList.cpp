@@ -37,30 +37,9 @@ void FavoritesList::OnSelectionChanged(wxDataViewEvent &evt) {
 }
 
 void FavoritesList::loadChannels(const std::vector<Channel> &channels) {
-  // 1) Загрузка каналов избранного (Reset внутри SetChannels)
   BeginFavoritesSync();
   LoadFavoritesChannels(channels, "");
   EndFavoritesSync();
-
-  // 2) Синхронизация флагов избранного
-  if (MainFrame *parentFrame =
-          dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
-
-    auto favChannels =
-        parentFrame->getApplication()->getFavoritesManager().list();
-
-    std::vector<std::pair<std::string, std::string>> favKeys;
-    favKeys.reserve(favChannels.size());
-    for (const auto &c : favChannels)
-      favKeys.emplace_back(c.getName(), c.getPlaylistName());
-
-    // Устанавливаем флаги избранного
-    GetModel()->SetFavorites(favKeys);
-
-    // 🔥 Перерисовать строки вручную
-    for (int i = 0; i < (int)GetModel()->GetCount(); ++i)
-      GetModel()->RowChanged(i);
-  }
 }
 
 void FavoritesList::ShowContextMenu(const Channel &ch) {
@@ -118,8 +97,7 @@ void FavoritesList::OnFavoriteToggled(const Channel &ch, bool isFav) {
   if (MainFrame *parentFrame =
           dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
     if (!isFav) {
-      parentFrame->getApplication()->getFavoritesManager().remove(
-          ch.getName(), ch.getPlaylistName());
+      parentFrame->getApplication()->getFavoritesManager().remove(ch);
       parentFrame->refreshFavorites();
     }
   }
@@ -156,12 +134,10 @@ void FavoritesList::OnKeyDown(wxKeyEvent &evt) {
 
   case WXK_SPACE: {
     auto &fav = wxGetApp().getFavoritesManager();
-    fav.remove(ch.getName(), ch.getPlaylistName());
+    fav.remove(ch);
 
-    // Обновляем список избранных
     loadChannels(fav.list());
 
-    // Обновляем остальные виды
     if (MainFrame *parentFrame =
             dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
       parentFrame->refreshFavorites();

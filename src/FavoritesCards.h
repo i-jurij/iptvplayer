@@ -9,7 +9,6 @@ public:
     FavoritesCards(wxWindow* parent);
 
     void SetChannels(const std::vector<Channel>& channels);
-    void SyncFavorites(const std::vector<std::pair<std::string, std::string>> &favKeys);
 
 private : wxBitmap m_favFilled;
 

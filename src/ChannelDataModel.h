@@ -15,9 +15,8 @@ class ChannelDataModel : public wxDataViewVirtualListModel {
 public:
   ChannelDataModel();
 
-  void SetFavorites(
-      const std::vector<std::pair<std::string, std::string>> &favs);
-  void SetRowKey(unsigned int row, const std::string &key);
+  using FavoriteChecker = std::function<bool(const Channel &)>;
+  void SetFavoriteChecker(FavoriteChecker cb) { m_favChecker = std::move(cb); }
 
   uint64_t GetModelVersion() const {
     return m_channelsVersion.load(std::memory_order_relaxed);
@@ -44,9 +43,6 @@ public:
                       int logoPhysSize, double contentScale);
 
   const Channel &GetChannel(unsigned int row) const;
-  bool IsFavorite(unsigned int row) const;
-
-  void SetFavoritesFromNames(const std::vector<std::string> &names);
 
   void SetSorting(int column, bool ascending);
   int GetSortColumn() const { return m_sortColumn; }
@@ -99,7 +95,7 @@ private:
   mutable std::unordered_map<unsigned int, std::string> m_rowKeyCache;
 
   std::vector<Channel> m_channels;
-  std::vector<bool> m_favorites;
+  FavoriteChecker m_favChecker;
 
   std::string m_playlistName;
 

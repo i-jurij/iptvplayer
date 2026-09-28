@@ -146,9 +146,6 @@ Channel M3UParser::parseExtInfLine(const std::string &extinf,
     channel.setName("Unknown Channel");
   }
 
-  // Генерируем uniqueId
-  channel.ensureUniqueId();
-
   return channel;
 }
 

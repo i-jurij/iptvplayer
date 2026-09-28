@@ -112,9 +112,11 @@ void ChannelDataModel::GetValueByRow(wxVariant &variant, unsigned int row,
       variant = wxString::FromUTF8(ch.getName());
       break;
 
-    case 3:
-      variant = m_favorites[row] ? "1" : "0";
+    case 3: {
+      bool fav = m_favChecker ? m_favChecker(ch) : false;
+      variant = fav ? "1" : "0";
       break;
+    }
 
     case 4:
       variant = wxString::FromUTF8(ch.getGroupTitle());
@@ -220,7 +222,6 @@ void ChannelDataModel::SetChannels(const std::vector<Channel> &channels,
     if (ch.getPlaylistName().empty())
       ch.setPlaylistName(m_playlistName);
   }
-  m_favorites.assign(m_channels.size(), false);
 
   if (!m_disableSorting)
     Resort();
@@ -247,8 +248,6 @@ void ChannelDataModel::AppendChannels(const std::vector<Channel> &channels,
       m_channels[i].setPlaylistName(m_playlistName);
   }
 
-  m_favorites.resize(m_channels.size(), false);
-
   if (!m_disableSorting)
     Resort();
 
@@ -257,29 +256,6 @@ void ChannelDataModel::AppendChannels(const std::vector<Channel> &channels,
 
 const Channel &ChannelDataModel::GetChannel(unsigned int row) const {
   return m_channels[row];
-}
-
-bool ChannelDataModel::IsFavorite(unsigned int row) const {
-  return m_favorites[row];
-}
-
-void ChannelDataModel::SetFavoritesFromNames(
-    const std::vector<std::string> &names) {
-  for (size_t i = 0; i < m_channels.size(); ++i)
-    m_favorites[i] = false;
-
-  for (size_t i = 0; i < m_channels.size(); ++i)
-    if (std::find(names.begin(), names.end(), m_channels[i].getName()) !=
-        names.end())
-      m_favorites[i] = true;
-
-  for (unsigned int i = 0; i < m_channels.size(); ++i)
-    RowChanged(i);
-
-  if (m_sortColumn == 3) {
-    Resort();
-    Reset(m_channels.size());
-  }
 }
 
 // ============================================================================
@@ -382,8 +358,8 @@ void ChannelDataModel::Resort() {
   std::stable_sort(order.begin(), order.end(), [&](size_t A, size_t B) {
     const Channel &a = m_channels[A];
     const Channel &b = m_channels[B];
-    bool favA = m_favorites[A];
-    bool favB = m_favorites[B];
+    bool favA = m_favChecker ? m_favChecker(a) : false;
+    bool favB = m_favChecker ? m_favChecker(b) : false;
 
     std::string ka = keyForColumn(a, favA, m_sortColumn);
     std::string kb = keyForColumn(b, favB, m_sortColumn);
@@ -418,54 +394,16 @@ void ChannelDataModel::Resort() {
   });
 
   std::vector<Channel> newChannels;
-  std::vector<bool> newFav;
   const size_t MAX_RESERVE_ORDER = 100000;
   size_t reserveOrder = std::min(order.size(), MAX_RESERVE_ORDER);
   newChannels.reserve(reserveOrder);
-  newFav.reserve(reserveOrder);
 
   for (size_t i = 0; i < order.size(); ++i) {
     size_t old = order[i];
     newChannels.push_back(m_channels[old]);
-    newFav.push_back(m_favorites[old]);
   }
 
   m_channels = std::move(newChannels);
-  m_favorites = std::move(newFav);
-}
-
-void ChannelDataModel::SetRowKey(unsigned int row, const std::string &key) {
-  if (row >= m_channels.size())
-    return;
-  // сохраняем ключ; mutable map позволяет менять из const методов
-  m_rowKeyCache[row] = key;
-}
-
-void ChannelDataModel::SetFavorites(
-    const std::vector<std::pair<std::string, std::string>> &favs) {
-  // Сбрасываем
-  for (size_t i = 0; i < m_channels.size(); ++i)
-    m_favorites[i] = false;
-
-  // Устанавливаем избранные по (name + playlist)
-  for (size_t i = 0; i < m_channels.size(); ++i) {
-    const auto &ch = m_channels[i];
-    for (const auto &f : favs) {
-      if (ch.getName() == f.first && ch.getPlaylistName() == f.second) {
-        m_favorites[i] = true;
-        break;
-      }
-    }
-  }
-
-  // Обновляем строки
-  for (unsigned int i = 0; i < m_channels.size(); ++i)
-    RowChanged(i);
-
-  // Пересортировка, если сортировка по избранному
-  if (m_sortColumn == 3) {
-    Resort();
-  }
 }
 
 void ChannelDataModel::RemoveChannel(const std::string &name,
@@ -487,9 +425,6 @@ void ChannelDataModel::RemoveChannel(const std::string &name,
 
   // Удаляем из векторов
   m_channels.erase(m_channels.begin() + index);
-  if (index < m_favorites.size()) {
-    m_favorites.erase(m_favorites.begin() + index);
-  }
 
   // Инвалидируем кэш ключей (индексы сдвинулись)
   m_rowKeyCache.clear();

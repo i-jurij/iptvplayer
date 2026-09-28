@@ -9,27 +9,36 @@ class FavoritesManager {
 public:
   FavoritesManager(const std::string &storagePath);
 
-  // Добавление/удаление по объекту Channel (использует его uniqueId)
+  // --- Основные операции — только по объекту Channel ---
   void add(const Channel &ch);
-  void remove(const Channel &ch); // по uniqueId
-  void remove(const std::string &uniqueId);
+  void remove(const Channel &ch);
   bool isFavorite(const Channel &ch) const;
-  bool isFavorite(const std::string &uniqueId) const;
 
-  // Старые методы для совместимости (по имени+playlist)
-  void remove(const std::string &name, const std::string &playlist);
-  bool isFavoriteByName(const std::string &name,
-                        const std::string &playlist) const;
-
+  // --- Список всех избранных каналов ---
   std::vector<Channel> list() const;
-  std::vector<std::string> listNames() const;
-  void removeByPlaylist(const std::string &playlistName);
+
+  // --- Удаление всех записей с указанным playlistId ---
+  void removeByPlaylistId(const std::string &playlistId);
+
+  // --- Полная очистка ---
   void clear();
+
+  // Синхронизировать избранные каналы плейлиста с обновлённым списком.
+  // - каналы, которых больше нет, удаляются
+  // - у существующих обновляются url, logo, groupTitle
+  // - если url изменился, ключ перестраивается
+  // Возвращает true, если что-то изменилось (для последующего
+  // refreshFavorites).
+  bool syncWithPlaylist(const std::string &playlistId,
+                        const std::vector<Channel> &channels);
 
 private:
   mutable std::mutex m_mutex;
-  std::unordered_map<std::string, Channel> m_favorites; // key = uniqueId
+  std::unordered_map<std::string, Channel> m_favorites;
   std::string m_storagePath;
+
+  // Ключ (name, playlistId, url, series, season) в length-prefix формате
+  static std::string MakeKey(const Channel &ch);
 
   void loadFromFile();
   void saveToFile();

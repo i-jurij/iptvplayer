@@ -217,21 +217,6 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
   EndFavoritesSync();
   RestoreTopVisibleRow(topRow);
 
-  if (MainFrame *parentFrame =
-          dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
-    auto favChannels =
-        parentFrame->getApplication()->getFavoritesManager().list();
-
-    std::vector<std::pair<std::string, std::string>> favKeys;
-    favKeys.reserve(favChannels.size());
-    for (const auto &c : favChannels)
-      favKeys.emplace_back(c.getName(), c.getPlaylistName());
-
-    BeginFavoritesSync();
-    GetModel()->SetFavorites(favKeys);
-    EndFavoritesSync();
-  }
-
   const int winId = GetId();
 
   std::thread([winId, channels, playlistName, initialCount]() {
@@ -382,15 +367,9 @@ void ChannelList::OnKeyDown(wxKeyEvent &evt) {
     OnChannelActivated(ch, 0);
     return;
   case WXK_SPACE: {
-    bool isFav = !m_model->IsFavorite(row);
-    OnFavoriteToggled(ch, isFav);
-    auto favList = wxGetApp().getFavoritesManager().list();
-    std::vector<std::pair<std::string, std::string>> favKeys;
-    favKeys.reserve(favList.size());
-    for (auto &c : favList)
-      favKeys.emplace_back(c.getName(), c.getPlaylistName());
-
-    m_model->SetFavorites(favKeys);
+    auto &fm = wxGetApp().getFavoritesManager();
+    bool isFav = fm.isFavorite(ch);
+    OnFavoriteToggled(ch, !isFav);
   }
     return;
   // Обрабатываем клавиши навигации: пропускаем базовую обработку, затем
@@ -516,12 +495,11 @@ void ChannelList::OnChannelActivated(const Channel &ch, int col) {
 void ChannelList::OnFavoriteToggled(const Channel &ch, bool isFav) {
   if (MainFrame *parentFrame =
           dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
-
+    auto &fm = parentFrame->getApplication()->getFavoritesManager();
     if (isFav)
-      parentFrame->getApplication()->getFavoritesManager().add(ch);
+      fm.add(ch);
     else
-      parentFrame->getApplication()->getFavoritesManager().remove(
-          ch.getName(), ch.getPlaylistName());
+      fm.remove(ch);
 
     parentFrame->refreshFavorites();
   }

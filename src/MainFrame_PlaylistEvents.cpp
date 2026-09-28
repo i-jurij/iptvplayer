@@ -74,7 +74,8 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
 
     const auto &channels = pl->getChannels();
     const std::string playlistName = pl->getTitle();
-    loadPlaylistChannels(channels, playlistName);
+    const std::string playlistId = pl->getUniqueId();
+    loadPlaylistChannels(channels, playlistName, playlistId);
 
     m_channelsHeader->SetLabel(wxString::Format(
         "Playlist: %s / Channels: %zu", wxString::FromUTF8(pl->getTitle()),
@@ -341,6 +342,7 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
   }
 
   std::string title = playlist->getTitle();
+  std::string playlistUuid = playlist->getUniqueId();
 
   bool removeSource = false;
   if (!showRemovePlaylistDialog(this, playlist, removeSource))
@@ -374,7 +376,7 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
   }
 
   // Удаляем избранные каналы этого плейлиста
-  wxGetApp().getFavoritesManager().removeByPlaylist(title);
+  wxGetApp().getFavoritesManager().removeByPlaylistId(playlistUuid);
 
   CallAfter([this]() { refreshFavorites(); });
 
@@ -551,9 +553,24 @@ void MainFrame::onUpdateAllDone(wxCommandEvent &ev) {
   // Очистка логотипов для всех плейлистов
   CleanupLogosForAllPlaylists();
 
+  // Синхронизация избранного со всеми обновлёнными плейлистами
+  bool favoritesChanged = false;
+  auto *mgr = getPlaylistManager();
+  if (updated > 0 && mgr) {
+    auto &fm = getApplication()->getFavoritesManager();
+    for (int idx : successIndices) {
+      if (idx < 0 || idx >= (int)mgr->getPlaylists().size())
+        continue;
+      Playlist *pl = mgr->getPlaylist(static_cast<size_t>(idx));
+      if (!pl)
+        continue;
+      if (fm.syncWithPlaylist(pl->getUniqueId(), pl->getChannels()))
+        favoritesChanged = true;
+    }
+  }
+
   // Перезагрузка, если текущий загруженный плейлист обновлён
   bool reloaded = false;
-  auto *mgr = getPlaylistManager();
   if (updated > 0 && m_loadedPlaylistIndex >= 0 && mgr) {
     if (std::find(successIndices.begin(), successIndices.end(),
                   m_loadedPlaylistIndex) != successIndices.end()) {
@@ -561,6 +578,10 @@ void MainFrame::onUpdateAllDone(wxCommandEvent &ev) {
           mgr->getPlaylist(static_cast<size_t>(m_loadedPlaylistIndex));
       reloaded = ReloadPlaylistIfCurrent(pl);
     }
+  }
+
+  if (favoritesChanged) {
+    refreshFavorites();
   }
 
   // Сообщение о результате
@@ -621,10 +642,22 @@ void MainFrame::onUpdateOneDone(wxCommandEvent &ev) {
     }
   }
 
+  // Синхронизация избранного с обновлёнными каналами
+  bool favoritesChanged = false;
+  if (status != 0 && updatedPl) {
+    auto &fm = getApplication()->getFavoritesManager();
+    favoritesChanged =
+        fm.syncWithPlaylist(updatedPl->getUniqueId(), updatedPl->getChannels());
+  }
+
   // Перезагрузка, если обновлён текущий загруженный плейлист
   bool reloaded = false;
   if (status != 0 && updatedPl) {
     reloaded = ReloadPlaylistIfCurrent(updatedPl);
+  }
+
+  if (favoritesChanged) {
+    refreshFavorites();
   }
 
   // Сообщение о результате

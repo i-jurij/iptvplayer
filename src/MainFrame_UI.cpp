@@ -610,7 +610,8 @@ void MainFrame::RestoreLastOpenedPlaylist() {
 
       // загружаем каналы
       loadPlaylistChannels(pl->getChannels(),
-                           wxString::FromUTF8(pl->getTitle()));
+                           wxString::FromUTF8(pl->getTitle()),
+                           pl->getUniqueId());
 
       // переключаем вкладку Channels
       ToggleHeaderGroup(m_btnChannels);

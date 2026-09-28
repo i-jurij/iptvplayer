@@ -51,18 +51,6 @@ void FavoritesCards::SetChannels(const std::vector<Channel> &channels) {
   SetChannelsBase(channels);
 }
 
-void FavoritesCards::SyncFavorites(
-    const std::vector<std::pair<std::string, std::string>> &favKeys) {
-  m_favorites.clear();
-
-  for (const auto &p : favKeys) {
-    m_favorites.insert(p.first + "|" + p.second);
-  }
-
-  WarmUpTiles();
-  Refresh();
-}
-
 wxBitmap FavoritesCards::GetStarBitmap(const Channel & /*ch*/) const {
   return m_favFilled;
 }
@@ -72,16 +60,13 @@ void FavoritesCards::OnCardClick(size_t index, bool fav, const wxRect &rect) {
 
   if (fav) {
     if (MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
-      mf->getApplication()->getFavoritesManager().remove(
-          ch.getName(), ch.getPlaylistName());
+      mf->getApplication()->getFavoritesManager().remove(ch);
       mf->refreshFavorites();
     }
 
-    // TILE-ONLY обновление
     MarkCardDirty((int)index);
     RenderTile(index);
     InvalidateCardClientRectByIndex((int)index);
-
     return;
   }
 

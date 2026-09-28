@@ -227,15 +227,22 @@ void BaseChannelList::InitColumns() {
 
   wxDataViewColumn *favCol = new wxDataViewColumn(
       "★",
-      new InlineFavoriteStarRenderer(m_favIconFilled, m_favIconOutline,
-                                     [this](unsigned int row) {
-                                       if (row < m_model->GetCount()) {
-                                         bool isFav = m_model->IsFavorite(row);
-                                         const Channel &ch =
-                                             m_model->GetChannel(row);
-                                         OnFavoriteToggled(ch, !isFav);
-                                       }
-                                     }),
+      new InlineFavoriteStarRenderer(
+          m_favIconFilled, m_favIconOutline,
+          [this](unsigned int row) {
+            if (row >= m_model->GetCount())
+              return;
+            const Channel &ch = m_model->GetChannel(row);
+
+            bool isFav = false;
+            if (auto *mf =
+                    dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
+              if (auto *app = mf->getApplication()) {
+                isFav = app->getFavoritesManager().isFavorite(ch);
+              }
+            }
+            OnFavoriteToggled(ch, !isFav);
+          }),
       3, 40, wxALIGN_CENTER, wxDATAVIEW_COL_RESIZABLE);
 
   AppendColumn(favCol);
@@ -312,6 +319,14 @@ void BaseChannelList::LoadChannels(const std::vector<Channel> &channels,
 
   m_model->SetChannels(initialBatch, playlistName, physSize, cs);
 
+  if (auto *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
+    if (auto *app = mf->getApplication()) {
+      m_model->SetFavoriteChecker([app](const Channel &c) {
+        return app->getFavoritesManager().isFavorite(c);
+      });
+    }
+  }
+
   ResetVisibleRange();
 
   Refresh();
@@ -361,6 +376,14 @@ void BaseChannelList::LoadFavoritesChannels(
   int physSize = std::max(1, (int)std::round(LIST_LOGO_SIZE_DIP * cs));
 
   m_model->SetChannels(channels, playlistName, physSize, cs);
+
+  if (auto *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
+    if (auto *app = mf->getApplication()) {
+      m_model->SetFavoriteChecker([app](const Channel &c) {
+        return app->getFavoritesManager().isFavorite(c);
+      });
+    }
+  }
 
   m_ignoreSelectionEvents = false;
 }
