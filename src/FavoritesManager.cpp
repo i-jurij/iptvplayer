@@ -60,6 +60,8 @@ void FavoritesManager::loadFromFile() {
       ch.setUrl(item["url"].GetString());
     if (item.HasMember("playlistId") && item["playlistId"].IsString())
       ch.setPlaylistId(item["playlistId"].GetString());
+    if (item.HasMember("playlistName") && item["playlistName"].IsString())
+      ch.setPlaylistName(item["playlistName"].GetString());
     if (item.HasMember("series") && item["series"].IsString())
       ch.setSeries(item["series"].GetString());
     if (item.HasMember("season") && item["season"].IsString())
@@ -92,6 +94,8 @@ void FavoritesManager::saveToFile() {
     obj.AddMember("name",       Value(c.getName().c_str(), alloc), alloc);
     obj.AddMember("url",        Value(c.getUrl().c_str(), alloc), alloc);
     obj.AddMember("playlistId", Value(c.getPlaylistId().c_str(), alloc), alloc);
+    obj.AddMember("playlistName", Value(c.getPlaylistName().c_str(), alloc),
+                  alloc);
     obj.AddMember("series",     Value(c.getSeries().c_str(), alloc), alloc);
     obj.AddMember("season",     Value(c.getSeason().c_str(), alloc), alloc);
     obj.AddMember("logo",       Value(c.getLogo().c_str(), alloc), alloc);

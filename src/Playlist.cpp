@@ -72,6 +72,8 @@ Playlist::~Playlist() = default;
 // setChannels
 // ----------------------------------------------------------------------
 void Playlist::setChannels(std::vector<Channel> channels) noexcept {
+  for (auto &ch : channels)
+    ch.setPlaylistId(m_uniqueId);
   m_channels = std::move(channels);
   m_lastUpdate = std::time(nullptr);
 }
@@ -80,7 +82,9 @@ void Playlist::setChannels(std::vector<Channel> channels) noexcept {
 // Управление каналами
 // ----------------------------------------------------------------------
 void Playlist::addChannel(const Channel &channel) {
-  m_channels.push_back(channel);
+  Channel ch = channel;
+  ch.setPlaylistId(m_uniqueId);
+  m_channels.push_back(std::move(ch));
   m_lastUpdate = std::time(nullptr);
 }
 
@@ -255,9 +259,13 @@ bool Playlist::fromJson(const std::string &json) {
 
     if (chVal.HasMember("series") && chVal["series"].IsString())
       ch.setSeries(chVal["series"].GetString());
-    
+
     if (chVal.HasMember("season") && chVal["season"].IsString())
       ch.setSeason(chVal["season"].GetString());
+
+    // playlistId — производный от плейлиста-владельца.
+    // Старые JSON могли хранить пустое или чужое значение.
+    ch.setPlaylistId(m_uniqueId);
 
     // Дополнительные атрибуты
     for (auto it = chVal.MemberBegin(); it != chVal.MemberEnd(); ++it) {
