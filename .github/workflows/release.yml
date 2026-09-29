@@ -747,19 +747,7 @@ jobs:
           | \`.deb\` (Debian) | $deb_debian_cell | Собран на Debian 13. Проверен в CI на Debian 13. |
           | \`.rpm\` | $rpm_cell | Собран на Rocky 10. Проверен в CI на Rocky 10 и Fedora 44. |
 
-          ### Какой пакет выбрать
-
           <sub>Собранные пакеты могут теоретически работать и на других системах того же семейства с glibc не ниже версии сборочного контейнера.</sub>
-
-          **Arch Linux** → \`iptvplayer-*.pkg.tar.zst\` (установка через \`pacman -U\`)
-
-          **Ubuntu 24.04+, Linux Mint 22+** (glibc 2.39) → \`iptvplayer_*_ubuntu-24.04_amd64.deb\`
-
-          **Debian 13+** (glibc 2.41) → \`iptvplayer_*_debian-13_amd64.deb\`
-
-          **RHEL 10+, Rocky 10+, Alma 10+, Fedora 40+** (glibc 2.39) → \`iptvplayer-*.rocky-10.x86_64.rpm\`
-
-          **Любая Linux x86_64** (в т.ч. старые glibc, musl-дистрибутивы, NixOS) → \`*-sharun.AppImage\`
           EOF
           )
 
