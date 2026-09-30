@@ -182,19 +182,24 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
 
     // Статус-бар завершения
     if (info.stage == EpgProgressStage::Done) {
-      SetStatusText("EPG Matching Done", 0);
-      wxString parts;
-      if (info.totalChannels > 0) {
-        parts += wxString::Format("Channels %d/%d", info.matched,
-                                  info.totalChannels);
+      if (info.totalChannels == 0 && info.favoritesTotal == 0) {
+        SetStatusText("EPG: no channels matched", 0);
+        SetStatusText("", 1);
+      } else {
+        SetStatusText("EPG Matching Done", 0);
+        wxString parts;
+        if (info.totalChannels > 0) {
+          parts += wxString::Format("Channels %d/%d", info.matched,
+                                    info.totalChannels);
+        }
+        if (info.favoritesTotal > 0) {
+          if (!parts.IsEmpty())
+            parts += ", ";
+          parts += wxString::Format("Favorites %d/%d", info.favoritesMatched,
+                                    info.favoritesTotal);
+        }
+        SetStatusText(parts, 1);
       }
-      if (info.favoritesTotal > 0) {
-        if (!parts.IsEmpty())
-          parts += ", ";
-        parts += wxString::Format("Favorites %d/%d", info.favoritesMatched,
-                                  info.favoritesTotal);
-      }
-      SetStatusText(parts, 1);
     } else if (info.stage == EpgProgressStage::Cancelled) {
       SetStatusText("EPG cansel", 0);
       SetStatusText("EPG update cancelled", 1);
@@ -270,4 +275,3 @@ void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {
 
   evt.Skip();
 }
-

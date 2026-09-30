@@ -22,6 +22,46 @@ fi
 
 source "$SCRIPT_DIR/common.sh"
 
+_resolve_dejavu_font() {
+    local cached="${SCRIPT_DIR}/DejaVuSans.ttf"
+    [ -f "$cached" ] && { printf '%s\n' "$cached"; return 0; }
+
+    local p
+    for p in \
+        /usr/share/fonts/TTF/DejaVuSans.ttf \
+        /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+        /usr/share/fonts/dejavu/DejaVuSans.ttf \
+        /usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf \
+        /usr/share/fonts/truetype/DejaVuSans.ttf \
+        /usr/local/share/fonts/DejaVuSans.ttf \
+        /usr/local/share/fonts/TTF/DejaVuSans.ttf
+    do
+        [ -f "$p" ] && { printf '%s\n' "$p"; return 0; }
+    done
+
+    local url="https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2"
+    local archive="${SCRIPT_DIR}/.dejavu-ttf-2.37.tar.bz2"
+    echo "[i] Шрифт не найден локально, качаю: $url" >&2
+    download "$url" "$archive" || { echo "[!] Не удалось скачать DejaVu" >&2; return 1; }
+
+    local tmp; tmp="$(mktemp -d)"
+    tar -xjf "$archive" -C "$tmp" 2>/dev/null || { rm -rf "$tmp" "$archive"; return 1; }
+    local src; src="$(find "$tmp" -name 'DejaVuSans.ttf' -type f -print -quit)"
+    [ -n "$src" ] || { rm -rf "$tmp" "$archive"; return 1; }
+
+    local magic
+    magic="$(dd if="$src" bs=4 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+    case "$magic" in
+        00010000|74727565|74746366|4f54544f) ;;
+        *) rm -rf "$tmp" "$archive"; return 1 ;;
+    esac
+
+    cp "$src" "$cached"
+    rm -rf "$tmp" "$archive"
+    echo "[+] DejaVu Sans сохранён в кэш: $cached" >&2
+    printf '%s\n' "$cached"
+}
+
 build_sharun_appimage() {
     local appimage_file="${PACKAGE_NAME}-linux-${APPIMAGE_ARCH}-${VERSION_FILE}-sharun.AppImage"
     local bin_src="$PROJECT_ROOT/install/bin/$PACKAGE_NAME"
@@ -230,33 +270,181 @@ build_sharun_appimage() {
     fi
 
     # ---------------------------------------------------------------------
-    # Хук для CA-bundle. AppRun.sh автоматически выполняет *.hook из bin/
-    # через source, поэтому export'ы из хука наследуются приложением.
+    # CA-bundle: бандл cacert.pem + хук.
+    #
+    # Логика зеркалит _resolve_dejavu_font:
+    #   1. Системный bundle сборочной машины — приоритет.
+    #   2. Скачивание с curl.se / GitHub-зеркала — fallback.
+    #
+    # Приоритет системному: он и так есть в Arch-образе, обновляется
+    # пакетным менеджером, и это на одну сетевую зависимость меньше.
     # ---------------------------------------------------------------------
-    echo "[+] Создание ca-bundle.hook..."
+    echo "[+] Бандлинг CA-сертификатов (fallback)..."
+    mkdir -p "$APPDIR/share/ca"
+    local _ca_dst="$APPDIR/share/ca/cacert.pem"
+    local _ca_ok=0
 
+    # 1. Системные пути сборочной машины. Порядок: сначала то, что
+    #    реально лежит в Arch (symlink на tls-ca-bundle.pem), потом —
+    #    другие дистрибутивы на случай локальной сборки.
+    for _ca_src in \
+        /etc/ssl/certs/ca-certificates.crt \
+        /usr/local/etc/ssl/certs/ca-certificates.crt \
+        /usr/local/etc/ssl/cert.pem \
+        /usr/local/share/ca-certificates/ca-certificates.crt \
+        /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+        /etc/pki/tls/cert.pem \
+        /etc/pki/tls/cacert.pem \
+        /etc/pki/tls/certs/ca-bundle.crt \
+        /etc/pki/tls/certs/ca-bundle.trust.crt \
+        /etc/ssl/cert.pem \
+        /etc/ssl/ca-bundle.pem \
+        /var/lib/ca-certificates/ca-bundle.pem \
+        /etc/ca-certificates/extracted/tls-ca-bundle.pem
+    do
+        if [ -f "$_ca_src" ]; then
+            if cp "$_ca_src" "$_ca_dst" 2>/dev/null \
+               && grep -q 'BEGIN CERTIFICATE' "$_ca_dst"; then
+                echo "[+] CA-bundle из системы сборки: $_ca_src"
+                _ca_ok=1
+                break
+            fi
+        fi
+    done
+
+    # 2. Не нашли — качаем. Два URL: curl.se и зеркало на GitHub.
+    if [ "$_ca_ok" = 0 ]; then
+        echo "[i] Системный CA-bundle не найден, качаю..."
+        DOWNLOAD_UA="Mozilla/5.0"
+        if download_multi "$_ca_dst" \
+            "https://curl.se/ca/cacert.pem" \
+            "https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt"
+        then
+            _ca_ok=1
+        fi
+        unset DOWNLOAD_UA
+    fi
+
+    # 3. Валидация. cacert.pem начинается с блока комментариев ##, а не
+    #    с первого сертификата — проверяем наличие BEGIN CERTIFICATE
+    #    по всему файлу и размер > 50 КБ (HTML-страница ошибки весит
+    #    меньше, валидный бандл — 200+ КБ).
+    if [ "$_ca_ok" = 1 ]; then
+        local _ca_size=0
+        _ca_size=$(stat -c %s "$_ca_dst" 2>/dev/null || echo 0)
+        if [ "$_ca_size" -lt 51200 ] \
+           || ! grep -q 'BEGIN CERTIFICATE' "$_ca_dst"; then
+            echo "[!] CA-bundle невалиден (size=${_ca_size}B) — удаляю" >&2
+            rm -f "$_ca_dst"
+            rmdir "$APPDIR/share/ca" 2>/dev/null || true
+            _ca_ok=0
+        fi
+    fi
+
+    if [ "$_ca_ok" = 1 ]; then
+        echo "[+] cacert.pem забандлен ($(du -h "$_ca_dst" | cut -f1), $(grep -c 'BEGIN CERTIFICATE' "$_ca_dst") сертификатов)"
+    else
+        echo "[!] CA-bundle не забандлен — fallback недоступен, только системные пути" >&2
+    fi
+
+
+    echo "[+] Создание ca-bundle.hook..."
     cat > "$APPDIR/bin/99-ca_bundle.hook" << 'EOF'
 #!/bin/sh
-# Runtime-детект системного CA-bundle. Выполняется AppRun.sh перед exec,
-# поэтому переменные гарантированно доезжают до libcurl внутри песочницы.
+# Приоритет: системный CA-bundle → встроенный в AppImage.
+# Список путей покрывает Debian/Ubuntu, Fedora/RHEL, Arch,
+# openSUSE, Alpine, NixOS, Gentoo и Tiny Core (/usr/local/...).
 for c in \
     /etc/ssl/certs/ca-certificates.crt \
+    /usr/local/etc/ssl/certs/ca-certificates.crt \
+    /usr/local/etc/ssl/cert.pem \
+    /usr/local/share/ca-certificates/ca-certificates.crt \
     /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
     /etc/pki/tls/cert.pem \
     /etc/pki/tls/cacert.pem \
+    /etc/pki/tls/certs/ca-bundle.crt \
+    /etc/pki/tls/certs/ca-bundle.trust.crt \
     /etc/ssl/cert.pem \
-    /var/lib/ca-certificates/ca-bundle.pem
+    /etc/ssl/ca-bundle.pem \
+    /var/lib/ca-certificates/ca-bundle.pem \
+    /etc/ca-certificates/extracted/tls-ca-bundle.pem
 do
     if [ -f "$c" ]; then
         export IPTVPLAYER_CA_BUNDLE="$c"
+        export SSL_CERT_FILE="$c"
         break
     fi
 done
+
+# Fallback: бандл внутри AppImage. Сработает, если ни один
+# системный путь не найден (Tiny Core без ca-certificates.tcz).
+if [ -z "$IPTVPLAYER_CA_BUNDLE" ] \
+   && [ -f "${SHARUN_DIR}/share/ca/cacert.pem" ]; then
+    export IPTVPLAYER_CA_BUNDLE="${SHARUN_DIR}/share/ca/cacert.pem"
+    export SSL_CERT_FILE="$IPTVPLAYER_CA_BUNDLE"
+fi
 EOF
     chmod +x "$APPDIR/bin/99-ca_bundle.hook"
-    
-    echo "[i] CA-bundle будет найден в рантайме; при необходимости"
-    echo "[i] можно переопределить через IPTVPLAYER_CA_BUNDLE (см. README)."
+
+    echo "[i] CA-bundle: системный в приоритете, встроенный — fallback."
+    echo "[i] Переопределение — через IPTVPLAYER_CA_BUNDLE (см. README)."
+
+    # --- Бандл шрифта ---
+    echo "[+] Бандлинг fallback-шрифта..."
+    local font_src
+    if ! font_src="$(_resolve_dejavu_font)"; then
+        echo "[!] Шрифт не забандлен — на системах без fontconfig будет тофу." >&2
+        unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
+              UPINFO GTK_CLASS_FIX DEPLOY_GDK \
+              DEPLOY_OPENGL DEPLOY_VULKAN
+        rm -f "$QUICK_SHARUN"
+        return 1
+    fi
+    mkdir -p "$APPDIR/share/fonts"
+    cp "$font_src" "$APPDIR/share/fonts/DejaVuSans.ttf"
+    echo "[+] Забандлен $(basename "$font_src") ($(du -h "$font_src" | cut -f1))"
+
+    # --- Статический fonts.conf ---
+    # ${SHARUN_DIR} в XML не раскрывается. prefix="relative" разрешает
+    # ../../share/fonts относительно самого fonts.conf → $APPDIR/share/fonts.
+    # sharun сам выставит FONTCONFIG_FILE=$SHARUN_DIR/etc/fonts/fonts.conf,
+    # если системного /etc/fonts/fonts.conf нет (документировано в README sharun).
+    echo "[+] Создание fonts.conf..."
+    mkdir -p "$APPDIR/etc/fonts"
+    cat > "$APPDIR/etc/fonts/fonts.conf" << 'FONTCONF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir prefix="relative">../../share/fonts</dir>
+  <dir>/usr/share/fonts</dir>
+  <dir>/usr/local/share/fonts</dir>
+  <cachedir>/tmp/fontconfig-cache</cachedir>
+  <include ignore_missing="yes">/etc/fonts/conf.d</include>
+  <include ignore_missing="yes">/usr/local/etc/fonts/conf.d</include>
+</fontconfig>
+FONTCONF
+
+    # --- fonts.hook: cachedir + защита от fallback-скана ---
+    echo "[+] Создание fonts.hook..."
+    cat > "$APPDIR/bin/98-fonts.hook" << 'HOOK'
+#!/bin/sh
+# FONTCONFIG_FILE выставлен sharun'ом на $SHARUN_DIR/etc/fonts/fonts.conf.
+# FONTCONFIG_PATH sharun не выставляет — задаём сами, если конфиг
+# использует <include> с относительными путями.
+export FONTCONFIG_PATH="${SHARUN_DIR}/etc/fonts"
+
+# Cache — writable-каталог, иначе fontconfig пытается писать
+# рядом со шрифтами и сдаётся.
+mkdir -p /tmp/fontconfig-cache 2>/dev/null || true
+
+# XDG_DATA_HOME на пустой temp: отрезает рекурсивный обход
+# ~/.fonts и ~/.local/share/fonts — именно там fontconfig виснет
+# на Tiny Core (симлинки вглубь /tmp/tcloop/...).
+export XDG_DATA_HOME="${TMPDIR:-/tmp}/sharun-xdg-$$"
+mkdir -p "$XDG_DATA_HOME/fonts" 2>/dev/null || true
+HOOK
+    chmod +x "$APPDIR/bin/98-fonts.hook"
+
 
     # ---------------------------------------------------------------------
     # Упаковка

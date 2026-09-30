@@ -121,14 +121,14 @@ void EPGPanel::SetupUI() {
   m_dateLabel = new wxStaticText(this, wxID_ANY, "");
   navSizer->Add(m_dateLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
 
-  m_prevDayBtn = new wxButton(this, wxID_ANY, "\u2190");
+  m_prevDayBtn = new wxButton(this, wxID_ANY, wxString::FromUTF8("\u2190"));
   m_prevDayBtn->SetToolTip(_("Previous day"));
   navSizer->Add(m_prevDayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
   m_todayBtn = new wxButton(this, wxID_ANY, _("Today"));
   navSizer->Add(m_todayBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
 
-  m_nextDayBtn = new wxButton(this, wxID_ANY, "\u2192");
+  m_nextDayBtn = new wxButton(this, wxID_ANY, wxString::FromUTF8("\u2192"));
   m_nextDayBtn->SetToolTip(_("Next day"));
   navSizer->Add(m_nextDayBtn, 0, wxALIGN_CENTER_VERTICAL);
 
@@ -219,7 +219,7 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   if (m_hasError && !m_lastError.IsEmpty()) {
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, "⚠ " + m_lastError);
+    m_programGrid->SetCellValue(0, 1, wxString::FromUTF8("⚠ ") + m_lastError);
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;
@@ -227,10 +227,9 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   if (!m_epgManager) {
     LOG_ERROR("EPGPanel: EPGManager is null");
-    SetStatus(_("Error"), _("⚠ EPG manager not available"));
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, _("⚠ EPG manager not available"));
+    m_programGrid->SetCellValue(0, 1, _U("⚠ EPG manager not available"));
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;
@@ -238,25 +237,24 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   auto sources = m_epgManager->GetSources();
   if (!m_epgManager->IsLoaded()) {
-    if (sources.empty()) {
-      SetStatus(_("Warning"),
-                _("No EPG sources configured. Add sources in Settings."));
-    } else {
-      SetStatus(_("Warning"), _("EPG not loaded yet. Try Refresh."));
-    }
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, _("⚠ No EPG data loaded"));
+    if (sources.empty()) {
+      m_programGrid->SetCellValue(
+          0, 1, _U("⚠ No EPG sources configured. Add sources in Settings."));
+    } else {
+      m_programGrid->SetCellValue(0, 1,
+                                  _U("⚠ EPG not loaded yet. Try Refresh."));
+    }
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;
   }
 
   if (!m_epgManager->HasMapping()) {
-    SetStatus(_("Warning"), _("No EPG channels matched to playlist."));
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, _("⚠ No EPG channels matched"));
+    m_programGrid->SetCellValue(0, 1, _U("⚠ No EPG channels matched"));
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;
@@ -268,7 +266,6 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   m_currentPrograms = programs;
 
   if (programs.empty()) {
-    SetStatus(_("Warning"), _("No programs for this date"));
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
     m_programGrid->SetCellValue(0, 1, _("No programs for this date"));
@@ -277,7 +274,6 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
     return;
   }
 
-  ClearStatus();
   UpdateDateLabel();
 
   int row = 0;
@@ -394,27 +390,6 @@ void EPGPanel::OnProgramListResize(wxSizeEvent &event) {
   event.Skip();
 }
 
-// ----------------------------------------------------------------------------
-// Вспомогательные методы для статуса
-// ----------------------------------------------------------------------------
-void EPGPanel::SetStatus(const wxString &brief, const wxString &detail) {
-  MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
-  if (mf) {
-    mf->SetStatusText(brief, 0);
-    mf->SetStatusText(detail, 1);
-  } else {
-    LOG_ERROR("EPGPanel: Cannot find MainFrame to set status");
-  }
-}
-
-void EPGPanel::ClearStatus() {
-  MainFrame *mf = dynamic_cast<MainFrame *>(wxTheApp->GetTopWindow());
-  if (mf) {
-    mf->SetStatusText("", 0);
-    mf->SetStatusText("", 1);
-  }
-}
-
 void EPGPanel::ShowMessage(const wxString &msg) {
   wxMessageBox(msg, _("Info"), wxOK | wxICON_INFORMATION, this);
 }
@@ -449,27 +424,6 @@ void EPGPanel::RestoreState() {
       m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());
     m_detailTitle->SetLabel("");
     m_detailDesc->SetValue("");
-  }
-}
-
-// ----------------------------------------------------------------------------
-// Индикация прогресса матчинга (вызывается из MainFrame)
-// ----------------------------------------------------------------------------
-void EPGPanel::ShowMatchProgress(bool show) {
-  // Здесь можно показать что-то, но в новой панели мы не показываем прогресс,
-  // так как он управляется глобально. Оставляем заглушку.
-  if (show) {
-    SetStatus(_("Matching"), _("Matching channels..."));
-  } else {
-    ClearStatus();
-  }
-}
-
-void EPGPanel::UpdateMatchProgress(int matched, int total, int progress) {
-  if (m_isActive) {
-    SetStatus(_("Matching"),
-              wxString::Format(_("Matched %d/%d (%d%%)"), matched, progress,
-                               progress * 100 / total));
   }
 }
 

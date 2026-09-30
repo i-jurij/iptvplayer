@@ -1,11 +1,25 @@
+кнопка с инфо об источниках ипиджи в диалоге добавления источников ипипджи
+без текста
+
+Gtk-Message: 16:31:07.352: Failed to load module "canberra-gtk-module"
+
+при запуске шарун в тиникоре 
+При попытке открыть меню - ассерт wxlsStockID(GetId) failed in SetItemLabel():
+A non-stock menu item with an empty label?
+Menu Open in videopanel - the same.
+
+В ипиджи панели программ кнопки назад - вперед - без иконок
+----------------------------------------------
+
+settings libmpv need add (hwdec, drop frame, ...)
+--------------------------------------------------
+
+add PL from iptvorg - on curl error or other error write error text
+but no simply Failed to load data
+---------------------------------------------
 
 репозитории на GitHub Pages
 -----------------------------------------
-
-tinycore linux run Appimage (sharun): errors. 
-See screenshot in ~/Pictures/Screenshots
-
------------------------------------------------------------------------
 
 Xtream Codes API:
 Протокол предоставляет структурированный доступ к контенту, что гораздо удобнее, чем простой плейлист. 

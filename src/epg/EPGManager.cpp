@@ -2672,57 +2672,45 @@ EPGManager::MatchByAlias(const std::string &playlistName) const {
 }
 
 void EPGManager::MatchFavoritesAsync(bool force) {
-  m_cancelFavoritesMatching = false; // старт новой сессии
-  // 1) Проверка/отмена предыдущего матчинга
+  // 1) Проверка/отмена предыдущего матчинга.
+  // Если задача уже идёт — просто пропускаем вызов.
   bool expected = false;
   if (!m_favoritesMatchInProgress.compare_exchange_strong(expected, true)) {
-    LOG_DEBUG("MatchFavoritesAsync: already in progress, cancelling old task");
-    m_cancelFavoritesMatching = true;
-
-    if (m_favoritesMatchFuture.valid()) {
-      auto status = m_favoritesMatchFuture.wait_for(std::chrono::seconds(2));
-      if (status == std::future_status::timeout) {
-        LOG_WARN("MatchFavoritesAsync: old task did not finish within 2s, "
-                 "forcing new start");
-      }
-    }
-
-    m_cancelFavoritesMatching = false;
-    m_favoritesMatchInProgress = false;
-
-    expected = false;
-    if (!m_favoritesMatchInProgress.compare_exchange_strong(expected, true)) {
-      LOG_WARN("MatchFavoritesAsync: race condition, aborting");
-      return;
-    }
-  }
-
-  // 2) Проверка необходимости матчинга
-  if (!m_loaded) {
-    LOG_DEBUG("MatchFavoritesAsync: EPG not loaded, skipping");
-    m_favoritesMatchInProgress = false;
+    LOG_DEBUG(
+        "MatchFavoritesAsync: already in progress, skipping duplicate call");
     return;
   }
 
-  if (!force && !IsFavoritesEpgHashChanged()) {
-    LOG_DEBUG("MatchFavoritesAsync: favorites EPG hash unchanged, skipping");
-    m_favoritesMatchInProgress = false;
-    return;
-  }
+  // Сброс cancel — только теперь, когда мы владеем слотом.
+  // В первой строке функции это стирало бы пользовательский CancelMatching.
+  m_cancelFavoritesMatching = false;
 
-  // 3) Запуск асинхронной задачи. Сессия создаётся внутри лямбды —
+  // 2) Запуск асинхронной задачи. Сессия создаётся внутри лямбды —
   // тогда счётчик инкрементируется ровно при старте работы, а dtor
   // сработает и при исключении, и при отмене.
   m_favoritesMatchFuture = std::async(std::launch::async, [this, force]() {
-    MatchingSession session(m_activeMatchings, this);
+    // RAII-сброс m_favoritesMatchInProgress на любом выходе из лямбды,
+    // включая исключения (SaveFavoritesEpgHashToDB, GetMappingEntry и т.п.).
+    struct FlagGuard {
+      std::atomic<bool> &flag;
+      explicit FlagGuard(std::atomic<bool> &f) : flag(f) {}
+      ~FlagGuard() { flag.store(false, std::memory_order_release); }
+      FlagGuard(const FlagGuard &) = delete;
+      FlagGuard &operator=(const FlagGuard &) = delete;
+    } guard(m_favoritesMatchInProgress);
+
     LOG_DEBUG("MatchFavoritesAsync: starting background task (force=%d)",
               force);
+
+    // 3) Проверка необходимости матчинга
+    if (!m_loaded) {
+      LOG_DEBUG("MatchFavoritesAsync: EPG not loaded, skipping");
+      return;
+    }
 
     Application *app = static_cast<Application *>(wxTheApp);
     if (!app) {
       LOG_ERROR("MatchFavoritesAsync: Application is null");
-      m_favoritesMatchInProgress = false;
-      UpdateMatchProgress(true, 0, 0, 0, true);
       return;
     }
 
@@ -2732,10 +2720,17 @@ void EPGManager::MatchFavoritesAsync(bool force) {
       std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
       m_lastFavoritesEpgHash = m_epgChannelsHash;
       SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
-      m_favoritesMatchInProgress = false;
-      UpdateMatchProgress(true, 0, 0, 0, true);
       return;
     }
+
+    if (!force && !IsFavoritesEpgHashChanged()) {
+      LOG_DEBUG("MatchFavoritesAsync: favorites EPG hash unchanged, skipping");
+      return;
+    }
+
+    // 4) Сессия создаётся только при реальном матчинге, чтобы пустые
+    // задачи не дёргали m_activeMatchings и не сбивали агрегат.
+    MatchingSession session(m_activeMatchings, this);
 
     // Собираем названия плейлистов, которые есть в избранном
     std::unordered_set<std::string> playlistNames;
@@ -2848,14 +2843,14 @@ void EPGManager::MatchFavoritesAsync(bool force) {
       LOG_DEBUG("MatchFavoritesAsync: cancelled, not saving hash");
     }
 
-    m_favoritesMatchInProgress = false;
-
     UpdateMatchProgress(true, processed, matched, totalFav, true);
 
-    wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
-    evt.SetInt(matched);
-    evt.SetExtraLong(static_cast<int>(favChannels.size()));
-    wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+    if (wxTheApp && wxTheApp->GetTopWindow()) {
+      wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
+      evt.SetInt(matched);
+      evt.SetExtraLong(static_cast<int>(favChannels.size()));
+      wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+    }
   });
 }
 

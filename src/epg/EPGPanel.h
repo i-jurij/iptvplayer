@@ -24,10 +24,6 @@ public:
   void LoadProgramsForChannel(const std::string &channelId, time_t date);
   void SaveState();
   void RestoreState();
-  void ClearStatus();
-  
-  void ShowMatchProgress(bool show);
-  void UpdateMatchProgress(int matched, int total, int progress);
 
   void SetActive(bool active) { m_isActive = active; }
   bool IsActive() const { return m_isActive; }
@@ -82,7 +78,6 @@ private:
   void OnProgramSelected(wxGridEvent &);
   void AdjustProgramColumns();
   void OnProgramListResize(wxSizeEvent &);
-  void SetStatus(const wxString &brief, const wxString &detail);
   void ShowMessage(const wxString &msg);
 };
 

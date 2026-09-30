@@ -54,7 +54,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   wxPanel *header = new wxPanel(m_tempPlaylistPanel, wxID_ANY);
   wxBoxSizer *headerSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  wxStaticText *lbl = new wxStaticText(header, wxID_ANY, "Temporary playlist");
+  wxStaticText *lbl = new wxStaticText(header, wxID_ANY, _("Temporary playlist"));
 
   headerSizer->Add(lbl, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(5));
   header->SetSizer(headerSizer);
@@ -67,8 +67,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL | wxBORDER_NONE);
 
   // Колонки
-  m_tempPlaylistList->InsertColumn(0, "#", wxLIST_FORMAT_RIGHT, FromDIP(40));
-  m_tempPlaylistList->InsertColumn(1, "Name", wxLIST_FORMAT_LEFT, FromDIP(260));
+  m_tempPlaylistList->InsertColumn(0, _("#"), wxLIST_FORMAT_RIGHT, FromDIP(40));
+  m_tempPlaylistList->InsertColumn(1, _("Name"), wxLIST_FORMAT_LEFT, FromDIP(260));
 
   tempSizer->Add(m_tempPlaylistList, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                  5);
@@ -98,11 +98,11 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       new wxBitmapButton(m_tempPlaylistButtonsPanel, wxID_ANY, clearIcon);
 
   // Tooltips
-  m_btnPrev->SetToolTip("Previous");
-  m_btnNext->SetToolTip("Next");
-  m_btnShuffle->SetToolTip("Shuffle / Restore");
-  m_btnRemove->SetToolTip("Remove selected");
-  m_btnClear->SetToolTip("Clear playlist");
+  m_btnPrev->SetToolTip(_("Previous"));
+  m_btnNext->SetToolTip(_("Next"));
+  m_btnShuffle->SetToolTip(_("Shuffle / Restore"));
+  m_btnRemove->SetToolTip(_("Remove selected"));
+  m_btnClear->SetToolTip(_("Clear playlist"));
 
   // Добавляем кнопки в сайзер
   btnSizer->Add(m_btnPrev, 0, wxALL, FromDIP(5));
@@ -302,7 +302,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     if (icon.IsOk())
       m_btnRecord->SetBitmap(icon);
     else
-      m_btnRecord->SetLabel("🔴 Rec");
+      m_btnRecord->SetLabel(wxString::FromUTF8("🔴 Rec"));
   }
   m_btnRecord->Bind(wxEVT_BUTTON, &VideoPanel::OnRecord, this);
   ctrlSizer->Add(m_btnRecord, 0, wxALL, FromDIP(5));
@@ -1218,8 +1218,9 @@ void VideoPanel::OnRecordStateChanged(bool isRecording,
     m_recordStatusTimer.Start(1000, wxTIMER_CONTINUOUS);
     wxString fname = wxString::FromUTF8(filename);
     wxFileName fn(fname);
-    frame->GetStatusBar()->SetStatusText(
-        "🔴 Recording: " + fn.GetFullName() + " [00:00:00]", 1);
+    frame->GetStatusBar()->SetStatusText(wxString::FromUTF8("🔴 Recording: ") +
+                                             fn.GetFullName() + " [00:00:00]",
+                                         1);
   } else {
     m_recordStatusTimer.Stop();
     if (!m_lastStreamInfo.IsEmpty()) {
@@ -1248,8 +1249,8 @@ void VideoPanel::OnRecordStatusTimer(wxTimerEvent &) {
   wxString duration = wxString::Format("%02d:%02d:%02d", hours, minutes, secs);
 
   wxString current = frame->GetStatusBar()->GetStatusText(1);
-  if (current.StartsWith("🔴 Recording:")) {
-    wxString prefix = "🔴 Recording: ";
+  const wxString prefix = wxString::FromUTF8("🔴 Recording: ");
+  if (current.StartsWith(prefix)) {
     int pos = current.find(prefix);
     if (pos != wxNOT_FOUND) {
       wxString filenamePart = current.Mid(pos + prefix.Length());
@@ -1258,7 +1259,7 @@ void VideoPanel::OnRecordStatusTimer(wxTimerEvent &) {
         filenamePart = filenamePart.Mid(0, bracketPos).Trim();
       }
       frame->GetStatusBar()->SetStatusText(
-          wxString::Format("🔴 Recording: %s [%s]", filenamePart, duration), 1);
+          prefix + filenamePart + wxString::Format(" [%s]", duration), 1);
     }
   }
 }
@@ -1273,7 +1274,7 @@ void VideoPanel::UpdateRecordButtonState() {
       if (icon.IsOk()) {
         m_btnRecord->SetBitmap(icon);
       } else {
-        m_btnRecord->SetLabel("🔴 Stop");
+        m_btnRecord->SetLabel(wxString::FromUTF8("🔴 Stop"));
         m_btnRecord->SetBackgroundColour(wxColour(200, 50, 50));
         m_btnRecord->SetForegroundColour(*wxWHITE);
       }
@@ -1285,7 +1286,7 @@ void VideoPanel::UpdateRecordButtonState() {
       if (icon.IsOk()) {
         m_btnRecord->SetBitmap(icon);
       } else {
-        m_btnRecord->SetLabel("🔴 Rec");
+        m_btnRecord->SetLabel(wxString::FromUTF8("🔴 Rec"));
         m_btnRecord->SetBackgroundColour(wxNullColour);
         m_btnRecord->SetForegroundColour(wxNullColour);
       }

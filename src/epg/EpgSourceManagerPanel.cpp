@@ -534,10 +534,12 @@ void EpgSourceManagerPanel::UpdateSourceList() {
         CheckAvailabilityAsync(sources[i].url);
       }
     } else {
-      avail = wxFileExists(url) ? _("✔") : _("✘ (missing)");
+      avail = wxFileExists(url) ? wxString::FromUTF8("✔")
+                                : _U("✘ (missing)");
     }
     m_sourceList->SetItem(idx, 3, avail);
-    m_sourceList->SetItem(idx, 4, sources[i].autoUpdate ? _("✔") : "");
+    m_sourceList->SetItem(idx, 4,
+                          sources[i].autoUpdate ? wxString::FromUTF8("✔") : "");
   }
 
   m_dirty = false;
@@ -799,7 +801,6 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
             std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
             if (!playlistId.empty()) {
               m_epgMgr->ReMatchCurrentPlaylist();
-              m_epgMgr->MatchFavoritesAsync();
             } else {
               m_epgMgr->UpdateProgress({EpgProgressStage::Done, 100,
                                        std::string(_("Done").ToUTF8().data())});
@@ -829,7 +830,7 @@ void EpgSourceManagerPanel::OnAboutMatch(wxCommandEvent &) {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
   wxString msg =
-      _("EPG Matching Algorithm\n\n"
+      _U("EPG Matching Algorithm\n\n"
         "1. Manual mappings (highest priority)\n"
         "2. TVG-ID match (if present)\n"
         "3. Exact name match (after normalization)\n"
@@ -949,7 +950,7 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
   wxString info = wxString::Format(
-      _("After editing, restart the application for changes to take effect.\n\n"
+      _U("After editing, restart the application for changes to take effect.\n\n"
         "You can fine-tune matching by editing the following JSON files in the "
         "config directory:\n\n"
         "  • %s\n"

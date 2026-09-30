@@ -29,7 +29,7 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
   // ---- Кнопка "More info" ----
   wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
   m_infoBtn =
-      new wxButton(this, wxID_ANY, _("More info about popular sources →"));
+      new wxButton(this, wxID_ANY, _U("More info about popular sources →"));
   topSizer->Add(m_infoBtn, 0);
   mainSizer->Add(topSizer, 0, wxEXPAND | wxALL, FromDIP(14));
 
@@ -114,9 +114,9 @@ void AddEpgSourceDialog::ShowInfoDialog() {
   // ---- Подсказка (вверху) ----
   wxStaticText *hint = new wxStaticText(
       &infoDlg, wxID_ANY,
-      _("ℹ Double‑click on any row to copy the URL to clipboard.\n"
-        "Note: URLs may become outdated; you can search for current XMLTV "
-        "sources online."));
+      _U("ℹ Double‑click on any row to copy the URL to clipboard.\n"
+         "Note: URLs may become outdated; you can search for current XMLTV "
+         "sources online."));
   wxFont hintFont = hint->GetFont();
   hintFont.SetWeight(wxFONTWEIGHT_BOLD);
   hint->SetFont(hintFont);
@@ -206,9 +206,9 @@ void AddEpgSourceDialog::ShowInfoDialog() {
               wxTheClipboard->SetData(new wxTextDataObject(url));
               wxTheClipboard->Close();
 
-              hint->SetLabel(_("✓ URL copied to clipboard!\n"
-                               "Note: URLs may become outdated; you can "
-                               "search for current XMLTV sources online."));
+              hint->SetLabel(_U("✓ URL copied to clipboard!\n"
+                                "Note: URLs may become outdated; you can "
+                                "search for current XMLTV sources online."));
               hint->SetForegroundColour(wxColour(0, 180, 0));
               timer->StartOnce(2000);
             }
@@ -217,9 +217,9 @@ void AddEpgSourceDialog::ShowInfoDialog() {
       infoDlg.Bind(wxEVT_TIMER, [hint, timer](wxTimerEvent &evt) {
         if (evt.GetId() == timer->GetId()) {
           hint->SetLabel(
-              _("ℹ Double‑click on any row to copy the URL to clipboard.\n"
-                "Note: URLs may become outdated; you can search for current "
-                "XMLTV sources online."));
+              _U("ℹ Double‑click on any row to copy the URL to clipboard.\n"
+                 "Note: URLs may become outdated; you can search for current "
+                 "XMLTV sources online."));
           hint->SetForegroundColour(wxNullColour);
         }
       });

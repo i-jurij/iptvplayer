@@ -311,9 +311,9 @@ void VideoPanel::OnOpen(wxCommandEvent &) {
   int idOpenFolder = wxWindow::NewControlId();
   int idOpenUrl = wxWindow::NewControlId();
 
-  m_openMenu->Append(idOpenFile, "Open File…");
-  m_openMenu->Append(idOpenFolder, "Open Folder…");
-  m_openMenu->Append(idOpenUrl, "Open URL…");
+  m_openMenu->Append(idOpenFile, _U("Open File…"));
+  m_openMenu->Append(idOpenFolder, _U("Open Folder…"));
+  m_openMenu->Append(idOpenUrl, _U("Open URL…"));
 
   m_openMenu->AppendSeparator();
 
@@ -363,14 +363,12 @@ void VideoPanel::OnOpen(wxCommandEvent &) {
 
 void VideoPanel::OnWindowCreated(wxShowEvent &event) {
   if (event.IsShown() && !m_isAttached) {
-    //LOG_DEBUG("VideoPanel: window shown, attaching backend");
-
     // Привязываем к m_videoArea (видео-окно), а не к this
     if (m_playerController->AttachToWindow(m_videoArea)) {
       m_isAttached = true;
-      //LOG_DEBUG("VideoPanel: backend attached successfully");
+      LOG_DEBUG("VideoPanel: backend attached successfully");
     } else {
-      //LOG_ERROR("VideoPanel: failed to attach backend");
+      LOG_ERROR("VideoPanel: failed to attach backend");
     }
   }
 }

@@ -355,16 +355,16 @@ void VideoPanel::OnTempPlaylistContextMenu(wxContextMenuEvent &evt) {
   int idClear = wxWindow::NewControlId();
   int idOpenFolder = wxWindow::NewControlId();
 
-  menu.Append(idPlay, "Play (Enter)");
-  menu.Append(idUp, "Move up (Ctrl+↑)");
-  menu.Append(idDown, "Move down (Ctrl+↓)");
+  menu.Append(idPlay, _U("Play (Enter)"));
+  menu.Append(idUp, _U("Move up (Ctrl+↑)"));
+  menu.Append(idDown, _U("Move down (Ctrl+↓)"));
   menu.AppendSeparator();
-  menu.Append(idRename, "Rename (F2)");
+  menu.Append(idRename, _U("Rename (F2)"));
   menu.AppendSeparator();
-  menu.Append(idRemove, "Remove (Delete)");
-  menu.Append(idClear, "Clear playlist (Ctrl+L)");
+  menu.Append(idRemove, _U("Remove (Delete)"));
+  menu.Append(idClear, _U("Clear playlist (Ctrl+L)"));
   menu.AppendSeparator();
-  menu.Append(idOpenFolder, "Open containing folder");
+  menu.Append(idOpenFolder, _U("Open containing folder"));
 
   menu.Bind(
       wxEVT_MENU, [this](wxCommandEvent &) { TempPlaylistPlay(); }, idPlay);
@@ -616,7 +616,7 @@ void VideoPanel::TempPlaylistRename() {
 
   wxString oldName = m_tempPlaylistList->GetItemText(sel, 1);
 
-  wxTextEntryDialog dlg(this, "Rename item:", "Rename", oldName);
+  wxTextEntryDialog dlg(this, _("Rename item:"), _("Rename"), oldName);
   if (dlg.ShowModal() != wxID_OK)
     return;
 
