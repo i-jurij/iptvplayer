@@ -1,14 +1,6 @@
-кнопка с инфо об источниках ипиджи в диалоге добавления источников ипипджи
-без текста
-
+sharun image
 Gtk-Message: 16:31:07.352: Failed to load module "canberra-gtk-module"
 
-при запуске шарун в тиникоре 
-При попытке открыть меню - ассерт wxlsStockID(GetId) failed in SetItemLabel():
-A non-stock menu item with an empty label?
-Menu Open in videopanel - the same.
-
-В ипиджи панели программ кнопки назад - вперед - без иконок
 ----------------------------------------------
 
 settings libmpv need add (hwdec, drop frame, ...)
