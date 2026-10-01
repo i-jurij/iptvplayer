@@ -97,6 +97,14 @@ static std::string RemoveQualityNumericSuffix(const std::string &s) {
   return s.substr(0, cut);
 }
 
+static bool HasAnyLetter(const std::string &s) {
+  for (unsigned char c : s) {
+    if (std::isalpha(c))
+      return true;
+  }
+  return false;
+}
+
 // --------------------------------------------------------------------------
 // Вспомогательные статические функции
 // --------------------------------------------------------------------------
@@ -1149,6 +1157,19 @@ void EPGManager::RebuildNormalizedCache() {
     nc.id = p.first;
     nc.displayName = p.second;
     NormalizeWithAttributes(p.second, nc);
+
+    // Нормализуем id тем же алгоритмом через временную структуру.
+    NormalizedChannel idNorm;
+    NormalizeWithAttributes(p.first, idNorm);
+    nc.normalizedId = std::move(idNorm.baseName);
+    nc.idTokens = std::move(idNorm.tokens);
+
+    // Отсеиваем пустые, чисто цифровые и слишком короткие id.
+    if (nc.normalizedId.size() < 3 || !HasAnyLetter(nc.normalizedId)) {
+      nc.normalizedId.clear();
+      nc.idTokens.clear();
+    }
+
     newCache.push_back(std::move(nc));
 
     if ((i + 1) % reportEvery == 0 || i + 1 == total) {
@@ -1201,7 +1222,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   }
 
   // ========================================================================
-  // Нормализация имени канала для остальных этапов (без алиасов)
+  // Нормализация имени канала
   // ========================================================================
   NormalizedChannel playlistNorm;
   NormalizeWithAttributes(channelName, playlistNorm);
@@ -1213,7 +1234,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   std::string tvgId = playlistChannel.getTvgId();
   if (!tvgId.empty()) {
     // Прямой матч: playlist.tvg-id точно равен XMLTV <channel id>.
-    // Без нормализации — этот путь для согласованных источников.
     std::shared_lock lock(m_epgIdIndexMutex);
     auto it = m_epgIdIndex.find(tvgId);
     if (it != m_epgIdIndex.end()) {
@@ -1230,8 +1250,7 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   }
 
   // ========================================================================
-  // ЭТАП 2: Точное совпадение baseName (с учётом региона и версии, НО БЕЗ
-  // КАЧЕСТВА)
+  // ЭТАП 2: Точное совпадение baseName (имя ↔ displayName)
   // ========================================================================
   {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
@@ -1259,16 +1278,55 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   }
 
   // ========================================================================
+  // ЭТАП 2b: Точное совпадение baseName ↔ normalizedId
+  // ========================================================================
+  {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    const NormalizedChannel *singleMatch = nullptr;
+    int matchCount = 0;
+    for (const auto &epg : m_normalizedCache) {
+      if (epg.normalizedId.empty())
+        continue;
+      if (epg.normalizedId != playlistNorm.baseName)
+        continue;
+      bool regionOk = true;
+      if (!playlistNorm.region.empty() && !epg.region.empty() &&
+          playlistNorm.region != epg.region)
+        regionOk = false;
+      if (!regionOk)
+        continue;
+      singleMatch = &epg;
+      if (++matchCount > 1)
+        break;
+    }
+    if (matchCount == 1) {
+      result.channelId = singleMatch->id;
+      result.method = "name_to_id";
+      result.score = 95;
+      result.confidence = "high";
+      LOG_DEBUG("FindBestMatch: NAME-TO-ID MATCH -> epgId='%s'",
+                result.channelId.c_str());
+      return result;
+    }
+    LOG_DEBUG("FindBestMatch: name-to-id exact matches = %d", matchCount);
+    // matchCount == 0 — просто идём дальше.
+    // matchCount > 1 — кандидаты попадут в пул на ЭТАПЕ 3 и будут
+    // соревноваться через substring/tokens/Jaro.
+  }
+
+  // ========================================================================
   // ЭТАП 3: Фильтрация кандидатов по региону/версии (БЕЗ КАЧЕСТВА)
   // ========================================================================
   struct Candidate {
     std::string id;
     std::string baseName;
     std::vector<std::string> tokens;
+    std::string normalizedId;
+    std::vector<std::string> idTokens;
     std::string region, quality;
     int score = 0;
     double ratio = 0.0;
-    bool fromSubstring = false;
+    bool fromId = false; // true, если победившее сравнение шло против id
   };
   std::vector<Candidate> candidates;
 
@@ -1285,9 +1343,11 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
         cand.id = epg.id;
         cand.baseName = epg.baseName;
         cand.tokens = epg.tokens;
+        cand.normalizedId = epg.normalizedId;
+        cand.idTokens = epg.idTokens;
         cand.region = epg.region;
         cand.quality = epg.quality;
-        candidates.push_back(cand);
+        candidates.push_back(std::move(cand));
       }
     }
   }
@@ -1300,81 +1360,89 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   }
 
   // ========================================================================
-  // ЭТАП 4: Substring (если одно имя содержит другое)
+  // ЭТАП 4: Substring (сравниваем и с baseName, и с normalizedId)
   // ========================================================================
-  for (auto &cand : candidates) {
+  auto trySubstring = [&](const std::string &candName) -> bool {
+    if (candName.empty())
+      return false;
     const std::string &shortName =
-        (playlistNorm.baseName.length() <= cand.baseName.length())
+        (playlistNorm.baseName.length() <= candName.length())
             ? playlistNorm.baseName
-            : cand.baseName;
+            : candName;
     const std::string &longName =
-        (playlistNorm.baseName.length() > cand.baseName.length())
+        (playlistNorm.baseName.length() > candName.length())
             ? playlistNorm.baseName
-            : cand.baseName;
-    if (shortName.length() >= static_cast<size_t>(m_substringMinLen) &&
-        longName.find(shortName) != std::string::npos) {
-      bool isStop = false;
-      for (const auto &sw : m_stopwords) {
-        if (shortName == sw) {
-          isStop = true;
-          break;
-        }
-      }
-      if (!isStop) {
-        cand.score = 75;
-        cand.fromSubstring = true;
-        LOG_DEBUG("FindBestMatch: substring candidate '%s' (score=75)",
-                  cand.baseName.c_str());
-      }
+            : candName;
+    if (shortName.length() < static_cast<size_t>(m_substringMinLen))
+      return false;
+    if (longName.find(shortName) == std::string::npos)
+      return false;
+    for (const auto &sw : m_stopwords) {
+      if (shortName == sw)
+        return false;
+    }
+    return true;
+  };
+
+  for (auto &cand : candidates) {
+    bool nameSub = trySubstring(cand.baseName);
+    bool idSub = trySubstring(cand.normalizedId);
+    if (nameSub || idSub) {
+      cand.score = 75;
+      cand.fromId = idSub && !nameSub;
+      LOG_DEBUG("FindBestMatch: substring candidate '%s' (score=75, id=%d)",
+                cand.baseName.c_str(), static_cast<int>(cand.fromId));
     }
   }
 
   // ========================================================================
-  // ЭТАП 5: Token‑sort (процент общих слов)
+  // ЭТАП 5: Token-sort (сравниваем и с tokens, и с idTokens)
   // ========================================================================
-  for (auto &cand : candidates) {
+  auto computeTokenRatio = [&](const std::vector<std::string> &t2) -> double {
     const auto &t1 = playlistNorm.tokens;
-    const auto &t2 = cand.tokens;
-    if (t1.empty() || t2.empty()) {
-      cand.ratio = 0.0;
-    } else {
-      std::unordered_set<std::string> set1(t1.begin(), t1.end());
-      std::unordered_set<std::string> set2(t2.begin(), t2.end());
-      size_t inter = 0;
-      for (const auto &t : set1) {
-        if (set2.find(t) != set2.end())
-          inter++;
-      }
-      size_t uni = set1.size() + set2.size() - inter;
-      cand.ratio = (uni > 0) ? static_cast<double>(inter) / uni : 0.0;
+    if (t1.empty() || t2.empty())
+      return 0.0;
 
-      // Строгое подмножество: одна сторона целиком внутри другой плюс
-      // лишние токены. "black" ⊂ "axn black", "sci fi" ⊂ "sony sci fi",
-      // "nick jr" ⊂ "nick jr too". Равенство (set1 == set2) сюда не попадает.
-      // ВАЖНО: без continue — падаем в else ниже и обнуляем score.
-      if (set1 != set2 && inter == std::min(set1.size(), set2.size())) {
-        LOG_DEBUG("FindBestMatch: strict-subset rejected '%s'",
-                  cand.baseName.c_str());
-        cand.ratio = 0.0;
-      }
+    std::unordered_set<std::string> set1(t1.begin(), t1.end());
+    std::unordered_set<std::string> set2(t2.begin(), t2.end());
+    size_t inter = 0;
+    for (const auto &t : set1) {
+      if (set2.find(t) != set2.end())
+        inter++;
     }
+    size_t uni = set1.size() + set2.size() - inter;
+    double r = (uni > 0) ? static_cast<double>(inter) / uni : 0.0;
+
+    // Строгое подмножество — как в оригинале.
+    if (set1 != set2 && inter == std::min(set1.size(), set2.size()))
+      r = 0.0;
+
+    return r;
+  };
+
+  for (auto &cand : candidates) {
+    double r1 = computeTokenRatio(cand.tokens);
+    double r2 = computeTokenRatio(cand.idTokens);
+    bool fromId = (r2 > r1);
+    cand.ratio = std::max(r1, r2);
 
     if (cand.ratio >= m_tokenHigh) {
       cand.score = 85;
-      LOG_DEBUG("FindBestMatch: token-high candidate '%s' (ratio=%.2f)",
-                cand.baseName.c_str(), cand.ratio);
+      cand.fromId = fromId;
+      LOG_DEBUG("FindBestMatch: token-high candidate '%s' (ratio=%.2f, id=%d)",
+                cand.baseName.c_str(), cand.ratio, static_cast<int>(fromId));
     } else if (cand.ratio >= m_tokenLow) {
       cand.score = 65;
-      LOG_DEBUG("FindBestMatch: token-low candidate '%s' (ratio=%.2f)",
-                cand.baseName.c_str(), cand.ratio);
+      cand.fromId = fromId;
+      LOG_DEBUG("FindBestMatch: token-low candidate '%s' (ratio=%.2f, id=%d)",
+                cand.baseName.c_str(), cand.ratio, static_cast<int>(fromId));
     } else {
       cand.score = 0;
     }
   }
 
   // ========================================================================
-  // ЭТАП 6: Jaro‑Winkler и бонусы за качество/регион (бонусы – только
-  // поощрение)
+  // ЭТАП 6: Jaro-Winkler (max из имени и id) + бонусы
   // ========================================================================
   for (auto &cand : candidates) {
     if (cand.score == 0)
@@ -1382,9 +1450,22 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     if (cand.score == 85) {
       // уже высокий, можно добавить бонусы позже
     } else {
-      double jaro = ComputeJaroWinkler(playlistNorm.baseName, cand.baseName);
-      LOG_DEBUG("FindBestMatch: Jaro-Winkler for '%s' = %.4f",
-                cand.baseName.c_str(), jaro);
+      double jaro1 = ComputeJaroWinkler(playlistNorm.baseName, cand.baseName);
+      double jaro2 =
+          cand.normalizedId.empty()
+              ? 0.0
+              : ComputeJaroWinkler(playlistNorm.baseName, cand.normalizedId);
+      double jaro = std::max(jaro1, jaro2);
+
+      // Флаг обновляем только при строгом преимуществе одной стороны,
+      // чтобы не сбить результат token-этапа при равенстве.
+      if (jaro2 > jaro1)
+        cand.fromId = true;
+      else if (jaro1 > jaro2)
+        cand.fromId = false;
+
+      LOG_DEBUG("FindBestMatch: Jaro-Winkler for '%s' = %.4f (id=%.4f)",
+                cand.baseName.c_str(), jaro1, jaro2);
       if (jaro >= m_jaroHigh)
         cand.score += 5;
       else if (jaro >= m_jaroMedium)
@@ -1429,7 +1510,9 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
 
   if (best && bestScore >= m_minMatchScore) {
     result.channelId = best->id;
-    if (best->score >= 85) {
+    if (best->fromId) {
+      result.method = "name_to_id";
+    } else if (best->score >= 85) {
       result.method = "tokens";
     } else if (best->score >= 70) {
       result.method = "jaro";

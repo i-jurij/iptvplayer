@@ -341,6 +341,8 @@ private:
     std::string region;      // ru, us и т.п. (из региональных суффиксов)
     std::string quality;     // hd, 1080p и т.п.
     std::vector<std::string> tokens; // слова из baseName (уже без стоп-слов)
+    std::string normalizedId;
+    std::vector<std::string> idTokens;
   };
 
   void RebuildNormalizedCache();
