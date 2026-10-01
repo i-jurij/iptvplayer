@@ -54,7 +54,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   wxPanel *header = new wxPanel(m_tempPlaylistPanel, wxID_ANY);
   wxBoxSizer *headerSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  wxStaticText *lbl = new wxStaticText(header, wxID_ANY, _("Temporary playlist"));
+  wxStaticText *lbl =
+      new wxStaticText(header, wxID_ANY, _("Temporary playlist"));
 
   headerSizer->Add(lbl, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(5));
   header->SetSizer(headerSizer);
@@ -68,7 +69,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   // Колонки
   m_tempPlaylistList->InsertColumn(0, _("#"), wxLIST_FORMAT_RIGHT, FromDIP(40));
-  m_tempPlaylistList->InsertColumn(1, _("Name"), wxLIST_FORMAT_LEFT, FromDIP(260));
+  m_tempPlaylistList->InsertColumn(1, _("Name"), wxLIST_FORMAT_LEFT,
+                                   FromDIP(260));
 
   tempSizer->Add(m_tempPlaylistList, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
                  5);
@@ -294,7 +296,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   // --- Spacer ---
   ctrlSizer->AddStretchSpacer(1);
-  
+
   // --- Record ---
   m_btnRecord = new wxButton(m_controlsPanel, wxID_ANY, "");
   {
@@ -511,7 +513,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_recordStatusTimer.SetOwner(this);
   Bind(wxEVT_TIMER, &VideoPanel::OnRecordStatusTimer, this,
        m_recordStatusTimer.GetId());
-  // player state bind 
+  // player state bind
   Bind(wxEVT_PLAYER_STATE, &VideoPanel::OnPlayerState, this);
 
   LoadTempPlaylistFromConfig();
@@ -641,7 +643,7 @@ VideoPanel::~VideoPanel() {
       m_playerController->StopRecording();
     }
     m_recordStatusTimer.Stop();
-    
+
     m_pendingTempPlay = false;
     m_pendingTempIndex = -1;
 
@@ -690,7 +692,7 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
       m_bufferingStatusShown = true;
       frame->SetStatusText("Buffering...", 0);
       if (m_playerController)
-        m_playerController->ShowOsdText("Buffering...", 0);
+        m_playerController->ShowOsdText("${osd-sym-cc} Buffering...", -1);
     }
   } else if (m_bufferingStatusShown) {
     m_bufferingStatusShown = false;
@@ -716,7 +718,7 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
     }
     frame->SetStatusText(statusText, 0);
     if (m_playerController)
-      m_playerController->ShowOsdText("", 0);
+      m_playerController->ShowOsdText("", 1);
   }
 }
 
@@ -1097,9 +1099,8 @@ bool VideoPanel::InitializeRecordDirectory() {
       return true;
     }
     // Не удалось создать — сбрасываем и будем создавать по умолчанию
-    LOG_WARN(
-        "Could not create record directory '%s', falling back to default",
-        m_recordDirectory.ToUTF8().data());
+    LOG_WARN("Could not create record directory '%s', falling back to default",
+             m_recordDirectory.ToUTF8().data());
     m_recordDirectory.Clear();
   }
 

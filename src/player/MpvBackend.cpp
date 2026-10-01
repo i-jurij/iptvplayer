@@ -25,11 +25,15 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   mpv_set_option_string(m_mpv, "terminal", "no");
   mpv_set_option_string(m_mpv, "msg-level", "warn");
 
-  // Критично для render API: vo=libmpv, без собственного окна
+  // !!! Don`t change! Критично для render API: vo=libmpv, без собственного окна
   mpv_set_option_string(m_mpv, "vo", "libmpv");
   mpv_set_option_string(m_mpv, "force-window", "no");
   mpv_set_option_string(m_mpv, "keep-open", "no");
   mpv_set_option_string(m_mpv, "idle", "yes");
+  
+  // OSD pause
+  //mpv_set_option_string(m_mpv, "osd-level", "2");
+  mpv_set_option_string(m_mpv, "osd-msg1", "${?pause==yes:${osd-sym-cc}}");
 
   // gpu-context оставляем как было
   if (IsWaylandSession()) {
@@ -737,8 +741,16 @@ void MpvBackend::ShowOsdText(const std::string &text, int durationMs) {
     escaped += c;
   }
 
-  int dur = (durationMs <= 0) ? -1 : durationMs;
+  std::string cmd;
+  if (durationMs < 0) {
+    // Persistent: пока не будет перезаписано другим show-text.
+    cmd = "show-text \"" + escaped + "\" 144000";
+  } else if (durationMs == 0) {
+    // Дефолтная длительность mpv (osd-duration).
+    cmd = "show-text \"" + escaped + "\"";
+  } else {
+    cmd = "show-text \"" + escaped + "\" " + std::to_string(durationMs);
+  }
 
-  std::string cmd = "show-text \"" + escaped + "\" " + std::to_string(dur);
   mpv_command_string(m_mpv, cmd.c_str());
 }
