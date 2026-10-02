@@ -19,6 +19,9 @@ public:
   ~PlayerController();
 
   bool GetPropertyInt(const std::string &name, int64_t &value) const;
+  void SetPropertyString(const char *name, const std::string &value);
+  bool GetPropertyString(const char *name, std::string &out);
+  bool GetOptionDefault(const char *name, std::string &out);
 
   void SetStreamInfoCallback(IPlayerBackend::StreamInfoCallback cb) {
     if (m_backend)
@@ -87,7 +90,12 @@ public:
   void GetVideoZoom(double &zoom) const;
   void GetVideoRotate(int &degrees) const;
   void ToggleVideoMirror();
+  void ToggleVideoFlipVertical();
   void ResetVideoFilters();
+  void SendCommand(const std::string &cmd);
+  void ToggleVideoDeinterlace();
+  void ToggleVideoSharpen();
+  std::vector<IPlayerBackend::AudioDevice> GetAudioDevices() const;
   std::vector<std::pair<int, wxString>> GetAudioTracks() const;
   int GetCurrentAudioTrack() const;
   void SetAudioTrack(int trackId);

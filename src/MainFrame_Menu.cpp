@@ -6,12 +6,80 @@
 
 #include <wx/menu.h>
 #include <wx/msgdlg.h>
+#include <wx/numdlg.h>
+#include <wx/textdlg.h>
 
 static int NewMenuId() { return wxWindow::NewControlId(); }
 
 void MainFrame::ShowMainMenu(const wxPoint &pos) {
 
   wxMenu menu;
+
+  auto *pc = (m_videoPanel && m_videoPanel->m_playerController)
+                 ? m_videoPanel->m_playerController.get()
+                 : nullptr;
+
+  // Радио-подменю с блоком "Reset to default".
+  auto addRadioGroup =
+      [&](wxMenu *parent, const wxString &label, const char *prop,
+          const std::vector<std::pair<wxString, const char *>> &items) {
+        wxMenu *sub = new wxMenu;
+        std::string current;
+        if (pc)
+          pc->GetPropertyString(prop, current);
+
+        for (auto &item : items) {
+          int id = NewMenuId();
+          sub->AppendRadioItem(id, item.first);
+          if (current == item.second)
+            sub->Check(id, true);
+          std::string val(item.second);
+          sub->Bind(
+              wxEVT_MENU,
+              [this, prop, val](wxCommandEvent &) {
+                if (m_videoPanel)
+                  m_videoPanel->SetMpvPropertyAndPersist(prop, val);
+              },
+              id);
+        }
+
+        sub->AppendSeparator();
+        int idReset = NewMenuId();
+        sub->Append(idReset, "Reset to default");
+        std::string propCopy(prop);
+        sub->Bind(
+            wxEVT_MENU,
+            [this, propCopy](wxCommandEvent &) {
+              if (m_videoPanel)
+                m_videoPanel->ResetMpvPropertyToDefault(propCopy.c_str());
+            },
+            idReset);
+
+        parent->AppendSubMenu(sub, label);
+      };
+
+  // Флаговый переключатель с блоком "Reset to default".
+  auto addFlagToggle = [&](wxMenu *parent, const wxString &label,
+                           const char *prop, const char *onVal,
+                           const char *offVal, bool defaultOn) {
+    std::string current;
+    bool on = defaultOn;
+    if (pc && pc->GetPropertyString(prop, current))
+      on = (current == onVal);
+
+    int id = NewMenuId();
+    parent->AppendCheckItem(id, label);
+    parent->Check(id, on);
+    parent->Bind(
+        wxEVT_MENU,
+        [this, prop, onVal, offVal](wxCommandEvent &evt) {
+          if (!m_videoPanel)
+            return;
+          std::string val = evt.IsChecked() ? onVal : offVal;
+          m_videoPanel->SetMpvPropertyAndPersist(prop, val);
+        },
+        id);
+  };
 
   // ---- Submenu "Video" ----
   wxMenu *videoMenu = new wxMenu;
@@ -72,7 +140,7 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
         wxEVT_MENU,
         [this](wxCommandEvent &) {
           if (m_videoPanel && m_videoPanel->m_playerController)
-            m_videoPanel->m_playerController->SetVideoAspect("-1");
+            m_videoPanel->m_playerController->SetVideoAspect("original");
         },
         idAuto);
     int idResetAsp = NewMenuId();
@@ -81,7 +149,7 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
         wxEVT_MENU,
         [this](wxCommandEvent &) {
           if (m_videoPanel && m_videoPanel->m_playerController)
-            m_videoPanel->m_playerController->SetVideoAspect("-1");
+            m_videoPanel->m_playerController->SetVideoAspect("original");
         },
         idResetAsp);
   }
@@ -151,6 +219,59 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
             m_videoPanel->m_playerController->ToggleVideoMirror();
         },
         idMirror);
+
+    int idFlipV = NewMenuId();
+    mirrorMenu->Append(idFlipV, "Toggle Vertical Flip");
+    mirrorMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (m_videoPanel && m_videoPanel->m_playerController)
+            m_videoPanel->m_playerController->ToggleVideoFlipVertical();
+        },
+        idFlipV);
+
+    int idDeint = NewMenuId();
+    mirrorMenu->Append(idDeint, "Toggle Deinterlace");
+    mirrorMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (m_videoPanel && m_videoPanel->m_playerController)
+            m_videoPanel->m_playerController->ToggleVideoDeinterlace();
+        },
+        idDeint);
+
+    int idSharp = NewMenuId();
+    mirrorMenu->Append(idSharp, "Toggle Sharpen");
+    mirrorMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (m_videoPanel && m_videoPanel->m_playerController)
+            m_videoPanel->m_playerController->ToggleVideoSharpen();
+        },
+        idSharp);
+
+    int idCrop = NewMenuId();
+    mirrorMenu->Append(idCrop, "Crop\u2026");
+    mirrorMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (!m_videoPanel || !m_videoPanel->m_playerController)
+            return;
+          wxTextEntryDialog dlg(
+              this, "Crop parameters w:h:x:y, empty to reset:", "Video Crop",
+              "");
+          if (dlg.ShowModal() != wxID_OK)
+            return;
+          wxString input = dlg.GetValue().Trim();
+          if (input.IsEmpty()) {
+            m_videoPanel->m_playerController->SendCommand("vf remove @crop");
+          } else {
+            m_videoPanel->m_playerController->SendCommand("vf set @crop:crop=" +
+                                                          input.ToStdString());
+          }
+        },
+        idCrop);
+
     int idResetFilters = NewMenuId();
     mirrorMenu->Append(idResetFilters, "Reset All Filters");
     mirrorMenu->Bind(
@@ -162,6 +283,175 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
         idResetFilters);
   }
   videoMenu->AppendSubMenu(mirrorMenu, "Mirror / Filters");
+
+  // ---- Equalizer ----
+  wxMenu *eqMenu = new wxMenu;
+  {
+    struct EqItem {
+      wxString label;
+      const char *prop;
+      int delta;
+    };
+    std::vector<EqItem> eqItems = {{"Brightness +5", "brightness", +5},
+                                   {"Brightness \u22125", "brightness", -5},
+                                   {"Contrast +5", "contrast", +5},
+                                   {"Contrast \u22125", "contrast", -5},
+                                   {"Saturation +5", "saturation", +5},
+                                   {"Saturation \u22125", "saturation", -5},
+                                   {"Gamma +5", "gamma", +5},
+                                   {"Gamma \u22125", "gamma", -5},
+                                   {"Hue +5", "hue", +5},
+                                   {"Hue \u22125", "hue", -5}};
+    for (auto &it : eqItems) {
+      int id = NewMenuId();
+      eqMenu->Append(id, it.label);
+      eqMenu->Bind(
+          wxEVT_MENU,
+          [this, prop = it.prop, delta = it.delta](wxCommandEvent &) {
+            if (m_videoPanel && m_videoPanel->m_playerController)
+              m_videoPanel->m_playerController->SendCommand(
+                  "add " + std::string(prop) + " " + std::to_string(delta));
+          },
+          id);
+    }
+    eqMenu->AppendSeparator();
+    int idEqReset = NewMenuId();
+    eqMenu->Append(idEqReset, "Reset equalizer");
+    eqMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (!m_videoPanel)
+            return;
+          for (const char *p :
+               {"brightness", "contrast", "saturation", "gamma", "hue"}) {
+            m_videoPanel->ResetMpvPropertyToDefault(p);
+          }
+        },
+        idEqReset);
+  }
+  videoMenu->AppendSubMenu(eqMenu, "Equalizer");
+
+  videoMenu->AppendSeparator();
+
+  addRadioGroup(videoMenu, "Hardware Decoding", "hwdec",
+                {{"Auto-safe", "auto-safe"},
+                 {"Auto", "auto"},
+                 {"VAAPI", "vaapi"},
+                 {"VDPAU", "vdpau"},
+                 {"NVDEC", "nvdec"},
+                 {"Disabled", "no"}});
+
+  addRadioGroup(videoMenu, "Video Sync", "video-sync",
+                {{"Audio", "audio"},
+                 {"Display Resample", "display-resample"},
+                 {"Display Desync", "display-desync"},
+                 {"Display Tempo", "display-tempo"}});
+
+  addRadioGroup(videoMenu, "Scaling", "scale",
+                {{"Bilinear", "bilinear"},
+                 {"Bicubic", "bicubic"},
+                 {"Spline36", "spline36"},
+                 {"Lanczos", "lanczos"},
+                 {"EWA Lanczos", "ewa_lanczos"}});
+
+  addRadioGroup(videoMenu, "Drop Frames", "framedrop",
+                {{"Auto", "auto"},
+                 {"Yes", "yes"},
+                 {"No", "no"},
+                 {"VO", "vo"},
+                 {"Decoder", "decoder"}});
+
+  // ---- Network Cache ----
+  {
+    wxMenu *cacheMenu = new wxMenu;
+    int currentMB = 0;
+    if (auto *cfg = getConfigManager())
+      currentMB = cfg->getInt("mpv_cache_mb", 0);
+
+    struct CacheItem {
+      int mb;
+      wxString label;
+    };
+    std::vector<CacheItem> items = {{0, "Default (mpv)"}, {32, "32 MB"},
+                                    {64, "64 MB"},        {128, "128 MB"},
+                                    {256, "256 MB"},      {512, "512 MB"}};
+
+    for (auto &it : items) {
+      int id = NewMenuId();
+      cacheMenu->AppendRadioItem(id, it.label);
+      if (currentMB == it.mb)
+        cacheMenu->Check(id, true);
+      cacheMenu->Bind(
+          wxEVT_MENU,
+          [this, mb = it.mb](wxCommandEvent &) {
+            if (!m_videoPanel)
+              return;
+            m_videoPanel->SetNetworkCacheMB(mb);
+            SetStatusText("Network cache will apply on next stream load.", 0);
+          },
+          id);
+    }
+
+    cacheMenu->AppendSeparator();
+    int idCustom = NewMenuId();
+    cacheMenu->Append(idCustom, "Custom\u2026");
+    cacheMenu->Bind(
+        wxEVT_MENU,
+        [this, currentMB](wxCommandEvent &) {
+          wxNumberEntryDialog dlg(this, "Network cache size in MB:",
+                                  "0 = mpv default, 1-65536 = explicit size",
+                                  "Custom Network Cache", currentMB, 0, 65536);
+          if (dlg.ShowModal() != wxID_OK)
+            return;
+          int mb = dlg.GetValue();
+          if (!m_videoPanel)
+            return;
+          m_videoPanel->SetNetworkCacheMB(mb);
+          SetStatusText(
+              wxString::Format(
+                  "Network cache set to %d MB (applies on next stream).", mb),
+              0);
+        },
+        idCustom);
+
+    cacheMenu->AppendSeparator();
+    int idResetCache = NewMenuId();
+    cacheMenu->Append(idResetCache, "Reset to mpv default");
+    cacheMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (!m_videoPanel)
+            return;
+          m_videoPanel->ResetNetworkCacheToDefault();
+          SetStatusText("Network cache reset (applies on next stream).", 0);
+        },
+        idResetCache);
+
+    videoMenu->AppendSubMenu(cacheMenu, "Network Cache");
+  }
+
+  videoMenu->AppendSeparator();
+
+  addFlagToggle(videoMenu, "Interpolation", "interpolation", "yes", "no",
+                false);
+  addFlagToggle(videoMenu, "Debanding", "deband", "yes", "no", false);
+
+  videoMenu->AppendSeparator();
+  {
+    int idResetAll = NewMenuId();
+    videoMenu->Append(idResetAll, "Reset video options to mpv defaults");
+    videoMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (!m_videoPanel)
+            return;
+          for (const char *prop : {"hwdec", "framedrop", "video-sync", "scale",
+                                   "interpolation", "deband"}) {
+            m_videoPanel->ResetMpvPropertyToDefault(prop);
+          }
+        },
+        idResetAll);
+  }
 
   menu.AppendSubMenu(videoMenu, "Video");
 
@@ -264,6 +554,137 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
 
   audioMenu->AppendSubMenu(delayMenu, "Delay");
 
+  // ---- Speed ----
+  wxMenu *speedMenu = new wxMenu;
+  {
+    std::vector<std::pair<wxString, double>> speedItems = {
+        {"0.5\u00d7", 0.5},   {"0.75\u00d7", 0.75}, {"1.0\u00d7", 1.0},
+        {"1.25\u00d7", 1.25}, {"1.5\u00d7", 1.5},   {"2.0\u00d7", 2.0}};
+    for (auto &it : speedItems) {
+      int id = NewMenuId();
+      speedMenu->Append(id, it.first);
+      double val = it.second;
+      speedMenu->Bind(
+          wxEVT_MENU,
+          [this, val](wxCommandEvent &) {
+            if (m_videoPanel)
+              m_videoPanel->SetMpvPropertyAndPersist("speed",
+                                                     std::to_string(val));
+          },
+          id);
+    }
+    speedMenu->AppendSeparator();
+    int idResetSpeed = NewMenuId();
+    speedMenu->Append(idResetSpeed, "Reset to 1.0\u00d7");
+    speedMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (m_videoPanel)
+            m_videoPanel->ResetMpvPropertyToDefault("speed");
+        },
+        idResetSpeed);
+  }
+  audioMenu->AppendSubMenu(speedMenu, "Speed");
+
+  // ---- Channels ----
+  wxMenu *chMenu = new wxMenu;
+  {
+    std::vector<const char *> channels = {"auto", "mono", "stereo", "5.1",
+                                          "7.1"};
+    std::string currentCh;
+    if (pc)
+      pc->GetPropertyString("audio-channels", currentCh);
+
+    for (const char *ch : channels) {
+      int id = NewMenuId();
+      chMenu->AppendRadioItem(id, ch);
+      if (currentCh == ch)
+        chMenu->Check(id, true);
+      std::string chVal(ch);
+      chMenu->Bind(
+          wxEVT_MENU,
+          [this, chVal](wxCommandEvent &) {
+            if (m_videoPanel)
+              m_videoPanel->SetMpvPropertyAndPersist("audio-channels", chVal);
+          },
+          id);
+    }
+    chMenu->AppendSeparator();
+    int idResetCh = NewMenuId();
+    chMenu->Append(idResetCh, "Reset to default");
+    chMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (m_videoPanel)
+            m_videoPanel->ResetMpvPropertyToDefault("audio-channels");
+        },
+        idResetCh);
+  }
+  audioMenu->AppendSubMenu(chMenu, "Channels");
+
+  // ---- Device ----
+  wxMenu *deviceMenu = new wxMenu;
+  {
+    std::string currentDevice;
+    if (pc)
+      pc->GetPropertyString("audio-device", currentDevice);
+
+    auto devices =
+        pc ? pc->GetAudioDevices() : std::vector<IPlayerBackend::AudioDevice>{};
+
+    if (devices.empty()) {
+      deviceMenu->Append(NewMenuId(), "(no audio devices)")->Enable(false);
+    } else {
+      for (auto &dev : devices) {
+        int id = NewMenuId();
+        deviceMenu->AppendRadioItem(id, wxString::FromUTF8(dev.second));
+        if (dev.first == currentDevice)
+          deviceMenu->Check(id, true);
+        std::string devName = dev.first;
+        deviceMenu->Bind(
+            wxEVT_MENU,
+            [this, devName](wxCommandEvent &) {
+              if (m_videoPanel)
+                m_videoPanel->SetMpvPropertyAndPersist("audio-device", devName);
+            },
+            id);
+      }
+    }
+
+    deviceMenu->AppendSeparator();
+    int idResetDev = NewMenuId();
+    deviceMenu->Append(idResetDev, "Reset to default");
+    deviceMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (m_videoPanel)
+            m_videoPanel->ResetMpvPropertyToDefault("audio-device");
+        },
+        idResetDev);
+  }
+  audioMenu->AppendSubMenu(deviceMenu, "Device");
+
+  audioMenu->AppendSeparator();
+  addFlagToggle(audioMenu, "Pitch Correction", "audio-pitch-correction", "yes",
+                "no", true);
+
+  audioMenu->AppendSeparator();
+  {
+    int idResetAudio = NewMenuId();
+    audioMenu->Append(idResetAudio, "Reset audio options to mpv defaults");
+    audioMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (!m_videoPanel)
+            return;
+          for (const char *p : {"audio-pitch-correction", "speed",
+                                "audio-channels", "audio-device"}) {
+            m_videoPanel->ResetMpvPropertyToDefault(p);
+          }
+        },
+        idResetAudio);
+  }
+
   menu.AppendSubMenu(audioMenu, "Audio");
 
   // ---- Submenu "Record" ----
@@ -331,8 +752,108 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
       }
     }
   }
+  subMenu->AppendSeparator();
+
+  // ---- Delay ----
+  wxMenu *subDelayMenu = new wxMenu;
+  {
+    std::vector<std::pair<wxString, double>> items = {{"\u22120.5s", -0.5},
+                                                      {"\u22120.1s", -0.1},
+                                                      {"Reset (0.0s)", 0.0},
+                                                      {"+0.1s", 0.1},
+                                                      {"+0.5s", 0.5}};
+    for (auto &it : items) {
+      int id = NewMenuId();
+      subDelayMenu->Append(id, it.first);
+      double val = it.second;
+      subDelayMenu->Bind(
+          wxEVT_MENU,
+          [this, val](wxCommandEvent &) {
+            if (m_videoPanel && m_videoPanel->m_playerController)
+              m_videoPanel->m_playerController->SetPropertyString(
+                  "sub-delay", std::to_string(val));
+          },
+          id);
+    }
+  }
+  subMenu->AppendSubMenu(subDelayMenu, "Delay");
+
+  // ---- Scale ----
+  wxMenu *subScaleMenu = new wxMenu;
+  {
+    std::vector<double> scales = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0};
+    for (double s : scales) {
+      int id = NewMenuId();
+      subScaleMenu->Append(id, wxString::Format("%.2f\u00d7", s));
+      subScaleMenu->Bind(
+          wxEVT_MENU,
+          [this, s](wxCommandEvent &) {
+            if (m_videoPanel)
+              m_videoPanel->SetMpvPropertyAndPersist("sub-scale",
+                                                     std::to_string(s));
+          },
+          id);
+    }
+    subScaleMenu->AppendSeparator();
+    int idResetScale = NewMenuId();
+    subScaleMenu->Append(idResetScale, "Reset to default");
+    subScaleMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (m_videoPanel)
+            m_videoPanel->ResetMpvPropertyToDefault("sub-scale");
+        },
+        idResetScale);
+  }
+  subMenu->AppendSubMenu(subScaleMenu, "Scale");
+
+  // ---- Position ----
+  wxMenu *subPosMenu = new wxMenu;
+  {
+    std::vector<int> positions = {0, 25, 50, 75, 100};
+    for (int p : positions) {
+      int id = NewMenuId();
+      subPosMenu->Append(id, wxString::Format("%d", p));
+      subPosMenu->Bind(
+          wxEVT_MENU,
+          [this, p](wxCommandEvent &) {
+            if (m_videoPanel)
+              m_videoPanel->SetMpvPropertyAndPersist("sub-pos",
+                                                     std::to_string(p));
+          },
+          id);
+    }
+    subPosMenu->AppendSeparator();
+    int idResetPos = NewMenuId();
+    subPosMenu->Append(idResetPos, "Reset to default");
+    subPosMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (m_videoPanel)
+            m_videoPanel->ResetMpvPropertyToDefault("sub-pos");
+        },
+        idResetPos);
+  }
+  subMenu->AppendSubMenu(subPosMenu, "Position");
+
+  subMenu->AppendSeparator();
+  {
+    int idSubReset = NewMenuId();
+    subMenu->Append(idSubReset, "Reset subtitle options");
+    subMenu->Bind(
+        wxEVT_MENU,
+        [this](wxCommandEvent &) {
+          if (!m_videoPanel)
+            return;
+          for (const char *p : {"sub-delay", "sub-scale", "sub-pos"}) {
+            m_videoPanel->ResetMpvPropertyToDefault(p);
+          }
+        },
+        idSubReset);
+  }
+
   menu.AppendSubMenu(subMenu, "Subtitles");
-  
+
   menu.AppendSeparator();
   menu.Append(ID_MENU_SETTINGS, "Settings");
   menu.Append(ID_MENU_ABOUT, "About");

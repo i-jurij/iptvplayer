@@ -52,6 +52,12 @@ public:
   virtual std::string GetBackendName() const = 0;
   virtual bool GetPropertyBool(const char *name, bool &out) = 0;
 
+  // --- Обобщённый доступ к свойствам/опциям mpv (для рантайм-настроек) ---
+  virtual void SetPropertyString(const char *name,
+                                 const std::string &value) = 0;
+  virtual bool GetPropertyString(const char *name, std::string &out) = 0;
+  virtual bool GetOptionDefault(const char *name, std::string &out) = 0;
+
   virtual void ResizeEmbeddedWindow(int, int) {}
 
   virtual void SetFullscreen(bool fullscreen) = 0;
@@ -92,7 +98,17 @@ public:
   virtual void GetVideoRotate(int &degrees) const = 0;
   virtual void AdjustAudioDelay(double delta) = 0;
   virtual void ToggleVideoMirror() = 0;
+  virtual void ToggleVideoFlipVertical() = 0;
   virtual void ResetVideoFilters() = 0;
+
+  // Универсальная команда в mpv (для equalizer, crop и пр.)
+  virtual void SendCommand(const std::string &cmd) = 0;
+  virtual void ToggleVideoDeinterlace() = 0;
+  virtual void ToggleVideoSharpen() = 0;
+
+  // Список аудиоустройств: <name, description>
+  using AudioDevice = std::pair<std::string, std::string>;
+  virtual std::vector<AudioDevice> GetAudioDevices() const = 0;
 
   // --- методы для записи ---
   virtual void SetRecordStateCallback(RecordStateCallback cb) = 0;

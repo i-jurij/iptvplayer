@@ -26,6 +26,20 @@ bool PlayerController::GetPropertyInt(const std::string &name,
   return mpv_get_property(mpv, name.c_str(), MPV_FORMAT_INT64, &value) == 0;
 }
 
+void PlayerController::SetPropertyString(const char *name,
+                                         const std::string &value) {
+  if (m_backend)
+    m_backend->SetPropertyString(name, value);
+}
+
+bool PlayerController::GetPropertyString(const char *name, std::string &out) {
+  return m_backend ? m_backend->GetPropertyString(name, out) : false;
+}
+
+bool PlayerController::GetOptionDefault(const char *name, std::string &out) {
+  return m_backend ? m_backend->GetOptionDefault(name, out) : false;
+}
+
 bool PlayerController::AttachToWindow(wxWindow *window) {
   if (!window) {
     LOG_ERROR("PlayerController: window is null");
@@ -340,9 +354,36 @@ void PlayerController::ToggleVideoMirror() {
   if (m_backend)
     m_backend->ToggleVideoMirror();
 }
+
+void PlayerController::ToggleVideoFlipVertical() {
+  if (m_backend)
+    m_backend->ToggleVideoFlipVertical();
+}
+
 void PlayerController::ResetVideoFilters() {
   if (m_backend)
     m_backend->ResetVideoFilters();
+}
+
+void PlayerController::SendCommand(const std::string &cmd) {
+  if (m_backend)
+    m_backend->SendCommand(cmd);
+}
+
+void PlayerController::ToggleVideoDeinterlace() {
+  if (m_backend)
+    m_backend->ToggleVideoDeinterlace();
+}
+
+void PlayerController::ToggleVideoSharpen() {
+  if (m_backend)
+    m_backend->ToggleVideoSharpen();
+}
+
+std::vector<IPlayerBackend::AudioDevice>
+PlayerController::GetAudioDevices() const {
+  return m_backend ? m_backend->GetAudioDevices()
+                   : std::vector<IPlayerBackend::AudioDevice>{};
 }
 
 double PlayerController::GetAudioDelay() const {

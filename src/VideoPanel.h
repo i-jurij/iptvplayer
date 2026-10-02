@@ -4,7 +4,8 @@
 #include "Channel.h"
 #include "PlayerController.h"
 #include "VP_progressSlider.h"
-#include "player/MpvGLCanvas.h"
+#include "MpvGLCanvas.h"
+#include "MpvBackend.h"
 
 #include <wx/event.h>
 #include <wx/listctrl.h>
@@ -50,6 +51,8 @@ private:
   wxWindow *m_videoArea = nullptr;
   wxWindow *m_ownerPanel = nullptr;
 };
+
+class ConfigManager;
 
 wxDECLARE_EVENT(wxEVT_PLAYER_STATE, wxCommandEvent);
 wxDECLARE_EVENT(wxEVT_PLAYER_INFO, wxCommandEvent);
@@ -118,6 +121,12 @@ public:
   void SetRecordDirectory(const wxString &dir) { m_recordDirectory = dir; }
   bool IsRecording() const { return m_isRecording; }
 
+  // --- Рантайм-настройки mpv (для меню) ---
+  void SetMpvPropertyAndPersist(const char *name, const std::string &value);
+  void ResetMpvPropertyToDefault(const char *name);
+  void SetNetworkCacheMB(int mb);
+  void ResetNetworkCacheToDefault();
+
 private:
   StreamInfo m_lastStreamInfoData;
   wxString DetermineRecordExtension(const StreamInfo &info) const;
@@ -138,6 +147,10 @@ private:
                             const std::string &error);
   void OnRecordStatusTimer(wxTimerEvent &evt);
   bool InitializeRecordDirectory();
+  // Читает mpv - *ключи из ConfigManager в MpvInitOptions.
+  MpvInitOptions LoadMpvOptionsFromConfig() const;
+  // Возвращает ConfigManager через Application (или nullptr).
+  ConfigManager *GetConfig() const;
 
   int m_autoHideDelayMs = 3000;
   

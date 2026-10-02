@@ -1,12 +1,33 @@
 #pragma once
 #include "IPlayerBackend.h"
 
-#include <atomic>
 #include <mpv/client.h>
+
+#include <atomic>
+#include <string>
+
+// Пользовательские опции mpv, читаемые из конфига при создании бэкенда.
+// Пустая строка / 0 = не переопределять, использовать дефолт mpv.
+struct MpvInitOptions {
+  std::string hwdec;
+  std::string framedrop;
+  std::string videoSync;
+  std::string interpolation;
+  std::string deband;
+  std::string scale;
+  std::string pitchCorrection;
+  int cacheMB = 0;
+  // Глобальные предпочтения (категория A, в конфиг)
+  std::string speed;
+  std::string audioChannels;
+  std::string audioDevice;
+  std::string subScale;
+  std::string subPos;
+};
 
 class MpvBackend : public IPlayerBackend {
 public:
-  explicit MpvBackend(wxWindow *parentWindow);
+  explicit MpvBackend(wxWindow *parentWindow, const MpvInitOptions &opts = {});
   ~MpvBackend() override;
 
   bool AttachToWindow(wxWindow *window) override;
@@ -36,6 +57,10 @@ public:
   std::string GetBackendName() const override;
   bool GetPropertyBool(const char *name, bool &out) override;
 
+  void SetPropertyString(const char *name, const std::string &value) override;
+  bool GetPropertyString(const char *name, std::string &out) override;
+  bool GetOptionDefault(const char *name, std::string &out) override;
+
   void ResizeEmbeddedWindow(int width, int height) override;
   void SetFullscreen(bool fullscreen) override;
 
@@ -64,7 +89,12 @@ public:
   void GetVideoZoom(double &zoom) const override;
   void GetVideoRotate(int &degrees) const override;
   void ToggleVideoMirror() override;
+  void ToggleVideoFlipVertical() override;
   void ResetVideoFilters() override;
+  void SendCommand(const std::string &cmd) override;
+  void ToggleVideoDeinterlace() override;
+  void ToggleVideoSharpen() override;
+  std::vector<AudioDevice> GetAudioDevices() const override;
   std::vector<std::pair<int, wxString>> GetAudioTracks() const override;
   int GetCurrentAudioTrack() const override;
   void SetAudioTrack(int trackId) override;
@@ -83,8 +113,6 @@ public:
 private:
   bool m_isRecording = false;
   RecordStateCallback m_recordStateCb;
-
-  bool m_osdBufferingShown = false;
 
   mpv_handle *m_mpv = nullptr;
   wxWindow *m_parentWindow = nullptr;

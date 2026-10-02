@@ -169,8 +169,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
   // 1. backend
-  m_playerController =
-      std::make_unique<PlayerController>(CreateBackend(nullptr));
+  m_playerController = std::make_unique<PlayerController>(
+      CreateBackend(nullptr, LoadMpvOptionsFromConfig()));
 
   // 2. canvas
   MpvGLCanvas *videoCanvas = new MpvGLCanvas(m_mainPanel, nullptr);
@@ -574,6 +574,80 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
        m_forceBlackTimer.GetId());
 }
 
+ConfigManager *VideoPanel::GetConfig() const {
+  auto *app = dynamic_cast<Application *>(wxTheApp);
+  return app ? app->getConfigManager() : nullptr;
+}
+
+MpvInitOptions VideoPanel::LoadMpvOptionsFromConfig() const {
+  MpvInitOptions opts;
+  ConfigManager *cfg = GetConfig();
+  if (!cfg)
+    return opts;
+
+  opts.hwdec = cfg->getSetting("mpv_hwdec", "");
+  opts.framedrop = cfg->getSetting("mpv_framedrop", "");
+  opts.videoSync = cfg->getSetting("mpv_video_sync", "");
+  opts.interpolation = cfg->getSetting("mpv_interpolation", "");
+  opts.deband = cfg->getSetting("mpv_deband", "");
+  opts.scale = cfg->getSetting("mpv_scale", "");
+  opts.pitchCorrection = cfg->getSetting("mpv_audio_pitch_correction", "");
+  opts.cacheMB = cfg->getInt("mpv_cache_mb", 0);
+
+  opts.speed = cfg->getSetting("mpv_speed", "");
+  opts.audioChannels = cfg->getSetting("mpv_audio_channels", "");
+  opts.audioDevice = cfg->getSetting("mpv_audio_device", "");
+  opts.subScale = cfg->getSetting("mpv_sub_scale", "");
+  opts.subPos = cfg->getSetting("mpv_sub_pos", "");
+
+  return opts;
+}
+
+// mpv-имя свойства -> ключ конфига: mpv_ + имя с '-' -> '_'
+static std::string CfgKeyForMpvOption(const char *name) {
+  std::string key = "mpv_";
+  for (const char *p = name; *p; ++p)
+    key += (*p == '-') ? '_' : *p;
+  return key;
+}
+
+void VideoPanel::SetMpvPropertyAndPersist(const char *name,
+                                          const std::string &value) {
+  if (m_playerController)
+    m_playerController->SetPropertyString(name, value);
+
+  if (ConfigManager *cfg = GetConfig()) {
+    cfg->setSetting(CfgKeyForMpvOption(name).c_str(), value.c_str());
+    cfg->saveSettings();
+  }
+}
+
+void VideoPanel::ResetMpvPropertyToDefault(const char *name) {
+  if (ConfigManager *cfg = GetConfig()) {
+    cfg->removeSetting(CfgKeyForMpvOption(name).c_str());
+    cfg->saveSettings();
+  }
+  if (m_playerController) {
+    std::string def;
+    if (m_playerController->GetOptionDefault(name, def))
+      m_playerController->SetPropertyString(name, def);
+  }
+}
+
+void VideoPanel::SetNetworkCacheMB(int mb) {
+  if (ConfigManager *cfg = GetConfig()) {
+    cfg->setInt("mpv_cache_mb", mb);
+    cfg->saveSettings();
+  }
+}
+
+void VideoPanel::ResetNetworkCacheToDefault() {
+  if (ConfigManager *cfg = GetConfig()) {
+    cfg->removeSetting("mpv_cache_mb");
+    cfg->saveSettings();
+  }
+}
+
 void VideoPanel::SetErrorStatus(const wxString &errorMsg) {
   wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
   if (frame && frame->GetStatusBar()) {
@@ -691,8 +765,6 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
     if (!m_bufferingStatusShown) {
       m_bufferingStatusShown = true;
       frame->SetStatusText("Buffering...", 0);
-      if (m_playerController)
-        m_playerController->ShowOsdText("${osd-sym-cc} Buffering...", -1);
     }
   } else if (m_bufferingStatusShown) {
     m_bufferingStatusShown = false;
@@ -717,8 +789,6 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
       break;
     }
     frame->SetStatusText(statusText, 0);
-    if (m_playerController)
-      m_playerController->ShowOsdText("", 1);
   }
 }
 

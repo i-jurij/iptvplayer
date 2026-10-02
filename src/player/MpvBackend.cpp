@@ -7,8 +7,8 @@
 
 #include <locale.h>
 
-
-MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
+MpvBackend::MpvBackend(wxWindow *parentWindow, const MpvInitOptions &opts)
+    : m_parentWindow(parentWindow) {
   //LOG_DEBUG("MpvBackend::MpvBackend()");
 
   setlocale(LC_NUMERIC, "C");
@@ -23,19 +23,23 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
   // Базовые опции
   mpv_set_option_string(m_mpv, "config", "no");
   mpv_set_option_string(m_mpv, "terminal", "no");
+  mpv_set_option_string(m_mpv, "cache-pause", "yes");
   mpv_set_option_string(m_mpv, "msg-level", "warn");
+  mpv_set_option_string(m_mpv, "osd-level", "1");
+  mpv_set_option_string(m_mpv, "osd-msg1", "${?pause==yes:${osd-sym-cc}}");
+  // Политика приложения: сброс per-file свойств при загрузке нового файла.
+  mpv_set_option_string(m_mpv, "reset-on-next-file",
+                        "video-zoom,video-aspect-override,video-rotate,"
+                        "audio-delay,sub-delay,panscan,"
+                        "brightness,contrast,saturation,gamma,hue");
 
   // !!! Don`t change! Критично для render API: vo=libmpv, без собственного окна
   mpv_set_option_string(m_mpv, "vo", "libmpv");
   mpv_set_option_string(m_mpv, "force-window", "no");
   mpv_set_option_string(m_mpv, "keep-open", "no");
   mpv_set_option_string(m_mpv, "idle", "yes");
-  
-  // OSD pause
-  //mpv_set_option_string(m_mpv, "osd-level", "2");
-  mpv_set_option_string(m_mpv, "osd-msg1", "${?pause==yes:${osd-sym-cc}}");
 
-  // gpu-context оставляем как было
+  // gpu-context
   if (IsWaylandSession()) {
     mpv_set_option_string(m_mpv, "gpu-context", "wayland");
     //LOG_DEBUG("MpvBackend: gpu-context set to 'wayland'");
@@ -44,7 +48,32 @@ MpvBackend::MpvBackend(wxWindow *parentWindow) : m_parentWindow(parentWindow) {
     //LOG_DEBUG("MpvBackend: gpu-context set to 'x11egl'");
   } else {
     mpv_set_option_string(m_mpv, "gpu-context", "auto");
-    //LOG_DEBUG("MpvBackend: gpu-context set to 'auto'");
+    // LOG_DEBUG("MpvBackend: gpu-context set to 'auto'");
+  }
+
+  // Пользовательские опции: ставим только непустые.
+  auto setOptIfSet = [this](const char *name, const std::string &v) {
+    if (!v.empty())
+      mpv_set_option_string(m_mpv, name, v.c_str());
+  };
+
+  setOptIfSet("hwdec", opts.hwdec);
+  setOptIfSet("framedrop", opts.framedrop);
+  setOptIfSet("video-sync", opts.videoSync);
+  setOptIfSet("interpolation", opts.interpolation);
+  setOptIfSet("deband", opts.deband);
+  setOptIfSet("scale", opts.scale);
+  setOptIfSet("audio-pitch-correction", opts.pitchCorrection);
+
+  setOptIfSet("speed", opts.speed);
+  setOptIfSet("audio-channels", opts.audioChannels);
+  setOptIfSet("audio-device", opts.audioDevice);
+  setOptIfSet("sub-scale", opts.subScale);
+  setOptIfSet("sub-pos", opts.subPos);
+
+  if (opts.cacheMB > 0) {
+    std::string bytes = std::to_string((long long)opts.cacheMB * 1024 * 1024);
+    mpv_set_option_string(m_mpv, "demuxer-max-bytes", bytes.c_str());
   }
 
   int st = mpv_initialize(m_mpv);
@@ -298,7 +327,6 @@ void MpvBackend::Stop() {
   if (!m_mpv)
     return;
   ShowOsdText("", 0);
-  m_osdBufferingShown = false;
   const char *cmd[] = {"stop", nullptr};
   mpv_command(m_mpv, cmd);
 }
@@ -516,16 +544,47 @@ bool MpvBackend::GetPropertyBool(const char *name, bool &out) {
   return true;
 }
 
+void MpvBackend::SetPropertyString(const char *name, const std::string &value) {
+  if (!m_mpv || !name)
+    return;
+  mpv_set_property_string(m_mpv, name, value.c_str());
+}
+
+bool MpvBackend::GetPropertyString(const char *name, std::string &out) {
+  if (!m_mpv || !name)
+    return false;
+  char *val = nullptr;
+  if (mpv_get_property(m_mpv, name, MPV_FORMAT_STRING, &val) < 0)
+    return false;
+  out = val ? val : "";
+  mpv_free(val);
+  return true;
+}
+
+bool MpvBackend::GetOptionDefault(const char *name, std::string &out) {
+  if (!m_mpv || !name)
+    return false;
+  std::string path = std::string("option-info/") + name + "/default-value";
+  char *val = nullptr;
+  if (mpv_get_property(m_mpv, path.c_str(), MPV_FORMAT_STRING, &val) < 0)
+    return false;
+  out = val ? val : "";
+  mpv_free(val);
+  return true;
+}
+
 void MpvBackend::SetVideoZoom(double zoom) {
   if (!m_mpv)
     return;
   mpv_set_property_string(m_mpv, "video-zoom", std::to_string(zoom).c_str());
 }
+
 void MpvBackend::SetVideoAspect(const std::string &aspect) {
   if (!m_mpv)
     return;
-  mpv_set_property_string(m_mpv, "video-aspect", aspect.c_str());
+  mpv_set_property_string(m_mpv, "video-aspect-override", aspect.c_str());
 }
+
 void MpvBackend::SetVideoRotate(int degrees) {
   if (!m_mpv)
     return;
@@ -556,13 +615,81 @@ void MpvBackend::GetVideoRotate(int &degrees) const { degrees = 0; }
 void MpvBackend::ToggleVideoMirror() {
   if (!m_mpv)
     return;
-  mpv_command_string(m_mpv, "vf toggle mirror");
+  // @mirror — метка. При первом вызове добавит hflip, при повторном — удалит.
+  mpv_command_string(m_mpv, "vf toggle @mirror:hflip");
+}
+
+void MpvBackend::ToggleVideoFlipVertical() {
+  if (!m_mpv)
+    return;
+  // @vflip — метка. Первый вызов добавит vflip, повторный — удалит.
+  mpv_command_string(m_mpv, "vf toggle @vflip:vflip");
 }
 
 void MpvBackend::ResetVideoFilters() {
   if (!m_mpv)
     return;
-  mpv_command_string(m_mpv, "vf clr");
+  // vf set "" перезаписывает цепочку целиком — удаляет и @mirror, и @vflip,
+  // и @deint, и @sharp, и @crop. vf clr для этого не годится.
+  mpv_command_string(m_mpv, "vf set \"\"");
+}
+
+void MpvBackend::SendCommand(const std::string &cmd) {
+  if (!m_mpv)
+    return;
+  mpv_command_string(m_mpv, cmd.c_str());
+}
+
+void MpvBackend::ToggleVideoDeinterlace() {
+  if (!m_mpv)
+    return;
+  // yadif — встроенный фильтр деинтерлейсинга.
+  mpv_command_string(m_mpv, "vf toggle @deint:yadif");
+}
+
+void MpvBackend::ToggleVideoSharpen() {
+  if (!m_mpv)
+    return;
+  // unsharp — встроенный фильтр повышения резкости.
+  mpv_command_string(m_mpv, "vf toggle @sharp:unsharp");
+}
+
+std::vector<MpvBackend::AudioDevice> MpvBackend::GetAudioDevices() const {
+  std::vector<AudioDevice> result;
+  if (!m_mpv)
+    return result;
+
+  mpv_node node;
+  if (mpv_get_property(m_mpv, "audio-device-list", MPV_FORMAT_NODE, &node) < 0)
+    return result;
+  if (node.format != MPV_FORMAT_NODE_ARRAY) {
+    mpv_free_node_contents(&node);
+    return result;
+  }
+
+  mpv_node_list *list = node.u.list;
+  for (int i = 0; i < list->num; ++i) {
+    mpv_node *item = &list->values[i];
+    if (item->format != MPV_FORMAT_NODE_MAP)
+      continue;
+
+    std::string name, description;
+    mpv_node_list *il = item->u.list;
+    for (int j = 0; j < il->num; ++j) {
+      std::string key = il->keys[j] ? il->keys[j] : "";
+      mpv_node *v = &il->values[j];
+      if (key == "name" && v->format == MPV_FORMAT_STRING && v->u.string)
+        name = v->u.string;
+      else if (key == "description" && v->format == MPV_FORMAT_STRING &&
+               v->u.string)
+        description = v->u.string;
+    }
+    if (!name.empty())
+      result.emplace_back(name, description.empty() ? name : description);
+  }
+
+  mpv_free_node_contents(&node);
+  return result;
 }
 
 double MpvBackend::GetAudioDelay() const {

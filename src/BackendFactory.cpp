@@ -1,7 +1,7 @@
 #include "BackendFactory.h"
 #include "MpvBackend.h"
 
-// BackendFactory.h или BackendFactory.cpp
-std::unique_ptr<IPlayerBackend> CreateBackend(wxWindow *parentWindow) {
-  return std::make_unique<MpvBackend>(parentWindow);
+std::unique_ptr<IPlayerBackend> CreateBackend(wxWindow *parent,
+                                              const MpvInitOptions &opts) {
+  return std::make_unique<MpvBackend>(parent, opts);
 }
