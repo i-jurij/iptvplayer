@@ -592,6 +592,7 @@ MpvInitOptions VideoPanel::LoadMpvOptionsFromConfig() const {
   opts.audioDevice = cfg->getSetting("mpv_audio_device", "");
   opts.subScale = cfg->getSetting("mpv_sub_scale", "");
   opts.subPos = cfg->getSetting("mpv_sub_pos", "");
+  opts.audioSpdif = cfg->getSetting("mpv_audio_spdif", "");
 
   return opts;
 }

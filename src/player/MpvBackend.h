@@ -23,6 +23,7 @@ struct MpvInitOptions {
   std::string audioDevice;
   std::string subScale;
   std::string subPos;
+  std::string audioSpdif;
 };
 
 class MpvBackend : public IPlayerBackend {

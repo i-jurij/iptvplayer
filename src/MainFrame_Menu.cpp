@@ -726,6 +726,40 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   }
   audioMenu->AppendSubMenu(deviceMenu, "Device");
 
+  // ---- Passthrough (S/PDIF, HDMI) ----
+  wxMenu *passthroughMenu = new wxMenu;
+  {
+    auto *cfg = getConfigManager();
+    std::string current = cfg ? cfg->getSetting("mpv_audio_spdif", "") : "";
+
+    struct PtItem {
+      wxString label;
+      const char *value;
+    };
+    std::vector<PtItem> items = {
+        {"Off", ""},
+        {"AC3 & DTS", "ac3,dts"},
+        {"AC3, DTS, E-AC3, TrueHD, DTS-HD", "ac3,dts,eac3,truehd,dts-hd"}};
+
+    for (const auto &it : items) {
+      int id = NewMenuId();
+      passthroughMenu->AppendRadioItem(id, it.label);
+      if (current == it.value)
+        passthroughMenu->Check(id, true);
+      std::string val(it.value);
+      passthroughMenu->Bind(
+          wxEVT_MENU,
+          [this, val](wxCommandEvent &) {
+            if (!m_videoPanel)
+              return;
+            m_videoPanel->SetMpvPropertyAndPersist("audio-spdif", val);
+            SetStatusText("Passthrough will apply on next stream load.", 0);
+          },
+          id);
+    }
+  }
+  audioMenu->AppendSubMenu(passthroughMenu, "Passthrough (S/PDIF, HDMI)");
+
   audioMenu->AppendSeparator();
   addFlagToggle(audioMenu, "Pitch Correction", "audio-pitch-correction", "yes",
                 "no", true);
