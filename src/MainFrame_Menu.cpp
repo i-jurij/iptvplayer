@@ -320,50 +320,49 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // ---- Equalizer ----
   wxMenu *eqMenu = new wxMenu;
   {
-    // Неактивный блок с текущими значениями
-    auto addCurLine = [&](const char *label, const char *prop) {
-      std::string val;
-      if (pc && pc->GetPropertyString(prop, val)) {
-        int id = NewMenuId();
-        eqMenu->Append(id, wxString::Format("%s: %s", wxString::FromUTF8(label),
-                                            wxString::FromUTF8(val)));
-        eqMenu->Enable(id, false);
-      }
-    };
-    addCurLine("Brightness", "brightness");
-    addCurLine("Contrast", "contrast");
-    addCurLine("Saturation", "saturation");
-    addCurLine("Gamma", "gamma");
-    addCurLine("Hue", "hue");
-    eqMenu->AppendSeparator();
-
-    struct EqItem {
+    struct EqGroup {
       wxString label;
       const char *prop;
-      int delta;
     };
-    std::vector<EqItem> eqItems = {{"Brightness +5", "brightness", +5},
-                                   {"Brightness \u22125", "brightness", -5},
-                                   {"Contrast +5", "contrast", +5},
-                                   {"Contrast \u22125", "contrast", -5},
-                                   {"Saturation +5", "saturation", +5},
-                                   {"Saturation \u22125", "saturation", -5},
-                                   {"Gamma +5", "gamma", +5},
-                                   {"Gamma \u22125", "gamma", -5},
-                                   {"Hue +5", "hue", +5},
-                                   {"Hue \u22125", "hue", -5}};
-    for (auto &it : eqItems) {
-      int id = NewMenuId();
-      eqMenu->Append(id, it.label);
-      eqMenu->Bind(
-          wxEVT_MENU,
-          [this, prop = it.prop, delta = it.delta](wxCommandEvent &) {
-            if (m_videoPanel && m_videoPanel->m_playerController)
-              m_videoPanel->m_playerController->SendCommand(
-                  "add " + std::string(prop) + " " + std::to_string(delta));
-          },
-          id);
+    std::vector<EqGroup> groups = {{"Brightness", "brightness"},
+                                   {"Contrast", "contrast"},
+                                   {"Saturation", "saturation"},
+                                   {"Gamma", "gamma"},
+                                   {"Hue", "hue"}};
+
+    for (size_t g = 0; g < groups.size(); ++g) {
+      const auto &grp = groups[g];
+
+      // Заголовок группы: "Brightness: 0" (неактивный)
+      std::string val;
+      if (pc)
+        pc->GetPropertyString(grp.prop, val);
+      int idHeader = NewMenuId();
+      eqMenu->Append(idHeader, wxString::Format("%s: %s", grp.label,
+                                                wxString::FromUTF8(val)));
+      eqMenu->Enable(idHeader, false);
+
+      // Два пункта регулировки для этой группы
+      for (int delta : {+5, -5}) {
+        int id = NewMenuId();
+        wxString sign = (delta > 0) ? "+5" : "\u22125";
+        eqMenu->Append(id, grp.label + " " + sign);
+        std::string propCopy(grp.prop);
+        eqMenu->Bind(
+            wxEVT_MENU,
+            [this, propCopy, delta](wxCommandEvent &) {
+              if (m_videoPanel && m_videoPanel->m_playerController)
+                m_videoPanel->m_playerController->SendCommand(
+                    "add " + propCopy + " " + std::to_string(delta));
+            },
+            id);
+      }
+
+      // Разделитель между группами (кроме последней)
+      if (g + 1 < groups.size())
+        eqMenu->AppendSeparator();
     }
+
     eqMenu->AppendSeparator();
     int idEqReset = NewMenuId();
     eqMenu->Append(idEqReset, "Reset equalizer");
@@ -521,11 +520,9 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
     } else {
       for (const auto &[id, label] : tracks) {
         int menuId = NewMenuId();
-        wxString itemLabel = label;
-        if (id == currentAudio) {
-          itemLabel = wxString::Format("✓ %s", label);
-        }
-        trackMenu->Append(menuId, itemLabel);
+        trackMenu->AppendRadioItem(menuId, label);
+        if (id == currentAudio)
+          trackMenu->Check(menuId, true);
         trackMenu->Bind(
             wxEVT_MENU,
             [this, id](wxCommandEvent &) {
@@ -541,20 +538,16 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // ---- Delay ----
   wxMenu *delayMenu = new wxMenu;
 
-  // Пункт с текущим значением (неактивный, только для информации)
   double currentDelay = 0.0;
-  if (m_videoPanel && m_videoPanel->m_playerController) {
+  if (m_videoPanel && m_videoPanel->m_playerController)
     currentDelay = m_videoPanel->m_playerController->GetAudioDelay();
-  }
-  wxString currentLabel =
-      wxString::Format("Current delay: %.2f s", currentDelay);
-  int idCurrent = NewMenuId();
-  delayMenu->Append(idCurrent, currentLabel);
-  delayMenu->Enable(idCurrent, false); // делаем неактивным
 
+  int idCurrent = NewMenuId();
+  delayMenu->Append(idCurrent,
+                    wxString::Format("Current: %+.2f s", currentDelay));
+  delayMenu->Enable(idCurrent, false);
   delayMenu->AppendSeparator();
 
-  // Предустановленные значения задержки (в секундах)
   std::vector<double> delayValues = {-1.0, -0.5, -0.3, -0.2, -0.1, 0.0,
                                      0.1,  0.2,  0.3,  0.5,  1.0};
   for (double val : delayValues) {
@@ -566,7 +559,9 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
       label = wxString::Format("+%.1fs", val);
     else
       label = wxString::Format("%.1fs", val);
-    delayMenu->Append(id, label);
+    delayMenu->AppendRadioItem(id, label);
+    if (std::abs(currentDelay - val) < 0.01)
+      delayMenu->Check(id, true);
     delayMenu->Bind(
         wxEVT_MENU,
         [this, val](wxCommandEvent &) {
@@ -606,13 +601,31 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // ---- Speed ----
   wxMenu *speedMenu = new wxMenu;
   {
+    double currentSpeed = 1.0;
+    std::string speedStr;
+    if (pc && pc->GetPropertyString("speed", speedStr) && !speedStr.empty()) {
+      try {
+        currentSpeed = std::stod(speedStr);
+      } catch (...) {
+        currentSpeed = 1.0;
+      }
+    }
+
+    int idCurSpeed = NewMenuId();
+    speedMenu->Append(idCurSpeed,
+                      wxString::Format("Current: %.2f\u00d7", currentSpeed));
+    speedMenu->Enable(idCurSpeed, false);
+    speedMenu->AppendSeparator();
+
     std::vector<std::pair<wxString, double>> speedItems = {
         {"0.5\u00d7", 0.5},   {"0.75\u00d7", 0.75}, {"1.0\u00d7", 1.0},
         {"1.25\u00d7", 1.25}, {"1.5\u00d7", 1.5},   {"2.0\u00d7", 2.0}};
     for (auto &it : speedItems) {
       int id = NewMenuId();
-      speedMenu->Append(id, it.first);
+      speedMenu->AppendRadioItem(id, it.first);
       double val = it.second;
+      if (std::abs(currentSpeed - val) < 0.001)
+        speedMenu->Check(id, true);
       speedMenu->Bind(
           wxEVT_MENU,
           [this, val](wxCommandEvent &) {
@@ -786,11 +799,9 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
     } else {
       for (const auto &[id, label] : tracks) {
         int menuId = NewMenuId();
-        wxString itemLabel = label;
-        if (id == currentSub) {
-          itemLabel = wxString::Format("✓ %s", label);
-        }
-        subMenu->Append(menuId, itemLabel);
+        subMenu->AppendRadioItem(menuId, label);
+        if (id == currentSub)
+          subMenu->Check(menuId, true);
         subMenu->Bind(
             wxEVT_MENU,
             [this, id](wxCommandEvent &) {
@@ -806,6 +817,16 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // ---- Delay ----
   wxMenu *subDelayMenu = new wxMenu;
   {
+    double currentSubDelay = 0.0;
+    if (pc)
+      currentSubDelay = pc->GetSubtitleDelay();
+
+    int idCurSubDelay = NewMenuId();
+    subDelayMenu->Append(idCurSubDelay,
+                         wxString::Format("Current: %+.2f s", currentSubDelay));
+    subDelayMenu->Enable(idCurSubDelay, false);
+    subDelayMenu->AppendSeparator();
+
     std::vector<std::pair<wxString, double>> items = {{"\u22120.5s", -0.5},
                                                       {"\u22120.1s", -0.1},
                                                       {"Reset (0.0s)", 0.0},
@@ -813,8 +834,10 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
                                                       {"+0.5s", 0.5}};
     for (auto &it : items) {
       int id = NewMenuId();
-      subDelayMenu->Append(id, it.first);
+      subDelayMenu->AppendRadioItem(id, it.first);
       double val = it.second;
+      if (std::abs(currentSubDelay - val) < 0.01)
+        subDelayMenu->Check(id, true);
       subDelayMenu->Bind(
           wxEVT_MENU,
           [this, val](wxCommandEvent &) {
@@ -830,10 +853,22 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // ---- Scale ----
   wxMenu *subScaleMenu = new wxMenu;
   {
+    double currentSubScale = 1.0;
+    if (pc)
+      currentSubScale = pc->GetSubtitleScale();
+
+    int idCurSubScale = NewMenuId();
+    subScaleMenu->Append(idCurSubScale, wxString::Format("Current: %.2f\u00d7",
+                                                         currentSubScale));
+    subScaleMenu->Enable(idCurSubScale, false);
+    subScaleMenu->AppendSeparator();
+
     std::vector<double> scales = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0};
     for (double s : scales) {
       int id = NewMenuId();
-      subScaleMenu->Append(id, wxString::Format("%.2f\u00d7", s));
+      subScaleMenu->AppendRadioItem(id, wxString::Format("%.2f\u00d7", s));
+      if (std::abs(currentSubScale - s) < 0.01)
+        subScaleMenu->Check(id, true);
       subScaleMenu->Bind(
           wxEVT_MENU,
           [this, s](wxCommandEvent &) {
@@ -859,16 +894,37 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // ---- Position ----
   wxMenu *subPosMenu = new wxMenu;
   {
-    std::vector<int> positions = {0, 25, 50, 75, 100};
-    for (int p : positions) {
+    int currentSubPos = 100;
+    if (pc)
+      currentSubPos = pc->GetSubtitlePos();
+
+    int idCurSubPos = NewMenuId();
+    subPosMenu->Append(idCurSubPos,
+                       wxString::Format("Current: %d", currentSubPos));
+    subPosMenu->Enable(idCurSubPos, false);
+    subPosMenu->AppendSeparator();
+
+    struct PosItem {
+      int value;
+      wxString label;
+    };
+    std::vector<PosItem> positions = {{100, "100 (Default)"},
+                                      {90, "90 (Above UI)"},
+                                      {80, "80 (Letterbox)"},
+                                      {75, "75 (Upper letterbox)"},
+                                      {50, "50 (Center)"}};
+    for (auto &it : positions) {
       int id = NewMenuId();
-      subPosMenu->Append(id, wxString::Format("%d", p));
+      subPosMenu->AppendRadioItem(id, it.label);
+      if (currentSubPos == it.value)
+        subPosMenu->Check(id, true);
+      int val = it.value;
       subPosMenu->Bind(
           wxEVT_MENU,
-          [this, p](wxCommandEvent &) {
+          [this, val](wxCommandEvent &) {
             if (m_videoPanel)
               m_videoPanel->SetMpvPropertyAndPersist("sub-pos",
-                                                     std::to_string(p));
+                                                     std::to_string(val));
           },
           id);
     }
