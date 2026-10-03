@@ -51,10 +51,6 @@ void VideoPanel::OnPause(wxCommandEvent &) {
 }
 
 void VideoPanel::OnStop(wxCommandEvent &) {
-  if (IsUiLoading()) {
-    LOG_DEBUG("OnStop: ignored because UI is Loading");
-    return;
-  }
   Stop();
 }
 
