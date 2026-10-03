@@ -19,12 +19,6 @@
 #include <cstring>
 #include <ctime>
 
-// Статические переменные для сохранения состояния
-std::string EPGPanel::s_lastChannelId;
-std::string EPGPanel::s_lastChannelName;
-std::string EPGPanel::s_lastPlaylistName;
-time_t EPGPanel::s_lastDate;
-
 // ----------------------------------------------------------------------------
 // Конструктор / Деструктор
 // ----------------------------------------------------------------------------
@@ -34,19 +28,12 @@ EPGPanel::EPGPanel(wxWindow *parent, MainFrame *mainFrame)
       m_epgManager(nullptr), m_isActive(false), m_hasError(false) {
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
-    if (s_lastDate == 0) {
-      s_lastDate = EpgTime::GetStartOfDay(EpgTime::GetCurrentUtcEpoch());
-    }
     m_epgManager = app->GetEPGManager();
   }
   SetupUI();
-  RestoreState();
 }
 
-EPGPanel::~EPGPanel() {
-  // Сохраняем состояние перед закрытием
-  SaveState();
-}
+EPGPanel::~EPGPanel() = default;
 
 void EPGPanel::UpdateHeader() {
   wxString label;
@@ -202,7 +189,6 @@ void EPGPanel::SetChannel(const Channel &channel) {
 
   UpdateHeader();
   LoadProgramsForChannel(m_currentChannelId, m_currentDate);
-  SaveState();
 }
 
 void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
@@ -394,52 +380,13 @@ void EPGPanel::ShowMessage(const wxString &msg) {
   wxMessageBox(msg, _("Info"), wxOK | wxICON_INFORMATION, this);
 }
 
-// ----------------------------------------------------------------------------
-// Сохранение/восстановление состояния
-// ----------------------------------------------------------------------------
-void EPGPanel::SaveState() {
-  s_lastChannelId = m_currentChannelId;
-  s_lastChannelName = m_currentChannelName;
-  s_lastPlaylistName = m_currentChannel.getPlaylistName();
-  s_lastDate = m_currentDate;
-}
-
-void EPGPanel::RestoreState() {
-  if (!s_lastChannelId.empty() || !s_lastChannelName.empty()) {
-    Channel ch;
-    ch.setTvgId(s_lastChannelId);
-    ch.setName(s_lastChannelName);
-    if (!s_lastPlaylistName.empty()) {
-      ch.setPlaylistName(s_lastPlaylistName);
-    }
-    m_currentDate = s_lastDate;
-    SetChannel(ch);
-  } else {
-    // Сброс
-    m_headerLabel->SetLabel("No channel selected");
-    m_currentDate = EpgTime::GetStartOfDay(EpgTime::GetCurrentUtcEpoch());
-    UpdateDateLabel();
-    m_programGrid->ClearGrid();
-    if (m_programGrid->GetNumberRows() > 0)
-      m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());
-    m_detailTitle->SetLabel("");
-    m_detailDesc->SetValue("");
-  }
-}
-
 void EPGPanel::OnManualMapping(wxCommandEvent &) {
   if (!m_mainFrame) {
     wxMessageBox(_("MainFrame not available"), _("Error"), wxOK | wxICON_ERROR,
                  this);
     return;
   }
-  /*
-  if (m_currentChannelId.empty() && m_currentChannelName.empty()) {
-    wxMessageBox(_("No channel selected"), _("Info"), wxOK | wxICON_INFORMATION,
-                 this);
-    return;
-  }
-  */
+
   if (!m_epgManager) {
     wxMessageBox(_("EPG Manager not available"), _("Error"),
                  wxOK | wxICON_ERROR, this);

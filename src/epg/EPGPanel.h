@@ -23,8 +23,6 @@ public:
   void SetChannel(const Channel &channel);
   void Clear();
   void LoadProgramsForChannel(const std::string &channelId, time_t date);
-  void SaveState();
-  void RestoreState();
 
   void SetActive(bool active) { m_isActive = active; }
   bool IsActive() const { return m_isActive; }
@@ -64,12 +62,6 @@ private:
   bool m_isActive;
   bool m_hasError;
   wxString m_lastError;
-
-  // Статическое состояние
-  static std::string s_lastChannelId;
-  static std::string s_lastChannelName;
-  static std::string s_lastPlaylistName;
-  static time_t s_lastDate;
 
   void SetupUI();
   void UpdateDateLabel();
