@@ -225,6 +225,14 @@ private:
   std::future<void> m_incrementalRemapFuture; // для инкрементального ремаппинга
   void AddAutoMapping(const std::string &playlistId, const std::string &key,
                       const std::string &epgId);
+  // Пишет auto-mapping в favorites-карты (не в общие) + БД.
+  void AddFavoritesAutoMapping(const std::string &playlistId,
+                               const std::string &key,
+                               const std::string &epgId);
+  // Единый поиск channelId: manual → fav manual → auto → fav auto.
+  // Используется в GetProgramsForChannel / GetCurrentProgram.
+  std::string LookupChannelId(const std::string &tvgId,
+                              const std::string &channelName) const;
   std::atomic<bool> m_mappingStale{false};
   void IncrementalRemap(const std::vector<Channel> &channels,
                         const std::string &playlistId);
@@ -312,6 +320,9 @@ private:
   mutable std::shared_mutex m_mappingMutex;
   std::unordered_map<std::string, std::string> m_channelMapping;
   std::unordered_map<std::string, std::string> m_manualMapping;
+
+  std::unordered_map<std::string, std::string> m_favoritesMapping;
+  std::unordered_map<std::string, std::string> m_favoritesManualMapping;
 
   std::vector<EpgSource> m_sources;
   bool m_loaded = false;

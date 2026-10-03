@@ -986,37 +986,7 @@ EPGManager::GetProgramsForChannel(const std::string &tvgId,
                                   time_t date) const {
 
   std::vector<EpgProgram> result;
-  std::string channelId;
-
-  {
-    std::shared_lock lock(m_mappingMutex);
-
-    // Ручной маппинг приоритетнее авто — это явный выбор пользователя.
-    if (!tvgId.empty()) {
-      auto itm = m_manualMapping.find(tvgId);
-      if (itm != m_manualMapping.end())
-        channelId = itm->second;
-      if (channelId.empty()) {
-        auto it = m_channelMapping.find(tvgId);
-        if (it != m_channelMapping.end())
-          channelId = it->second;
-      }
-    }
-    if (channelId.empty() && !channelName.empty()) {
-      std::string normalized = NormalizeName(channelName);
-      std::string nameKey = "name:" + normalized;
-
-      auto itm = m_manualMapping.find(nameKey);
-      if (itm != m_manualMapping.end())
-        channelId = itm->second;
-      if (channelId.empty()) {
-        auto it = m_channelMapping.find(nameKey);
-        if (it != m_channelMapping.end())
-          channelId = it->second;
-      }
-    }
-  }
-  
+  std::string channelId = LookupChannelId(tvgId, channelName);
   if (channelId.empty())
     return result;
 
@@ -1034,20 +1004,7 @@ EPGManager::GetProgramsForChannel(const std::string &tvgId,
 
 EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {
   EpgProgram result;
-  std::string channelId;
-
-  {
-    std::shared_lock lock(m_mappingMutex);
-    auto itm = m_manualMapping.find(tvgId);
-    if (itm != m_manualMapping.end())
-      channelId = itm->second;
-    if (channelId.empty()) {
-      auto it = m_channelMapping.find(tvgId);
-      if (it != m_channelMapping.end())
-        channelId = it->second;
-    }
-  }
-
+  std::string channelId = LookupChannelId(tvgId, "");
   if (channelId.empty())
     return result;
 
@@ -1059,15 +1016,47 @@ EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {
   return m_db->GetCurrentProgram(channelId, now);
 }
 
+std::string EPGManager::LookupChannelId(const std::string &tvgId,
+                                        const std::string &channelName) const {
+  std::shared_lock lock(m_mappingMutex);
+
+  auto lookup = [&](const std::string &key) -> std::string {
+    if (key.empty())
+      return "";
+    auto it = m_manualMapping.find(key);
+    if (it != m_manualMapping.end())
+      return it->second;
+    it = m_favoritesManualMapping.find(key);
+    if (it != m_favoritesManualMapping.end())
+      return it->second;
+    it = m_channelMapping.find(key);
+    if (it != m_channelMapping.end())
+      return it->second;
+    it = m_favoritesMapping.find(key);
+    if (it != m_favoritesMapping.end())
+      return it->second;
+    return "";
+  };
+
+  std::string channelId = lookup(tvgId);
+  if (channelId.empty() && !channelName.empty()) {
+    std::string normalized = NormalizeName(channelName);
+    channelId = lookup("name:" + normalized);
+  }
+  return channelId;
+}
+
 std::vector<std::string> EPGManager::GetChannelIdsWithEpg() const {
   std::vector<std::string> ids;
-  {
-    std::shared_lock lock(m_mappingMutex);
-    ids.reserve(m_channelMapping.size());
-    for (const auto &[key, val] : m_channelMapping) {
-      if (key.find("name:") != 0)
-        ids.push_back(val);
-    }
+  std::shared_lock lock(m_mappingMutex);
+  ids.reserve(m_channelMapping.size() + m_favoritesMapping.size());
+  for (const auto &[key, val] : m_channelMapping) {
+    if (key.find("name:") != 0)
+      ids.push_back(val);
+  }
+  for (const auto &[key, val] : m_favoritesMapping) {
+    if (key.find("name:") != 0)
+      ids.push_back(val);
   }
   return ids;
 }
@@ -1909,16 +1898,43 @@ bool EPGManager::LoadMappingForPlaylist(const std::string &playlistId,
   size_t channelCount = 0;
   std::string channelHash, epgHashAtMatch;
 
-  if (!m_db->LoadPlaylistMapping(playlistId, mapping, manualMapping,
-                                 channelCount, channelHash, epgHashAtMatch)) {
+  bool metaOk =
+      m_db->LoadPlaylistMapping(playlistId, mapping, manualMapping,
+                                channelCount, channelHash, epgHashAtMatch);
+  bool hasData = !mapping.empty() || !manualMapping.empty();
+  const bool isFavorites = (playlistId == FAVORITES_PLAYLIST_ID);
+
+  if (!metaOk && !hasData) {
+    // Нет ни метаданных, ни записей. Чистим соответствующие карты,
+    // чтобы не остались чужие ключи от предыдущего плейлиста.
+    std::unique_lock lock(m_mappingMutex);
+    if (isFavorites) {
+      m_favoritesMapping.clear();
+      m_favoritesManualMapping.clear();
+    } else {
+      m_channelMapping.clear();
+      m_manualMapping.clear();
+      m_mappingStale = true;
+    }
     return false;
   }
 
+  if (isFavorites) {
+    // Favorites: хэш/счётчик не проверяем (список избранного меняется
+    // независимо). Решение о рематче — по m_lastFavoritesEpgHash внутри
+    // MatchFavoritesAsync. m_currentPlaylistId НЕ трогаем: иначе
+    // ReMatchCurrentPlaylist не найдёт реальный плейлист.
+    std::unique_lock lock(m_mappingMutex);
+    m_favoritesMapping = mapping;
+    m_favoritesManualMapping = manualMapping;
+    return true;
+  }
+
+  // Далее — обычный плейлист (без изменений).
   std::string currentHash = ComputePlaylistHash(channels);
   bool hashMatch = (currentHash == channelHash);
   bool countMatch = (channelCount == channels.size());
 
-  // Если хэш или количество не совпадают — загружаем маппинг как stale
   if (!hashMatch || !countMatch) {
     {
       std::unique_lock lock(m_mappingMutex);
@@ -1926,12 +1942,10 @@ bool EPGManager::LoadMappingForPlaylist(const std::string &playlistId,
       m_manualMapping = manualMapping;
       m_mappingStale = true;
     }
-    // Запускаем инкрементальный ремаппинг в фоне
     IncrementalRemap(channels, playlistId);
     return true;
   }
 
-  // Всё совпало — обычная загрузка
   {
     std::unique_lock lock(m_mappingMutex);
     m_channelMapping = mapping;
@@ -2032,8 +2046,17 @@ void EPGManager::RemoveChannelMapping(const std::string &playlistId,
 std::string
 EPGManager::GetEpgChannelIdForTvgId(const std::string &tvgId) const {
   std::shared_lock lock(m_mappingMutex);
-  auto it = m_channelMapping.find(tvgId);
+  auto it = m_manualMapping.find(tvgId);
+  if (it != m_manualMapping.end())
+    return it->second;
+  it = m_favoritesManualMapping.find(tvgId);
+  if (it != m_favoritesManualMapping.end())
+    return it->second;
+  it = m_channelMapping.find(tvgId);
   if (it != m_channelMapping.end())
+    return it->second;
+  it = m_favoritesMapping.find(tvgId);
+  if (it != m_favoritesMapping.end())
     return it->second;
   return "";
 }
@@ -2491,7 +2514,8 @@ void EPGManager::setLastError(const std::string &msg) const {
 
 bool EPGManager::HasMapping() const {
   std::shared_lock lock(m_mappingMutex);
-  return !m_channelMapping.empty();
+  return !m_channelMapping.empty() || !m_manualMapping.empty() ||
+         !m_favoritesMapping.empty() || !m_favoritesManualMapping.empty();
 }
 
 const DownloadProgress &EPGManager::GetDownloadProgress() const {
@@ -2782,6 +2806,10 @@ void EPGManager::MatchFavoritesAsync(bool force) {
       FlagGuard &operator=(const FlagGuard &) = delete;
     } guard(m_favoritesMatchInProgress);
 
+    // Сессию создаём сразу: счётчик держится ≥1 всё время работы favorites,
+    // финальный Done снимает объединённый аггрегат (Ch + Fav).
+    MatchingSession session(m_activeMatchings, this);
+
     LOG_DEBUG("MatchFavoritesAsync: starting background task (force=%d)",
               force);
 
@@ -2800,20 +2828,42 @@ void EPGManager::MatchFavoritesAsync(bool force) {
     auto favChannels = app->getFavoritesManager().list();
     if (favChannels.empty()) {
       LOG_DEBUG("MatchFavoritesAsync: no favorites, saving current hash");
+      {
+        std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+        if (m_db && m_db->IsOpen()) {
+          EPGDatabase::PlaylistMetadata meta;
+          meta.channelCount = 0;
+          meta.channelHash = ComputePlaylistHash(favChannels);
+          meta.epgHashAtMatch = m_epgChannelsHash;
+          meta.lastMatchTime = EpgTime::GetCurrentUtcEpoch();
+          m_db->SavePlaylistMetadata(FAVORITES_PLAYLIST_ID, meta);
+        }
+      }
       std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
       m_lastFavoritesEpgHash = m_epgChannelsHash;
       SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
       return;
     }
-
     if (!force && !IsFavoritesEpgHashChanged()) {
       LOG_DEBUG("MatchFavoritesAsync: favorites EPG hash unchanged, skipping");
       return;
     }
 
-    // 4) Сессия создаётся только при реальном матчинге, чтобы пустые
-    // задачи не дёргали m_activeMatchings и не сбивали агрегат.
-    MatchingSession session(m_activeMatchings, this);
+    // FindBestMatch работает только по m_normalizedCache/m_epgIdIndex,
+    // которые строит MatchChannels. Если в этой сессии канальный плейлист
+    // не рематчился (mapping загрузился из БД без ремаппинга), кэш пуст —
+    // favorites не найдёт ни одного совпадения. Строим сами.
+    {
+      bool cacheEmpty = false;
+      {
+        std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+        cacheEmpty = m_normalizedCache.empty();
+      }
+      if (cacheEmpty) {
+        LOG_DEBUG("MatchFavoritesAsync: normalized cache empty, rebuilding");
+        RebuildNormalizedCache();
+      }
+    }
 
     // Собираем названия плейлистов, которые есть в избранном
     std::unordered_set<std::string> playlistNames;
@@ -2878,7 +2928,7 @@ void EPGManager::MatchFavoritesAsync(bool force) {
       // Ищем наилучшее совпадение
       MatchResult match = FindBestMatch(favCh);
       if (!match.channelId.empty()) {
-        AddAutoMapping(favoritesPlaylistId, key, match.channelId);
+        AddFavoritesAutoMapping(favoritesPlaylistId, key, match.channelId);
         matched++;
         continue;
       }
@@ -2899,7 +2949,7 @@ void EPGManager::MatchFavoritesAsync(bool force) {
               if (GetMappingEntry(sourcePlaylistId, tvgId, epgId,
                                   isManualSrc) &&
                   !epgId.empty()) {
-                AddAutoMapping(favoritesPlaylistId, key, epgId);
+                AddFavoritesAutoMapping(favoritesPlaylistId, key, epgId);
                 matched++;
                 LOG_DEBUG("MatchFavoritesAsync: fallback URL match for '%s' -> "
                           "'%s' (via %s)",
@@ -2917,6 +2967,24 @@ void EPGManager::MatchFavoritesAsync(bool force) {
 
     // Сохраняем хэш, если матчинг завершился успешно (не был отменён)
     if (!m_cancelFavoritesMatching) {
+      // Без PlaylistMetadata для "favorites" LoadPlaylistMapping возвращает
+      // false даже при наличии строк в playlist_mappings — тогда
+      // LoadMappingForPlaylist не заполнит m_channelMapping, и EPG избранного
+      // пропадёт после перезапуска / смены плейлиста.
+      {
+        std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+        if (m_db && m_db->IsOpen()) {
+          EPGDatabase::PlaylistMetadata meta;
+          meta.channelCount = favChannels.size();
+          meta.channelHash = ComputePlaylistHash(favChannels);
+          meta.epgHashAtMatch = m_epgChannelsHash;
+          meta.lastMatchTime = EpgTime::GetCurrentUtcEpoch();
+          if (!m_db->SavePlaylistMetadata(FAVORITES_PLAYLIST_ID, meta)) {
+            LOG_ERROR("MatchFavoritesAsync: failed to save favorites metadata");
+          }
+        }
+      }
+
       std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
       m_lastFavoritesEpgHash = m_epgChannelsHash;
       SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
@@ -3002,5 +3070,18 @@ void EPGManager::AddAutoMapping(const std::string &playlistId,
   {
     std::unique_lock lock(m_mappingMutex);
     m_channelMapping[key] = epgId;
+  }
+}
+
+void EPGManager::AddFavoritesAutoMapping(const std::string &playlistId,
+                                         const std::string &key,
+                                         const std::string &epgId) {
+  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+  if (!m_db || !m_db->IsOpen())
+    return;
+  m_db->InsertAutoMapping(playlistId, key, epgId);
+  {
+    std::unique_lock lock(m_mappingMutex);
+    m_favoritesMapping[key] = epgId;
   }
 }

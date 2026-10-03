@@ -348,9 +348,23 @@ void MainFrame::HandleFavPageChanged(int sel) {
         auto &fm = getApplication()->getFavoritesManager();
         auto favChannels = fm.list();
         if (!favChannels.empty()) {
-          epg->LoadMappingForPlaylist(EPGManager::FAVORITES_PLAYLIST_ID,
-                                      favChannels);
-          LOG_DEBUG("HandleFavPageChanged: loaded mapping for favorites");
+          bool loaded = epg->LoadMappingForPlaylist(
+              EPGManager::FAVORITES_PLAYLIST_ID, favChannels);
+          // LoadMappingForPlaylist может вернуть true с ПУСТЫМ mapping
+          // (metadata есть, строк нет). Проверяем содержимое БД напрямую.
+          bool hasMapping = false;
+          {
+            auto favMap = epg->GetAllMappingsForPlaylist(
+                EPGManager::FAVORITES_PLAYLIST_ID);
+            hasMapping = !favMap.empty();
+          }
+          LOG_DEBUG("HandleFavPageChanged: loaded=%d hasMapping=%d",
+                    static_cast<int>(loaded), static_cast<int>(hasMapping));
+          if ((!loaded || !hasMapping) && epg->IsLoaded()) {
+            LOG_DEBUG("HandleFavPageChanged: no favorites mapping, "
+                      "triggering MatchFavoritesAsync(true)");
+            epg->MatchFavoritesAsync(true);
+          }
         }
       }
     }
@@ -374,6 +388,15 @@ void MainFrame::HandleFavPageChanged(int sel) {
         m_favList->SetFocusFromKbd();
     }
     RestoreFavoriteSelection();
+
+    // Явно перезагружаем EPG для текущего канала в избранном:
+    //  - если маппинг изменился/очистился — Details сбросятся;
+    //  - если данные обновились в фоне — обновятся.
+    if (m_epgFavorites && m_epgFavorites->HasChannel()) {
+      m_epgFavorites->LoadProgramsForChannel(
+          m_epgFavorites->GetCurrentChannelId(),
+          m_epgFavorites->GetCurrentDate());
+    }
   } else {
     if (m_epgFavorites)
       m_epgFavorites->SetActive(false);

@@ -466,3 +466,21 @@ void EPGPanel::SelectProgramRow(int row) {
   }
 }
 
+void EPGPanel::Clear() {
+  m_currentChannel = Channel();
+  m_currentChannelId.clear();
+  m_currentChannelName.clear();
+  m_currentPrograms.clear();
+
+  if (m_programGrid) {
+    m_programGrid->ClearGrid();
+    if (m_programGrid->GetNumberRows() > 0)
+      m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());
+  }
+  if (m_detailTitle)
+    m_detailTitle->SetLabel("");
+  if (m_detailDesc)
+    m_detailDesc->SetValue("");
+  if (m_headerLabel)
+    m_headerLabel->SetLabel(_("No channel selected"));
+}

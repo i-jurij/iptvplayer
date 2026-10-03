@@ -21,6 +21,7 @@ public:
   ~EPGPanel();
 
   void SetChannel(const Channel &channel);
+  void Clear();
   void LoadProgramsForChannel(const std::string &channelId, time_t date);
   void SaveState();
   void RestoreState();

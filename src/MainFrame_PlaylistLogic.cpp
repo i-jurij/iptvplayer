@@ -129,6 +129,12 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
   if (IsBeingDeleted())
     return;
 
+  m_epgDebounceTimer.Stop();
+  m_epgPendingPanel = nullptr;
+
+  if (m_epgChannels)
+    m_epgChannels->Clear();
+
   wxString header =
       wxString::Format("Playlist: %s / Channels: %zu", title, channels.size());
   m_channelsHeader->SetLabel(header);

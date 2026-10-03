@@ -5,11 +5,296 @@ Apply Match in EPGSourcesPanel or Refresh now не помогает.
 Удаление из избранного, свежее добавление из плейлиста - программа есть.
 То есть программа есть только если добавили в текущей сессии и 
 до смены плейлиста. Плюс не очищается детайлс в избранном, если ранне программа была.
------------------------------------------------------
 
-sound menu
-Правильнее — добавить пункт Passthrough (S/PDIF, HDMI) с подменю Off / AC3 & DTS / AC3, DTS, E-AC3, TrueHD, DTS-HD. Сохранять в конфиг (mpv_audio_spdif), применять при следующем стриме.
--------------------------------------------------------------------
+# Проверка и точные правки
+
+Я перепроверил цепочку. Ключевой факт в `EPGDatabase::LoadPlaylistMapping`:
+
+```cpp
+// строки из playlist_mappings читаются...
+while (rs.NextRow()) { ... }
+
+PlaylistMetadata meta;
+if (LoadPlaylistMetadata(playlistId, meta)) {   // ← если metadata нет
+  ...                                            //    вернёт false
+  return true;
+}
+return false;                                    // ← даже когда mapping
+                                                 //    уже заполнен!
+```
+
+`MatchFavoritesAsync` сохраняет только строки в `playlist_mappings` (через `AddAutoMapping`), но **никогда не вызывает `SavePlaylistMetadata("favorites", ...)`**. Значит на следующем запуске/смене плейлиста `LoadMappingForPlaylist("favorites")` возвращает `false` и **не заполняет `m_channelMapping`** — при этом не очищает и старые значения от предыдущего плейлиста.
+
+Дополнительно в `LoadMappingForPlaylist` есть баг: при `false` она оставляет `m_channelMapping` в состоянии предыдущего плейлиста.
+
+Ниже — 4 точных патча.
+
+---
+
+## Патч 1 — `EPGManager.cpp`: сохранять `PlaylistMetadata` для `"favorites"`
+
+Найти в `MatchFavoritesAsync` (в самом конце лямбды):
+
+```cpp
+    // Сохраняем хэш, если матчинг завершился успешно (не был отменён)
+    if (!m_cancelFavoritesMatching) {
+      std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
+      m_lastFavoritesEpgHash = m_epgChannelsHash;
+      SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
+      LOG_DEBUG("MatchFavoritesAsync: completed, matched %d favorites",
+                matched);
+    } else {
+      LOG_DEBUG("MatchFavoritesAsync: cancelled, not saving hash");
+    }
+```
+
+Заменить на:
+
+```cpp
+    // Сохраняем хэш, если матчинг завершился успешно (не был отменён)
+    if (!m_cancelFavoritesMatching) {
+      // Без PlaylistMetadata для "favorites" LoadPlaylistMapping возвращает
+      // false даже при наличии строк в playlist_mappings — тогда
+      // LoadMappingForPlaylist не заполнит m_channelMapping, и EPG избранного
+      // пропадёт после перезапуска / смены плейлиста.
+      {
+        std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+        if (m_db && m_db->IsOpen()) {
+          PlaylistMetadata meta;
+          meta.channelCount   = favChannels.size();
+          meta.channelHash    = ComputePlaylistHash(favChannels);
+          meta.epgHashAtMatch = m_epgChannelsHash;
+          meta.lastMatchTime  = EpgTime::GetCurrentUtcEpoch();
+          if (!m_db->SavePlaylistMetadata(FAVORITES_PLAYLIST_ID, meta)) {
+            LOG_ERROR(
+                "MatchFavoritesAsync: failed to save favorites metadata");
+          }
+        }
+      }
+
+      std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
+      m_lastFavoritesEpgHash = m_epgChannelsHash;
+      SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
+      LOG_DEBUG("MatchFavoritesAsync: completed, matched %d favorites",
+                matched);
+    } else {
+      LOG_DEBUG("MatchFavoritesAsync: cancelled, not saving hash");
+    }
+```
+
+Плюс в ветке «нет избранного» — чтобы и пустое состояние сохранялось корректно:
+
+```cpp
+    auto favChannels = app->getFavoritesManager().list();
+    if (favChannels.empty()) {
+      LOG_DEBUG("MatchFavoritesAsync: no favorites, saving current hash");
+      std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
+      m_lastFavoritesEpgHash = m_epgChannelsHash;
+      SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
+      return;
+    }
+```
+
+Заменить на:
+
+```cpp
+    auto favChannels = app->getFavoritesManager().list();
+    if (favChannels.empty()) {
+      LOG_DEBUG("MatchFavoritesAsync: no favorites, saving current hash");
+      {
+        std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+        if (m_db && m_db->IsOpen()) {
+          PlaylistMetadata meta;
+          meta.channelCount   = 0;
+          meta.channelHash    = ComputePlaylistHash(favChannels);
+          meta.epgHashAtMatch = m_epgChannelsHash;
+          meta.lastMatchTime  = EpgTime::GetCurrentUtcEpoch();
+          m_db->SavePlaylistMetadata(FAVORITES_PLAYLIST_ID, meta);
+        }
+      }
+      std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
+      m_lastFavoritesEpgHash = m_epgChannelsHash;
+      SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
+      return;
+    }
+```
+
+---
+
+## Патч 2 — `EPGManager.cpp`: `LoadMappingForPlaylist` не должна оставлять чужой mapping
+
+Найти:
+
+```cpp
+  if (!m_db->LoadPlaylistMapping(playlistId, mapping, manualMapping,
+                                 channelCount, channelHash, epgHashAtMatch)) {
+    return false;
+  }
+```
+
+Заменить на:
+
+```cpp
+  bool metaOk = m_db->LoadPlaylistMapping(playlistId, mapping, manualMapping,
+                                          channelCount, channelHash,
+                                          epgHashAtMatch);
+  bool hasData = !mapping.empty() || !manualMapping.empty();
+
+  // Нет ни метаданных, ни самих записей — для этого плейлиста ничего нет.
+  // Обязательно очищаем текущий mapping, иначе в нём останутся записи
+  // предыдущего плейлиста, и GetProgramsForChannel для каналов текущего
+  // плейлиста/избранного будет искать по чужим ключам.
+  if (!metaOk && !hasData) {
+    {
+      std::unique_lock lock(m_mappingMutex);
+      m_channelMapping.clear();
+      m_manualMapping.clear();
+      m_mappingStale = true;
+    }
+    return false;
+  }
+  // metaOk == false, но hasData == true — записи есть, метаданных нет
+  // (старая версия MatchFavoritesAsync сохраняла mapping без metadata).
+  // Дальше hashMatch/countMatch окажутся false → пойдёт stale‑путь.
+```
+
+Остальное тело функции **не меняется** — существующая логика уже корректно обработает случай `hashMatch=false` (через `IncrementalRemap`).
+
+---
+
+## Патч 3 — `EPGManager.cpp`: `MatchFavoritesAsync` ждёт `MatchChannelsAsync`
+
+Найти (внутри лямбды `MatchFavoritesAsync`, сразу после `FlagGuard`):
+
+```cpp
+    } guard(m_favoritesMatchInProgress);
+
+    LOG_DEBUG("MatchFavoritesAsync: starting background task (force=%d)",
+              force);
+```
+
+Заменить на:
+
+```cpp
+    } guard(m_favoritesMatchInProgress);
+
+    // Ждём завершения матчинга каналов, если он запущен. MatchChannels
+    // в конце делает m_channelMapping = newMapping, затирая записи
+    // избранного, добавленные через AddAutoMapping() ниже. Ожидание
+    // гарантирует, что при совпадении по времени (ReMatchCurrentPlaylist,
+    // UpdateAllSources) записи избранного остаются в памяти.
+    if (m_matchFuture.valid()) {
+      m_matchFuture.wait();
+    }
+
+    LOG_DEBUG("MatchFavoritesAsync: starting background task (force=%d)",
+              force);
+```
+
+---
+
+## Патч 4 — `MainFrame_FavoritesUI.cpp`: `HandleFavPageChanged`
+
+Найти:
+
+```cpp
+    Application *app = static_cast<Application *>(wxTheApp);
+    if (app) {
+      EPGManager *epg = app->GetEPGManager();
+      if (epg) {
+        auto &fm = getApplication()->getFavoritesManager();
+        auto favChannels = fm.list();
+        if (!favChannels.empty()) {
+          epg->LoadMappingForPlaylist(EPGManager::FAVORITES_PLAYLIST_ID,
+                                      favChannels);
+          LOG_DEBUG("HandleFavPageChanged: loaded mapping for favorites");
+        }
+      }
+    }
+```
+
+Заменить на:
+
+```cpp
+    Application *app = static_cast<Application *>(wxTheApp);
+    if (app) {
+      EPGManager *epg = app->GetEPGManager();
+      if (epg) {
+        auto &fm = getApplication()->getFavoritesManager();
+        auto favChannels = fm.list();
+        if (!favChannels.empty()) {
+          bool loaded = epg->LoadMappingForPlaylist(
+              EPGManager::FAVORITES_PLAYLIST_ID, favChannels);
+          LOG_DEBUG("HandleFavPageChanged: LoadMappingForPlaylist -> %d",
+                    static_cast<int>(loaded));
+          if (!loaded && epg->IsLoaded()) {
+            // Нет сохранённого маппинга (первый запуск после обновления
+            // или старая БД без PlaylistMetadata) — запускаем матчинг.
+            LOG_DEBUG("HandleFavPageChanged: no favorites mapping, "
+                      "triggering MatchFavoritesAsync(true)");
+            epg->MatchFavoritesAsync(true);
+          }
+        }
+      }
+    }
+```
+
+И в том же методе, в конце блока `if (sel == m_favoritesPageIdx)` — найти:
+
+```cpp
+    m_favViewBook->ChangeSelection(grid ? 1 : 0);
+    if (grid) {
+      if (m_favCards)
+        m_favCards->SetFocusIgnoringChildren();
+    } else {
+      if (m_favList)
+        m_favList->SetFocusFromKbd();
+    }
+    RestoreFavoriteSelection();
+  } else {
+```
+
+Заменить на:
+
+```cpp
+    m_favViewBook->ChangeSelection(grid ? 1 : 0);
+    if (grid) {
+      if (m_favCards)
+        m_favCards->SetFocusIgnoringChildren();
+    } else {
+      if (m_favList)
+        m_favList->SetFocusFromKbd();
+    }
+    RestoreFavoriteSelection();
+
+    // Явно перезагружаем EPG для текущего канала в избранном:
+    //  - если маппинг изменился/очистился — Details сбросятся;
+    //  - если данные обновились в фоне — обновятся.
+    if (m_epgFavorites && m_epgFavorites->HasChannel()) {
+      m_epgFavorites->LoadProgramsForChannel(
+          m_epgFavorites->GetCurrentChannelId(),
+          m_epgFavorites->GetCurrentDate());
+    }
+  } else {
+```
+
+---
+
+## Что каждый патч лечит
+
+| Патч | Симптом |
+|---|---|
+| 1 | «После перезагрузки — пропадают»: без metadata `LoadMappingForPlaylist("favorites")` возвращает `false`, `m_channelMapping` пуст. |
+| 2 | «После смены плейлиста слетела программа для избранного»: `LoadMappingForPlaylist` при неудаче оставляла mapping предыдущего плейлиста → избранное матчилось по чужим ключам. |
+| 3 | «Ручной рематчинг не помогает»: `MatchChannels` затирает `m_channelMapping = newMapping` целиком, уничтожая записи, добавленные `AddAutoMapping` из параллельно идущего `MatchFavoritesAsync`. |
+| 4 | «Не очищается Details в избранном»: `HandleFavPageChanged` не перезагружал `LoadProgramsForChannel`; + автоматический fallback, если сохранённого маппинга нет — устраняет необходимость ручного рематчинга для «оживления» уже разбитой БД. |
+
+После этих правок:
+- При первом заходе на вкладку Favorites со «старой» БД: `LoadMappingForPlaylist` вернёт `false` → автоматически запустится `MatchFavoritesAsync(true)` → метаданные сохранятся → EPG появится.
+- При последующих перезапусках: `LoadMappingForPlaylist("favorites")` успешно загрузит и mapping, и metadata.
+- При `ReMatchCurrentPlaylist` избранное уже не затирается гонкой.
+- Details всегда сбрасываются/обновляются при заходе на вкладку.
+-----------------------------------------------------
 
 Debug: OnStop: ignored because UI is Loading
 нужно передавать стоп, а не игнорировать
