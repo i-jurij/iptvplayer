@@ -3,6 +3,7 @@
 
 #include "IPTVOrgMetadataManager.h"
 #include <atomic>
+#include <string>
 #include <vector>
 #include <wx/button.h>
 #include <wx/choice.h>
@@ -22,12 +23,6 @@ public:
   wxString GetSelectedTitle() const { return m_selectedTitle; }
 
 private:
-  enum {
-    ID_FILTER_TYPE_CHOICE = wxID_HIGHEST + 301,
-    ID_SEARCH_CTRL = wxID_HIGHEST + 302,
-    ID_REFRESH_BTN = wxID_HIGHEST + 303
-  };
-
   PlaylistManager *m_playlistMgr;
   IPTVOrgMetadataManager *m_metadataMgr;
 
@@ -49,6 +44,7 @@ private:
   bool m_updating = false;
 
   void InitializeUI();
+  void BindEvents();
   void PopulateFilterTypes();
   void OnFilterTypeChanged(wxCommandEvent &event);
   void OnRefresh(wxCommandEvent &event);
@@ -61,15 +57,14 @@ private:
   void OnDataLoaded(const wxString &filterType, bool success,
                     const std::vector<Country> &countries,
                     const std::vector<Language> &languages,
-                    const std::vector<Category> &categories);
+                    const std::vector<Category> &categories,
+                    const std::string &errorText);
 
   bool BuildPlaylistUrl(const wxString &filterType, const wxString &code,
                         wxString &outUrl, wxString &outTitle);
   wxString GetDisplayName(const wxString &filterType, const wxString &code);
 
   void UpdateList(const wxString &filterText);
-
-  wxDECLARE_EVENT_TABLE();
 };
 
 #endif

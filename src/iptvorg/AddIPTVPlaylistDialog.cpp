@@ -3,23 +3,14 @@
 #include "../PlaylistManager.h"
 #include "IPTVOrgMetadataManager.h"
 #include <chrono>
+#include <string>
 #include <thread>
+#include <utility>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
-wxBEGIN_EVENT_TABLE(AddIPTVPlaylistDialog, wxDialog) EVT_CHOICE(
-    ID_FILTER_TYPE_CHOICE, AddIPTVPlaylistDialog::OnFilterTypeChanged)
-    EVT_BUTTON(ID_REFRESH_BTN, AddIPTVPlaylistDialog::OnRefresh)
-        EVT_BUTTON(wxID_OK, AddIPTVPlaylistDialog::OnOK)
-            EVT_BUTTON(wxID_CANCEL, AddIPTVPlaylistDialog::OnCancel)
-                EVT_TEXT(ID_SEARCH_CTRL, AddIPTVPlaylistDialog::OnSearchText)
-                    EVT_DATAVIEW_SELECTION_CHANGED(
-                        wxID_ANY, AddIPTVPlaylistDialog::OnSelectionChanged)
-                        wxEND_EVENT_TABLE()
-
-                            AddIPTVPlaylistDialog::AddIPTVPlaylistDialog(
-                                wxWindow *parent, PlaylistManager *playlistMgr)
+AddIPTVPlaylistDialog::AddIPTVPlaylistDialog(wxWindow *parent, PlaylistManager *playlistMgr)
     : wxDialog(parent, wxID_ANY, "Add Playlist from IPTV-Org",
                wxDefaultPosition, wxSize(600, 450),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
@@ -43,13 +34,13 @@ void AddIPTVPlaylistDialog::InitializeUI() {
   auto *filterTypeSizer = new wxBoxSizer(wxHORIZONTAL);
   filterTypeSizer->Add(new wxStaticText(this, wxID_ANY, "Filter by:"), 0,
                        wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
-  m_filterTypeChoice = new wxChoice(this, ID_FILTER_TYPE_CHOICE);
+  m_filterTypeChoice = new wxChoice(this, wxID_ANY);
   filterTypeSizer->Add(m_filterTypeChoice, 0, wxEXPAND);
   mainSizer->Add(filterTypeSizer, 0, wxEXPAND | wxALL, 10);
 
   // ------ Поле поиска (wxTextCtrl) ------
   m_searchCtrl =
-      new wxTextCtrl(this, ID_SEARCH_CTRL, wxEmptyString, wxDefaultPosition,
+      new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition,
                      wxDefaultSize, wxTE_PROCESS_ENTER);
 #if wxCHECK_VERSION(3, 1, 0)
   m_searchCtrl->SetHint("Type to search...");
@@ -66,7 +57,7 @@ void AddIPTVPlaylistDialog::InitializeUI() {
 
   // ------ Кнопки ------
   auto *btnSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_refreshBtn = new wxButton(this, ID_REFRESH_BTN, "Refresh List");
+  m_refreshBtn = new wxButton(this, wxID_ANY, "Refresh List");
   btnSizer->Add(m_refreshBtn, 0, wxRIGHT, 5);
   btnSizer->AddStretchSpacer(1);
   btnSizer->Add(CreateButtonSizer(wxOK | wxCANCEL));
@@ -75,9 +66,32 @@ void AddIPTVPlaylistDialog::InitializeUI() {
   SetSizerAndFit(mainSizer);
   SetMinSize(wxSize(600, 400));
 
+  BindEvents();
+
   PopulateFilterTypes();
   m_filterTypeChoice->SetSelection(0);
   StartAsyncFetch(m_filterTypeChoice->GetStringSelection());
+}
+
+void AddIPTVPlaylistDialog::BindEvents() {
+  // Filter choice
+  m_filterTypeChoice->Bind(wxEVT_CHOICE,
+                           &AddIPTVPlaylistDialog::OnFilterTypeChanged, this);
+
+  // Search text
+  m_searchCtrl->Bind(wxEVT_TEXT, &AddIPTVPlaylistDialog::OnSearchText, this);
+
+  // Data view selection
+  m_dataViewList->Bind(wxEVT_DATAVIEW_SELECTION_CHANGED,
+                       &AddIPTVPlaylistDialog::OnSelectionChanged, this);
+
+  // Refresh button
+  m_refreshBtn->Bind(wxEVT_BUTTON, &AddIPTVPlaylistDialog::OnRefresh, this);
+
+  // OK / Cancel — кнопки создаются CreateButtonSizer'ом, указателей нет,
+  // но они дети диалога с ID wxID_OK / wxID_CANCEL. Биндим на this по ID.
+  Bind(wxEVT_BUTTON, &AddIPTVPlaylistDialog::OnOK, this, wxID_OK);
+  Bind(wxEVT_BUTTON, &AddIPTVPlaylistDialog::OnCancel, this, wxID_CANCEL);
 }
 
 void AddIPTVPlaylistDialog::PopulateFilterTypes() {
@@ -115,13 +129,14 @@ void AddIPTVPlaylistDialog::StartAsyncFetch(const wxString &filterType) {
     std::vector<Language> languages;
     std::vector<Category> categories;
     bool success = false;
+    std::string errorText;
 
     if (filterType == "Country") {
-      success = metadataMgr->FetchCountries(countries);
+      success = metadataMgr->FetchCountries(countries, &errorText);
     } else if (filterType == "Language") {
-      success = metadataMgr->FetchLanguages(languages);
+      success = metadataMgr->FetchLanguages(languages, &errorText);
     } else if (filterType == "Category") {
-      success = metadataMgr->FetchCategories(categories);
+      success = metadataMgr->FetchCategories(categories, &errorText);
     }
 
     auto end = std::chrono::steady_clock::now();
@@ -136,17 +151,18 @@ void AddIPTVPlaylistDialog::StartAsyncFetch(const wxString &filterType) {
       return;
     }
 
-    wxTheApp->CallAfter([this, filterType, success,
-                         countries = std::move(countries),
-                         languages = std::move(languages),
-                         categories = std::move(categories)]() {
-      if (m_cancelled) {
-        m_loading = false;
-        return;
-      }
-      OnDataLoaded(filterType, success, countries, languages, categories);
-      m_loading = false;
-    });
+    wxTheApp->CallAfter(
+        [this, filterType, success, countries = std::move(countries),
+         languages = std::move(languages), categories = std::move(categories),
+         errorText = std::move(errorText)]() {
+          if (m_cancelled) {
+            m_loading = false;
+            return;
+          }
+          OnDataLoaded(filterType, success, countries, languages, categories,
+                       errorText);
+          m_loading = false;
+        });
   }).detach();
 }
 
@@ -157,7 +173,7 @@ void AddIPTVPlaylistDialog::OnDataLoaded(
     const wxString &filterType, bool success,
     const std::vector<Country> &countries,
     const std::vector<Language> &languages,
-    const std::vector<Category> &categories) {
+    const std::vector<Category> &categories, const std::string &errorText) {
 
   if (m_cancelled)
     return;
@@ -168,7 +184,13 @@ void AddIPTVPlaylistDialog::OnDataLoaded(
   m_allCodes.clear();
 
   if (!success) {
-    m_allDisplayItems.push_back("Failed to load data");
+    wxString msg;
+    if (errorText.empty()) {
+      msg = "Failed to load data";
+    } else {
+      msg = "Error: " + wxString::FromUTF8(errorText);
+    }
+    m_allDisplayItems.push_back(msg);
     m_allCodes.push_back("");
   } else {
     if (filterType == "Country") {

@@ -1,8 +1,4 @@
 
-доделать меню: в дипсик шаг 1 с кодом уже
-
---------------------------------------------------
-
 add PL from iptvorg - on curl error or other error write error text
 but no simply Failed to load data
 ---------------------------------------------

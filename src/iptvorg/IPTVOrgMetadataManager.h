@@ -27,9 +27,12 @@ public:
   explicit IPTVOrgMetadataManager(PlaylistManager *playlistMgr);
   ~IPTVOrgMetadataManager() = default;
 
-  bool FetchCountries(std::vector<Country> &out);
-  bool FetchLanguages(std::vector<Language> &out);
-  bool FetchCategories(std::vector<Category> &out);
+  bool FetchCountries(std::vector<Country> &out,
+                      std::string *errorText = nullptr);
+  bool FetchLanguages(std::vector<Language> &out,
+                      std::string *errorText = nullptr);
+  bool FetchCategories(std::vector<Category> &out,
+                       std::string *errorText = nullptr);
 
   void InvalidateCache();
 
@@ -44,10 +47,14 @@ private:
   bool m_languagesLoaded = false;
   bool m_categoriesLoaded = false;
 
-  bool FetchJson(const std::string &url, std::string &outContent);
-  bool ParseCountries(const std::string &json, std::vector<Country> &out);
-  bool ParseLanguages(const std::string &json, std::vector<Language> &out);
-  bool ParseCategories(const std::string &json, std::vector<Category> &out);
+  bool FetchJson(const std::string &url, std::string &outContent,
+                 std::string *errorText = nullptr);
+  bool ParseCountries(const std::string &json, std::vector<Country> &out,
+                      std::string *errorText = nullptr);
+  bool ParseLanguages(const std::string &json, std::vector<Language> &out,
+                      std::string *errorText = nullptr);
+  bool ParseCategories(const std::string &json, std::vector<Category> &out,
+                       std::string *errorText = nullptr);
 };
 
 #endif
