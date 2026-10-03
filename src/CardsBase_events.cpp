@@ -615,14 +615,6 @@ void CardsBase::OnKeyDown(wxKeyEvent &evt) {
 }
 
 void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
-  wxMenu menu;
-  int idCopyUrl = wxNewId();
-  int idCopyName = wxNewId();
-  int idRemove = wxNewId();
-  menu.Append(idCopyUrl, "Copy URL");
-  menu.Append(idCopyName, "Copy Name");
-  menu.Append(idRemove, "Remove from playlist");
-
   wxPoint pos = evt.GetPosition();
   if (pos == wxDefaultPosition) {
     pos = wxGetMousePosition();
@@ -635,8 +627,39 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
   if (idx < 0)
     return;
 
+  // Правый клик не порождает EVT_LEFT_DOWN, поэтому фокус не выставляется
+  // автоматически. Ставим его вручную, чтобы карточка была визуально
+  // выделена и Play из меню работал как обычный клик.
+  if (idx != m_focusIndex) {
+    int oldFocus = m_focusIndex;
+    m_focusIndex = idx;
+    if (oldFocus >= 0)
+      InvalidateCardClientRectByIndex(oldFocus);
+    InvalidateCardClientRectByIndex(idx);
+    Refresh();
+  }
+
+  wxMenu menu;
+  int idPlay = wxNewId();
+  int idCopyUrl = wxNewId();
+  int idCopyName = wxNewId();
+  int idRemove = wxNewId();
+  menu.Append(idPlay, "Play");
+  menu.AppendSeparator();
+  menu.Append(idCopyUrl, "Copy URL");
+  menu.Append(idCopyName, "Copy Name");
+  menu.Append(idRemove, m_isFavoritesCards ? "Remove from favorites"
+                                           : "Remove from playlist");
+
   int selection = GetPopupMenuSelectionFromUser(menu);
-if (selection == idCopyUrl) {
+  if (selection == idPlay) {
+    const Channel &ch = m_channels[idx];
+    if (m_onSelect)
+      m_onSelect(ch, (size_t)idx, rect);
+    MainFrame *mf = GetMainFrame();
+    if (mf)
+      mf->PlayChannel(ch);
+  } else if (selection == idCopyUrl) {
     if (wxTheClipboard->Open()) {
       wxTheClipboard->SetData(
           new wxTextDataObject(wxString::FromUTF8(m_channels[idx].getUrl())));
@@ -650,7 +673,13 @@ if (selection == idCopyUrl) {
     }
   } else if (selection == idRemove) {
     MainFrame *mf = GetMainFrame();
-    if (mf) {
+    if (!mf)
+      return;
+
+    if (m_isFavoritesCards) {
+      mf->getApplication()->getFavoritesManager().remove(m_channels[idx]);
+      mf->refreshFavorites();
+    } else {
       mf->RemoveChannelFromPlaylist(m_channels[idx]);
     }
   }

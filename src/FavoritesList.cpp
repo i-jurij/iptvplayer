@@ -45,15 +45,29 @@ void FavoritesList::loadChannels(const std::vector<Channel> &channels) {
 void FavoritesList::ShowContextMenu(const Channel &ch) {
   wxMenu menu;
 
+  int idPlay = wxNewId();
   int idCopyUrl = wxNewId();
   int idCopyName = wxNewId();
 
+  menu.Append(idPlay, "Play");
+  menu.AppendSeparator();
   menu.Append(idCopyUrl, "Copy URL");
   menu.Append(idCopyName, "Copy Name");
 
   menu.Bind(
       wxEVT_MENU,
-      [ ch](wxCommandEvent &) {
+      [this, ch](wxCommandEvent &) {
+        if (m_onSelect)
+          m_onSelect(ch, 0, wxRect());
+        MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+        if (mf)
+          mf->PlayChannel(ch);
+      },
+      idPlay);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [ch](wxCommandEvent &) {
         if (wxTheClipboard->Open()) {
           wxTheClipboard->SetData(
               new wxTextDataObject(wxString::FromUTF8(ch.getUrl())));

@@ -429,15 +429,29 @@ void ChannelList::OnContextMenu(wxDataViewEvent &evt) {
 void ChannelList::ShowContextMenu(const Channel &ch) {
   wxMenu menu;
 
+  int idPlay = wxNewId();
   int idCopyUrl = wxNewId();
   int idCopyName = wxNewId();
   int idRemove = wxNewId();
 
+  menu.Append(idPlay, "Play");
+  menu.AppendSeparator();
   menu.Append(idCopyUrl, "Copy URL");
   menu.Append(idCopyName, "Copy Name");
   menu.Append(idRemove, "Remove from playlist");
 
   // Привязываем обработчики
+  menu.Bind(
+      wxEVT_MENU,
+      [this, ch](wxCommandEvent &) {
+        if (m_onSelect)
+          m_onSelect(ch, 0, wxRect());
+        MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+        if (mf)
+          mf->PlayChannel(ch);
+      },
+      idPlay);
+
   menu.Bind(
       wxEVT_MENU,
       [ch](wxCommandEvent &) {

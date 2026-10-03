@@ -134,6 +134,7 @@ protected:
   bool m_mouseInside = false;
   int m_focusIndex = -1; // клавиатурный фокус
   int m_hoverIndex = -1; // hover мыши
+  bool m_isFavoritesCards = false;
 
   std::unordered_map<std::string, std::vector<int>> m_scaledKeyToIndices;
   void OnLogoScaledReady(const std::string &scaledKey);

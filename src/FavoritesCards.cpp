@@ -8,6 +8,7 @@
 #include <memory>
 
 FavoritesCards::FavoritesCards(wxWindow *parent) : CardsBase(parent) {
+  m_isFavoritesCards = true;
   m_favFilled = wxBitmap::NewFromPNGData(star_filled_png, star_filled_png_len);
 
   m_search = std::make_unique<TypeAheadSearch>(
