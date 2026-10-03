@@ -676,6 +676,14 @@ std::vector<MpvBackend::AudioDevice> MpvBackend::GetAudioDevices() const {
     return result;
   }
 
+  // Собираем сырой список (name, description) от mpv.
+  struct RawDev {
+    std::string name;
+    std::string description;
+  };
+  std::vector<RawDev> raw;
+  raw.reserve(node.u.list->num);
+
   mpv_node_list *list = node.u.list;
   for (int i = 0; i < list->num; ++i) {
     mpv_node *item = &list->values[i];
@@ -694,10 +702,109 @@ std::vector<MpvBackend::AudioDevice> MpvBackend::GetAudioDevices() const {
         description = v->u.string;
     }
     if (!name.empty())
-      result.emplace_back(name, description.empty() ? name : description);
+      raw.push_back({std::move(name), std::move(description)});
+  }
+  mpv_free_node_contents(&node);
+
+  // ---- Фильтр ----
+  // Белый список: оставляем только реальные устройства и верхнеуровневый
+  // "auto". Всё прочее (no, null, lavc/*, */auto, oss/*, sdl/*,
+  // directsound/*, portaudio/*, PipeWire-эффекты и ALSA-плагины типа
+  // plug/dmix/surround51/front/iec958/sysdefault/default) — отсеивается.
+  //
+  // На каждой платформе mpv вернёт только те бэкенды, что реально
+  // доступны, поэтому лишних ветвей не будет.
+  auto isTopAuto = [](const std::string &n) { return n == "auto"; };
+
+  auto startsWith = [](const std::string &s, const char *prefix) {
+    size_t len = std::strlen(prefix);
+    return s.size() >= len && s.compare(0, len, prefix) == 0;
+  };
+
+  auto isWhitelisted = [&](const std::string &n) {
+    if (n == "auto")
+      return true;
+
+    // Windows
+    if (startsWith(n, "wasapi/"))
+      return true;
+
+    // macOS
+    if (startsWith(n, "coreaudio/"))
+      return true;
+
+    // Linux — реальные бэкенды
+    if (startsWith(n, "pipewire/"))
+      return true;
+    if (startsWith(n, "pulse/"))
+      return true;
+    if (startsWith(n, "jack/"))
+      return true;
+
+    // ALSA: только прямое железо (hw:X,Y) и его конвертирующая обёртка
+    // (plughw:X,Y).
+    if (startsWith(n, "alsa/hw:"))
+      return true;
+    if (startsWith(n, "alsa/plughw:"))
+      return true;
+
+    // ALSA: многоканальные аналоговые выходы (5.1 / 7.1 на три-четыре
+    // мини-джека). Префиксный матч — имена могут иметь суффикс карты
+    // (alsa/surround51:CARD=...,DEV=...).
+    if (startsWith(n, "alsa/surround51"))
+      return true;
+    if (startsWith(n, "alsa/surround71"))
+      return true;
+
+    // ALSA: цифровой выход S/PDIF (он же IEC958) и HDMI. Могут иметь
+    // суффикс карты. Passthrough (AC3/DTS) настраивается отдельно —
+    // опцией --audio-spdif, а не выбором устройства.
+    if (startsWith(n, "alsa/iec958"))
+      return true;
+    if (startsWith(n, "alsa/hdmi"))
+      return true;
+
+    return false;
+  };
+
+  auto backendPrefix = [](const std::string &n) -> std::string {
+    auto slash = n.find('/');
+    if (slash == std::string::npos)
+      return "";
+    return n.substr(0, slash);
+  };
+
+  // ---- Сборка результата: сначала auto, потом остальные в исходном
+  //      порядке ----
+  for (const auto &d : raw) {
+    if (!isTopAuto(d.name))
+      continue;
+    result.emplace_back(d.name, d.description.empty() ? d.name : d.description);
   }
 
-  mpv_free_node_contents(&node);
+  for (const auto &d : raw) {
+    if (isTopAuto(d.name) || !isWhitelisted(d.name))
+      continue;
+
+    if (startsWith(d.name, "alsa/plughw:")) {
+      const std::string &desc = d.description;
+      if (desc.find("HDMI") != std::string::npos ||
+          desc.find("IEC958") != std::string::npos ||
+          desc.find("S/PDIF") != std::string::npos ||
+          desc.find("Surround") != std::string::npos) {
+        continue;
+      }
+    }
+
+    std::string backend = backendPrefix(d.name);
+    wxString label =
+        wxString::FromUTF8(d.description.empty() ? d.name : d.description);
+    if (!backend.empty())
+      label = "[" + wxString::FromUTF8(backend) + "] " + label;
+
+    result.emplace_back(d.name, std::string(label.ToUTF8().data()));
+  }
+
   return result;
 }
 

@@ -147,10 +147,14 @@ private:
                             const std::string &error);
   void OnRecordStatusTimer(wxTimerEvent &evt);
   bool InitializeRecordDirectory();
+
   // Читает mpv - *ключи из ConfigManager в MpvInitOptions.
   MpvInitOptions LoadMpvOptionsFromConfig() const;
+
   // Возвращает ConfigManager через Application (или nullptr).
   ConfigManager *GetConfig() const;
+  
+  void EnsurePlayerBackend();
 
   int m_autoHideDelayMs = 3000;
   

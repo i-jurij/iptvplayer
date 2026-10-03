@@ -168,28 +168,21 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_mainPanel = new wxPanel(m_splitter, wxID_ANY);
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  // 1. backend
-  m_playerController = std::make_unique<PlayerController>(
-      CreateBackend(nullptr, LoadMpvOptionsFromConfig()));
+  // 1. Контроллер создаётся сразу, но без backend. Реальный MpvBackend
+  //    создаётся лениво в EnsurePlayerBackend() — при первом Play/
+  //    PlayChannel/PlayFile/PlayUrl или при переходе на Video-вкладку.
+  //    Так m_playerController всегда non-null, а mpv_initialize не
+  //    блокирует построение UI.
+  m_playerController = std::make_unique<PlayerController>(nullptr);
 
   // 2. canvas
   MpvGLCanvas *videoCanvas = new MpvGLCanvas(m_mainPanel, nullptr);
   mainSizer->Add(videoCanvas, 1, wxEXPAND);
   m_videoArea = videoCanvas;
 
-  // 3. attach backend
-  m_playerController->AttachToWindow(videoCanvas);
-
-  // 4. передаём mpv
-  mpv_handle *mpv =
-      static_cast<mpv_handle *>(m_playerController->GetMpvHandle());
-  videoCanvas->SetMpvHandle(mpv);
-
-  // 5. КРИТИЧНО: принудительно вызвать OnPaint ДО PlayUrl
-  videoCanvas->Show();    // даже если родитель скрыт — это нормально
-  videoCanvas->Update();  // заставляет wx вызвать OnPaint
-  videoCanvas->Refresh(); // помечает область для перерисовки
-  wxYield();              // даёт wx выполнить OnPaint прямо сейчас
+  // 3. AttachToWindow и SetMpvHandle произойдут в EnsurePlayerBackend
+  //    после создания backend. GL-инициализация canvas — в
+  //    MpvGLCanvas::OnShow (по факту появления на экране).
 
   // Progress bar
   auto *progressPanel = new wxPanel(m_mainPanel, wxID_ANY);
@@ -601,6 +594,46 @@ MpvInitOptions VideoPanel::LoadMpvOptionsFromConfig() const {
   opts.subPos = cfg->getSetting("mpv_sub_pos", "");
 
   return opts;
+}
+
+void VideoPanel::EnsurePlayerBackend() {
+  if (!m_playerController) {
+    LOG_ERROR("EnsurePlayerBackend: m_playerController is null");
+    return;
+  }
+
+  if (m_playerController->GetBackend())
+    return; // уже создан
+
+  LOG_DEBUG("EnsurePlayerBackend: creating MpvBackend");
+
+  auto backend = CreateBackend(nullptr, LoadMpvOptionsFromConfig());
+  if (!backend) {
+    LOG_ERROR("EnsurePlayerBackend: CreateBackend returned null");
+    return;
+  }
+
+  m_playerController->SetBackend(std::move(backend));
+
+  // Attach + SetMpvHandle (в ctor теперь не делаем).
+  if (m_videoArea) {
+    if (m_playerController->AttachToWindow(m_videoArea)) {
+      m_isAttached = true;
+      LOG_DEBUG("EnsurePlayerBackend: attached to videoArea");
+    } else {
+      LOG_ERROR("EnsurePlayerBackend: AttachToWindow failed");
+    }
+  }
+
+  MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
+  if (canvas) {
+    mpv_handle *mpv =
+        static_cast<mpv_handle *>(m_playerController->GetMpvHandle());
+    canvas->SetMpvHandle(mpv);
+    LOG_DEBUG("EnsurePlayerBackend: mpv handle passed to canvas");
+  } else {
+    LOG_ERROR("EnsurePlayerBackend: videoArea is not MpvGLCanvas");
+  }
 }
 
 // mpv-имя свойства -> ключ конфига: mpv_ + имя с '-' -> '_'
@@ -1030,6 +1063,11 @@ void VideoPanel::SetTabActive(bool active) {
 
   LOG_DEBUG("VideoPanel::SetTabActive(true) called; m_autoPausedByTabSwitch=%d",
             (int)m_autoPausedByTabSwitch);
+
+  // Прогреваем backend при первом заходе на Video-вкладку. 
+  if (m_playerController && !m_playerController->GetBackend()) {
+    wxTheApp->CallAfter([this]() { EnsurePlayerBackend(); });
+  }
 
   if (!m_autoPausedByTabSwitch)
     return;

@@ -197,6 +197,42 @@ void PlayerController::SetStateCallback(StateCallback cb) {
   }
 }
 
+void PlayerController::SetBackend(std::unique_ptr<IPlayerBackend> backend) {
+  m_backend = std::move(backend);
+
+  if (!m_backend)
+    return;
+
+  // Переприменяем накопленные колбэки к новому backend.
+  if (m_onState) {
+    m_backend->SetStateCallback([this](int code) {
+      if (code == 0) {
+        NotifyState(PlayerState::Stopped);
+      } else if (code == 1) {
+        NotifyState(PlayerState::Playing);
+      } else if (code == 2) {
+        NotifyState(PlayerState::FileLoaded);
+      } else if (code == 3) {
+        NotifyState(PlayerState::Paused);
+      } else if (code == 4) {
+        NotifyState(PlayerState::Error);
+      } else {
+        LOG_DEBUG("PlayerController: backend state code %d (unhandled)", code);
+      }
+    });
+  }
+
+  if (m_streamInfoCallback)
+    m_backend->SetStreamInfoCallback(m_streamInfoCallback);
+
+  if (m_progressCallback)
+    m_backend->SetProgressCallback(
+        [this](const ProgressInfo &info) { NotifyProgress(info); });
+
+  if (m_recordStateCallback)
+    m_backend->SetRecordStateCallback(m_recordStateCallback);
+}
+
 void PlayerController::SetInfoCallback(InfoCallback cb) {
   m_onInfo = std::move(cb);
 }
@@ -445,8 +481,9 @@ void PlayerController::SetSubtitleTrack(int trackId) {
 
 void PlayerController::SetRecordStateCallback(
     IPlayerBackend::RecordStateCallback cb) {
+  m_recordStateCallback = std::move(cb);
   if (m_backend)
-    m_backend->SetRecordStateCallback(std::move(cb));
+    m_backend->SetRecordStateCallback(m_recordStateCallback);
 }
 
 void PlayerController::StartRecording(const std::string &filename) {

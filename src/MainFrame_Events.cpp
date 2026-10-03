@@ -233,10 +233,16 @@ void MainFrame::OnEpgDebounceTimer(wxTimerEvent &) {
 }
 
 void MainFrame::OnEpgToggle(wxCommandEvent &) {
+  // Ленивое создание панели источников EPG при первом входе на вкладку.
+  EnsureEpgPanel();
+
   if (m_videoPanel)
     m_videoPanel->SetTabActive(false);
+
   ToggleHeaderGroup(m_btnEpg);
-  m_notebook->SetSelection(m_epgPageIdx);
+
+  if (m_epgPageIdx != wxNOT_FOUND)
+    m_notebook->SetSelection(m_epgPageIdx);
 }
 
 void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {

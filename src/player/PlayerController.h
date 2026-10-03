@@ -24,8 +24,9 @@ public:
   bool GetOptionDefault(const char *name, std::string &out);
 
   void SetStreamInfoCallback(IPlayerBackend::StreamInfoCallback cb) {
+    m_streamInfoCallback = std::move(cb);
     if (m_backend)
-      m_backend->SetStreamInfoCallback(cb);
+      m_backend->SetStreamInfoCallback(m_streamInfoCallback);
   }
 
   using StateCallback = std::function<void(PlayerState)>;
@@ -47,6 +48,11 @@ public:
 
   void SetStateCallback(StateCallback cb);
   void SetInfoCallback(InfoCallback cb);
+
+  // Установить backend позже (после создания контроллера).
+  // Переприменяет все накопленные колбэки к новому backend.
+  void SetBackend(std::unique_ptr<IPlayerBackend> backend);
+
   void SetProgressCallback(std::function<void(const ProgressInfo &)> cb) {
     m_progressCallback = cb;
 
@@ -141,6 +147,11 @@ private:
 
   std::unique_ptr<IPlayerBackend> m_backend;
   wxWindow *m_attachedWindow = nullptr;
+
+  // Накопленные колбэки — хранятся, чтобы можно было переприменить их
+  // при позднем SetBackend.
+  IPlayerBackend::StreamInfoCallback m_streamInfoCallback;
+  IPlayerBackend::RecordStateCallback m_recordStateCallback;
 
   PlayerState m_state = PlayerState::Stopped;
   StateCallback m_onState;

@@ -336,6 +336,11 @@ private:
   EPGPanel *m_epgChannels = nullptr;
   EPGPanel *m_epgFavorites = nullptr;
   EpgSourceManagerPanel *m_epgAdminPanel = nullptr;
+
+  // EpgSourceManagerPanel создаётся лениво при первом переключении на
+  // вкладку Program (см. MainFrame::EnsureEpgPanel).
+  bool m_epgPanelCreated = false;
+  void EnsureEpgPanel();
 };
 
 #endif // MAINFRAME_H

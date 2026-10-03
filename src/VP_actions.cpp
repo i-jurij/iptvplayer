@@ -117,6 +117,7 @@ void VideoPanel::OpenUrl() {
 }
 
 void VideoPanel::PlayChannel(const Channel &ch) {
+  EnsurePlayerBackend();
   ClearTempPlaylist();
   std::string url = ch.getUrl();
   m_currentName = NormalizeFileNameForDisk(ch.getName(), 128, Display);
@@ -528,10 +529,11 @@ void VideoPanel::Stop() {
     StartTempPlayAsync(list[0], 0, false, "load_playlist");
   }
 
-  void
-  VideoPanel::StartTempPlayAsync(const wxString &path, int sel, bool isUrl,
+  void VideoPanel::StartTempPlayAsync(const wxString &path, int sel, bool isUrl,
                                  const char *source,
                                  bool /*clearPlayNextInProgressOnFinish*/) {
+    EnsurePlayerBackend();
+
     // помечаем, что началась загрузка — чтобы UI и логика были синхронизированы
     m_isLoading = true;
     m_loadAttempts = 0;

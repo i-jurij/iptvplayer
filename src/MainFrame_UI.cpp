@@ -258,13 +258,10 @@ void MainFrame::createMainPanel() {
   };
 
   // -------------------------------
-  // EPG PANEL
+  // EPG PANEL (создаётся лениво — см. EnsureEpgPanel)
   // -------------------------------
-  m_epgAdminPanel = new EpgSourceManagerPanel(
-      m_notebook, m_application->GetEPGManager(), true);
-  m_epgAdminPanel->SetMainFrame(this);
-  m_notebook->AddPage(m_epgAdminPanel, "Program");
-  m_epgPageIdx = m_notebook->FindPage(m_epgAdminPanel);
+  // Страница "Program" будет добавлена в m_notebook при первом
+  // переключении на неё. До этого m_epgPageIdx остаётся wxNOT_FOUND.
 
   // -------------------------------
   // HEADER BUTTONS bindings
@@ -573,6 +570,32 @@ void MainFrame::createMainPanel() {
   int videoIdxFound = m_notebook->FindPage(m_videoPanel);
   LOG_DEBUG("MainFrame: m_videoPageIdx=%d videoIdxFound=%d m_videoPanel=%p",
             m_videoPageIdx, videoIdxFound, (void *)m_videoPanel);
+}
+
+void MainFrame::EnsureEpgPanel() {
+  if (m_epgPanelCreated)
+    return;
+
+  if (!m_notebook || !m_application) {
+    LOG_ERROR("EnsureEpgPanel: notebook or application is null");
+    return;
+  }
+
+  EPGManager *epgMgr = m_application->GetEPGManager();
+  if (!epgMgr) {
+    LOG_ERROR("EnsureEpgPanel: EPGManager is null");
+    return;
+  }
+
+  LOG_DEBUG("EnsureEpgPanel: creating EpgSourceManagerPanel");
+
+  m_epgAdminPanel = new EpgSourceManagerPanel(m_notebook, epgMgr, true);
+  m_epgAdminPanel->SetMainFrame(this);
+  m_notebook->AddPage(m_epgAdminPanel, "Program");
+  m_epgPageIdx = m_notebook->FindPage(m_epgAdminPanel);
+  m_epgPanelCreated = true;
+
+  LOG_DEBUG("EnsureEpgPanel: page idx=%d", m_epgPageIdx);
 }
 
 void MainFrame::createStatusBar() {

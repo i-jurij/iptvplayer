@@ -362,14 +362,17 @@ void VideoPanel::OnOpen(wxCommandEvent &) {
 }
 
 void VideoPanel::OnWindowCreated(wxShowEvent &event) {
-  if (event.IsShown() && !m_isAttached) {
-    // Привязываем к m_videoArea (видео-окно), а не к this
-    if (m_playerController->AttachToWindow(m_videoArea)) {
-      m_isAttached = true;
-      LOG_DEBUG("VideoPanel: backend attached successfully");
-    } else {
-      LOG_ERROR("VideoPanel: failed to attach backend");
-    }
+  if (!event.IsShown() || m_isAttached)
+    return;
+
+  if (!m_playerController || !m_playerController->GetBackend())
+    return;
+
+  if (m_playerController->AttachToWindow(m_videoArea)) {
+    m_isAttached = true;
+    LOG_DEBUG("VideoPanel: backend attached successfully");
+  } else {
+    LOG_ERROR("VideoPanel: failed to attach backend");
   }
 }
 
