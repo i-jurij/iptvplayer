@@ -87,12 +87,30 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // Zoom
   wxMenu *zoomMenu = new wxMenu;
   {
+    double currentZoom = 0.0;
+    if (pc)
+      pc->GetVideoZoom(currentZoom);
+    int currentPct = static_cast<int>(std::round(currentZoom * 100.0));
+    // video-zoom == 0.0 — это 100% (нет зума)
+    if (currentZoom == 0.0)
+      currentPct = 100;
+
+    int idCurrentZoom = NewMenuId();
+    zoomMenu->Append(idCurrentZoom,
+                     wxString::Format("Current: %d%%", currentPct));
+    zoomMenu->Enable(idCurrentZoom, false);
+    zoomMenu->AppendSeparator();
+
     std::vector<std::pair<wxString, double>> zoomValues = {
         {"25%", 0.25},  {"50%", 0.5},  {"75%", 0.75}, {"100%", 0.0},
         {"125%", 1.25}, {"150%", 1.5}, {"200%", 2.0}};
     for (const auto &item : zoomValues) {
       int id = NewMenuId();
-      zoomMenu->Append(id, item.first);
+      zoomMenu->AppendRadioItem(id, item.first);
+      // Отмечаем текущий зум (video-zoom=0.0 = 100%)
+      double diff = std::abs(currentZoom - item.second);
+      if (diff < 0.01)
+        zoomMenu->Check(id, true);
       zoomMenu->Bind(
           wxEVT_MENU,
           [this, value = item.second](wxCommandEvent &) {
@@ -117,14 +135,28 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // Aspect Ratio
   wxMenu *aspectMenu = new wxMenu;
   {
+    std::string currentAspect;
+    if (pc)
+      pc->GetPropertyString("video-aspect-override", currentAspect);
+
+    wxString currentLabel = "Current: Auto";
+    if (!currentAspect.empty() && currentAspect != "original")
+      currentLabel = "Current: " + wxString::FromUTF8(currentAspect);
+    int idCurAsp = NewMenuId();
+    aspectMenu->Append(idCurAsp, currentLabel);
+    aspectMenu->Enable(idCurAsp, false);
+    aspectMenu->AppendSeparator();
+
     std::vector<std::pair<wxString, wxString>> aspectValues = {
         {"16:9", "16:9"},     {"4:3", "4:3"},      {"21:9", "21:9"},
         {"16:10", "16:10"},   {"5:4", "5:4"},      {"1:1", "1:1"},
         {"2.35:1", "2.35:1"}, {"1.85:1", "1.85:1"}};
     for (const auto &item : aspectValues) {
       int id = NewMenuId();
-      aspectMenu->Append(id, item.first);
+      aspectMenu->AppendRadioItem(id, item.first);
       std::string aspectStr = item.second.ToStdString();
+      if (currentAspect == aspectStr)
+        aspectMenu->Check(id, true);
       aspectMenu->Bind(
           wxEVT_MENU,
           [this, aspectStr](wxCommandEvent &) {
@@ -133,6 +165,7 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
           },
           id);
     }
+
     aspectMenu->AppendSeparator();
     int idAuto = NewMenuId();
     aspectMenu->Append(idAuto, "Auto");
@@ -158,42 +191,30 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // Rotate
   wxMenu *rotateMenu = new wxMenu;
   {
-    int id0 = NewMenuId();
-    rotateMenu->Append(id0, "0°");
-    rotateMenu->Bind(
-        wxEVT_MENU,
-        [this](wxCommandEvent &) {
-          if (m_videoPanel && m_videoPanel->m_playerController)
-            m_videoPanel->m_playerController->SetVideoRotate(0);
-        },
-        id0);
-    int id90 = NewMenuId();
-    rotateMenu->Append(id90, "90°");
-    rotateMenu->Bind(
-        wxEVT_MENU,
-        [this](wxCommandEvent &) {
-          if (m_videoPanel && m_videoPanel->m_playerController)
-            m_videoPanel->m_playerController->SetVideoRotate(90);
-        },
-        id90);
-    int id180 = NewMenuId();
-    rotateMenu->Append(id180, "180°");
-    rotateMenu->Bind(
-        wxEVT_MENU,
-        [this](wxCommandEvent &) {
-          if (m_videoPanel && m_videoPanel->m_playerController)
-            m_videoPanel->m_playerController->SetVideoRotate(180);
-        },
-        id180);
-    int id270 = NewMenuId();
-    rotateMenu->Append(id270, "270°");
-    rotateMenu->Bind(
-        wxEVT_MENU,
-        [this](wxCommandEvent &) {
-          if (m_videoPanel && m_videoPanel->m_playerController)
-            m_videoPanel->m_playerController->SetVideoRotate(270);
-        },
-        id270);
+    int currentRotate = 0;
+    if (pc)
+      pc->GetVideoRotate(currentRotate);
+
+    int idCurRot = NewMenuId();
+    rotateMenu->Append(idCurRot,
+                       wxString::Format("Current: %d\u00b0", currentRotate));
+    rotateMenu->Enable(idCurRot, false);
+    rotateMenu->AppendSeparator();
+
+    std::vector<int> rotations = {0, 90, 180, 270};
+    for (int deg : rotations) {
+      int id = NewMenuId();
+      rotateMenu->AppendRadioItem(id, wxString::Format("%d\u00b0", deg));
+      if (currentRotate == deg)
+        rotateMenu->Check(id, true);
+      rotateMenu->Bind(
+          wxEVT_MENU,
+          [this, deg](wxCommandEvent &) {
+            if (m_videoPanel && m_videoPanel->m_playerController)
+              m_videoPanel->m_playerController->SetVideoRotate(deg);
+          },
+          id);
+    }
     rotateMenu->AppendSeparator();
     int idResetRot = NewMenuId();
     rotateMenu->Append(idResetRot, "Reset");
@@ -210,8 +231,17 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // Mirror / Filter
   wxMenu *mirrorMenu = new wxMenu;
   {
+    // Читаем текущую цепочку видеофильтров, чтобы отметить активные.
+    std::string vfChain;
+    if (pc)
+      pc->GetPropertyString("vf", vfChain);
+    auto vfHas = [&vfChain](const char *label) {
+      return vfChain.find(label) != std::string::npos;
+    };
+
     int idMirror = NewMenuId();
-    mirrorMenu->Append(idMirror, "Toggle Mirror");
+    mirrorMenu->AppendCheckItem(idMirror, "Toggle Mirror");
+    mirrorMenu->Check(idMirror, vfHas("@mirror"));
     mirrorMenu->Bind(
         wxEVT_MENU,
         [this](wxCommandEvent &) {
@@ -221,7 +251,8 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
         idMirror);
 
     int idFlipV = NewMenuId();
-    mirrorMenu->Append(idFlipV, "Toggle Vertical Flip");
+    mirrorMenu->AppendCheckItem(idFlipV, "Toggle Vertical Flip");
+    mirrorMenu->Check(idFlipV, vfHas("@vflip"));
     mirrorMenu->Bind(
         wxEVT_MENU,
         [this](wxCommandEvent &) {
@@ -231,7 +262,8 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
         idFlipV);
 
     int idDeint = NewMenuId();
-    mirrorMenu->Append(idDeint, "Toggle Deinterlace");
+    mirrorMenu->AppendCheckItem(idDeint, "Toggle Deinterlace");
+    mirrorMenu->Check(idDeint, vfHas("@deint"));
     mirrorMenu->Bind(
         wxEVT_MENU,
         [this](wxCommandEvent &) {
@@ -241,7 +273,8 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
         idDeint);
 
     int idSharp = NewMenuId();
-    mirrorMenu->Append(idSharp, "Toggle Sharpen");
+    mirrorMenu->AppendCheckItem(idSharp, "Toggle Sharpen");
+    mirrorMenu->Check(idSharp, vfHas("@sharp"));
     mirrorMenu->Bind(
         wxEVT_MENU,
         [this](wxCommandEvent &) {
@@ -287,6 +320,23 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   // ---- Equalizer ----
   wxMenu *eqMenu = new wxMenu;
   {
+    // Неактивный блок с текущими значениями
+    auto addCurLine = [&](const char *label, const char *prop) {
+      std::string val;
+      if (pc && pc->GetPropertyString(prop, val)) {
+        int id = NewMenuId();
+        eqMenu->Append(id, wxString::Format("%s: %s", wxString::FromUTF8(label),
+                                            wxString::FromUTF8(val)));
+        eqMenu->Enable(id, false);
+      }
+    };
+    addCurLine("Brightness", "brightness");
+    addCurLine("Contrast", "contrast");
+    addCurLine("Saturation", "saturation");
+    addCurLine("Gamma", "gamma");
+    addCurLine("Hue", "hue");
+    eqMenu->AppendSeparator();
+
     struct EqItem {
       wxString label;
       const char *prop;
@@ -356,10 +406,9 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
 
   addRadioGroup(videoMenu, "Drop Frames", "framedrop",
                 {{"Auto", "auto"},
-                 {"Yes", "yes"},
-                 {"No", "no"},
                  {"VO", "vo"},
-                 {"Decoder", "decoder"}});
+                 {"No", "no"},
+                 {"Decoder + VO", "decoder+vo"}});
 
   // ---- Network Cache ----
   {

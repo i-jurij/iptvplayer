@@ -84,6 +84,9 @@ public:
   virtual void SetVideoRotate(int degrees) = 0;
   virtual void SetAudioDelay(double delay) = 0;
   virtual double GetAudioDelay() const = 0;
+  virtual double GetSubtitleDelay() const = 0;
+  virtual double GetSubtitleScale() const = 0;
+  virtual int GetSubtitlePos() const = 0;
 
   // Audio tracks
   virtual std::vector<std::pair<int, wxString>> GetAudioTracks() const = 0;

@@ -86,6 +86,9 @@ public:
   void SetVideoRotate(int degrees);
   void SetAudioDelay(double delay);
   double GetAudioDelay() const;
+  double GetSubtitleDelay() const;
+  double GetSubtitleScale() const;
+  int GetSubtitlePos() const;
   void AdjustAudioDelay(double delta);
   void GetVideoZoom(double &zoom) const;
   void GetVideoRotate(int &degrees) const;

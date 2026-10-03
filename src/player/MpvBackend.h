@@ -85,6 +85,9 @@ public:
   void SetVideoRotate(int degrees) override;
   void SetAudioDelay(double delay) override;
   double GetAudioDelay() const override;
+  double GetSubtitleDelay() const override;
+  double GetSubtitleScale() const override;
+  int GetSubtitlePos() const override;
   void AdjustAudioDelay(double delta) override;
   void GetVideoZoom(double &zoom) const override;
   void GetVideoRotate(int &degrees) const override;

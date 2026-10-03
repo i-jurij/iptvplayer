@@ -606,11 +606,20 @@ void MpvBackend::AdjustAudioDelay(double delta) {
 }
 
 void MpvBackend::GetVideoZoom(double &zoom) const {
-  // Можно получить реальное значение через mpv_get_property, пока заглушка
   zoom = 0.0;
+  if (!m_mpv)
+    return;
+  mpv_get_property(m_mpv, "video-zoom", MPV_FORMAT_DOUBLE, &zoom);
 }
 
-void MpvBackend::GetVideoRotate(int &degrees) const { degrees = 0; }
+void MpvBackend::GetVideoRotate(int &degrees) const {
+  degrees = 0;
+  if (!m_mpv)
+    return;
+  int64_t val = 0;
+  if (mpv_get_property(m_mpv, "video-rotate", MPV_FORMAT_INT64, &val) >= 0)
+    degrees = static_cast<int>(val);
+}
 
 void MpvBackend::ToggleVideoMirror() {
   if (!m_mpv)
@@ -702,6 +711,36 @@ double MpvBackend::GetAudioDelay() const {
   return delay;
 }
 
+double MpvBackend::GetSubtitleDelay() const {
+  if (!m_mpv)
+    return 0.0;
+  double delay = 0.0;
+  int ret = mpv_get_property(m_mpv, "sub-delay", MPV_FORMAT_DOUBLE, &delay);
+  if (ret < 0)
+    return 0.0;
+  return delay;
+}
+
+double MpvBackend::GetSubtitleScale() const {
+  if (!m_mpv)
+    return 1.0;
+  double scale = 1.0;
+  int ret = mpv_get_property(m_mpv, "sub-scale", MPV_FORMAT_DOUBLE, &scale);
+  if (ret < 0)
+    return 1.0;
+  return scale;
+}
+
+int MpvBackend::GetSubtitlePos() const {
+  if (!m_mpv)
+    return 100;
+  int64_t pos = 100;
+  int ret = mpv_get_property(m_mpv, "sub-pos", MPV_FORMAT_INT64, &pos);
+  if (ret < 0)
+    return 100;
+  return static_cast<int>(pos);
+}
+
 static std::vector<std::pair<int, wxString>> GetTracksByType(mpv_handle *mpv,
                                                              const char *type) {
   std::vector<std::pair<int, wxString>> result;
@@ -769,10 +808,50 @@ std::vector<std::pair<int, wxString>> MpvBackend::GetAudioTracks() const {
 int MpvBackend::GetCurrentAudioTrack() const {
   if (!m_mpv)
     return -1;
-  int64_t id = -1;
-  if (mpv_get_property(m_mpv, "audio-track", MPV_FORMAT_INT64, &id) < 0)
+
+  // Свойство audio-track возвращает -1/auto при автоматическом выборе.
+  // Реальную текущую дорожку берём из track-list по флагу current.
+  mpv_node node;
+  if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &node) < 0)
     return -1;
-  return (int)id;
+  if (node.format != MPV_FORMAT_NODE_ARRAY) {
+    mpv_free_node_contents(&node);
+    return -1;
+  }
+
+  int result = -1;
+  mpv_node_list *list = node.u.list;
+  for (int i = 0; i < list->num; ++i) {
+    mpv_node *item = &list->values[i];
+    if (item->format != MPV_FORMAT_NODE_MAP)
+      continue;
+
+    int id = -1;
+    bool isAudio = false;
+    bool isCurrent = false;
+
+    mpv_node_list *il = item->u.list;
+    for (int j = 0; j < il->num; ++j) {
+      std::string key = il->keys[j] ? il->keys[j] : "";
+      mpv_node *v = &il->values[j];
+
+      if (key == "id" && v->format == MPV_FORMAT_INT64)
+        id = static_cast<int>(v->u.int64);
+      else if (key == "type" && v->format == MPV_FORMAT_STRING && v->u.string &&
+               strcmp(v->u.string, "audio") == 0)
+        isAudio = true;
+      else if (key == "current" && v->format == MPV_FORMAT_FLAG)
+        isCurrent = (v->u.flag != 0);
+    }
+
+    if (isAudio && isCurrent && id >= 0) {
+      result = id;
+      break;
+    }
+  }
+
+  mpv_free_node_contents(&node);
+  return result;
 }
 
 void MpvBackend::SetAudioTrack(int trackId) {
@@ -788,10 +867,48 @@ std::vector<std::pair<int, wxString>> MpvBackend::GetSubtitleTracks() const {
 int MpvBackend::GetCurrentSubtitleTrack() const {
   if (!m_mpv)
     return -1;
-  int64_t id = -1;
-  if (mpv_get_property(m_mpv, "sub-track", MPV_FORMAT_INT64, &id) < 0)
+
+  mpv_node node;
+  if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &node) < 0)
     return -1;
-  return (int)id;
+  if (node.format != MPV_FORMAT_NODE_ARRAY) {
+    mpv_free_node_contents(&node);
+    return -1;
+  }
+
+  int result = -1;
+  mpv_node_list *list = node.u.list;
+  for (int i = 0; i < list->num; ++i) {
+    mpv_node *item = &list->values[i];
+    if (item->format != MPV_FORMAT_NODE_MAP)
+      continue;
+
+    int id = -1;
+    bool isSub = false;
+    bool isCurrent = false;
+
+    mpv_node_list *il = item->u.list;
+    for (int j = 0; j < il->num; ++j) {
+      std::string key = il->keys[j] ? il->keys[j] : "";
+      mpv_node *v = &il->values[j];
+
+      if (key == "id" && v->format == MPV_FORMAT_INT64)
+        id = static_cast<int>(v->u.int64);
+      else if (key == "type" && v->format == MPV_FORMAT_STRING && v->u.string &&
+               strcmp(v->u.string, "sub") == 0)
+        isSub = true;
+      else if (key == "current" && v->format == MPV_FORMAT_FLAG)
+        isCurrent = (v->u.flag != 0);
+    }
+
+    if (isSub && isCurrent && id >= 0) {
+      result = id;
+      break;
+    }
+  }
+
+  mpv_free_node_contents(&node);
+  return result;
 }
 
 void MpvBackend::SetSubtitleTrack(int trackId) {

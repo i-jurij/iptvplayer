@@ -392,6 +392,18 @@ double PlayerController::GetAudioDelay() const {
   return 0.0;
 }
 
+double PlayerController::GetSubtitleDelay() const {
+  return m_backend ? m_backend->GetSubtitleDelay() : 0.0;
+}
+
+double PlayerController::GetSubtitleScale() const {
+  return m_backend ? m_backend->GetSubtitleScale() : 1.0;
+}
+
+int PlayerController::GetSubtitlePos() const {
+  return m_backend ? m_backend->GetSubtitlePos() : 100;
+}
+
 std::vector<std::pair<int, wxString>> PlayerController::GetAudioTracks() const {
   if (m_backend)
     return m_backend->GetAudioTracks();
