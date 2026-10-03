@@ -279,6 +279,8 @@ private:
   void onAddFromUrlSuccess(wxCommandEvent &event);
   void onAddFromUrlError(wxCommandEvent &event);
   void onProgressTimeout(wxTimerEvent &event);
+  // Общая UI-подготовка перед запуском асинхронной загрузки плейлиста
+  void BeginPlaylistLoading(const wxString &sourceLabel);
 
   bool m_playlistPanelVisible{false};
   int m_selectedPlaylistIndex = -1;

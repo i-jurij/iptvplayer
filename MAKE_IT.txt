@@ -1,8 +1,4 @@
 
-add PL from iptvorg - on curl error or other error write error text
-but no simply Failed to load data
----------------------------------------------
-
 репозитории на GitHub Pages
 -----------------------------------------
 

@@ -537,7 +537,7 @@ void MainFrame::HandlePlaylistPageChanged(int sel) {
 void MainFrame::CheckAndSuggestPlaylist() {
   if (m_playlistSuggestionShown)
     return;
-  
+
   m_playlistSuggestionShown = true;
 
   auto *mgr = getPlaylistManager();
@@ -569,15 +569,12 @@ void MainFrame::CheckAndSuggestPlaylist() {
     wxString title = addDlg.GetSelectedTitle();
 
     std::string titleStr = title.ToStdString();
-    ErrorCode ec = mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
-    if (ec == ErrorCode::OK) {
-      savePlaylistsToConfig();
-      RefreshPlaylistView();
-      SetStatusText(wxString::Format("Playlist added: %s", title), 0);
-    } else {
-      showError(this, "Failed to add playlist:\n" +
-                          wxString::FromUTF8(mgr->getLastError()));
-    }
+
+    BeginPlaylistLoading("IPTV-Org");
+
+    // addPlaylistFromUrl всегда возвращает OK — реальный результат
+    // придёт асинхронно через ID_ADD_FROM_URL_SUCCESS / ID_ADD_FROM_URL_ERROR
+    mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
   }
 }
 

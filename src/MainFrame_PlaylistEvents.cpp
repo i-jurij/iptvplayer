@@ -146,7 +146,7 @@ void MainFrame::onAddPlaylistFile(wxCommandEvent &WXUNUSED(event)) {
 void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
   if (!validateApplication() || !validatePlaylistManager())
     return;
-  
+
   AddPlaylistUrlDialog dlg(this);
   if (dlg.ShowModal() != wxID_OK)
     return;
@@ -164,33 +164,25 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
     return;
   }
 
-  // show top gauge and initialize UI indicators
-  SetStatusText("Loading playlist from URL...", 0);
+  BeginPlaylistLoading("URL");
 
-  // temporarily set window title to include progress (0% at start)
+  // addPlaylistFromUrl всегда возвращает OK — реальный результат
+  // придёт асинхронно через ID_ADD_FROM_URL_SUCCESS / ID_ADD_FROM_URL_ERROR
+  mgr->addPlaylistFromUrl(url, title, userAgent);
+}
+
+void MainFrame::BeginPlaylistLoading(const wxString &sourceLabel) {
+  SetStatusText(wxString::Format("Loading playlist from %s...", sourceLabel),
+                0);
+
   wxString appName = wxGetApp().GetAppName();
   if (appName.IsEmpty())
     appName = "IPTV Player";
   SetTitle(wxString::Format("%s — Loading (0%%)", appName));
 
-  // start progress timeout for this single URL load (one-shot)
   int timeout = std::stoi(
       wxGetApp().getConfigManager()->getSetting("playlistTimeoutMs", "30000"));
   m_progressTimer.Start(timeout, wxTIMER_ONE_SHOT);
-
-  ErrorCode ec = mgr->addPlaylistFromUrl(url, title, userAgent);
-  if (ec == ErrorCode::DUPLICATE) {
-    SetStatusText("Duplicate playlist not added.", 0);
-    wxLogWarning(wxString::FromUTF8(mgr->getLastError()));
-    // restore title
-    wxString appName2 = wxGetApp().GetAppName();
-    if (appName2.IsEmpty())
-      appName2 = "IPTV Player";
-
-    m_progressTimer.Stop();
-    SetTitle(appName2);
-    return;
-  }
 }
 
 void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
@@ -214,20 +206,20 @@ void MainFrame::onAddFromUrlError(wxCommandEvent &WXUNUSED(event)) {
   auto *mgr = getPlaylistManager();
   const std::string lastError = mgr->getLastError();
 
-  if (lastError.find("Duplicate") != std::string::npos) {
-    SetStatusText("Duplicate playlist not added.", 0);
-    wxLogWarning(wxString::FromUTF8(lastError));
-  } else {
-    SetStatusText("Failed to add playlist from URL.", 0);
-    wxLogError("Failed to add playlist from URL: %s",
-               wxString::FromUTF8(lastError));
-  }
-
   // restore title
   wxString appName = wxGetApp().GetAppName();
   if (appName.IsEmpty())
     appName = "IPTV Player";
   SetTitle(appName);
+
+  if (lastError.find("Duplicate") != std::string::npos) {
+    SetStatusText("Duplicate playlist not added.", 0);
+    wxLogWarning(wxString::FromUTF8(lastError));
+  } else {
+    SetStatusText("Failed to add playlist.", 0);
+    showError(this, wxString::Format("Failed to add playlist:\n\n%s",
+                                     wxString::FromUTF8(lastError)));
+  }
 }
 
 void MainFrame::onProgressTimeout(wxTimerEvent &WXUNUSED(event)) {
@@ -766,15 +758,11 @@ void MainFrame::onAddIPTVPlaylist(wxCommandEvent &WXUNUSED(event)) {
 
   auto *mgr = getPlaylistManager();
   std::string titleStr = title.ToStdString();
+
+  BeginPlaylistLoading("IPTV-Org");
+
+  // addPlaylistFromUrl всегда возвращает OK — реальный результат
+  // придёт асинхронно через ID_ADD_FROM_URL_SUCCESS / ID_ADD_FROM_URL_ERROR
   // Передаём пустой userAgent (третий аргумент)
-  ErrorCode ec = mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
-  if (ec == ErrorCode::OK) {
-    savePlaylistsToConfig();
-    RefreshPlaylistView();
-    SetStatusText(wxString::Format("Playlist added: %s", title), 0);
-    wxLogInfo("Playlist added from IPTV-Org: %s", title);
-  } else {
-    showError(this, "Failed to add playlist:\n" +
-                        wxString::FromUTF8(mgr->getLastError()));
-  }
+  mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
 }
