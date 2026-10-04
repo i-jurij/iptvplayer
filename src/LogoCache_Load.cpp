@@ -90,7 +90,7 @@ void LogoCache::EnsureMasterAsync(const std::string &p, const std::string &c,
       if (ops.callbacks.size() >= MAX_PENDING_PER_KEY) {
         auto oldCb = ops.callbacks.front();
         ops.callbacks.erase(ops.callbacks.begin());
-        if (oldCb) {
+        if (oldCb && wxTheApp) {
           auto cb_copy = oldCb;
           wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
         }
@@ -121,6 +121,9 @@ void LogoCache::EnsureMasterAsync(const std::string &p, const std::string &c,
       }
     }
 
+    if (!wxTheApp) {
+      return;
+    }
     for (auto &pcb : pendingCallbacks) {
       if (pcb) {
         auto cb_copy = pcb;
@@ -140,9 +143,13 @@ void LogoCache::EnsureMaster(const std::string &p, const std::string &c,
     if (it != s_cache.end() && it->second.master && it->second.master->IsOk()) {
       auto mptr = it->second.master;
       if (cb) {
-        auto cb_copy = cb;
-        auto mptr_copy = mptr;
-        wxTheApp->CallAfter([cb_copy, mptr_copy]() { cb_copy(mptr_copy); });
+        if (wxTheApp) {
+          auto cb_copy = cb;
+          auto mptr_copy = mptr;
+          wxTheApp->CallAfter([cb_copy, mptr_copy]() { cb_copy(mptr_copy); });
+        } else {
+          cb(mptr);
+        }
       }
       return;
     }

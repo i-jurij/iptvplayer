@@ -132,35 +132,38 @@ void IconManager::RenderSvgAsync(const std::string &svgText, IconCallback cb) {
     return;
   }
 
+  if (!wxTheApp) {
+    SafeCallReady(cb, wxNullBitmap);
+    return;
+  }
+
   EnqueueTask([svgText, cb]() {
     wxString wxSvg = wxString::FromUTF8(svgText);
-
-    // ВАЖНО: НЕ wxSize(0,0), а нормальный базовый размер
     const wxSize baseSize(256, 256);
-    wxBitmapBundle bundle = wxBitmapBundle::FromSVG(wxSvg, baseSize);
 
-    // Safety: wxTheApp may be null during shutdown/early init.
-    if (wxTheApp) {
-      wxTheApp->CallAfter([cb, bundle, baseSize]() {
-        if (!bundle.IsOk()) {
-          SafeCallReady(cb, wxNullBitmap);
-          return;
-        }
+    // wxBitmapBundle::FromSVG — GUI-функция (на GTK трогает GDK).
+    // Вызывать только в UI-потоке: на минималистичных системах
+    // вызов из worker-потока приводит к молчаливому падению.
+    wxTheApp->CallAfter([cb, wxSvg, baseSize]() {
+      if (shuttingDown.load()) {
+        SafeCallReady(cb, wxNullBitmap);
+        return;
+      }
 
-        // Тоже ВАЖНО: не просим 0x0
-        wxBitmap bmp = bundle.GetBitmap(baseSize);
+      wxBitmapBundle bundle = wxBitmapBundle::FromSVG(wxSvg, baseSize);
+      if (!bundle.IsOk()) {
+        SafeCallReady(cb, wxNullBitmap);
+        return;
+      }
 
-        if (!bmp.IsOk() || bmp.GetWidth() <= 1 || bmp.GetHeight() <= 1) {
-          SafeCallReady(cb, wxNullBitmap);
-          return;
-        }
+      wxBitmap bmp = bundle.GetBitmap(baseSize);
+      if (!bmp.IsOk() || bmp.GetWidth() <= 1 || bmp.GetHeight() <= 1) {
+        SafeCallReady(cb, wxNullBitmap);
+        return;
+      }
 
-        SafeCallReady(cb, bmp);
-      });
-    } else {
-      // GUI not available — return empty result
-      SafeCallReady(cb, wxNullBitmap);
-    }
+      SafeCallReady(cb, bmp);
+    });
   });
 }
 

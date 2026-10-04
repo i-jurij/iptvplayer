@@ -474,7 +474,7 @@ void IconManager::SaveNoLogoMarkerAsync(const std::string &pathWebP,
     if (!wxFileName::DirExists(dir)) {
       if (!wxFileName::Mkdir(dir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL)) {
         if (!wxFileName::DirExists(dir)) {
-          wxLogError("Не удалось создать каталог '%s'", dir);
+          LOG_ERROR("Не удалось создать каталог '%s'", dir);
         }
       }
     }
@@ -558,8 +558,8 @@ bool IconManager::DownloadIconToBuffer(const std::string &url,
     // HARD_LIMIT_BYTES and SOFT_LIMIT_BYTES must be visible here
     if (ctx->buf->size() + total > HARD_LIMIT_BYTES) {
       // Too large — abort transfer
-      wxLogWarning("IconManager: icon too large (> %zu bytes), aborting.",
-                   (size_t)HARD_LIMIT_BYTES);
+      LOG_DEBUG("IconManager: icon too large (> %zu bytes), aborting.",
+                (size_t)HARD_LIMIT_BYTES);
       return 0; // causes libcurl to abort with CURLE_WRITE_ERROR
     }
     if (ctx->buf->size() + total > SOFT_LIMIT_BYTES) {
@@ -573,7 +573,7 @@ bool IconManager::DownloadIconToBuffer(const std::string &url,
 
   CURL *curl = curl_easy_init();
   if (!curl) {
-    wxLogWarning("IconManager: curl_easy_init() failed.");
+    LOG_ERROR("IconManager: curl_easy_init() failed.");
     return false;
   }
 
@@ -612,23 +612,23 @@ bool IconManager::DownloadIconToBuffer(const std::string &url,
   curl_easy_cleanup(curl);
 
   if (res != CURLE_OK) {
-    wxLogWarning("IconManager: curl error: %s", curl_easy_strerror(res));
+    LOG_ERROR("IconManager: curl error: %s", curl_easy_strerror(res));
     return false;
   }
 
   if (httpCode < 200 || httpCode >= 300) {
-    wxLogWarning("IconManager: HTTP %ld for %s", httpCode, url.c_str());
+    LOG_WARN("IconManager: HTTP %ld for %s", httpCode, url.c_str());
     return false;
   }
 
   if (buffer.empty()) {
-    wxLogWarning("IconManager: empty buffer for %s", url.c_str());
+    LOG_WARN("IconManager: empty buffer for %s", url.c_str());
     return false;
   }
 
   if (contentType &&
       std::string(contentType).find("text/html") != std::string::npos) {
-    wxLogWarning("IconManager: content-type HTML for %s", url.c_str());
+    LOG_WARN("IconManager: content-type HTML for %s", url.c_str());
     return false;
   }
 

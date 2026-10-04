@@ -88,8 +88,12 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
   if (w <= 0 || h <= 0 || !master || !master->IsOk() ||
       s_paused.load(std::memory_order_relaxed)) {
     if (cb) {
-      auto cb_copy = cb;
-      wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+      if (wxTheApp) {
+        auto cb_copy = cb;
+        wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+      } else {
+        cb(nullptr);
+      }
     }
     return;
   }
@@ -107,9 +111,13 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
       auto sp = itCache->second.lock();
       if (sp && sp->IsOk()) {
         if (cb) {
-          auto cb_copy = cb;
-          auto bmp_copy = sp;
-          wxTheApp->CallAfter([cb_copy, bmp_copy]() { cb_copy(bmp_copy); });
+          if (wxTheApp) {
+            auto cb_copy = cb;
+            auto bmp_copy = sp;
+            wxTheApp->CallAfter([cb_copy, bmp_copy]() { cb_copy(bmp_copy); });
+          } else {
+            cb(sp);
+          }
         }
         return;
       } else {
@@ -127,7 +135,7 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
       if (ops.callbacks.size() >= MAX_PENDING_PER_KEY) {
         auto oldCb = ops.callbacks.front();
         ops.callbacks.erase(ops.callbacks.begin());
-        if (oldCb) {
+        if (oldCb && wxTheApp) {
           auto cb_copy = oldCb;
           wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
         }
@@ -147,8 +155,12 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
     wxImage img = masterCopy->ConvertToImage();
     if (!img.IsOk() || img.GetWidth() <= 1 || img.GetHeight() <= 1) {
       if (cb) {
-        auto cb_copy = cb;
-        wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+        if (wxTheApp) {
+          auto cb_copy = cb;
+          wxTheApp->CallAfter([cb_copy]() { cb_copy(nullptr); });
+        } else {
+          cb(nullptr);
+        }
       }
       return;
     }
@@ -182,6 +194,11 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
     auto cb_copy = cb;
     auto mk_l = LogoCache::MakeMasterKey(p, c);
     auto sk_l = LogoCache::MakeScaledKey(p, c, w, h, scale100);
+    if (!wxTheApp) {
+      if (cb_copy)
+        cb_copy(nullptr);
+      return;
+    }
     wxTheApp->CallAfter([img = std::move(img), newW, newH, w, h, cb_copy, mk_l,
                          sk_l, scaleFactor]() {
       if (w <= 0 || h <= 0) {
@@ -299,8 +316,12 @@ void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
                              LogoCallback cb, double scaleFactor) {
   PROFILE_SCOPE("LogoCache::GetLogoAsync");
   if (w <= 0 || h <= 0) {
-    if (cb)
-      wxTheApp->CallAfter([=]() { cb(nullptr); });
+    if (cb) {
+      if (wxTheApp)
+        wxTheApp->CallAfter([cb]() { cb(nullptr); });
+      else
+        cb(nullptr);
+    }
     return;
   }
   if (scaleFactor < 1.0)
@@ -322,9 +343,13 @@ void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
         e.scaledLastAccess[sk] = now;
         e.lastAccess = now;
         if (cb) {
-          auto cb_copy = cb;
-          auto bmp_copy = it2->second;
-          wxTheApp->CallAfter([cb_copy, bmp_copy]() { cb_copy(bmp_copy); });
+          if (wxTheApp) {
+            auto cb_copy = cb;
+            auto bmp_copy = it2->second;
+            wxTheApp->CallAfter([cb_copy, bmp_copy]() { cb_copy(bmp_copy); });
+          } else {
+            cb(it2->second);
+          }
         }
         return;
       }
@@ -337,8 +362,12 @@ void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
   }
 
   if (s_paused.load(std::memory_order_relaxed)) {
-    if (cb)
-      wxTheApp->CallAfter([=]() { cb(nullptr); });
+    if (cb) {
+      if (wxTheApp)
+        wxTheApp->CallAfter([cb]() { cb(nullptr); });
+      else
+        cb(nullptr);
+    }
     return;
   }
 
