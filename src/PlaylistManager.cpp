@@ -118,7 +118,7 @@ static int ProgressCallback(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
                             curl_off_t ultotal, curl_off_t ulnow) {
   (void)ultotal; // не используется
   (void)ulnow;
-  
+
   DownloadProgress *prog = static_cast<DownloadProgress *>(clientp);
   if (!prog)
     return 0;
@@ -164,7 +164,7 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
   }
 
   ApplyCurlCaBundle(sess.get());
-  
+
   content.clear();
   content.reserve(256 * 1024);
 
@@ -335,6 +335,22 @@ PlaylistManager::derivePlaylistTitleFromUrl(const std::string &url) const {
   return normalizePlaylistTitle(filename);
 }
 
+namespace {
+void PostAddFromUrlEvent(int eventId, const std::string &errorMsg = "") {
+  if (!wxTheApp)
+    return;
+  wxTheApp->CallAfter([eventId, errorMsg]() {
+    wxWindow *top = wxTheApp->GetTopWindow();
+    if (!top)
+      return;
+    wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED, eventId);
+    if (!errorMsg.empty())
+      evt.SetString(wxString::FromUTF8(errorMsg));
+    top->GetEventHandler()->ProcessEvent(evt);
+  });
+}
+} // namespace
+
 ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
                                               std::string &title,
                                               const std::string &userAgent) {
@@ -349,49 +365,46 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
     m_addFromUrlFuture.wait();
   }
 
-  m_addFromUrlFuture = std::async(
-      std::launch::async, [this, pl = std::move(playlist)]() mutable {
-        ErrorCode ec = loadPlaylistContent(pl.get());
-        if (ec != ErrorCode::OK) {
-          setLastError("Failed to load playlist: " + getLastError());
-          wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED,
-                             ID_ADD_FROM_URL_ERROR);
-          evt.SetString(wxString::FromUTF8(getLastError()));
-          wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
-          return;
-        }
-
-        size_t newIndex = 0;
-        {
-          std::lock_guard<std::mutex> lock(m_playlistsMutex);
-          for (const auto &existing : m_playlists) {
-            if (existing->getSource() == pl->getSource()) {
-              setLastError("Duplicate playlist: " + pl->getTitle());
-              wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED,
-                                 ID_ADD_FROM_URL_ERROR);
-              evt.SetString(wxString::FromUTF8(getLastError()));
-              wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
-              return;
-            }
+  try {
+    m_addFromUrlFuture = std::async(
+        std::launch::async, [this, pl = std::move(playlist)]() mutable {
+          ErrorCode ec = loadPlaylistContent(pl.get());
+          if (ec != ErrorCode::OK) {
+            setLastError("Failed to load playlist: " + getLastError());
+            PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, getLastError());
+            return;
           }
-          m_playlists.push_back(std::move(pl));
-          newIndex = m_playlists.size() - 1;
-        }
 
-        ec = savePlaylist(nullptr, newIndex);
-        if (ec != ErrorCode::OK) {
-          setLastError("Failed to save playlist: " + getLastError());
-          wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED,
-                             ID_ADD_FROM_URL_ERROR);
-          evt.SetString(wxString::FromUTF8(getLastError()));
-          wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
-          return;
-        }
+          size_t newIndex = 0;
+          {
+            std::lock_guard<std::mutex> lock(m_playlistsMutex);
+            for (const auto &existing : m_playlists) {
+              if (existing->getSource() == pl->getSource()) {
+                setLastError("Duplicate playlist: " + pl->getTitle());
+                PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, getLastError());
+                return;
+              }
+            }
+            m_playlists.push_back(std::move(pl));
+            newIndex = m_playlists.size() - 1;
+          }
 
-        wxCommandEvent evt(wxEVT_COMMAND_BUTTON_CLICKED,
-                           ID_ADD_FROM_URL_SUCCESS);
-        wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
-      });
+          ec = savePlaylist(nullptr, newIndex);
+          if (ec != ErrorCode::OK) {
+            setLastError("Failed to save playlist: " + getLastError());
+            PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, getLastError());
+            return;
+          }
+
+          PostAddFromUrlEvent(ID_ADD_FROM_URL_SUCCESS);
+        });
+  } catch (const std::system_error &e) {
+    setLastError(std::string("Cannot start download thread: ") + e.what());
+    return ErrorCode::NetworkError;
+  } catch (const std::exception &e) {
+    setLastError(std::string("Cannot start download: ") + e.what());
+    return ErrorCode::Unknown;
+  }
 
   return ErrorCode::OK;
 }

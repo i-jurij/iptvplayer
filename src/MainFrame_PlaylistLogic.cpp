@@ -578,9 +578,29 @@ void MainFrame::CheckAndSuggestPlaylist() {
 
     BeginPlaylistLoading("IPTV-Org");
 
-    // addPlaylistFromUrl всегда возвращает OK — реальный результат
-    // придёт асинхронно через ID_ADD_FROM_URL_SUCCESS / ID_ADD_FROM_URL_ERROR
-    mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
+    ErrorCode ec = ErrorCode::OK;
+    try {
+      ec = mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
+    } catch (const std::exception &e) {
+      LOG_ERROR("CheckAndSuggestPlaylist: addPlaylistFromUrl threw: %s",
+                e.what());
+      ec = ErrorCode::Unknown;
+    } catch (...) {
+      LOG_ERROR("CheckAndSuggestPlaylist: addPlaylistFromUrl threw unknown");
+      ec = ErrorCode::Unknown;
+    }
+
+    if (ec != ErrorCode::OK) {
+      m_progressTimer.Stop();
+      wxString appName = wxGetApp().GetAppName();
+      if (appName.IsEmpty())
+        appName = "IPTV Player";
+      SetTitle(appName);
+      SetStatusText("Failed to start playlist loading.", 0);
+      showError(this,
+                wxString::Format("Failed to start playlist loading:\n\n%s",
+                                 wxString::FromUTF8(mgr->getLastError())));
+    }
   }
 }
 
