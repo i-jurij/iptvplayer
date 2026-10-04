@@ -274,12 +274,17 @@ build_pkg_arch() {
     local _owner _virtual _seen=" "
     while IFS= read -r _owner; do
         [ -z "$_owner" ] && continue
+        # Берём только soname-style provides (содержит ".so")
         _virtual=$(pacman -Si "$_owner" 2>/dev/null \
                     | awk -F': ' '/^Provides/{print $2}' \
                     | tr ' ' '\n' \
                     | grep -vx "$_owner" \
                     | grep -vx 'None' \
+                    | grep '\.so' \
                     | head -n1)
+        if [ -z "$_virtual" ]; then
+            _virtual="$_owner"
+        fi
         if [ -z "$_virtual" ]; then
             _virtual="$_owner"
         fi
