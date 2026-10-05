@@ -1,0 +1,78 @@
+name: Cleanup old releases and runs
+
+on:
+  # Автоматически после каждого релиза.
+  workflow_run:
+    workflows: ["Release from VERSION"]
+    types: [completed]
+  # Раз в неделю — на случай накопленного между релизами.
+  schedule:
+    - cron: '0 3 * * 0'
+  # Ручной запуск с настраиваемым keep.
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: 'Сколько последних релизов и запусков оставить'
+        required: false
+        default: '3'
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      # inputs.keep доступен только при workflow_dispatch; для workflow_run
+      # и schedule он пустой — срабатывает дефолт '3'.
+      KEEP: ${{ inputs.keep || '3' }}
+    steps:
+      - name: Delete old releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          echo "[i] keep last $KEEP releases"
+
+          gh release list --repo "$REPO" --limit 200 \
+            --json tagName,publishedAt \
+            | jq -r --argjson n "$KEEP" \
+                'sort_by(.publishedAt) | reverse | .[$n:] | .[].tagName' \
+            | while read -r TAG; do
+                [ -z "$TAG" ] && continue
+                echo "[i] delete release: $TAG"
+                gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag \
+                  || echo "::warning::failed to delete release $TAG"
+              done
+
+      - name: Delete old workflow runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          echo "[i] keep last $KEEP runs per workflow"
+
+          for WF in \
+              "Release from VERSION" \
+              "Smoke test release" \
+              "Rebuild arch build image" \
+              "Native packages" \
+              "Deploy Pages" \
+              "Cleanup old releases and runs"; do
+            echo "[i] workflow: $WF"
+            gh run list --repo "$REPO" --workflow "$WF" --limit 200 \
+              --json databaseId,createdAt,status \
+              | jq -r --argjson n "$KEEP" \
+                  'sort_by(.createdAt) | reverse | .[$n:] | .[]
+                   | select(.status == "completed") | .databaseId' \
+              | while read -r RUN_ID; do
+                  [ -z "$RUN_ID" ] && continue
+                  echo "  delete run: $RUN_ID"
+                  gh run delete "$RUN_ID" --repo "$REPO" \
+                    || echo "::warning::failed to delete run $RUN_ID"
+                done
+          done
