@@ -554,10 +554,10 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     ToggleFullscreen();
   });
 
-  m_videoArea->Bind(wxEVT_RIGHT_DOWN, [this](wxMouseEvent &evt) {
+  m_videoArea->Bind(wxEVT_CONTEXT_MENU, [this](wxContextMenuEvent &evt) {
     MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
     if (mf) {
-      mf->ShowMainMenu();
+      mf->ShowMainMenu(false);
     }
     evt.Skip();
   });

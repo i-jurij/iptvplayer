@@ -107,7 +107,7 @@ public:
 
   uint64_t InvalidateShowPanelToken();
 
-  void ShowMainMenu(const wxPoint &pos = wxDefaultPosition);
+  void ShowMainMenu(bool deferred = true);
 
   void RemoveChannelFromPlaylist(const Channel &ch);
 

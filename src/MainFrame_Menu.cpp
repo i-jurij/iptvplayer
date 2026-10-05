@@ -14,8 +14,8 @@
 
 static int NewMenuId() { return wxWindow::NewControlId(); }
 
-void MainFrame::ShowMainMenu(const wxPoint &pos) {
-  fprintf(stderr, "[MARK] M1: ShowMainMenu enter pos=(%d,%d)\n", pos.x, pos.y);
+void MainFrame::ShowMainMenu(bool deferred) {
+  fprintf(stderr, "[MARK] M1: ShowMainMenu enter deferred=%d\n", (int)deferred);
   fflush(stderr);
 
   auto menuPtr = std::make_shared<wxMenu>();
@@ -1002,20 +1002,20 @@ void MainFrame::ShowMainMenu(const wxPoint &pos) {
   menu.Append(ID_MENU_ABOUT, _U("About"));
   menu.Append(ID_MENU_EXIT, _U("Quit"));
 
-  fprintf(stderr, "[MARK] M2: menu built, before CallAfter\n");
+  fprintf(stderr, "[MARK] M2: menu built\n");
   fflush(stderr);
 
-  CallAfter([this, menuPtr, pos]() {
-    fprintf(stderr, "[MARK] M3: CallAfter entered\n");
+  auto doShow = [this, menuPtr]() {
+    fprintf(stderr, "[MARK] M3: showing PopupMenu\n");
     fflush(stderr);
-
-    if (pos == wxDefaultPosition) {
-      PopupMenu(menuPtr.get());
-    } else {
-      PopupMenu(menuPtr.get(), pos);
-    }
-
+    PopupMenu(menuPtr.get());
     fprintf(stderr, "[MARK] M4: PopupMenu returned\n");
     fflush(stderr);
-  });
+  };
+
+  if (deferred) {
+    CallAfter(doShow);
+  } else {
+    doShow();
+  }
 }
