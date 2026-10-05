@@ -340,6 +340,10 @@ void PostAddFromUrlEvent(int eventId, const std::string &errorMsg = "") {
   if (!wxTheApp)
     return;
   wxTheApp->CallAfter([eventId, errorMsg]() {
+    fprintf(stderr, "[MARK] D0: CallAfter eventId=%d err='%s'\n", eventId,
+            errorMsg.c_str());
+    fflush(stderr);
+    
     wxWindow *top = wxTheApp->GetTopWindow();
     if (!top)
       return;
@@ -354,6 +358,10 @@ void PostAddFromUrlEvent(int eventId, const std::string &errorMsg = "") {
 ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
                                               std::string &title,
                                               const std::string &userAgent) {
+  fprintf(stderr, "[MARK] B0: enter addPlaylistFromUrl url='%s'\n",
+          url.c_str());
+  fflush(stderr);
+
   if (title.empty()) {
     title = derivePlaylistTitleFromUrl(url);
   }
@@ -365,9 +373,14 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
     m_addFromUrlFuture.wait();
   }
 
+  fprintf(stderr, "[MARK] B1: before std::async\n");
+  fflush(stderr);
   try {
     m_addFromUrlFuture = std::async(
         std::launch::async, [this, pl = std::move(playlist)]() mutable {
+          fprintf(stderr, "[MARK] C0: async thread started\n");
+          fflush(stderr);
+
           ErrorCode ec = loadPlaylistContent(pl.get());
           if (ec != ErrorCode::OK) {
             setLastError("Failed to load playlist: " + getLastError());
@@ -405,6 +418,8 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
     setLastError(std::string("Cannot start download: ") + e.what());
     return ErrorCode::Unknown;
   }
+  fprintf(stderr, "[MARK] B2: after std::async\n");
+  fflush(stderr);
 
   return ErrorCode::OK;
 }

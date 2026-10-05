@@ -592,10 +592,6 @@ void MainFrame::CheckAndSuggestPlaylist() {
 
     if (ec != ErrorCode::OK) {
       m_progressTimer.Stop();
-      wxString appName = wxGetApp().GetAppName();
-      if (appName.IsEmpty())
-        appName = "IPTV Player";
-      SetTitle(appName);
       SetStatusText("Failed to start playlist loading.", 0);
       showError(this,
                 wxString::Format("Failed to start playlist loading:\n\n%s",
@@ -626,12 +622,6 @@ void MainFrame::ResetUIAfterUpdate() {
   // Сохраняем и обновляем список плейлистов
   savePlaylistsToConfig();
   RefreshPlaylistView();
-
-  // Восстанавливаем заголовок окна
-  wxString appName = wxGetApp().GetAppName();
-  if (appName.IsEmpty())
-    appName = "IPTV Player";
-  SetTitle(appName);
 }
 
 void MainFrame::CleanupLogosForPlaylist(Playlist *pl) {

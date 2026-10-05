@@ -353,8 +353,15 @@ void VideoPanel::OnOpen(wxCommandEvent &) {
   if (localPos.y < 0)
     localPos.y = 0;
 
-  // Показываем меню
-  PopupMenu(m_openMenu, localPos);
+  // Откладываем показ меню до следующей итерации event loop: на GTK
+  // вызов PopupMenu прямо внутри обработчика кнопки может привести к
+  // мгновенному закрытию (событие release кнопки ещё в очереди).
+  wxMenu *menuPtr = m_openMenu;
+  wxPoint popupPos = localPos;
+  CallAfter([this, menuPtr, popupPos]() {
+    if (menuPtr)
+      PopupMenu(menuPtr, popupPos);
+  });
 }
 
 void VideoPanel::OnWindowCreated(wxShowEvent &event) {

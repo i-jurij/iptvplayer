@@ -270,6 +270,37 @@ build_sharun_appimage() {
     fi
 
     # ---------------------------------------------------------------------
+    # Dbus хук.
+    # ---------------------------------------------------------------------
+    echo "[+] Создание dbus-fallback.hook..."
+    cat > "$APPDIR/bin/96-dbus-fallback.hook" << 'HOOK'
+#!/bin/sh
+# GLib/GTK/dconf тянут session bus. Если шины нет —
+# переводим GSettings на memory backend и отключаем a11y-мост.
+# Если шина есть — ничего не трогаем, пользователь получает свою тему,
+# курсор и настройки как обычно.
+
+_dbus_available=0
+
+if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    _dbus_available=1
+fi
+
+if [ "$_dbus_available" = 0 ] && [ -n "${XDG_RUNTIME_DIR:-}" ] \
+   && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+    _dbus_available=1
+fi
+
+if [ "$_dbus_available" = 0 ]; then
+    export GSETTINGS_BACKEND=memory
+    export G_DBUS_SESSION_BUS_ADDRESS=disabled:
+    export NO_AT_BRIDGE=1
+fi
+HOOK
+    chmod +x "$APPDIR/bin/96-dbus-fallback.hook"
+    echo "[i] dbus-fallback.hook установлен (сработает только без шины)"
+
+    # ---------------------------------------------------------------------
     # CA-bundle: бандл cacert.pem + хук.
     #
     # Логика зеркалит _resolve_dejavu_font:

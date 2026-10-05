@@ -19,6 +19,9 @@
 #include <wx/msgdlg.h>
 #include <wx/timer.h>
 
+#include <cstdio>
+#include <unistd.h>
+
 // ─────────────────────────────────────────────────────────────
 // Event handler implementations
 // ─────────────────────────────────────────────────────────────
@@ -85,29 +88,42 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
   });
 }
 
+void MainFrame::OpenPlaylistByModelIndex(int playlistIndex) {
+  if (playlistIndex < 0) {
+    SetStatusText("Please select a playlist first.", 1);
+    return;
+  }
+
+  auto *mgr = getPlaylistManager();
+  if (!mgr || static_cast<size_t>(playlistIndex) >= mgr->getPlaylists().size()) {
+    SetStatusText("Selected playlist is not available.", 1);
+    return;
+  }
+
+  m_selectedPlaylistIndex = playlistIndex;
+  OpenPlaylistInternal(playlistIndex);
+}
+
 void MainFrame::onPlaylistActivated(wxListEvent &event) {
   if (event.GetId() != ID_PLAYLIST_LIST)
     return;
 
   const long listIndex = event.GetIndex();
-  if (listIndex < 0) {
-    SetStatusText("Please select a playlist first.");
+  if (listIndex < 0)
     return;
-  }
 
   const wxUIntPtr data = m_playlistList->GetItemData(listIndex);
-  int playlistIndex = static_cast<int>(data);
-  OpenPlaylistInternal(playlistIndex);
+  OpenPlaylistByModelIndex(static_cast<int>(data));
 }
 
 void MainFrame::onOpenPlaylist(wxCommandEvent &event) {
-  if (event.GetId() != ID_PLAYLIST_LIST)
+  if (event.GetId() != ID_OPEN_PLAYLIST)
     return;
 
   if (!validatePlaylistSelection())
     return;
 
-  OpenPlaylistInternal(m_selectedPlaylistIndex);
+  OpenPlaylistByModelIndex(m_selectedPlaylistIndex);
 }
 
 //====================================================================
@@ -179,10 +195,6 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
 
   if (ec != ErrorCode::OK) {
     m_progressTimer.Stop();
-    wxString appName = wxGetApp().GetAppName();
-    if (appName.IsEmpty())
-      appName = "IPTV Player";
-    SetTitle(appName);
     SetStatusText("Failed to start playlist loading.", 0);
     showError(this, wxString::Format("Failed to start playlist loading:\n\n%s",
                                      wxString::FromUTF8(mgr->getLastError())));
@@ -192,12 +204,6 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
 void MainFrame::BeginPlaylistLoading(const wxString &sourceLabel) {
   SetStatusText(wxString::Format("Loading playlist from %s...", sourceLabel),
                 0);
-
-  wxString appName = wxGetApp().GetAppName();
-  if (appName.IsEmpty())
-    appName = "IPTV Player";
-  SetTitle(wxString::Format("%s — Loading (0%%)", appName));
-
   int timeout = std::stoi(
       wxGetApp().getConfigManager()->getSetting("playlistTimeoutMs", "30000"));
   m_progressTimer.Start(timeout, wxTIMER_ONE_SHOT);
@@ -209,13 +215,6 @@ void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
   savePlaylistsToConfig();
   RefreshPlaylistView();
 
-  // restore window title
-  wxString appName = wxGetApp().GetAppName();
-  if (appName.IsEmpty())
-    appName = "IPTV Player";
-  SetTitle(appName);
-
-  // final status and log
   SetStatusText("Playlist added from URL.", 0);
 }
 
@@ -223,12 +222,6 @@ void MainFrame::onAddFromUrlError(wxCommandEvent &WXUNUSED(event)) {
   m_progressTimer.Stop();
   auto *mgr = getPlaylistManager();
   const std::string lastError = mgr->getLastError();
-
-  // restore title
-  wxString appName = wxGetApp().GetAppName();
-  if (appName.IsEmpty())
-    appName = "IPTV Player";
-  SetTitle(appName);
 
   if (lastError.find("Duplicate") != std::string::npos) {
     SetStatusText("Duplicate playlist not added.", 0);
@@ -242,11 +235,6 @@ void MainFrame::onAddFromUrlError(wxCommandEvent &WXUNUSED(event)) {
 
 void MainFrame::onProgressTimeout(wxTimerEvent &WXUNUSED(event)) {
   SetStatusText("Playlist loading timed out.", 0);
-  // restore title
-  wxString appName = wxGetApp().GetAppName();
-  if (appName.IsEmpty())
-    appName = "IPTV Player";
-  SetTitle(appName);
 
   wxMessageDialog dlg(this,
                       "Playlist loading timed out.\nDo you want to retry?",
@@ -445,10 +433,6 @@ void MainFrame::onUpdatePlaylist(wxCommandEvent &WXUNUSED(event)) {
       if (pl) {
         wxString pname = wxString::FromUTF8(pl->getTitle());
         SetStatusText(wxString::Format("Updating playlist: %s", pname), 0);
-        wxString appName = wxGetApp().GetAppName();
-        if (appName.IsEmpty())
-          appName = "IPTV Player";
-        SetTitle(wxString::Format("%s — Updating: %s", appName, pname));
       }
     }
   }
@@ -509,15 +493,9 @@ void MainFrame::onUpdateAllPlaylists(wxCommandEvent &WXUNUSED(event)) {
     m_gaugeTop->Show();
   }
 
-  // debug
-  wxLogDebug("onUpdateAllPlaylists: initialized gauge range=%d", totalInt);
+  LOG_DEBUG("onUpdateAllPlaylists: initialized gauge range=%d", totalInt);
 
-  // status and title
   SetStatusText("Updating playlists...", 0);
-  wxString appName = wxGetApp().GetAppName();
-  if (appName.IsEmpty())
-    appName = "IPTV Player";
-  SetTitle(wxString::Format("%s — Updating (0%%)", appName));
 
   if (auto *sizer = GetSizer())
     sizer->Layout();
@@ -741,11 +719,6 @@ void MainFrame::onUpdateProgress(wxCommandEvent &ev) {
     SetStatusText(wxString::Format("Updating: %d%% (%d/%d)", percent,
                                    clampedProcessed, effectiveTotal),
                   1);
-
-    wxString appName = wxGetApp().GetAppName();
-    if (appName.IsEmpty())
-      appName = "IPTV Player";
-    SetTitle(wxString::Format("%s — Updating (%d%%)", appName, percent));
   }
 }
 
@@ -764,40 +737,90 @@ void MainFrame::onPlDelKeyDown(wxKeyEvent &event) {
 }
 
 void MainFrame::onAddIPTVPlaylist(wxCommandEvent &WXUNUSED(event)) {
-  if (!validateApplication() || !validatePlaylistManager())
-    return;
+  fprintf(stderr, "[MARK] A1: onAddIPTVPlaylist enter\n");
+  fflush(stderr);
 
-  AddIPTVPlaylistDialog dlg(this, getPlaylistManager());
-  if (dlg.ShowModal() != wxID_OK)
+  if (!validateApplication() || !validatePlaylistManager()) {
+    fprintf(stderr, "[MARK] A1a: validation failed, returning\n");
+    fflush(stderr);
     return;
+  }
+  fprintf(stderr, "[MARK] A1b: validation passed\n");
+  fflush(stderr);
+
+  fprintf(stderr, "[MARK] A2: before AddIPTVPlaylistDialog ctor\n");
+  fflush(stderr);
+  AddIPTVPlaylistDialog dlg(this, getPlaylistManager());
+  fprintf(stderr, "[MARK] A3: after AddIPTVPlaylistDialog ctor\n");
+  fflush(stderr);
+
+  fprintf(stderr, "[MARK] A4: before ShowModal\n");
+  fflush(stderr);
+  int modalResult = dlg.ShowModal();
+  fprintf(stderr, "[MARK] A5: after ShowModal, result=%d (wxID_OK=%d)\n",
+          modalResult, wxID_OK);
+  fflush(stderr);
+
+  if (modalResult != wxID_OK) {
+    fprintf(stderr, "[MARK] A5a: modal not OK, returning\n");
+    fflush(stderr);
+    return;
+  }
 
   wxString url = dlg.GetSelectedUrl();
   wxString title = dlg.GetSelectedTitle();
+  fprintf(stderr, "[MARK] A6: url='%s' title='%s'\n",
+          (const char *)url.utf8_str(), (const char *)title.utf8_str());
+  fflush(stderr);
 
   auto *mgr = getPlaylistManager();
   std::string titleStr = title.ToStdString();
+  std::string urlStr = url.ToStdString();
+  fprintf(stderr, "[MARK] A7: urlStr='%s' titleStr='%s'\n", urlStr.c_str(),
+          titleStr.c_str());
+  fflush(stderr);
 
+  fprintf(stderr, "[MARK] A8: before BeginPlaylistLoading\n");
+  fflush(stderr);
   BeginPlaylistLoading("IPTV-Org");
+  fprintf(stderr, "[MARK] A9: after BeginPlaylistLoading\n");
+  fflush(stderr);
 
   ErrorCode ec = ErrorCode::OK;
   try {
-    ec = mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
+    fprintf(stderr, "[MARK] A10: before addPlaylistFromUrl\n");
+    fflush(stderr);
+
+    ec = mgr->addPlaylistFromUrl(urlStr, titleStr, "");
+
+    fprintf(stderr, "[MARK] A11: after addPlaylistFromUrl, ec=%d\n", (int)ec);
+    fflush(stderr);
   } catch (const std::exception &e) {
+    fprintf(stderr, "[MARK] A11E: exception: %s\n", e.what());
+    fflush(stderr);
     LOG_ERROR("onAddIPTVPlaylist: addPlaylistFromUrl threw: %s", e.what());
     ec = ErrorCode::Unknown;
   } catch (...) {
+    fprintf(stderr, "[MARK] A11E: unknown exception\n");
+    fflush(stderr);
     LOG_ERROR("onAddIPTVPlaylist: addPlaylistFromUrl threw unknown");
     ec = ErrorCode::Unknown;
   }
 
+  fprintf(stderr, "[MARK] A12: after try/catch, ec=%d\n", (int)ec);
+  fflush(stderr);
+
   if (ec != ErrorCode::OK) {
+    fprintf(stderr, "[MARK] A13: error path, lastError='%s'\n",
+            mgr->getLastError().c_str());
+    fflush(stderr);
+
     m_progressTimer.Stop();
-    wxString appName = wxGetApp().GetAppName();
-    if (appName.IsEmpty())
-      appName = "IPTV Player";
-    SetTitle(appName);
     SetStatusText("Failed to start playlist loading.", 0);
     showError(this, wxString::Format("Failed to start playlist loading:\n\n%s",
                                      wxString::FromUTF8(mgr->getLastError())));
   }
+
+  fprintf(stderr, "[MARK] A14: onAddIPTVPlaylist exit\n");
+  fflush(stderr);
 }

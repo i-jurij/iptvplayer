@@ -317,6 +317,7 @@ private:
   std::atomic<uint64_t> m_showPanelToken{0};
 
   void OpenPlaylistInternal(int playlistIndex);
+  void OpenPlaylistByModelIndex(int playlistIndex);
 
   // Восстановить UI после обновления (кнопки, гейдж, список плейлистов, тайтл)
   void ResetUIAfterUpdate();

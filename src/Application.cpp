@@ -6,12 +6,42 @@
 #include "PlaylistManager.h"
 #include "epg/EPGManager.h"
 
+#include <wx/dir.h>
 #include <wx/filename.h>
 #include <wx/log.h>
 #include <wx/msgdlg.h>
 #include <wx/stdpaths.h>
 
+#include <csignal>
+#include <execinfo.h>
 #include <iostream>
+#include <unistd.h>
+
+// ============================================================================
+//  Audio subsystem availability
+// ============================================================================
+static bool HasAudioSystem() {
+#if defined(__linux__)
+  if (!wxDirExists("/dev/snd"))
+    return false;
+  wxArrayString entries;
+  wxDir::GetAllFiles("/dev/snd", &entries);
+  return !entries.IsEmpty();
+#elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+  return wxFileExists("/dev/sndstat");
+#else
+  return true;
+#endif
+}
+
+static void CheckAudioOrWarn(wxWindow *parent) {
+  if (HasAudioSystem())
+    return;
+  wxMessageBox("No sound devices found.\n\n"
+               "Install ALSA, then initialize it:\n\n"
+               "  sudo alsactl init",
+               "Audio not available", wxOK | wxICON_WARNING, parent);
+}
 
 Application::Application() {
   wxString baseDir;
@@ -75,7 +105,23 @@ Application::~Application() {
   }
 }
 
+static void IptvplayerCrashHandler(int sig) {
+  void *frames[64];
+  int n = backtrace(frames, 64);
+  const char *hdr = "\n=== CRASH: signal ===\n";
+  (void)!write(STDERR_FILENO, hdr, strlen(hdr));
+  backtrace_symbols_fd(frames, n, STDERR_FILENO);
+  const char *tail = "=== END ===\n";
+  (void)!write(STDERR_FILENO, tail, strlen(tail));
+  signal(sig, SIG_DFL);
+  raise(sig);
+}
+
 bool Application::OnInit() {
+  signal(SIGSEGV, IptvplayerCrashHandler);
+  signal(SIGABRT, IptvplayerCrashHandler);
+  signal(SIGBUS, IptvplayerCrashHandler);
+  signal(SIGFPE, IptvplayerCrashHandler);
   try {
     setlocale(LC_ALL, "");
     wxLocale *m_locale = new wxLocale();
@@ -130,6 +176,8 @@ bool Application::OnInit() {
     MainFrame *mf = m_guiManager->getMainFrame();
     mf->Show(true);
 
+    CheckAudioOrWarn(mf);
+    
     // ---- Обработка файлов, переданных через командную строку (MIME) ----
     if (argc > 1) {
       wxArrayString files;

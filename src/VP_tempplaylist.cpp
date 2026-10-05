@@ -8,10 +8,11 @@
 #include <random>
 #include <wx/dir.h>
 #include <wx/filename.h>
+#include <wx/splitter.h>
 
 #include <fstream>
+#include <memory>
 #include <sstream>
-#include <wx/splitter.h>
 
 void VideoPanel::LoadTempPlaylistFromConfig() {
   Application *app = dynamic_cast<Application *>(wxTheApp);
@@ -344,8 +345,8 @@ void VideoPanel::OnTempPlaylistContextMenu(wxContextMenuEvent &evt) {
   if (sel == wxNOT_FOUND)
     return;
 
-  // Показываем меню
-  wxMenu menu;
+  auto menuPtr = std::make_shared<wxMenu>();
+  wxMenu &menu = *menuPtr;
 
   int idPlay = wxWindow::NewControlId();
   int idUp = wxWindow::NewControlId();
@@ -382,7 +383,7 @@ void VideoPanel::OnTempPlaylistContextMenu(wxContextMenuEvent &evt) {
   menu.Bind(wxEVT_MENU, &VideoPanel::OnTempPlaylistOpenFolder, this,
             idOpenFolder);
 
-  PopupMenu(&menu);
+  CallAfter([this, menuPtr]() { PopupMenu(menuPtr.get()); });
 }
 
 void VideoPanel::TempPlaylistPlay() {
