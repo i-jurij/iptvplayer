@@ -74,6 +74,12 @@ void FavoritesManager::loadFromFile() {
       ch.setCountry(item["country"].GetString());
     if (item.HasMember("language") && item["language"].IsString())
       ch.setLanguage(item["language"].GetString());
+    if (item.HasMember("tvgId") && item["tvgId"].IsString())
+      ch.setTvgId(item["tvgId"].GetString());
+    if (item.HasMember("tvgName") && item["tvgName"].IsString())
+      ch.setTvgName(item["tvgName"].GetString());
+    if (item.HasMember("category") && item["category"].IsString())
+      ch.setCategory(item["category"].GetString());
 
     m_favorites[MakeKey(ch)] = ch;
   }
@@ -102,6 +108,10 @@ void FavoritesManager::saveToFile() {
     obj.AddMember("group",      Value(c.getGroupTitle().c_str(), alloc), alloc);
     obj.AddMember("country",    Value(c.getCountry().c_str(), alloc), alloc);
     obj.AddMember("language",   Value(c.getLanguage().c_str(), alloc), alloc);
+    obj.AddMember("tvgId", Value(c.getTvgId().c_str(), alloc), alloc);
+    obj.AddMember("tvgName", Value(c.getTvgName().c_str(), alloc), alloc);
+    obj.AddMember("category", Value(c.getCategory().c_str(), alloc), alloc);
+
     doc.PushBack(obj, alloc);
   }
 
