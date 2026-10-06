@@ -164,11 +164,15 @@ detect_arch() {
     local machine
     machine="$(uname -m)"
     case "$machine" in
-        x86_64|amd64) DEB_ARCH="amd64";  RPM_ARCH="x86_64";  APPIMAGE_ARCH="x86_64" ;;
-        aarch64|arm64) DEB_ARCH="arm64"; RPM_ARCH="aarch64"; APPIMAGE_ARCH="aarch64" ;;
-        armv7l|armhf)  DEB_ARCH="armhf"; RPM_ARCH="armv7hl"; APPIMAGE_ARCH="armhf" ;;
-        i686|i386)     DEB_ARCH="i386";  RPM_ARCH="i686";    APPIMAGE_ARCH="i686" ;;
-        *) echo "[!] Неизвестная архитектура: $machine" >&2; exit 1 ;;
+        x86_64|amd64)          DEB_ARCH="amd64"; RPM_ARCH="x86_64";  APPIMAGE_ARCH="x86_64"  ;;
+        aarch64|arm64)         DEB_ARCH="arm64"; RPM_ARCH="aarch64"; APPIMAGE_ARCH="aarch64" ;;
+        armv7l|armv8l|armhf)   DEB_ARCH="armhf"; RPM_ARCH="armv7hl"; APPIMAGE_ARCH="armhf"   ;;
+        i686|i386)             DEB_ARCH="i386";  RPM_ARCH="i686";    APPIMAGE_ARCH="i686"    ;;
+        *)
+            echo "[!] Неизвестная архитектура: $machine" >&2
+            echo "    Поддерживаются: x86_64, aarch64, i686, armv7l/armv8l/armhf (best-effort)." >&2
+            exit 1
+            ;;
     esac
     echo "[i] Архитектура: $machine → deb=$DEB_ARCH, rpm=$RPM_ARCH, appimage=$APPIMAGE_ARCH"
 }

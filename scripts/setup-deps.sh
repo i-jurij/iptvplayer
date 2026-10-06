@@ -39,8 +39,12 @@ fi
 
 set -euo pipefail
 
-WX_VERSION="3.3.2"
-WXSQLITE3_VERSION="5.0.1"
+# Версии закреплены здесь — единый источник правды.
+# Переопределяются через переменные окружения (для бампа версии или
+# фиксации конкретной ревизии в CI):
+#   WX_VERSION=3.4.0 WXSQLITE3_VERSION=5.1.0 ./scripts/setup-deps.sh
+WX_VERSION="${WX_VERSION:-3.3.2}"
+WXSQLITE3_VERSION="${WXSQLITE3_VERSION:-5.0.1}"
 
 # ---- Каталог скриптов и корень проекта ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,6 +58,7 @@ if [[ ! -f "$PROJECT_ROOT/CMakeLists.txt" ]]; then
 fi
 
 log "Корень проекта: $PROJECT_ROOT"
+log "Версии зависимостей: wxWidgets $WX_VERSION, wxSQLite3 $WXSQLITE3_VERSION"
 
 THIRD_PARTY_DIR="$PROJECT_ROOT/third_party"
 WX_DIR="$THIRD_PARTY_DIR/wx"

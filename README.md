@@ -46,13 +46,22 @@ Pick the artifact that matches your system:
 
 | Artifact | Target |
 | :--- | :--- |
-| `*.AppImage` | Any Linux with glibc ≥ 2.39 (built with `linuxdeploy`) |
-| `*-sharun.AppImage` | Any Linux, including old glibc, musl systems (Alpine, Void-musl), NixOS without FHS |
-| `*.deb` | Ubuntu 24.04+, Debian 13+ (bundled: installs under `/opt/iptvplayer`) |
-| `*.rpm` | Fedora 44+, Rocky 10+ (bundled: installs under `/opt/iptvplayer`) |
+| `iptvplayer-linux-<arch>-<version>-linuxdeploy.AppImage` | Any Linux with glibc ≥ 2.39 (built with `linuxdeploy`) |
+| `iptvplayer-linux-<arch>-<version>-sharun.AppImage` | Any Linux, including old glibc, musl systems (Alpine, Void-musl), NixOS without FHS |
+| `iptvplayer_<version>_<distro>_<deb-arch>.deb` | Ubuntu 24.04+, Debian 13+ (native: depends on system libraries) |
+| `iptvplayer-<version>-1.<distro>.<rpm-arch>.rpm` | Fedora 44+, Rocky 10+, RHEL 9/10 (with EPEL), openSUSE |
+| `iptvplayer-<version>-alt1.<distro>.<rpm-arch>.rpm` | ALT Linux |
+| `iptvplayer-<version>-1.<distro>.<rpm-arch>.rpm` | ROSA Linux (release suffix from `/etc/os-release`) |
+| `iptvplayer-<version>-1-<distro>-<arch>.pkg.tar.zst` | Arch Linux, Manjaro |
 
 All artifacts come with `checksums.txt` and a detached GPG signature.
 See [SECURITY.md](SECURITY.md) for verification instructions.
+
+**Supported architectures.** The scripts recognise `x86_64`, `aarch64`, `i686`
+and `armv7l`/`armv8l`/`armhf` (see `detect_arch` in `scripts/common.sh`).
+Only `x86_64` is exercised in CI; everything else is best-effort.
+linuxdeploy-AppImage is built only for `x86_64` and `aarch64` (upstream
+limitation — see `populate_appdir` in `scripts/build-appimage.sh`).
 
 ### From source
 
@@ -64,8 +73,9 @@ Most IPTV streams are H.264. Some distributions do not include a decoder for it 
 playback fails with a black screen or `Unable to create decoder for h264`.
 
 - **Fedora / RHEL:** `sudo dnf install openh264`.
-- **Debian / Ubuntu:** `sudo apt install libopenh264-7`. If the package is not found, try
-  `sudo apt install libavcodec-extra`.
+- **Debian / Ubuntu:** `sudo apt install libopenh264-<N>` — the exact version
+  number changes between releases; run `apt-cache search libopenh264` if
+  unsure. If no such package exists, try `sudo apt install libavcodec-extra`.
 - **Arch / Manjaro:** `sudo pacman -S ffmpeg` (H.264 decoding is included). Optionally also
   `sudo pacman -S openh264`.
 
@@ -123,10 +133,6 @@ Use `./scripts/build-package.sh --help` for the full list of options.
 - **AppImage (sharun)** — uses `quick-sharun` and embeds its own dynamic
   linker; can work on old distros, musl systems (Alpine, Void-musl) and
   NixOS without FHS.
-- **Bundled** (`.deb` / `.rpm`) — self-contained packages that install
-  everything under `/opt/iptvplayer`. These are separate from the native
-  variants and are **not** offered in the interactive menu; build them
-  explicitly with `--bundle-deb` / `--bundle-rpm` if you need them.
 
 ### 2. How the scripts fit together
 
@@ -147,7 +153,9 @@ by `build-package.sh`.
 | :--- | :--- |
 | `scripts/common.sh` | Shared helpers: logging, `ask()`, `detect_arch` / `detect_distro` / `detect_pkgmgr`, `read_versions_from_install`, `prepare_staging`, `detect_deb_depends`, `check_deps`. |
 | `scripts/build-native.sh` | Native `.deb` / `.rpm` / `.pkg.tar.zst` packagers. |
-| `scripts/build-bundle.sh` | Bundled `.deb` / `.rpm` + AppImage. Contains `populate_appdir()` (the AppDir / `AppRun` logic). |
+| `scripts/build-native-alt.sh` | Native `.rpm` for ALT Linux (`build_rpm_alt`). |
+| `scripts/build-native-rosa.sh` | Native `.rpm` for ROSA Linux (`build_rpm_rosa`). |
+| `scripts/build-appimage.sh` | AppImage (linuxdeploy) — `populate_appdir()` + `build_appimage()`. |
 | `scripts/build-sharun.sh` | AppImage through `quick-sharun`. Contains `build_sharun_appimage()`. |
 
 **Order of operations, in plain terms:**
@@ -158,13 +166,15 @@ by `build-package.sh`.
    - checks for required tools (`dpkg-deb`, `rpmbuild`, `wget`, `tar`, `readelf`, `gpg` if signing, …);
    - if `install/bin/iptvplayer` is missing (or `--rebuild` given) — calls `build-release.sh --type release --prefix ./install --yes`;
    - reads `install/VERSION{,_FULL,_FILE}`;
-   - for bundled/AppImage: populates `iptvplayer.AppDir` via `linuxdeploy` + GTK plugin (downloaded on demand);
+   - for AppImage (linuxdeploy): populates `dist/.AppDir` via `linuxdeploy` + GTK plugin (downloaded on demand);
+   - for AppImage (sharun): deploys dependencies via `quick-sharun` (downloaded on demand);
    - builds the requested artifacts into `dist/`;
    - optionally signs them (if `GPG_KEY_ID` is set) and writes `dist/checksums.txt`.
 3. Result: `dist/` contains the artifacts listed at the end of the run.
 
-Note: `build-package.sh` cleans up `pkg-staging/`, `iptvplayer.AppDir/` and
-`pkg-rpm/` on exit. `dist/` is preserved (unless you pass `--clean`).
+Note: `build-package.sh` cleans up `pkg-staging/`, `dist/.AppDir/`,
+`pkg-rpm/`, `pkg-rpm-alt/` and `pkg-rpm-rosa/` on exit. `dist/` is preserved
+(unless you pass `--clean`).
 
 ### 3. Installing dependencies (manual step)
 
@@ -174,10 +184,11 @@ Before the first package build, run:
 
 It will:
 
-- detect your OS and package manager (`apt`, `dnf`/`yum`, `pacman`);
+- detect your OS and package manager (`apt`, `dnf`/`yum`, `pacman`, `apt-rpm`
+  for ALT, `dnf` for ROSA);
 - install the required development packages;
-- download **wxWidgets 3.3.2** and build it statically with builtin libwebp;
-- download **wxSQLite3 5.0.1** and build it statically against the local wxWidgets.
+- download **wxWidgets** and build it statically with builtin libwebp;
+- download **wxSQLite3** and build it statically against the local wxWidgets.
 
 Both are installed into:
 
@@ -186,6 +197,12 @@ Both are installed into:
 
 These paths are already configured in `CMakeLists.txt`.
 
+The pinned versions live in `scripts/setup-deps.sh` (the `WX_VERSION` and
+`WXSQLITE3_VERSION` variables) and can be overridden without editing the
+script:
+
+    WX_VERSION=3.4.0 WXSQLITE3_VERSION=5.1.0 ./scripts/setup-deps.sh
+
 Options:
 
     ./scripts/setup-deps.sh                  # interactive
@@ -193,10 +210,9 @@ Options:
     ./scripts/setup-deps.sh --skip-system    # only rebuild third_party
     ./scripts/setup-deps.sh --yes --rebuild-deps
 
-> On a fresh system you will also need `build-essential cmake pkg-config
-> libcurl4-openssl-dev libgtk-3-dev autoconf automake libtool` (or the
-> equivalents for your distribution) before `setup-deps.sh` can do its job.
-> The script installs them for you when it recognises your package manager.
+> `setup-deps.sh` installs the system packages itself via your distribution's
+> package manager — it only needs `sudo` (or root) and either `curl` or
+> `wget`. The full package list is the `PACKAGES` map inside the script.
 
 ### 4. Manual build (step by step)
 
@@ -258,13 +274,12 @@ Or use the wrapper script, which does all of the above in one shot:
 | `--native-deb` | Native `.deb` from system libraries (Debian/Ubuntu) |
 | `--native-rpm` | Native `.rpm` from system libraries (Fedora/Rocky/RHEL/openSUSE) |
 | `--native-arch` | Native `.pkg.tar.zst` (Arch/Manjaro) |
-| `--appimage` | AppImage (bundled, works everywhere) |
-| `--bundle-deb` | Bundled `.deb` (everything under `/opt/iptvplayer`) |
-| `--bundle-rpm` | Bundled `.rpm` (everything under `/opt/iptvplayer`) |
+| `--native-alt` | Native `.rpm` for ALT Linux |
+| `--native-rosa` | Native `.rpm` for ROSA Linux |
+| `--appimage` | AppImage (linuxdeploy + appimagetool) |
+| `--sharun` | AppImage through `quick-sharun` (maximum portability) |
 | `--native` | All native packages available on this system |
 | `--native-appimage` | Native package for the current system + AppImage |
-| `--sharun` | AppImage through `quick-sharun` (maximum portability) |
-| `--bundle` | Bundled `.deb` + bundled `.rpm` |
 | `--all` | Everything possible on this system |
 | `--rebuild` | Force rebuild of the binary via `build-release.sh` |
 | `--clean` | Wipe `dist/` before building |
@@ -274,28 +289,27 @@ Or use the wrapper script, which does all of the above in one shot:
 | `-h`, `--help` | Show help |
 
 If no flags are given and stdin is a TTY, `build-package.sh` shows a menu
-tailored to your distribution. The menu offers native packages and the
-AppImage. Bundled packages are built only when you ask for them explicitly
-with `--bundle-deb` / `--bundle-rpm` / `--bundle` / `--all`.
+tailored to your distribution. The menu offers native packages and both
+AppImage variants.
 
 If no flags are given and stdin is **not** a TTY (CI, `--no-menu`), the
-default is bundled `.deb` + bundled `.rpm` + AppImage — the artifacts that
-CI actually needs. Pass explicit flags to override.
+default is `--appimage` (linuxdeploy). Pass explicit flags to override.
 
 Output goes to `dist/`:
 
     dist/
-    ├── iptvplayer_<version>_<deb-arch>.deb                     # bundled .deb
-    ├── iptvplayer_<version>_<distro>_<deb-arch>.deb            # native .deb
-    ├── iptvplayer-<version>-<release>.<rpm-arch>.rpm           # bundled .rpm
-    ├── iptvplayer-<version>-<release>.<distro>.<rpm-arch>.rpm  # native .rpm
-    ├── iptvplayer-<version>-<release>-<distro>-<arch>.pkg.tar.zst  # native Arch
-    ├── iptvplayer-linux-<arch>-<version>.AppImage              # AppImage (linuxdeploy)
-    ├── iptvplayer-linux-<arch>-<version>.AppImage.asc          # if signed
-    ├── iptvplayer-linux-<arch>-<version>.zsync                 # if zsyncmake is present
-    ├── iptvplayer-linux-<arch>-<version>-sharun.AppImage       # AppImage (quick-sharun)
+    ├── iptvplayer_<version>_<distro>_<deb-arch>.deb                    # native .deb
+    ├── iptvplayer-<version>-1.<distro>.<rpm-arch>.rpm                  # native .rpm
+    ├── iptvplayer-<version>-alt1.<distro>.<rpm-arch>.rpm               # native .rpm (ALT)
+    ├── iptvplayer-<version>-1.<distro>.<rpm-arch>.rpm                  # native .rpm (ROSA)
+    ├── iptvplayer-<version>-1-<distro>-<arch>.pkg.tar.zst              # native Arch
+    ├── iptvplayer-linux-<arch>-<version>-linuxdeploy.AppImage          # AppImage (linuxdeploy)
+    ├── iptvplayer-linux-<arch>-<version>-linuxdeploy.AppImage.asc      # if signed
+    ├── iptvplayer-linux-<arch>-<version>-linuxdeploy.AppImage.zsync    # if zsyncmake is present
+    ├── iptvplayer-linux-<arch>-<version>-sharun.AppImage               # AppImage (quick-sharun)
+    ├── iptvplayer-linux-<arch>-<version>-sharun.AppImage.asc           # if signed
     ├── checksums.txt
-    └── checksums.txt.asc                                       # if signed
+    └── checksums.txt.asc                                               # if signed
 
 #### Signing (optional)
 
@@ -340,9 +354,10 @@ Then install the clangd extension in VSCode — it will use
 | Build native `.deb` | `./scripts/build-package.sh --native-deb` |
 | Build native `.rpm` | `./scripts/build-package.sh --native-rpm` |
 | Build native `.pkg.tar.zst` | `./scripts/build-package.sh --native-arch` |
+| Build native `.rpm` for ALT | `./scripts/build-package.sh --native-alt` |
+| Build native `.rpm` for ROSA | `./scripts/build-package.sh --native-rosa` |
 | Build AppImage | `./scripts/build-package.sh --appimage` |
 | Build AppImage (quick-sharun) | `./scripts/build-package.sh --sharun` |
-| Bundled `.deb` + `.rpm` | `./scripts/build-package.sh --bundle` |
 | Just build the binary | `./scripts/build-release.sh` |
 | Debug build | `./scripts/build-release.sh --type debug` |
 | Clean rebuild | `./scripts/build-release.sh --clean` |
@@ -397,7 +412,7 @@ Then install the clangd extension in VSCode — it will use
 ### Technologies
 
 - **C++20** (per `CMakeLists.txt`).
-- **wxWidgets 3.3.2** (static build).
+- **wxWidgets** (static build; version pinned in `scripts/setup-deps.sh`).
 - **libcurl** — URL downloads.
 - **libwebp** — WebP image handling.
 - **rapidjson** — JSON handling (in `FavoritesManager` and the EPG cache).
@@ -447,12 +462,12 @@ existing file from a list of well-known Linux locations and exports the
 variable before the application starts. On other platforms the hook does
 not exist and is not needed.
 
-### Other variables
+### Runtime (sharun / Anylinux-sharun)
 
-The AppImage runtime (`sharun` / `Anylinux-sharun`) supports additional
-environment variables for debugging, overriding library paths, and
-fine-tuning GPU behaviour. See the upstream documentation for the full
-list:
+The `*-sharun.AppImage` runtime is `quick-sharun` on top of
+`Anylinux-sharun`. It reads its own environment variables for debugging,
+overriding library paths and tuning GPU behaviour. Full list is in the
+upstream documentation:
 
 - <https://github.com/VHSgunzo/sharun> (base runtime)
 - <https://github.com/pkgforge-dev/Anylinux-sharun> (fork used in this project)
@@ -462,6 +477,17 @@ Mesa installation (e.g. `SHARUN_MESA_PATH=/usr`) to use the system GL
 stack instead of the bundled one. Useful on systems where the bundled
 Mesa misbehaves (virgl in VMs, certain NVIDIA setups), but may fail if
 the system Mesa is too old for OpenGL 3.3 Core.
+
+### Build-time (optional)
+
+- `GPG_KEY_ID` — GPG key to sign artifacts (see *Signing* above).
+- `SETUP_DEPS_SKIP_SYSTEM` — skip installing system packages in
+  `setup-deps.sh` (only rebuild `third_party/`).
+- `IPTVPLAYER_BOOTSTRAP_DISABLE` — do not download a static `bash`;
+  require a system one in `PATH`.
+
+The full list of build-time variables is documented in the headers of
+`scripts/*.sh`.
 
 ---
 

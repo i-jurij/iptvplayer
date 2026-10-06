@@ -29,26 +29,29 @@ fi
 source "$SCRIPT_DIR/common.sh"
 # ---- Нативный .rpm для ROSA Linux ----
 build_rpm_rosa() {
-    # Определяем платформу ROSA для суффикса релиза.
-    # ROSA_OS_PLATFORM=rosa2021.1 — стандартное значение из /etc/os-release.
+    # Определяем платформенный тег ROSA для суффикса Release.
     local rosa_platform=""
     if [ -r /etc/os-release ]; then
         # shellcheck disable=SC1091
         . /etc/os-release
-        rosa_platform="${ROSA_OS_PLATFORM:-rosa2021.1}"
+        rosa_platform="${ROSA_OS_PLATFORM:-}"
+        if [ -z "$rosa_platform" ] \
+           && [ -n "${ID:-}" ] && [ -n "${VERSION_ID:-}" ]; then
+            rosa_platform="${ID}${VERSION_ID}"
+        fi
     fi
-    [ -z "$rosa_platform" ] && rosa_platform="rosa2021.1"
 
     # Имя файла — единый паттерн со всеми RPM-вариантами:
     #   ${PACKAGE_NAME}-${VERSION}-${RELEASE}.${DISTRO}.${RPM_ARCH}.rpm
-    # В spec Release остаётся расширенным (1.rosa2021.1 — конвенция ROSA),
-    # а на диске используется короткий номер (1) — как у native и ALT.
+    # На диске — короткий Release (1), как у native и ALT.
+    # В spec — расширенный (1.<platform>), если платформа определилась.
     local file_release="1"
-    local spec_release="1.${rosa_platform}"
+    local spec_release="1"
+    [ -n "$rosa_platform" ] && spec_release="1.${rosa_platform}"
     local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}-${file_release}.${DISTRO}.${RPM_ARCH}.rpm"
     local SPEC_DIR="$PROJECT_ROOT/pkg-rpm-rosa"
 
-    echo "[+] Создание нативного .rpm для ROSA Linux (${rosa_platform})..."
+    echo "[+] Создание нативного .rpm для ROSA Linux (${rosa_platform:-без платформенного суффикса})..."
 
     # Стадия staging — подготовка файловой раскладки пакета.
     if [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]; then

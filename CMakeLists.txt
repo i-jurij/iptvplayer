@@ -107,11 +107,16 @@ foreach(_comp IN LISTS _wx_components)
     endif()
 endforeach()
 
-# wxGLCanvas static lib
-set(WX_GL_LIB "${LOCAL_WX_INSTALL}/lib/libwx_gtk3u_gl-3.3.a")
-if(NOT EXISTS "${WX_GL_LIB}")
-    message(FATAL_ERROR "wxGLCanvas library not found: ${WX_GL_LIB}")
+# wxGLCanvas static lib.
+file(GLOB WX_GL_LIBS "${LOCAL_WX_INSTALL}/lib/libwx_gtk3u_gl-*.a")
+list(LENGTH WX_GL_LIBS _gl_count)
+if(NOT _gl_count EQUAL 1)
+    message(FATAL_ERROR
+        "Ожидается ровно один libwx_gtk3u_gl-*.a, найдено ${_gl_count}:\n"
+        "  ${WX_GL_LIBS}\n"
+        "Удалите лишние или переустановите wxWidgets в ${LOCAL_WX_INSTALL}.")
 endif()
+set(WX_GL_LIB "${WX_GL_LIBS}")
 target_link_libraries(wx_all INTERFACE "${WX_GL_LIB}")
 
 # Wayland EGL for wxGLCanvas

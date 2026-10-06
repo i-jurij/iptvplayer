@@ -203,26 +203,44 @@
             <th>Target</th>
         </tr>
         <tr>
-            <td><code>*.AppImage</code></td>
+            <td><code>iptvplayer-linux-&lt;arch&gt;-&lt;version&gt;-linuxdeploy.AppImage</code></td>
             <td>Any Linux with glibc ≥ 2.39 (built with <code>linuxdeploy</code>)</td>
         </tr>
         <tr>
-            <td><code>*-sharun.AppImage</code></td>
+            <td><code>iptvplayer-linux-&lt;arch&gt;-&lt;version&gt;-sharun.AppImage</code></td>
             <td>Any Linux, including old glibc, musl systems (Alpine, Void-musl), NixOS without FHS</td>
         </tr>
         <tr>
-            <td><code>*.deb</code></td>
-            <td>Ubuntu 24.04+, Debian 13+ (bundled: installs under <code>/opt/iptvplayer</code>)</td>
+            <td><code>iptvplayer_&lt;version&gt;_&lt;distro&gt;_&lt;deb-arch&gt;.deb</code></td>
+            <td>Ubuntu 24.04+, Debian 13+ (native: depends on system libraries)</td>
         </tr>
         <tr>
-            <td><code>*.rpm</code></td>
-            <td>Fedora 44+, Rocky 10+ (bundled: installs under <code>/opt/iptvplayer</code>)</td>
+            <td><code>iptvplayer-&lt;version&gt;-1.&lt;distro&gt;.&lt;rpm-arch&gt;.rpm</code></td>
+            <td>Fedora 44+, Rocky 10+, RHEL 9/10 (with EPEL), openSUSE</td>
+        </tr>
+        <tr>
+            <td><code>iptvplayer-&lt;version&gt;-alt1.&lt;distro&gt;.&lt;rpm-arch&gt;.rpm</code></td>
+            <td>ALT Linux</td>
+        </tr>
+        <tr>
+            <td><code>iptvplayer-&lt;version&gt;-1.&lt;distro&gt;.&lt;rpm-arch&gt;.rpm</code></td>
+            <td>ROSA Linux (release suffix from <code>/etc/os-release</code>)</td>
+        </tr>
+        <tr>
+            <td><code>iptvplayer-&lt;version&gt;-1-&lt;distro&gt;-&lt;arch&gt;.pkg.tar.zst</code></td>
+            <td>Arch Linux, Manjaro</td>
         </tr>
     </table>
-
+    
     <p>All artifacts come with <code>checksums.txt</code> and a detached GPG signature.
         See <a href="https://github.com/i-jurij/iptvplayer/blob/main/SECURITY.md">SECURITY.md</a> for verification
         instructions.</p>
+    
+    <p><strong>Supported architectures.</strong> The scripts recognise <code>x86_64</code>,
+        <code>aarch64</code>, <code>i686</code> and <code>armv7l</code>/<code>armv8l</code>/<code>armhf</code>.
+        Only <code>x86_64</code> is tested in CI; the rest is best-effort.
+        linuxdeploy-AppImage is built only for <code>x86_64</code> and <code>aarch64</code>.
+    </p>
 
     <h3>Codec for H.264 streams</h3>
 
@@ -231,8 +249,11 @@
 
     <ul>
         <li><strong>Fedora / RHEL:</strong> <code>sudo dnf install openh264</code>.</li>
-        <li><strong>Debian / Ubuntu:</strong> <code>sudo apt install libopenh264-7</code>.
-            If the package is not found, try <code>sudo apt install libavcodec-extra</code>.</li>
+        <li><strong>Debian / Ubuntu:</strong> <code>sudo apt install libopenh264-&lt;N&gt;</code>
+            (the exact version number changes between releases — run
+            <code>apt-cache search libopenh264</code> if unsure). If no such package exists, try
+            <code>sudo apt install libavcodec-extra</code>.
+        </li>
         <li><strong>Arch / Manjaro:</strong> <code>sudo pacman -S ffmpeg</code> (H.264 decoding is
             included). Optionally also <code>sudo pacman -S openh264</code>.</li>
     </ul>
@@ -618,26 +639,44 @@
             <th>Для чего</th>
         </tr>
         <tr>
-            <td><code>*.AppImage</code></td>
+            <td><code>iptvplayer-linux-&lt;arch&gt;-&lt;version&gt;-linuxdeploy.AppImage</code></td>
             <td>Любой Linux с glibc ≥ 2.39 (собран через <code>linuxdeploy</code>)</td>
         </tr>
         <tr>
-            <td><code>*-sharun.AppImage</code></td>
+            <td><code>iptvplayer-linux-&lt;arch&gt;-&lt;version&gt;-sharun.AppImage</code></td>
             <td>Любой Linux, включая старые glibc, musl-системы (Alpine, Void-musl), NixOS без FHS</td>
         </tr>
         <tr>
-            <td><code>*.deb</code></td>
-            <td>Ubuntu 24.04+, Debian 13+ (bundled: ставится в <code>/opt/iptvplayer</code>)</td>
+            <td><code>iptvplayer_&lt;version&gt;_&lt;distro&gt;_&lt;deb-arch&gt;.deb</code></td>
+            <td>Ubuntu 24.04+, Debian 13+ (нативный: зависит от системных библиотек)</td>
         </tr>
         <tr>
-            <td><code>*.rpm</code></td>
-            <td>Fedora 44+, Rocky 10+ (bundled: ставится в <code>/opt/iptvplayer</code>)</td>
+            <td><code>iptvplayer-&lt;version&gt;-1.&lt;distro&gt;.&lt;rpm-arch&gt;.rpm</code></td>
+            <td>Fedora 44+, Rocky 10+, RHEL 9/10 (с EPEL), openSUSE</td>
+        </tr>
+        <tr>
+            <td><code>iptvplayer-&lt;version&gt;-alt1.&lt;distro&gt;.&lt;rpm-arch&gt;.rpm</code></td>
+            <td>ALT Linux</td>
+        </tr>
+        <tr>
+            <td><code>iptvplayer-&lt;version&gt;-1.&lt;distro&gt;.&lt;rpm-arch&gt;.rpm</code></td>
+            <td>ROSA Linux (суффикс Release берётся из <code>/etc/os-release</code>)</td>
+        </tr>
+        <tr>
+            <td><code>iptvplayer-&lt;version&gt;-1-&lt;distro&gt;-&lt;arch&gt;.pkg.tar.zst</code></td>
+            <td>Arch Linux, Manjaro</td>
         </tr>
     </table>
 
     <p>Все артефакты сопровождаются <code>checksums.txt</code> и отделённой GPG-подписью.
         Инструкции по проверке — в
         <a href="https://github.com/i-jurij/iptvplayer/blob/main/SECURITY.md">SECURITY.md</a>.
+    </p>
+    
+    <p><strong>Поддерживаемые архитектуры.</strong> Скрипты распознают <code>x86_64</code>,
+        <code>aarch64</code>, <code>i686</code> и <code>armv7l</code>/<code>armv8l</code>/<code>armhf</code>.
+        В CI проверяется только <code>x86_64</code>; остальные — best-effort.
+        linuxdeploy-AppImage собирается только для <code>x86_64</code> и <code>aarch64</code>.
     </p>
 
     <h3>Кодек для потоков H.264</h3>
@@ -649,8 +688,11 @@
 
     <ul>
         <li><strong>Fedora / RHEL:</strong> <code>sudo dnf install openh264</code>.</li>
-        <li><strong>Debian / Ubuntu:</strong> <code>sudo apt install libopenh264-7</code>.
-            Если пакет не найден, попробуйте <code>sudo apt install libavcodec-extra</code>.</li>
+        <li><strong>Debian / Ubuntu:</strong> <code>sudo apt install libopenh264-&lt;N&gt;</code>
+            (точная версия меняется между релизами — при сомнениях выполните
+            <code>apt-cache search libopenh264</code>). Если пакета нет, попробуйте
+            <code>sudo apt install libavcodec-extra</code>.
+        </li>
         <li><strong>Arch / Manjaro:</strong> <code>sudo pacman -S ffmpeg</code> (декодер H.264 уже
             входит). Дополнительно можно установить <code>sudo pacman -S openh264</code>.</li>
     </ul>
