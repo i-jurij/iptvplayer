@@ -33,9 +33,9 @@ void VideoPanel::OpenFile() {
   if (cfg) {
     initialDir = wxString::FromUTF8(cfg->getSetting("last_open_dir", ""));
   }
-  // Если каталог не существует – сбросить (тогда будет использован системный)
-  if (!wxDirExists(initialDir)) {
-    initialDir = wxEmptyString;
+  // Если каталог не сохранён или не существует — домашний каталог.
+  if (initialDir.IsEmpty() || !wxDirExists(initialDir)) {
+    initialDir = wxGetHomeDir();
   }
 
   wxFileDialog dlg(this, "Open file", initialDir, "", wildcard,
@@ -50,6 +50,7 @@ void VideoPanel::OpenFile() {
   // ======= 3. Сохранить каталог выбранного файла =======
   if (cfg) {
     cfg->setSetting("last_open_dir", fn.GetPath().ToUTF8().data());
+    cfg->saveSettings();
   }
 
   bool isPlaylist = IsPlaylist(path);
@@ -82,14 +83,32 @@ void VideoPanel::OpenFile() {
 }
 
 void VideoPanel::OpenCatalog() {
-  wxDirDialog dlg(this, "Select folder containing video files", "",
-                  wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
-  if (dlg.ShowModal() == wxID_OK) {
-    wxString folderPath = dlg.GetPath();
-    wxArrayString paths;
-    paths.Add(folderPath);
-    HandleDroppedFiles(paths, 0);
+  Application *app = dynamic_cast<Application *>(wxTheApp);
+  ConfigManager *cfg = app ? app->getConfigManager() : nullptr;
+  
+  wxString initialDir;
+  if (cfg) {
+    initialDir = wxString::FromUTF8(cfg->getSetting("last_catalog_dir", ""));
   }
+  if (initialDir.IsEmpty() || !wxDirExists(initialDir)) {
+    initialDir = wxGetHomeDir();
+  }
+
+  wxDirDialog dlg(this, "Select folder containing video files", initialDir,
+                  wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+  if (dlg.ShowModal() != wxID_OK)
+    return;
+
+  wxString folderPath = dlg.GetPath();
+  
+  if (cfg) {
+    cfg->setSetting("last_catalog_dir", folderPath.ToUTF8().data());
+    cfg->saveSettings();
+  }
+
+  wxArrayString paths;
+  paths.Add(folderPath);
+  HandleDroppedFiles(paths, 0);
 }
 
 void VideoPanel::OpenUrl() {
