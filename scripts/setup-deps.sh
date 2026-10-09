@@ -64,18 +64,88 @@ THIRD_PARTY_DIR="$PROJECT_ROOT/third_party"
 WX_DIR="$THIRD_PARTY_DIR/wx"
 WXSQLITE3_DIR="$THIRD_PARTY_DIR/wxsqlite3"
 
+STATE_FILE="$PROJECT_ROOT/.iptvplayer-deps-installed"
+
 # ---- Обработка аргументов ----
 SKIP_SYSTEM=false
 FORCE_DEPS_REBUILD=false
+KEEP_DEPS=false
+CLEANUP_ONLY=false
 
 for arg in "$@"; do
     case "$arg" in
-        --yes|-y) NON_INTERACTIVE=true ;;
-        --skip-system) SKIP_SYSTEM=true ;;
-        --rebuild-deps) FORCE_DEPS_REBUILD=true ;;
+        --yes|-y)                      NON_INTERACTIVE=true ;;
+        --skip-system)                 SKIP_SYSTEM=true ;;
+        --rebuild-deps)                FORCE_DEPS_REBUILD=true ;;
+        --keep-deps|--no-cleanup-deps) KEEP_DEPS=true ;;
+        --cleanup-deps)                CLEANUP_ONLY=true ;;
         *) error "Неизвестный аргумент: $arg" ;;
     esac
 done
+
+# -------------------------------------------------------------------------
+# Уборка зависимостей: write_deps_state / cleanup_deps / select_deps_file.
+# -------------------------------------------------------------------------
+
+write_deps_state() {
+    [ "$KEEP_DEPS" = true ] && return 0
+    [ ${#MISSING_PACKAGES[@]} -eq 0 ] && return 0
+    touch "$STATE_FILE"
+    printf '%s\n' "${MISSING_PACKAGES[@]}" >> "$STATE_FILE"
+    sort -u "$STATE_FILE" -o "$STATE_FILE"
+    log "Состояние сохранено: $STATE_FILE"
+}
+
+cleanup_deps() {
+    [ -f "$STATE_FILE" ] || { log "Нечего удалять: $STATE_FILE отсутствует."; return 0; }
+    local pkgs=()
+    while IFS= read -r _p; do
+        [ -z "$_p" ] && continue
+        case "$_p" in \#*) continue ;; esac
+        pkgs+=("$_p")
+    done < "$STATE_FILE"
+    if [ ${#pkgs[@]} -eq 0 ]; then
+        rm -f "$STATE_FILE"; log "Стейт пуст — удалён."; return 0
+    fi
+    log "Удаление установленных нами пакетов (${#pkgs[@]} шт.)..."
+    deps_remove "${pkgs[@]}" || warn "deps_remove вернул ошибку — проверьте вручную."
+    rm -f "$STATE_FILE"
+    log "✅ Пакеты удалены, состояние очищено."
+}
+
+select_deps_file() {
+    PKG_MANAGER="$(detect_pkgmgr)"
+    if [[ "$PKG_MANAGER" == dnf ]] && distro_is 'rosa-*'; then
+        DEPS_FILE="$SCRIPT_DIR/setup-deps-rosa.sh"
+    else
+        case "$PKG_MANAGER" in
+            apt)     DEPS_FILE="$SCRIPT_DIR/setup-deps-deb.sh"  ;;
+            dnf)     DEPS_FILE="$SCRIPT_DIR/setup-deps-rpm.sh"  ;;
+            zypper)  DEPS_FILE="$SCRIPT_DIR/setup-deps-suse.sh" ;;
+            apt-rpm) DEPS_FILE="$SCRIPT_DIR/setup-deps-alt.sh"  ;;
+            pacman)  DEPS_FILE="$SCRIPT_DIR/setup-deps-arch.sh" ;;
+            apk)     DEPS_FILE="$SCRIPT_DIR/setup-deps-apk.sh"  ;;
+            *)       error "Неподдерживаемая ОС: $DISTRO (pkgmgr=$PKG_MANAGER)" ;;
+        esac
+    fi
+    [ -f "$DEPS_FILE" ] || error "Не найден $DEPS_FILE для pkgmgr=$PKG_MANAGER"
+}
+
+# Ранний выход: только уборка, без сборки. Доступен только после
+# bootstrap (bash) — иначе local/declare были бы недоступны.
+if [ "$CLEANUP_ONLY" = true ]; then
+    detect_distro
+    # select_deps_file присваивает глобальные PKG_MANAGER и DEPS_FILE;
+    # отсюда их и берём (аналогично основной секции установки).
+    select_deps_file
+    # shellcheck disable=SC1090
+    source "$DEPS_FILE"
+    if command -v sudo >/dev/null 2>&1; then SUDO="sudo"
+    elif [ "$(id -u)" = "0" ]; then SUDO=""
+    else error "Нужен sudo или root для удаления пакетов"; fi
+    cleanup_deps
+    exit 0
+fi
 
 # Переменная окружения также управляет SKIP_SYSTEM
 if [[ "${SETUP_DEPS_SKIP_SYSTEM:-0}" == "1" ]]; then
@@ -86,334 +156,75 @@ fi
 # =============================================================================
 # ДЕТЕКТИРОВАНИЕ ОС И ПАКЕТНОГО МЕНЕДЖЕРА (если не пропущена установка)
 # =============================================================================
-
 if [[ "$SKIP_SYSTEM" == false ]]; then
     section "ДЕТЕКТИРОВАНИЕ ОС И ПАКЕТНОГО МЕНЕДЖЕРА"
 
-    OS_ID=""
-    OS_VERSION=""
-    PKG_MANAGER=""
-    INSTALL_CMD=""
-
-    if [[ -f /etc/os-release ]]; then
-        source /etc/os-release
-        OS_ID="${ID:-unknown}"
-        OS_VERSION="${VERSION_ID:-unknown}"
-    else
-        error "Не найден /etc/os-release. Не удалось определить ОС."
-    fi
-
-    log "Обнаружена ОС: $OS_ID $OS_VERSION"
-
-    if command -v sudo >/dev/null 2>&1; then
-        SUDO="sudo"
-    elif [ "$(id -u)" = "0" ]; then
-        SUDO=""
-    else
-        error "Нужен sudo или root для установки пакетов"
-    fi
-
-    case "$OS_ID" in
-        debian|ubuntu)
-            PKG_MANAGER="apt"
-            INSTALL_CMD="$SUDO apt-get install -y"
-            ;;
-        fedora|rhel|centos|rocky|almalinux)
-            PKG_MANAGER="dnf"
-            if ! command -v dnf &>/dev/null; then
-                PKG_MANAGER="yum"
-                INSTALL_CMD="$SUDO yum install -y"
-            else
-                INSTALL_CMD="$SUDO dnf install -y"
-            fi
-            ;;
-        alt|altlinux|alt-*)
-            PKG_MANAGER="apt-rpm"
-            INSTALL_CMD="$SUDO apt-get install -y"
-            ;;
-        rosa|rosa-*)
-            PKG_MANAGER="rosa"
-            INSTALL_CMD="$SUDO dnf install -y"
-            ;;
-        arch|manjaro)
-            PKG_MANAGER="pacman"
-            INSTALL_CMD="$SUDO pacman -S --noconfirm"
-            ;;
-        *)
-            error "Неподдерживаемая ОС: $OS_ID"
-            ;;
-    esac
-
+    detect_distro
+    select_deps_file
     log "Пакетный менеджер: $PKG_MANAGER"
 
-    # RHEL-семейство: mpv-devel (RHEL 9/10) требует EPEL,
-    # mpv-libs-devel (RHEL 8) требует RPM Fusion.
-    # rapidjson-devel везде в базовых репозиториях.
-    # Fedora сюда не входит: у неё оба пакета в базовых репозиториях.
-    if [[ "$PKG_MANAGER" == "dnf" ]]; then
-        case "$OS_ID" in
-            rhel|rocky|almalinux|centos)
-                _rhel_major="${OS_VERSION%%.*}"
-                case "$_rhel_major" in
-                    8)
-                        _repo_pkg="rpmfusion-free-release"
-                        _repo_name="RPM Fusion"
-                        _mpv_pkg="mpv-libs-devel"
-                        _repo_url="https://download1.rpmfusion.org/free/el/rpmfusion-free-release-${_rhel_major}.noarch.rpm"
-                        ;;
-                    9|10)
-                        _repo_pkg="epel-release"
-                        _repo_name="EPEL ${_rhel_major}"
-                        _mpv_pkg="mpv-devel"
-                        _repo_url="https://dl.fedoraproject.org/pub/epel/epel-release-latest-${_rhel_major}.noarch.rpm"
-                        ;;
-                    *)
-                        _repo_pkg=""
-                        ;;
-                esac
+    if command -v sudo >/dev/null 2>&1; then SUDO="sudo"
+    elif [ "$(id -u)" = "0" ]; then SUDO=""
+    else error "Нужен sudo или root для установки пакетов"; fi
 
+    # shellcheck disable=SC1090
+    source "$DEPS_FILE"
+
+    # RHEL-family: EPEL/RPM Fusion. Только для чистого dnf, не для ROSA.
+    # _pkgtable — локальная переменная select_deps_file и здесь недоступна;
+    # проверяем по PKG_MANAGER + DISTRO.
+    if [[ "$PKG_MANAGER" == dnf ]] && ! distro_is 'rosa-*'; then
+        _id="${DISTRO%%-*}"; _major="$(distro_major)"
+        case "$_id" in
+            rhel|rocky|almalinux|centos)
+                case "$_major" in
+                    8)    _repo_pkg=rpmfusion-free-release
+                          _repo_name="RPM Fusion"
+                          _repo_url="https://download1.rpmfusion.org/free/el/rpmfusion-free-release-8.noarch.rpm" ;;
+                    9|10) _repo_pkg=epel-release
+                          _repo_name="EPEL $_major"
+                          _repo_url="https://dl.fedoraproject.org/pub/epel/epel-release-latest-${_major}.noarch.rpm" ;;
+                    *)    _repo_pkg="" ;;
+                esac
                 if [[ -n "$_repo_pkg" ]] && ! rpm -q "$_repo_pkg" &>/dev/null; then
                     echo
-                    warn "Для сборки на $OS_ID $_rhel_major требуется репозиторий $_repo_name"
-                    warn "(пакет $_mpv_pkg доступен только оттуда)."
+                    warn "Для сборки на $DISTRO требуется $_repo_name."
                     if ask "Подключить $_repo_name? [Y/n]:" y; then
                         $SUDO dnf install -y "$_repo_url" \
                             || error "Не удалось подключить $_repo_name."
                     else
                         error "Без $_repo_name сборка невозможна."
                     fi
-                fi
-                ;;
+                fi ;;
         esac
     fi
 
-    # =========================================================================
-    # ОПРЕДЕЛЕНИЕ ПАКЕТОВ ДЛЯ УСТАНОВКИ
-    # =========================================================================
-
-    section "ПОДГОТОВКА СПИСКА ЗАВИСИМОСТЕЙ"
-
-    declare -A PACKAGES
-
-    case "$PKG_MANAGER" in
-        apt)
-            PACKAGES=(
-                [build-essential]="build-essential"
-                [cmake]="cmake"
-                [git]="git"
-                [autoconf]="autoconf"
-                [automake]="automake"
-                [libtool]="libtool"
-                [gnupg]="gnupg"
-                [debsigs]="debsigs"
-                [pkg-config]="pkg-config"
-                [wget]="wget"
-                [curl]="curl"
-                [curl-dev]="libcurl4-openssl-dev"
-                [mpv-dev]="libmpv-dev"
-                [rapidjson-dev]="rapidjson-dev"
-                [gtk3-dev]="libgtk-3-dev"
-                [rsvg-common]="librsvg2-common"
-                [x11-dev]="libx11-dev"
-                [x11-xcb-dev]="libx11-xcb-dev"
-                [gl-dev]="libgl1-mesa-dev"
-                [egl-dev]="libegl1-mesa-dev"
-                [png-dev]="libpng-dev"
-                [jpeg-dev]="libjpeg-dev"
-                [webp-dev]="libwebp-dev"
-                [zlib-dev]="zlib1g-dev"
-                [expat-dev]="libexpat1-dev"
-                [freetype-dev]="libfreetype-dev"
-            )
-            ;;
-        dnf)
-            PACKAGES=(
-                [build-essential]="gcc gcc-c++ make"
-                [cmake]="cmake"
-                [git]="git"
-                [autoconf]="autoconf"
-                [automake]="automake"
-                [libtool]="libtool"
-                [gnupg]="gnupg2"
-                [pkg-config]="pkg-config"
-                [wget]="wget"
-                [curl]="curl"
-                [curl-dev]="libcurl-devel"
-                [mpv-dev]="mpv-libs-devel"
-                [rapidjson-dev]="rapidjson-devel"
-                [gtk3-dev]="gtk3-devel"
-                [rsvg-common]="librsvg2"
-                [x11-dev]="libX11-devel"
-                [x11-xcb-dev]="libxcb-devel"
-                [gl-dev]="mesa-libGL-devel"
-                [egl-dev]="mesa-libEGL-devel"
-                [png-dev]="libpng-devel"
-                [jpeg-dev]="libjpeg-turbo-devel"
-                [webp-dev]="libwebp-devel"
-                [zlib-dev]="zlib-devel"
-                [expat-dev]="expat-devel"
-                [freetype-dev]="freetype-devel"
-            )
-            ;;
-        pacman)
-            PACKAGES=(
-                [build-essential]="base-devel"
-                [cmake]="cmake"
-                [git]="git"
-                [autoconf]="autoconf"
-                [automake]="automake"
-                [libtool]="libtool"
-                [gnupg]="gnupg"
-                [pkg-config]="pkg-config"
-                [wget]="wget"
-                [curl]="curl"
-                [rapidjson-dev]="rapidjson"
-                [gtk3-dev]="gtk3"
-                [rsvg-common]="librsvg"
-                [x11-dev]="libx11"
-                [x11-xcb-dev]="libxcb"
-                [gl-dev]="mesa"
-                [png-dev]="libpng"
-                [jpeg-dev]="libjpeg-turbo"
-                [webp-dev]="libwebp"
-                [zlib-dev]="zlib"
-                [expat-dev]="expat"
-                [freetype-dev]="freetype2"
-            )
-            ;;
-        apt-rpm)
-            PACKAGES=(
-                [build-essential]="gcc-c++ make glibc-devel kernel-headers-common"
-                [cmake]="cmake"
-                [git]="git"
-                [autoconf]="autoconf"
-                [automake]="automake"
-                [libtool]="libtool"
-                [gnupg]="gnupg"
-                [pkg-config]="pkg-config"
-                [wget]="wget"
-                [curl]="curl"
-                [curl-dev]="libcurl-devel"
-                [mpv-dev]="libmpv-devel"
-                [rapidjson-dev]="rapidjson-devel"
-                [gtk3-dev]="libgtk+3-devel"
-                [rsvg-common]="librsvg"
-                [x11-dev]="libX11-devel"
-                [x11-xcb-dev]="libxcb-devel"
-                [gl-dev]="libGL-devel"
-                [egl-dev]="libEGL-devel"
-                [png-dev]="libpng-devel"
-                [jpeg-dev]="libjpeg-turbo-devel"
-                [webp-dev]="libwebp-devel"
-                [zlib-dev]="zlib-devel"
-                [expat-dev]="libexpat-devel"
-                [freetype-dev]="libfreetype-devel"
-            )
-            ;;
-        rosa)
-            _pkgprefix="lib64"
-            if [[ "$(uname -m)" == "i686" || "$(uname -m)" == "i386" ]]; then
-                _pkgprefix="lib"
-            fi
-
-            PACKAGES=(
-                [build-essential]="gcc-c++ make glibc-devel"
-                [cmake]="cmake"
-                [git]="git"
-                [autoconf]="autoconf"
-                [automake]="automake"
-                [libtool]="libtool"
-                [gnupg]="gnupg"
-                [pkg-config]="pkg-config"
-                [wget]="wget"
-                [curl]="curl"
-                [curl-dev]="${_pkgprefix}curl-devel"
-                [mpv-dev]="${_pkgprefix}mpv-devel"
-                [rapidjson-dev]="rapidjson-devel"
-                [gtk3-dev]="${_pkgprefix}gtk+3.0-devel"
-                [rsvg-common]="librsvg2"
-                [x11-dev]="${_pkgprefix}x11-devel"
-                [x11-xcb-dev]="${_pkgprefix}xcb-devel"
-                [gl-dev]="${_pkgprefix}gl-devel"
-                [egl-dev]="${_pkgprefix}egl-devel"
-                [png-dev]="${_pkgprefix}png-devel"
-                [jpeg-dev]="${_pkgprefix}jpeg-devel"
-                [webp-dev]="${_pkgprefix}webp-devel"
-                [zlib-dev]="${_pkgprefix}zlib-devel"
-                [expat-dev]="${_pkgprefix}expat-devel"
-                [freetype-dev]="${_pkgprefix}freetype-devel"
-            )
-            ;;
-    esac
-
-    # =========================================================================
-    # ПРОВЕРКА УСТАНОВЛЕННЫХ ПАКЕТОВ
-    # =========================================================================
-
     section "ПРОВЕРКА УСТАНОВЛЕННЫХ ПАКЕТОВ"
 
-    # MISSING_LABELS   – человекочитаемые ключи (build-essential, mpv-dev, ...) — для лога
-    # MISSING_PACKAGES – плоский список реальных имён пакетов — для установки
     MISSING_LABELS=()
     MISSING_PACKAGES=()
 
-    for pkg_key in "${!PACKAGES[@]}"; do
-        pkg_names="${PACKAGES[$pkg_key]}"
-        FOUND=false
-        for pkg in $pkg_names; do
-            case "$PKG_MANAGER" in
-                apt)
-                    if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
-                        FOUND=true
-                        break
-                    fi
-                    ;;
-                dnf)
-                    if rpm -q "$pkg" &>/dev/null; then
-                        FOUND=true
-                        break
-                    fi
-                    ;;
-                apt-rpm)
-                    if rpm -q "$pkg" &>/dev/null; then
-                        FOUND=true
-                        break
-                    fi
-                    ;;
-                pacman)
-                    if pacman -Q "$pkg" &>/dev/null; then
-                        FOUND=true
-                        break
-                    fi
-                    ;;
-                rosa)
-                    if rpm -q "$pkg" &>/dev/null; then
-                        FOUND=true
-                        break
-                    fi
-                    ;;
-            esac
+    while IFS=: read -r _label _pkgs; do
+        [ -z "$_label" ] && continue
+        _found=false
+        for _p in $_pkgs; do
+            if deps_is_installed "$_p"; then _found=true; break; fi
         done
-        if [[ "$FOUND" == true ]]; then
-            log "✓ $pkg_key: установлен"
+        if [[ "$_found" == true ]]; then
+            log "✓ $_label: установлен"
         else
-            warn "✗ $pkg_key: НЕ установлен ($pkg_names)"
-            MISSING_LABELS+=("$pkg_key")
+            warn "✗ $_label: НЕ установлен ($_pkgs)"
+            MISSING_LABELS+=("$_label")
             # shellcheck disable=SC2206
-            MISSING_PACKAGES+=($pkg_names)
+            MISSING_PACKAGES+=($_pkgs)
         fi
-    done
-
-    # =========================================================================
-    # УСТАНОВКА НЕДОСТАЮЩИХ ПАКЕТОВ
-    # =========================================================================
+    done < <(deps_packages)
 
     if [[ ${#MISSING_PACKAGES[@]} -gt 0 ]]; then
         section "УСТАНОВКА НЕДОСТАЮЩИХ ПАКЕТОВ"
         echo "Требуется установить (${MISSING_LABELS[*]}):"
         printf '  - %s\n' "${MISSING_PACKAGES[@]}"
         echo
-
         if [[ "$NON_INTERACTIVE" == true ]]; then
             log "Неинтерактивный режим: установка будет выполнена автоматически."
             RESPONSE="y"
@@ -422,32 +233,23 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
             echo
             RESPONSE="$REPLY"
         fi
-
-        if [[ ! $RESPONSE =~ ^[Yy]$ ]]; then
-            error "Установка прервана пользователем. Установите зависимости вручную."
-        fi
+        [[ $RESPONSE =~ ^[Yy]$ ]] || error "Установка прервана пользователем."
 
         log "Обновление индексов пакетного менеджера..."
-        case "$PKG_MANAGER" in
-            apt)    $SUDO apt-get update -qq ;;
-            apt-rpm) $SUDO apt-get update -qq ;;
-            dnf|rosa) $SUDO dnf makecache -q ;;
-            pacman) $SUDO pacman -Sy --noconfirm > /dev/null ;;
-        esac
+        deps_update
 
         INSTALL_LOG="$PROJECT_ROOT/.install-deps.log"
         log "Установка: ${MISSING_PACKAGES[*]}"
         log "Полный лог: $INSTALL_LOG"
-
-        # Одной транзакцией. stderr не глушим: apt/dnf/pacman сами укажут,
-        # какой именно пакет недоступен или конфликтует.
-        # shellcheck disable=SC2086
-        if ! $INSTALL_CMD "${MISSING_PACKAGES[@]}" 2>&1 | tee "$INSTALL_LOG"; then
+        if ! deps_install "${MISSING_PACKAGES[@]}" 2>&1 | tee "$INSTALL_LOG"; then
             echo
-            error "Установка не удалась. Ошибки пакетного менеджера — выше; полный лог: $INSTALL_LOG"
+            error "Установка не удалась. Полный лог: $INSTALL_LOG"
         fi
-
         log "✅ Пакеты установлены"
+
+        # Сохраняем список установленного — build-release.sh --cleanup
+        # уберёт их после успешной сборки (если не --keep-deps).
+        write_deps_state
     else
         log "✅ Все обязательные пакеты уже установлены"
     fi
@@ -467,9 +269,49 @@ if [[ "$FORCE_DEPS_REBUILD" == true ]]; then
 fi
 
 # Проверяем наличие критических инструментов после установки пакетов
-command -v cmake >/dev/null || error "cmake не установлен (требуется >= 3.16)"
-command -v git >/dev/null || warn "git не найден – версионирование будет отключено"
-command -v autoreconf >/dev/null || error "autoreconf не найден (установите autoconf, automake, libtool)"
+# Проверяем критические инструменты. Если чего-то нет — предлагаем
+# доустановить через deps_install (кроме --skip-system, где установка
+# системных пакетов явно отключена пользователем).
+_missing_tools=()
+command -v cmake    >/dev/null 2>&1 || _missing_tools+=("cmake")
+command -v git      >/dev/null 2>&1 || warn "git не найден — версионирование будет отключено"
+command -v autoreconf >/dev/null 2>&1 || _missing_tools+=("autoreconf")
+
+if [ ${#_missing_tools[@]} -gt 0 ]; then
+    if [[ "$SKIP_SYSTEM" == true ]]; then
+        error "Не хватает: ${_missing_tools[*]}. Установка системных пакетов отключена (--skip-system) — поставьте вручную."
+    fi
+
+    # Имена пакетов для тулов: cmake везде cmake; autoreconf — это
+    # autoconf+automake+libtool (отдельного пакета autoreconf нет).
+    _to_install=()
+    for _t in "${_missing_tools[@]}"; do
+        case "$_t" in
+            autoreconf) _to_install+=("autoconf" "automake" "libtool") ;;
+            *)          _to_install+=("$_t") ;;
+        esac
+    done
+
+    warn "Не хватает обязательных инструментов: ${_missing_tools[*]}"
+    if ask "Установить сейчас (${_to_install[*]})? [Y/n]:" y; then
+        log "Установка: ${_to_install[*]}"
+        if ! deps_install "${_to_install[@]}"; then
+            error "Не удалось установить ${_missing_tools[*]}. Установите вручную."
+        fi
+        hash -r   # сбросить кэш команд bash — иначе command -v может не увидеть свежий бинарник
+    else
+        error "Без ${_missing_tools[*]} сборка невозможна."
+    fi
+
+    # Перепроверяем после установки.
+    _still_missing=()
+    for _t in "${_missing_tools[@]}"; do
+        command -v "$_t" >/dev/null 2>&1 || _still_missing+=("$_t")
+    done
+    if [ ${#_still_missing[@]} -gt 0 ]; then
+        error "После установки всё ещё не хватает: ${_still_missing[*]}. Проверьте PATH или установите вручную."
+    fi
+fi
 
 log "Используется загрузчик: $DOWNLOADER"
 

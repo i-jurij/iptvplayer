@@ -23,6 +23,8 @@
 : "${SCRIPT_DIR:=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 : "${PROJECT_ROOT:=$(cd "$SCRIPT_DIR/.." && pwd)}"
 
+source "$SCRIPT_DIR/common-detect.sh"
+
 # === Цвета ===
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -158,59 +160,6 @@ download_multi() {
     return 1
 }
 
-# === Определение архитектуры ===
-# Устанавливает глобальные: DEB_ARCH, RPM_ARCH, APPIMAGE_ARCH
-detect_arch() {
-    local machine
-    machine="$(uname -m)"
-    case "$machine" in
-        x86_64|amd64)          DEB_ARCH="amd64"; RPM_ARCH="x86_64";  APPIMAGE_ARCH="x86_64"  ;;
-        aarch64|arm64)         DEB_ARCH="arm64"; RPM_ARCH="aarch64"; APPIMAGE_ARCH="aarch64" ;;
-        armv7l|armv8l|armhf)   DEB_ARCH="armhf"; RPM_ARCH="armv7hl"; APPIMAGE_ARCH="armhf"   ;;
-        i686|i386)             DEB_ARCH="i386";  RPM_ARCH="i686";    APPIMAGE_ARCH="i686"    ;;
-        *)
-            echo "[!] Неизвестная архитектура: $machine" >&2
-            echo "    Поддерживаются: x86_64, aarch64, i686, armv7l/armv8l/armhf (best-effort)." >&2
-            exit 1
-            ;;
-    esac
-    echo "[i] Архитектура: $machine → deb=$DEB_ARCH, rpm=$RPM_ARCH, appimage=$APPIMAGE_ARCH"
-}
-
-# === Определение дистрибутива ===
-# Устанавливает глобальную: DISTRO
-detect_distro() {
-    if [ -n "${DISTRO:-}" ]; then
-        echo "[i] DISTRO задан извне: $DISTRO"
-        return 0
-    fi
-    if [ -r /etc/os-release ]; then
-        . /etc/os-release
-        local id="${ID:-unknown}"
-        local ver="${VERSION_ID:-}"
-        if [ -n "$ver" ]; then DISTRO="${id}-${ver}"; else DISTRO="$id"; fi
-    else
-        DISTRO="unknown"
-    fi
-    echo "[i] DISTRO определён локально: $DISTRO"
-}
-
-# Пакетный менеджер текущей системы (возвращает через stdout)
-detect_pkgmgr() {
-    if [ -n "${DISTRO:-}" ]; then
-        case "$DISTRO" in
-            alt|alt-*|altlinux|altlinux-*)          echo "apt-rpm" ;;
-            rosa|rosa-*)                            echo "rpm" ;;
-            ubuntu-*|debian-*|linuxmint-*|pop-*)    echo "deb" ;;
-            fedora-*|rocky-*|rhel-*|centos-*|almalinux-*|opensuse*|sles*) echo "rpm" ;;
-            arch|arch-*|manjaro*|endeavouros*|cachyos*)      echo "arch" ;;
-            *) echo "unknown" ;;
-        esac
-    else
-        echo "unknown"
-    fi
-}
-
 # === Чтение версий из install/ ===
 # Возвращает через stdout три строки: VERSION_FULL, VERSION_FILE, VERSION
 read_versions_from_install() {
@@ -310,19 +259,32 @@ rpm_files_block() {
 }
 
 # === Проверка зависимостей ===
+# Сигнатура: check_deps "$pkgmgr" \
+#   need_native_deb need_native_rpm need_native_arch need_native_alt need_native_rosa \
+#   need_rpm_oracle need_rpm_redos need_rpm_suse need_rpm_mageia need_rpm_omv \
+#   need_appimage need_sharun need_flatpak need_apk need_slackbuild need_xbps need_gentoo need_nix
 check_deps() {
-    local pkgmgr="$1"
-    shift
-    local need_native_deb=$1
-    local need_native_rpm=$2
-    local need_native_arch=$3
-    local need_native_alt=$4
-    local need_native_rosa=$5      # <— ROSA
-    local need_appimage=$6
-    local need_sharun=$7
+    local pkgmgr="$1"; shift
+    local need_native_deb="$1";  shift
+    local need_native_rpm="$1";  shift
+    local need_native_arch="$1"; shift
+    local need_native_alt="$1";  shift
+    local need_native_rosa="$1"; shift
+    local need_rpm_oracle="$1";  shift
+    local need_rpm_redos="$1";   shift
+    local need_rpm_suse="$1";    shift
+    local need_rpm_mageia="$1";  shift
+    local need_rpm_omv="$1";     shift
+    local need_appimage="$1";    shift
+    local need_sharun="$1";      shift
+    local need_flatpak="$1";  shift
+    local need_apk="$1";  shift
+    local need_slackbuild="$1";  shift
+    local need_xbps="$1";  shift
+    local need_gentoo="$1";  shift
+    local need_nix="$1"
 
-    local required=()
-    local optional=()
+    local required=() optional=()
 
     for tool in tar readelf; do
         command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
@@ -332,38 +294,56 @@ check_deps() {
         command -v gpg >/dev/null 2>&1 || required+=("gpg")
     fi
 
-    if [[ "$need_native_deb" == true && "$pkgmgr" == deb ]]; then
-        command -v dpkg-deb      >/dev/null 2>&1 || required+=("dpkg-deb")
-        command -v dpkg-shlibdeps >/dev/null 2>&1 || required+=("dpkg-shlibdeps")
-    fi
-    if [[ "$need_native_rpm" == true && "$pkgmgr" == rpm ]]; then
-        for tool in rpmbuild rpm; do
-            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
-        done
-    fi
-    if [[ "$need_native_arch" == true && "$pkgmgr" == arch ]]; then
-        command -v makepkg >/dev/null 2>&1 || required+=("makepkg")
-    fi
-    if [[ "$need_native_alt" == true && "$pkgmgr" == apt-rpm ]]; then
-        for tool in rpmbuild rpm; do
-            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
-        done
-    fi
-    # ROSA: rpmbuild + rpm (как на Fedora).
-    if [[ "$need_native_rosa" == true && "$pkgmgr" == rpm ]]; then
-        for tool in rpmbuild rpm; do
-            command -v "$tool" >/dev/null 2>&1 || required+=("$tool")
-        done
+    # Все rpm-варианты требуют rpmbuild+rpm.
+    local _need_rpmbuild=false
+    for _v in "$need_native_rpm" "$need_native_rosa" \
+              "$need_rpm_oracle" "$need_rpm_redos" "$need_rpm_suse" \
+              "$need_rpm_mageia" "$need_rpm_omv" "$need_native_alt"; do
+        [[ "$_v" == true ]] && _need_rpmbuild=true
+    done
+    if [[ "$_need_rpmbuild" == true ]]; then
+        # Бинарник везде называется rpmbuild. Имя пакета различается:
+        # на Fedora/RHEL — rpm-build, на ALT — rpm-build, на openSUSE — rpm-build.
+        command -v rpmbuild >/dev/null 2>&1 || required+=("rpmbuild")
+        command -v rpm      >/dev/null 2>&1 || required+=("rpm")
     fi
 
+    if [[ "$need_native_deb" == true ]]; then
+        command -v dpkg-deb       >/dev/null 2>&1 || required+=("dpkg-deb")
+        command -v dpkg-shlibdeps >/dev/null 2>&1 || required+=("dpkg-shlibdeps")
+    fi
+    if [[ "$need_native_arch" == true ]]; then
+        command -v makepkg >/dev/null 2>&1 || required+=("makepkg")
+    fi
     if [[ "$need_appimage" == true || "$need_sharun" == true ]]; then
         command -v wget >/dev/null 2>&1 || required+=("wget")
     fi
     if [[ "$need_sharun" == true ]]; then
         command -v patchelf >/dev/null 2>&1 || required+=("patchelf")
     fi
+    if [[ "$need_flatpak" == true ]]; then
+        command -v flatpak-builder >/dev/null 2>&1 || required+=("flatpak-builder")
+        command -v flatpak         >/dev/null 2>&1 || required+=("flatpak")
+    fi
+    if [[ "$need_apk" == true ]]; then
+        command -v abuild >/dev/null 2>&1 || required+=("abuild")
+    fi
+    if [[ "$need_slackbuild" == true ]]; then
+        command -v makepkg >/dev/null 2>&1 || required+=("makepkg")
+    fi
+    if [[ "$need_xbps" == true ]]; then
+        if [ ! -x "${VOID_PACKAGES_DIR:-$HOME/void-packages}/xbps-src" ]; then
+            required+=("xbps-src (клон void-packages)")
+        fi
+    fi
+    if [[ "$need_gentoo" == true ]]; then
+        command -v ebuild >/dev/null 2>&1 || required+=("ebuild (sys-apps/portage)")
+    fi
+    if [[ "$need_nix" == true ]]; then
+        command -v nix >/dev/null 2>&1 || required+=("nix")
+    fi
 
-    if [[ -n "${GPG_KEY_ID:-}" && "$need_native_deb" == true && "$pkgmgr" == deb ]] \
+    if [[ -n "${GPG_KEY_ID:-}" && "$need_native_deb" == true ]] \
        && ! command -v debsigs >/dev/null 2>&1; then
         required+=("debsigs")
     fi
@@ -376,7 +356,6 @@ check_deps() {
         echo "[!] Не хватает обязательных инструментов: ${required[*]}. Установите."
         exit 1
     fi
-
     if [ ${#optional[@]} -ne 0 ]; then
         echo "[i] Опциональные инструменты не найдены: ${optional[*]}. Установите при необходимости."
     fi

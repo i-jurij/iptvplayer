@@ -1,42 +1,8 @@
 #!/bin/sh
-# =============================================
-# build-package.sh – Сборка пакетов .deb, .rpm, .pkg.tar.zst, .AppImage
-#
-# Использование:
-#   ./scripts/build-package.sh [ОПЦИИ]
-#
-# Варианты сборки:
-#   --native-deb      Нативный .deb (системные библиотеки, Ubuntu/Debian)
-#   --native-rpm      Нативный .rpm (Fedora/Rocky/RHEL/openSUSE)
-#   --native-arch     Нативный .pkg.tar.zst (Arch/Manjaro)
-#   --native-alt      Нативный .rpm для ALT Linux
-#   --native-rosa     Нативный .rpm для ROSA Linux
-#   --appimage        AppImage (linuxdeploy + appimagetool)
-#   --sharun          AppImage (quick-sharun, максимальная переносимость)
-#
-# Комбинированные:
-#   --native          Все нативные пакеты, доступные здесь
-#   --native-appimage Нативные + AppImage (linuxdeploy)
-#   --all             Всё возможное на этой системе
-#
-# Служебные:
-#   --rebuild         Принудительно пересобрать бинарник
-#   --clean           Очистить dist/ перед сборкой
-#   --clean-only      Только очистить dist/
-#   --no-menu         Не показывать меню (для скриптов)
-#   --yes, -y         Неинтерактивный режим
-#   -h, --help        Показать справку
-#
-# Environment для packagers (build-native.sh, build-appimage.sh, build-sharun.sh):
-#   PROJECT_ROOT, SCRIPT_DIR
-#   STAGING_DIR, APPDIR, OUTPUT_DIR
-#   PACKAGE_NAME, ICON_NAME, METAINFO_NAME
-#   APPIMAGE_ARCH, DEB_ARCH, RPM_ARCH, DISTRO
-#   VERSION, VERSION_FILE
-# Все эти переменные устанавливаются в main() до вызова packagers.
-# =============================================
+# =============================================================================
+# build-package.sh – упаковка .deb, .rpm, .pkg.tar.zst, .AppImage
+# =============================================================================
 
-# --- POSIX-бутстрап: гарантирует bash; при отсутствии — скачивает статический ---
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/bootstrap-bash.sh" || exit 1
 
 if [ -z "${BASH_VERSION:-}" ]; then
@@ -46,39 +12,43 @@ fi
 
 set -e
 
-# ---- Каталог скриптов и корень проекта ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
 cd "$PROJECT_ROOT"
 
-# ---- Общие утилиты и packagers ----
 source "$SCRIPT_DIR/common.sh"
-source "$SCRIPT_DIR/build-native.sh"
-source "$SCRIPT_DIR/build-native-alt.sh"
-source "$SCRIPT_DIR/build-native-rosa.sh"
+source "$SCRIPT_DIR/build-rpm-common.sh"
+source "$SCRIPT_DIR/build-deb-common.sh"
+source "$SCRIPT_DIR/build-native-rpm.sh"
+source "$SCRIPT_DIR/build-native-rpm-oracle.sh"
+source "$SCRIPT_DIR/build-native-rpm-redos.sh"
+source "$SCRIPT_DIR/build-native-rpm-suse.sh"
+source "$SCRIPT_DIR/build-native-rpm-alt.sh"
+source "$SCRIPT_DIR/build-native-rpm-rosa.sh"
+source "$SCRIPT_DIR/build-native-rpm-mageia.sh"
+source "$SCRIPT_DIR/build-native-rpm-openmandriva.sh"
+source "$SCRIPT_DIR/build-native-deb.sh"
+source "$SCRIPT_DIR/build-native-arch.sh"
 source "$SCRIPT_DIR/build-appimage.sh"
 source "$SCRIPT_DIR/build-sharun.sh"
+source "$SCRIPT_DIR/build-flatpak.sh"
+source "$SCRIPT_DIR/build-apk-common.sh"
+source "$SCRIPT_DIR/build-native-apk-alpine.sh"
+source "$SCRIPT_DIR/build-native-slackbuild.sh"
+source "$SCRIPT_DIR/build-native-xbps-void.sh"
+source "$SCRIPT_DIR/build-native-gentoo.sh"
+source "$SCRIPT_DIR/build-native-nix.sh"
 
-# === Настройки ===
 PACKAGE_NAME="iptvplayer"
 ICON_NAME="${PACKAGE_NAME}.svg"
 
-DEB_ARCH=""
-RPM_ARCH=""
-APPIMAGE_ARCH=""
-DISTRO=""
+DEB_ARCH=""; RPM_ARCH=""; APPIMAGE_ARCH=""; DISTRO=""
 
-# METAINFO_NAME
 if [ ! -f "$PROJECT_ROOT/METAINFO_NAME" ]; then
-    echo "[!] Файл $PROJECT_ROOT/METAINFO_NAME не найден."
-    exit 1
+    echo "[!] Файл $PROJECT_ROOT/METAINFO_NAME не найден."; exit 1
 fi
 METAINFO_NAME="$(tr -d '\n\r' < "$PROJECT_ROOT/METAINFO_NAME" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-if [ -z "$METAINFO_NAME" ]; then
-    echo "[!] Файл $PROJECT_ROOT/METAINFO_NAME пуст."
-    exit 1
-fi
+[ -z "$METAINFO_NAME" ] && { echo "[!] METAINFO_NAME пуст."; exit 1; }
 
 BUILD_RELEASE_SCRIPT="$SCRIPT_DIR/build-release.sh"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
@@ -87,11 +57,11 @@ APPDIR="$PROJECT_ROOT/dist/.AppDir"
 FORCE_REBUILD=false
 DO_CLEAN=false
 CLEAN_ONLY=false
+KEEP_DEPS=false
 
-# === Очистка и подготовка ===
 setup_dirs() {
     if [ "$DO_CLEAN" = true ]; then
-        echo "[+] Очистка каталога $OUTPUT_DIR..."
+        echo "[+] Очистка $OUTPUT_DIR..."
         rm -rf "${OUTPUT_DIR:?}"/*
         mkdir -p "$OUTPUT_DIR"
     fi
@@ -100,37 +70,29 @@ setup_dirs() {
     mkdir -p "$STAGING_DIR"
 }
 
-# === Сборка бинарника ===
 build_binary() {
     echo "[+] Сборка через $BUILD_RELEASE_SCRIPT..."
-    if [ ! -f "$BUILD_RELEASE_SCRIPT" ]; then
-        echo "[!] $BUILD_RELEASE_SCRIPT не найден." >&2
-        return 1
-    fi
-
+    [ -f "$BUILD_RELEASE_SCRIPT" ] || { echo "[!] $BUILD_RELEASE_SCRIPT не найден." >&2; return 1; }
     local args=(--type release --prefix "$PROJECT_ROOT/install")
     [[ "$FORCE_REBUILD" == true ]] && args+=(--clean)
     [[ "$NON_INTERACTIVE" == true ]] && args+=(--yes)
-
-    if ! "$BUILD_RELEASE_SCRIPT" "${args[@]}"; then
-        echo "[!] $BUILD_RELEASE_SCRIPT завершился с ошибкой" >&2
-        return 1
-    fi
+    [[ "$KEEP_DEPS" == true ]] && args+=(--keep-deps)
+    "$BUILD_RELEASE_SCRIPT" "${args[@]}" || { echo "[!] $BUILD_RELEASE_SCRIPT упал" >&2; return 1; }
     echo "[+] Бинарник собран."
-    return 0
 }
 
-# === Очистка ===
 cleanup() {
     echo "[+] Очистка временных каталогов..."
     rm -rf "${STAGING_DIR:?}" "${APPDIR:?}"
-    rm -rf "$PROJECT_ROOT/pkg-rpm" \
-           "$PROJECT_ROOT/pkg-rpm-alt" \
-           "$PROJECT_ROOT/pkg-rpm-rosa"
+    rm -rf "$PROJECT_ROOT"/pkg-rpm*
+    rm -rf "$PROJECT_ROOT/pkg-apk"
+    rm -rf "$PROJECT_ROOT/pkg-slackbuild"
+    rm -rf "$PROJECT_ROOT/pkg-xbps"
+    rm -rf "$PROJECT_ROOT/pkg-gentoo"
+    rm -rf "$PROJECT_ROOT/pkg-nix"
     rm -rf "$PROJECT_ROOT/AppDir"
     rm -f  "${OUTPUT_DIR:?}/appinfo"
 }
-
 trap cleanup EXIT INT TERM
 
 # =============================================================================
@@ -271,176 +233,199 @@ sign_files() {
     fi
 }
 
-# =============================================================================
-#                              МЕНЮ / СПРАВКА
-# =============================================================================
 show_help() {
     cat << EOF
 Использование: ./scripts/build-package.sh [ОПЦИИ]
 
 Нативные:
-  --native-deb      .deb из системных библиотек (Ubuntu/Debian)
-  --native-rpm      .rpm из системных библиотек (Fedora/Rocky/RHEL/openSUSE)
+  --native          автоопределение: соберёт пакет(ы) для текущей системы
+  --native-deb      .deb (Debian/Ubuntu/Mint/Pop/Astra)
+  --native-rpm      .rpm (Fedora/RHEL/Rocky/Alma/CentOS)
+  --native-rpm-oracle       .rpm (Oracle Linux, .elN)
+  --native-rpm-redos        .rpm (RedOS, .redN)
+  --native-rpm-suse         .rpm (openSUSE/SLES, 0.suseN)
+  --native-rpm-alt          .rpm (ALT Linux, alt1)
+  --native-rpm-rosa         .rpm (ROSA Linux, 1.rosaN)
+  --native-rpm-mageia       .rpm (Mageia, 1.mgaN)
+  --native-rpm-openmandriva .rpm (OpenMandriva, omvN)
   --native-arch     .pkg.tar.zst (Arch/Manjaro)
-  --native-alt      .rpm для ALT Linux
-  --native-rosa     .rpm для ROSA Linux
-  --appimage        AppImage (linuxdeploy + appimagetool)
-  --sharun          AppImage через quick-sharun (максимальная переносимость:
-                    старые glibc, musl-системы, NixOS)
+  --appimage        AppImage (linuxdeploy)
+  --sharun          AppImage (quick-sharun)
+  --flatpak         Flatpak-бандл (требует flatpak-builder)
+  --native-apk      .apk (Alpine Linux, только в Alpine-окружении)
+  --native-slackbuild  .txz (Slackware)
+  --native-xbps        .xbps (Void Linux, требует клон void-packages)
+  --native-gentoo      .tbz2 (Gentoo Linux, требует sys-apps/portage)
+  --native-nix         derivation (NixOS, требует nix в PATH)
+
+Алиасы (сохранены):
+  --native-alt      = --native-rpm-alt
+  --native-rosa     = --native-rpm-rosa
 
 Комбинированные:
-  --native          все нативные, доступные здесь
   --native-appimage нативные + AppImage
-  --all             всё возможное на этой системе
+  --all             всё возможное
 
 Служебные:
-  --rebuild         пересобрать бинарник
-  --clean           очистить dist/
-  --clean-only      только очистить dist/
-  --no-menu         не показывать меню
-  --yes, -y         неинтерактивный
-  -h, --help        эта справка
+  --rebuild --clean --clean-only --no-menu --yes|-y
+  --keep-deps       не удалять пакеты, поставленные setup-deps.sh
+  -h|--help
 EOF
 }
 
-# === Интерактивное меню ===
+# Диспатч по DISTRO (приоритет) → pkgmgr (фоллбэк).
+# Покрывает все RPM-семейства этапа 1.
+_dispatch_native() {
+    case "$DISTRO" in
+            rosa-*)                    BUILD_NATIVE_ROSA=true ;;
+            ol-*|oracle-*)             BUILD_NATIVE_RPM_ORACLE=true ;;
+            redos-*)                   BUILD_NATIVE_RPM_REDOS=true ;;
+            mageia-*)                  BUILD_NATIVE_RPM_MAGEIA=true ;;
+            openmandriva-*)            BUILD_NATIVE_RPM_OPENMANDRIVA=true ;;
+            opensuse*|sles*)           BUILD_NATIVE_RPM_SUSE=true ;;
+            alt-*|alt|altlinux*)       BUILD_NATIVE_ALT=true ;;
+            alpine*)                   BUILD_NATIVE_APK=true ;;
+            slackware*)                BUILD_NATIVE_SLACKBUILD=true ;;
+            void*)                     BUILD_NATIVE_XBPS=true ;;
+            gentoo*)                   BUILD_NATIVE_GENTOO=true ;;
+            nixos*)                    BUILD_NATIVE_NIX=true ;;
+            *)
+        case "$pkgmgr" in
+                apt)    BUILD_NATIVE_DEB=true ;;
+                dnf)    BUILD_NATIVE_RPM=true ;;
+                pacman) BUILD_NATIVE_ARCH=true ;;
+        esac ;;
+    esac
+}
+
 show_menu() {
     local pkgmgr="$1"
     echo ""
     echo "Обнаружена система: $DISTRO ($(uname -m))"
     echo ""
 
-    # Собираем список опций; для каждой храним action.
-    local -a labels=()
-    local -a actions=()
-
+    local -a labels=() actions=()
     local native_label=""
-    if [[ "$DISTRO" == rosa* ]]; then
-        native_label="Нативный .rpm для ROSA Linux (системные библиотеки)"
-    else
-        case "$pkgmgr" in
-            deb)     native_label="Нативный .deb (системные библиотеки)" ;;
-            rpm)     native_label="Нативный .rpm (системные библиотеки)" ;;
-            arch)    native_label="Нативный .pkg.tar.zst (системные библиотеки)" ;;
-            apt-rpm) native_label="Нативный .rpm для ALT Linux (системные библиотеки)" ;;
-        esac
-    fi
+
+    # Приоритет — DISTRO. pkgmgr даёт только общий фоллбэк для семейств.
+    case "$DISTRO" in
+        rosa-*)       native_label="Нативный .rpm для ROSA" ;;
+        alpine-*)     native_label="Нативный .apk" ;;
+        slackware*)   native_label="Нативный .txz" ;;
+        void*)        native_label="Нативный .xbps" ;;
+        gentoo*)      native_label="Нативный .tbz2" ;;
+        nixos*)       native_label="Нативный Nix derivation" ;;
+        ol-*|oracle-*) native_label="Нативный .rpm для Oracle Linux" ;;
+        redos-*)      native_label="Нативный .rpm для RedOS" ;;
+        mageia-*)     native_label="Нативный .rpm для Mageia" ;;
+        openmandriva-*) native_label="Нативный .rpm для OpenMandriva" ;;
+        opensuse*|sles*) native_label="Нативный .rpm для openSUSE" ;;
+        alt-*|alt|altlinux*) native_label="Нативный .rpm для ALT" ;;
+        *)
+            case "$pkgmgr" in
+                apt)     native_label="Нативный .deb" ;;
+                dnf)     native_label="Нативный .rpm" ;;
+                pacman)  native_label="Нативный .pkg.tar.zst" ;;
+            esac ;;
+    esac
+
+    [ -n "$native_label" ] && { labels+=("$native_label (системные библиотеки)"); actions+=("native"); }
+    labels+=("AppImage (linuxdeploy)"); actions+=("appimage")
+    labels+=("AppImage (quick-sharun)"); actions+=("sharun")
+    labels+=("Flatpak"); actions+=("flatpak")
 
     if [ -n "$native_label" ]; then
-        labels+=("$native_label")
-        actions+=("native")
-    fi
-
-    labels+=("AppImage (linuxdeploy — классический пайплайн)")
-    actions+=("appimage")
-
-    labels+=("AppImage (quick-sharun — максимальная переносимость)")
-    actions+=("sharun")
-
-    if [ -n "$native_label" ]; then
-        labels+=("Родной пакет + AppImage (linuxdeploy)")
-        actions+=("native+appimage")
-
-        labels+=("Родной пакет + AppImage (quick-sharun)")
-        actions+=("native+sharun")
+        labels+=("Родной + AppImage (linuxdeploy)"); actions+=("native+appimage")
+        labels+=("Родной + AppImage (quick-sharun)");  actions+=("native+sharun")
     fi
 
     echo "Выберите, что собрать:"
-    local i=1
-    for opt in "${labels[@]}"; do
-        echo "  $i) $opt"
-        i=$((i+1))
-    done
-    echo "  0) Отмена"
-    echo ""
 
-    local choice=""
-    read -p "Введите номер: " choice
+    local i=1
+    for opt in "${labels[@]}"; do echo "  $i) $opt"; i=$((i+1)); done
+
+    echo "  0) Отмена"; echo ""
+
+    local choice=""; read -p "Введите номер: " choice
 
     [ "$choice" = "0" ] && exit 0
-    if ! [[ "$choice" =~ ^[0-9]+$ ]] || \
-       [ "$choice" -lt 1 ] || \
-       [ "$choice" -gt "${#actions[@]}" ]; then
+
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#actions[@]}" ]; then
         echo "Неверный выбор"; exit 1
     fi
 
     local action="${actions[$((choice-1))]}"
 
     case "$action" in
-        native)
-            if [[ "$DISTRO" == rosa* ]]; then
-                BUILD_NATIVE_ROSA=true
-            else
-                case "$pkgmgr" in
-                    deb)     BUILD_NATIVE_DEB=true ;;
-                    rpm)     BUILD_NATIVE_RPM=true ;;
-                    arch)    BUILD_NATIVE_ARCH=true ;;
-                    apt-rpm) BUILD_NATIVE_ALT=true ;;
-                esac
-            fi
-            ;;
-        native+appimage)
-            if [[ "$DISTRO" == rosa* ]]; then
-                BUILD_NATIVE_ROSA=true
-            else
-                case "$pkgmgr" in
-                    deb)     BUILD_NATIVE_DEB=true ;;
-                    rpm)     BUILD_NATIVE_RPM=true ;;
-                    arch)    BUILD_NATIVE_ARCH=true ;;
-                    apt-rpm) BUILD_NATIVE_ALT=true ;;
-                esac
-            fi
-            BUILD_APPIMAGE=true
-            ;;
-        native+sharun)
-            if [[ "$DISTRO" == rosa* ]]; then
-                BUILD_NATIVE_ROSA=true
-            else
-                case "$pkgmgr" in
-                    deb)     BUILD_NATIVE_DEB=true ;;
-                    rpm)     BUILD_NATIVE_RPM=true ;;
-                    arch)    BUILD_NATIVE_ARCH=true ;;
-                    apt-rpm) BUILD_NATIVE_ALT=true ;;
-                esac
-            fi
-            BUILD_SHARUN=true
+        native|native+appimage|native+sharun)
+            _dispatch_native
+            [[ "$action" == "native+appimage" ]] && BUILD_APPIMAGE=true
+            [[ "$action" == "native+sharun" ]]   && BUILD_SHARUN=true
             ;;
         appimage) BUILD_APPIMAGE=true ;;
         sharun)   BUILD_SHARUN=true ;;
+        flatpak)  BUILD_FLATPAK=true ;;
     esac
+
+    return 0
 }
 
-# =============================================================================
-#                              MAIN
-# =============================================================================
 main() {
     BUILD_NATIVE_DEB=false
     BUILD_NATIVE_RPM=false
     BUILD_NATIVE_ARCH=false
     BUILD_NATIVE_ALT=false
     BUILD_NATIVE_ROSA=false
+    BUILD_NATIVE_RPM_ORACLE=false
+    BUILD_NATIVE_RPM_REDOS=false
+    BUILD_NATIVE_RPM_SUSE=false
+    BUILD_NATIVE_RPM_MAGEIA=false
+    BUILD_NATIVE_RPM_OPENMANDRIVA=false
     BUILD_APPIMAGE=false
     BUILD_SHARUN=false
+    BUILD_FLATPAK=false
+    BUILD_NATIVE_APK=false
+    BUILD_NATIVE_SLACKBUILD=false
+    BUILD_NATIVE_XBPS=false
+    BUILD_NATIVE_GENTOO=false
+    BUILD_NATIVE_NIX=false
+    NATIVE_AUTO=false
     SHOW_MENU=true
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --native-deb)    BUILD_NATIVE_DEB=true ;;
-            --native-rpm)    BUILD_NATIVE_RPM=true ;;
-            --native-arch)   BUILD_NATIVE_ARCH=true ;;
-            --native-alt)    BUILD_NATIVE_ALT=true ;;
-            --native-rosa)   BUILD_NATIVE_ROSA=true ;;
-            --appimage)      BUILD_APPIMAGE=true ;;
-            --sharun)        BUILD_SHARUN=true ;;
-            --native)        BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_NATIVE_ALT=true; BUILD_NATIVE_ROSA=true ;;
-            --native-appimage) BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_NATIVE_ALT=true; BUILD_NATIVE_ROSA=true; BUILD_APPIMAGE=true ;;
-            --all)           BUILD_NATIVE_DEB=true; BUILD_NATIVE_RPM=true; BUILD_NATIVE_ARCH=true; BUILD_NATIVE_ALT=true; BUILD_NATIVE_ROSA=true; BUILD_APPIMAGE=true; BUILD_SHARUN=true ;;
-            --rebuild)       FORCE_REBUILD=true ;;
-            --clean)         DO_CLEAN=true ;;
-            --clean-only)    DO_CLEAN=true; CLEAN_ONLY=true ;;
-            --no-menu)       SHOW_MENU=false ;;
-            --yes|-y)        NON_INTERACTIVE=true; SHOW_MENU=false ;;
-            -h|--help)       show_help; exit 0 ;;
+            --native-deb)              BUILD_NATIVE_DEB=true ;;
+            --native-rpm)              BUILD_NATIVE_RPM=true ;;
+            --native-arch)             BUILD_NATIVE_ARCH=true ;;
+            --native-alt|--native-rpm-alt)   BUILD_NATIVE_ALT=true ;;
+            --native-rosa|--native-rpm-rosa) BUILD_NATIVE_ROSA=true ;;
+            --native-rpm-oracle)       BUILD_NATIVE_RPM_ORACLE=true ;;
+            --native-rpm-redos)        BUILD_NATIVE_RPM_REDOS=true ;;
+            --native-rpm-suse)         BUILD_NATIVE_RPM_SUSE=true ;;
+            --native-rpm-mageia)       BUILD_NATIVE_RPM_MAGEIA=true ;;
+            --native-rpm-openmandriva) BUILD_NATIVE_RPM_OPENMANDRIVA=true ;;
+            --appimage)                BUILD_APPIMAGE=true ;;
+            --sharun)                  BUILD_SHARUN=true ;;
+            --flatpak)                 BUILD_FLATPAK=true ;;
+            --native-apk)              BUILD_NATIVE_APK=true ;;
+            --native-slackbuild)       BUILD_NATIVE_SLACKBUILD=true ;;
+            --native-xbps)             BUILD_NATIVE_XBPS=true ;;
+            --native-gentoo)           BUILD_NATIVE_GENTOO=true ;;
+            --native-nix)              BUILD_NATIVE_NIX=true ;;
+            --native)
+                NATIVE_AUTO=true ;;
+            --native-appimage)
+                NATIVE_AUTO=true; BUILD_APPIMAGE=true ;;
+            --all)
+                NATIVE_AUTO=true
+                BUILD_APPIMAGE=true; BUILD_SHARUN=true; BUILD_FLATPAK=true ;;
+            --rebuild)    FORCE_REBUILD=true ;;
+            --keep-deps|--no-cleanup-deps) KEEP_DEPS=true ;;
+            --clean)      DO_CLEAN=true ;;
+            --clean-only) DO_CLEAN=true; CLEAN_ONLY=true ;;
+            --no-menu)    SHOW_MENU=false ;;
+            --yes|-y)     NON_INTERACTIVE=true; SHOW_MENU=false ;;
+            -h|--help)    show_help; exit 0 ;;
             *) echo "Неизвестный аргумент: $1"; show_help; exit 1 ;;
         esac
         shift
@@ -449,46 +434,80 @@ main() {
     if [[ "$CLEAN_ONLY" == true ]]; then
         echo "[+] Очистка $OUTPUT_DIR..."
         find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-        mkdir -p "$OUTPUT_DIR"
-        exit 0
+        mkdir -p "$OUTPUT_DIR"; exit 0
     fi
 
     detect_arch
     detect_distro
-
     local pkgmgr; pkgmgr="$(detect_pkgmgr)"
     echo "[i] Пакетный менеджер: $pkgmgr"
 
-    # Если ничего не выбрано и меню разрешено — показать меню
-    if [[ "$BUILD_NATIVE_DEB" == false && "$BUILD_NATIVE_RPM" == false && \
-          "$BUILD_NATIVE_ARCH" == false && "$BUILD_NATIVE_ALT" == false && \
-          "$BUILD_NATIVE_ROSA" == false && "$BUILD_APPIMAGE" == false && \
-          "$BUILD_SHARUN" == false ]]; then
+    # --native: выбираем ОДИН адаптер по DISTRO → pkgmgr. Выставлять
+    # все флаги сразу нельзя — check_deps упадёт на первом отсутствующем
+    # инструменте чужого дистрибутива.
+    if [[ "$NATIVE_AUTO" == true ]]; then
+        case "$DISTRO" in
+            rosa-*)                    BUILD_NATIVE_ROSA=true ;;
+            alpine*)                   BUILD_NATIVE_APK=true ;;
+            slackware*)                BUILD_NATIVE_SLACKBUILD=true ;;
+            void*)                     BUILD_NATIVE_XBPS=true ;;
+            gentoo*)                   BUILD_NATIVE_GENTOO=true ;;
+            nixos*)                    BUILD_NATIVE_NIX=true ;;
+            ol-*|oracle-*)             BUILD_NATIVE_RPM_ORACLE=true ;;
+            redos-*)                   BUILD_NATIVE_RPM_REDOS=true ;;
+            mageia-*)                  BUILD_NATIVE_RPM_MAGEIA=true ;;
+            openmandriva-*)            BUILD_NATIVE_RPM_OPENMANDRIVA=true ;;
+            opensuse*|sles*)           BUILD_NATIVE_RPM_SUSE=true ;;
+            alt-*|alt|altlinux*)       BUILD_NATIVE_ALT=true ;;
+            *)
+                case "$pkgmgr" in
+                    apt)    BUILD_NATIVE_DEB=true ;;
+                    dnf)    BUILD_NATIVE_RPM=true ;;
+                    pacman) BUILD_NATIVE_ARCH=true ;;
+                    *)      echo "[!] --native: неизвестная система $DISTRO" >&2
+                            exit 1 ;;
+                esac ;;
+        esac
+    fi
+
+    local any=false
+    for v in BUILD_NATIVE_DEB BUILD_NATIVE_RPM BUILD_NATIVE_ARCH \
+             BUILD_NATIVE_ALT BUILD_NATIVE_ROSA \
+             BUILD_NATIVE_RPM_ORACLE BUILD_NATIVE_RPM_REDOS \
+             BUILD_NATIVE_RPM_SUSE BUILD_NATIVE_RPM_MAGEIA \
+             BUILD_NATIVE_RPM_OPENMANDRIVA BUILD_APPIMAGE BUILD_SHARUN \
+             BUILD_FLATPAK BUILD_NATIVE_APK BUILD_NATIVE_SLACKBUILD \
+             BUILD_NATIVE_XBPS BUILD_NATIVE_GENTOO BUILD_NATIVE_NIX; do
+        [[ "${!v}" == true ]] && any=true
+    done
+
+    if [[ "$any" == false ]]; then
         if [[ "$SHOW_MENU" == true && "$NON_INTERACTIVE" == false ]]; then
             show_menu "$pkgmgr"
         else
-            # В CI или --no-menu без флагов — по умолчанию appimage
             BUILD_APPIMAGE=true
         fi
     fi
 
     check_deps "$pkgmgr" \
-               "$BUILD_NATIVE_DEB" \
-               "$BUILD_NATIVE_RPM" \
-               "$BUILD_NATIVE_ARCH" \
-               "$BUILD_NATIVE_ALT" \
-               "$BUILD_NATIVE_ROSA" \
-               "$BUILD_APPIMAGE" \
-               "$BUILD_SHARUN"
+        "$BUILD_NATIVE_DEB" "$BUILD_NATIVE_RPM" "$BUILD_NATIVE_ARCH" \
+        "$BUILD_NATIVE_ALT" "$BUILD_NATIVE_ROSA" \
+        "$BUILD_NATIVE_RPM_ORACLE" "$BUILD_NATIVE_RPM_REDOS" \
+        "$BUILD_NATIVE_RPM_SUSE" "$BUILD_NATIVE_RPM_MAGEIA" \
+        "$BUILD_NATIVE_RPM_OPENMANDRIVA" \
+        "$BUILD_APPIMAGE" "$BUILD_SHARUN" "$BUILD_FLATPAK" \
+        "$BUILD_NATIVE_APK" "$BUILD_NATIVE_SLACKBUILD" \
+        "$BUILD_NATIVE_XBPS" "$BUILD_NATIVE_GENTOO" \
+        "$BUILD_NATIVE_NIX"
     setup_dirs
 
-    if ! build_binary; then
-        echo "[!] Бинарник не собран — выходим." >&2
+    build_binary || { echo "[!] Бинарник не собран — выходим." >&2; exit 1; }
+
+    if ! { read -r VERSION_DISPLAY; read -r VERSION_FILE; read -r VERSION; } \
+        < <(read_versions_from_install); then
+        echo "[ERROR] Не удалось прочитать версии." >&2
         exit 1
     fi
-
-    { read -r VERSION_DISPLAY; read -r VERSION_FILE; read -r VERSION; } \
-        < <(read_versions_from_install)
     if [ -z "$VERSION_DISPLAY" ] || [ -z "$VERSION_FILE" ] || [ -z "$VERSION" ]; then
         echo "[ERROR] Не удалось прочитать версии." >&2
         exit 1
@@ -499,82 +518,127 @@ main() {
     local FAILED=()
 
     if [[ "$BUILD_NATIVE_DEB" == true ]]; then
-        if [[ "$pkgmgr" == "deb" ]]; then
-            if ! prepare_staging; then
-                FAILED+=("native-deb")
-            elif ! build_deb_native; then
-                FAILED+=("native-deb")
-            fi
+        if distro_is 'ubuntu-*' 'debian-*' 'linuxmint-*' 'pop-*' 'astra-*'; then
+            prepare_staging && build_deb_native || FAILED+=("native-deb")
         else
-            echo "[!] --native-deb недоступен на $DISTRO — пропускаем."
+            echo "[i] --native-deb: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_RPM" == true ]]; then
-        if [[ "$pkgmgr" == "rpm" && "$DISTRO" != rosa* ]]; then
-            if ! prepare_staging; then
-                FAILED+=("native-rpm")
-            elif ! build_rpm_native; then
-                FAILED+=("native-rpm")
-            fi
-        elif [[ "$DISTRO" == rosa* ]]; then
-            echo "[i] --native-rpm на ROSA заменён на --native-rosa — пропускаем."
+        if distro_is 'fedora-*' 'rocky-*' 'rhel-*' 'centos-*' 'almalinux-*'; then
+            prepare_staging && build_rpm_native || FAILED+=("native-rpm")
         else
-            echo "[!] --native-rpm недоступен на $DISTRO — пропускаем."
+            echo "[i] --native-rpm: пропускаем на $DISTRO"
+        fi
+    fi
+    if [[ "$BUILD_NATIVE_RPM_ORACLE" == true ]]; then
+        if distro_is 'ol-*' 'oracle-*'; then
+            prepare_staging && build_rpm_oracle || FAILED+=("native-rpm-oracle")
+        else
+            echo "[i] --native-rpm-oracle: пропускаем на $DISTRO"
+        fi
+    fi
+    if [[ "$BUILD_NATIVE_RPM_REDOS" == true ]]; then
+        if distro_is 'redos-*'; then
+            prepare_staging && build_rpm_redos || FAILED+=("native-rpm-redos")
+        else
+            echo "[i] --native-rpm-redos: пропускаем на $DISTRO"
+        fi
+    fi
+    if [[ "$BUILD_NATIVE_RPM_SUSE" == true ]]; then
+        if distro_is 'opensuse*' 'sles*'; then
+            prepare_staging && build_rpm_suse || FAILED+=("native-rpm-suse")
+        else
+            echo "[i] --native-rpm-suse: пропускаем на $DISTRO"
+        fi
+    fi
+    if [[ "$BUILD_NATIVE_ALT" == true ]]; then
+        if distro_is 'alt-*' 'alt' 'altlinux*'; then
+            prepare_staging && build_rpm_alt || FAILED+=("native-alt")
+        else
+            echo "[i] --native-alt: пропускаем на $DISTRO"
+        fi
+    fi
+    if [[ "$BUILD_NATIVE_ROSA" == true ]]; then
+        if distro_is 'rosa-*'; then
+            prepare_staging && build_rpm_rosa || FAILED+=("native-rosa")
+        else
+            echo "[i] --native-rosa: пропускаем на $DISTRO"
+        fi
+    fi
+    if [[ "$BUILD_NATIVE_RPM_MAGEIA" == true ]]; then
+        if distro_is 'mageia-*'; then
+            prepare_staging && build_rpm_mageia || FAILED+=("native-rpm-mageia")
+        else
+            echo "[i] --native-rpm-mageia: пропускаем на $DISTRO"
+        fi
+    fi
+    if [[ "$BUILD_NATIVE_RPM_OPENMANDRIVA" == true ]]; then
+        if distro_is 'openmandriva-*'; then
+            prepare_staging && build_rpm_openmandriva || FAILED+=("native-rpm-openmandriva")
+        else
+            echo "[i] --native-rpm-openmandriva: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_ARCH" == true ]]; then
-        if [[ "$pkgmgr" == "arch" ]]; then
-            if ! prepare_staging; then
-                FAILED+=("native-arch")
-            elif ! build_pkg_arch; then
-                FAILED+=("native-arch")
-            fi
+        if distro_is 'arch' 'arch-*' 'manjaro*' 'endeavouros*' 'cachyos*'; then
+            prepare_staging && build_pkg_arch || FAILED+=("native-arch")
         else
-            echo "[!] --native-arch недоступен на $DISTRO — пропускаем."
+            echo "[i] --native-arch: пропускаем на $DISTRO"
         fi
     fi
 
-    if [[ "$BUILD_NATIVE_ALT" == true ]]; then
-        if [[ "$pkgmgr" == "apt-rpm" ]]; then
-            if ! prepare_staging; then
-                FAILED+=("native-alt")
-            elif ! build_rpm_alt; then
-                FAILED+=("native-alt")
-            fi
+    if [[ "$BUILD_NATIVE_APK" == true ]]; then
+        if distro_is 'alpine*'; then
+            prepare_staging && build_apk_alpine || FAILED+=("native-apk")
         else
-            echo "[!] --native-alt доступен только на ALT Linux — пропускаем."
+            echo "[i] --native-apk: пропускаем на $DISTRO"
         fi
     fi
 
-    if [[ "$BUILD_NATIVE_ROSA" == true ]]; then
-        if [[ "$pkgmgr" == "rpm" && "$DISTRO" == rosa* ]]; then
-            if ! prepare_staging; then
-                FAILED+=("native-rosa")
-            elif ! build_rpm_rosa; then
-                FAILED+=("native-rosa")
-            fi
+    if [[ "$BUILD_NATIVE_SLACKBUILD" == true ]]; then
+        if distro_is 'slackware*'; then
+            prepare_staging && build_native_slackbuild || FAILED+=("native-slackbuild")
         else
-            echo "[!] --native-rosa доступен только на ROSA Linux — пропускаем."
+            echo "[i] --native-slackbuild: пропускаем на $DISTRO"
         fi
     fi
-    
-    if [[ "$BUILD_APPIMAGE" == true ]]; then
-        if ! build_appimage; then FAILED+=("appimage"); fi
+
+    if [[ "$BUILD_NATIVE_XBPS" == true ]]; then
+        if distro_is 'void*'; then
+            build_native_xbps_void || FAILED+=("native-xbps")
+        else
+            echo "[i] --native-xbps: пропускаем на $DISTRO"
+        fi
     fi
-    if [[ "$BUILD_SHARUN" == true ]]; then
-        if ! build_sharun_appimage; then FAILED+=("sharun"); fi
+
+    if [[ "$BUILD_NATIVE_GENTOO" == true ]]; then
+        if distro_is 'gentoo*'; then
+            build_native_gentoo || FAILED+=("native-gentoo")
+        else
+            echo "[i] --native-gentoo: пропускаем на $DISTRO"
+        fi
     fi
+
+    if [[ "$BUILD_NATIVE_NIX" == true ]]; then
+        if command -v nix >/dev/null 2>&1; then
+            build_native_nix || FAILED+=("native-nix")
+        else
+            echo "[i] --native-nix: nix не найден в PATH — пропускаем."
+        fi
+    fi
+
+    [[ "$BUILD_APPIMAGE" == true ]] && { build_appimage || FAILED+=("appimage"); }
+    [[ "$BUILD_SHARUN"   == true ]] && { build_sharun_appimage || FAILED+=("sharun"); }
+    [[ "$BUILD_FLATPAK" == true ]] && { build_flatpak || FAILED+=("flatpak"); }
 
     sign_files
 
     echo ""
     if (( ${#FAILED[@]} > 0 )); then
         echo "[!] Не собраны: ${FAILED[*]}" >&2
-        echo "[i] Что удалось собрать в '$OUTPUT_DIR':"
-        ls -la "$OUTPUT_DIR/"
-        exit 1
+        ls -la "$OUTPUT_DIR/"; exit 1
     fi
-
     echo "🎉 Готово! Артефакты в '$OUTPUT_DIR':"
     ls -la "$OUTPUT_DIR/"
 }

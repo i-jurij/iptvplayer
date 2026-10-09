@@ -96,7 +96,7 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ matrix.target }}-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
+          key: ${{ matrix.target }}-third_party-${{ hashFiles('scripts/setup-deps.sh', 'scripts/setup-deps-*.sh') }}
 
       - name: Install build toolchain
         run: |

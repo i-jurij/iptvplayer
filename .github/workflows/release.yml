@@ -307,7 +307,7 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-arch-appimage-third_party-${{ hashFiles('scripts/setup-deps.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-arch-appimage-third_party-${{ hashFiles('scripts/setup-deps.sh', 'scripts/setup-deps-*.sh') }}
 
       - name: Build third_party (wxWidgets, wxSQLite3)
         run: |
@@ -473,13 +473,9 @@ jobs:
           chmod +x install/bin/iptvplayer
           ls -la install/bin/
 
-          chmod +x scripts/build-package.sh \
-                   scripts/build-native.sh \
-                   scripts/build-sharun.sh \
-                   scripts/build-appimage.sh \
-                   scripts/common.sh
+          chmod +x scripts/*.sh
 
-          # Вся логика — в build-native.sh:build_pkg_arch.
+          # Вся логика — в build-native-arch.sh:build_pkg_arch.
           ./scripts/build-package.sh --native-arch --yes
           ls -la dist/
 

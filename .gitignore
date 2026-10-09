@@ -13,6 +13,13 @@ linuxdeploy*
 appimagetool*
 quick-sharun*
 bash-static-*
+.iptvplayer-deps-installed
+.flatpak-builder/
+/pkg-apk/
+/pkg-slackbuild/
+/pkg-xbps/
+/pkg-gentoo/
+/pkg-nix/
 
 # -------------------------------
 # IDE и редакторы

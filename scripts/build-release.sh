@@ -59,6 +59,7 @@ source "$SCRIPT_DIR/common.sh"
 PROJECT_NAME="iptvplayer"
 BUILD_TYPE="Release"          # по умолчанию
 DO_CLEAN=false
+KEEP_DEPS=false
 PREFIX="install"              # по умолчанию — папка в корне проекта
 JOBS=$(nproc)                 # количество потоков
 LOG_FILE=""                   # если задан, вывод дублируется в файл
@@ -76,6 +77,7 @@ show_help() {
   --prefix PATH   каталог установки (по умолчанию ./install)
   --log           сохранить лог сборки в файл build_YYYYMMDD_HHMMSS.log
   --yes, -y       неинтерактивный режим (авто-ответы, для CI)
+  --keep-deps     не удалять пакеты, поставленные setup-deps.sh, после сборки
   -h, --help      показать эту справку
 
 Примеры:
@@ -113,6 +115,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --yes|-y)
             NON_INTERACTIVE=true
+            shift
+            ;;
+        --keep-deps|--no-cleanup-deps)
+            KEEP_DEPS=true
             shift
             ;;
         clean)   # совместимость со старым синтаксисом
@@ -226,6 +232,15 @@ echo -e "${GREEN}Запуск:${NC} cd $INSTALL_DIR/bin && ./$PROJECT_NAME"
 
 # Копируем compile_commands.json в корень (для IDE)
 cp "$BUILD_DIR/compile_commands.json" "$PROJECT_ROOT/" 2>/dev/null || true
+
+# Уборка пакетов, поставленных setup-deps.sh, если пользователь не
+# запретил --keep-deps. Файл-состояние отсутствует в CI (--skip-system).
+if [[ "${KEEP_DEPS:-false}" != true ]] \
+   && [[ -f "$PROJECT_ROOT/.iptvplayer-deps-installed" ]]; then
+    log "Уборка пакетов, поставленных setup-deps.sh..."
+    "$SCRIPT_DIR/setup-deps.sh" --cleanup-deps --yes \
+        || warn "setup-deps.sh --cleanup-deps вернул ошибку."
+fi
 
 if [[ -n "$LOG_FILE" ]]; then
     log "Полный лог сохранён в $LOG_FILE"
