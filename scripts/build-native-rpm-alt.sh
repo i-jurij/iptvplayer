@@ -9,6 +9,8 @@ build_rpm_alt() {
     local RPM_SPEC_DIR="$PROJECT_ROOT/pkg-rpm-alt"
     local RPM_RELEASE="alt1"
     local RPM_FILE_RELEASE="alt1"
+    local RPM_GROUP="Video"
     local RPM_CHANGELOG_TAG="for ALT Linux"
+    local RPM_POST_BODY=":"
     build_rpm_common
 }
