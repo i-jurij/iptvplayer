@@ -16,6 +16,7 @@
 #include <cassert>
 
 void VideoPanel::OpenFile() {
+  // i18n: wildcard masks handled in a separate step (preserve '|').
   const wxString wildcard =
       "Video files (*.mp4;*.mkv;*.avi;*.mov;*.flv;*.ts;*.m2ts;*.mts)|"
       "*.mp4;*.mkv;*.avi;*.mov;*.flv;*.ts;*.m2ts;*.mts|"
@@ -38,7 +39,7 @@ void VideoPanel::OpenFile() {
     initialDir = wxGetHomeDir();
   }
 
-  wxFileDialog dlg(this, "Open file", initialDir, "", wildcard,
+  wxFileDialog dlg(this, _U("Open file"), initialDir, "", wildcard,
                    wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 
   if (dlg.ShowModal() != wxID_OK)
@@ -94,8 +95,8 @@ void VideoPanel::OpenCatalog() {
     initialDir = wxGetHomeDir();
   }
 
-  wxDirDialog dlg(this, "Select folder containing video files", initialDir,
-                  wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+  wxDirDialog dlg(this, _U("Select folder containing video files"),
+                  initialDir, wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
   if (dlg.ShowModal() != wxID_OK)
     return;
 
@@ -114,11 +115,18 @@ void VideoPanel::OpenCatalog() {
 void VideoPanel::OpenUrl() {
   ClearTempPlaylist();
 
-  wxTextEntryDialog dlg(this, "Enter URL:", "Open URL", "https://");
+  wxTextEntryDialog dlg(this, _U("Enter URL:"), _U("Open URL"));
   if (dlg.ShowModal() != wxID_OK)
     return;
 
-  wxString url = dlg.GetValue();
+  wxString url = dlg.GetValue().Trim();
+  if (url.IsEmpty())
+    return;
+  // Если схема не указана — считаем https. Проверяем "://", а не ":" —
+  // иначе поймаем "localhost:8080" и IPv6-адрес.
+  if (url.Find("://") == wxNOT_FOUND)
+    url = "https://" + url;
+
   AddToRecent(url);
 
   // Проверяем: URL может быть плейлистом
@@ -278,7 +286,7 @@ void VideoPanel::Stop() {
       if (icon.IsOk())
         m_btnMute->SetBitmap(icon);
       else
-        m_btnMute->SetLabel("Mute");
+        m_btnMute->SetLabel(_U("Mute"));
     }
 
     m_lastVolume = m_volumeSlider->GetValue();
@@ -297,7 +305,7 @@ void VideoPanel::Stop() {
       if (icon.IsOk())
         m_btnMute->SetBitmap(icon);
       else
-        m_btnMute->SetLabel("Vol");
+        m_btnMute->SetLabel(_U("Vol"));
     }
 
     m_volumeSlider->Enable();
@@ -391,7 +399,7 @@ void VideoPanel::Stop() {
       if (icon.IsOk())
         m_btnFullscreen->SetBitmap(icon);
       else
-        m_btnFullscreen->SetLabel("Exit");
+        m_btnFullscreen->SetLabel(_U("Exit"));
       if (m_videoArea)
         m_videoArea->SetFocus();
       // Таймер не запускается – он запустится при движении мыши
@@ -405,7 +413,7 @@ void VideoPanel::Stop() {
       if (icon.IsOk())
         m_btnFullscreen->SetBitmap(icon);
       else
-        m_btnFullscreen->SetLabel("Full");
+        m_btnFullscreen->SetLabel(_U("Full"));
       Layout();
       // Таймер останавливается (startTimer=false)
     }
@@ -706,7 +714,7 @@ void VideoPanel::Stop() {
       // Добавляем в итоговый массив
       for (const auto &f : filesInDir) {
         if (outFiles.size() >= 1000) {
-          showInfo(this, "File limit exceeded (max 1000)");
+          showInfo(this, _U("File limit exceeded (max 1000)"));
           return;
         }
         outFiles.Add(f);
