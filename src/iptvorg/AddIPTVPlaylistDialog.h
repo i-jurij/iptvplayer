@@ -26,10 +26,12 @@ private:
   PlaylistManager *m_playlistMgr;
   IPTVOrgMetadataManager *m_metadataMgr;
 
+  enum class FilterType { Country, Language, Category };
   wxChoice *m_filterTypeChoice;
   wxTextCtrl *m_searchCtrl;
   wxDataViewListCtrl *m_dataViewList; // используем ListCtrl
   wxButton *m_refreshBtn;
+  FilterType m_filterType = FilterType::Country;
 
   wxString m_selectedUrl;
   wxString m_selectedTitle;
@@ -53,16 +55,16 @@ private:
   void OnSearchText(wxCommandEvent &event);
   void OnSelectionChanged(wxDataViewEvent &event);
 
-  void StartAsyncFetch(const wxString &filterType);
-  void OnDataLoaded(const wxString &filterType, bool success,
+  void StartAsyncFetch(FilterType filterType);
+  void OnDataLoaded(FilterType filterType, bool success,
                     const std::vector<Country> &countries,
                     const std::vector<Language> &languages,
                     const std::vector<Category> &categories,
                     const std::string &errorText);
 
-  bool BuildPlaylistUrl(const wxString &filterType, const wxString &code,
+  bool BuildPlaylistUrl(FilterType filterType, const wxString &code,
                         wxString &outUrl, wxString &outTitle);
-  wxString GetDisplayName(const wxString &filterType, const wxString &code);
+  wxString GetDisplayName(FilterType filterType, const wxString &code);
 
   void UpdateList(const wxString &filterText);
 };
