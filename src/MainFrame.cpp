@@ -10,6 +10,7 @@
 #include "SettingsDialog.h"
 #include "UpdateAllThread.h"
 #include "UpdateOneThread.h"
+#include "Utils.h"
 
 #include <wx/artprov.h>
 #include <wx/aui/aui.h>
@@ -35,6 +36,28 @@ wxDEFINE_EVENT(EVT_UPDATE_ALL_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_ONE_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_PROGRESS, wxCommandEvent);
 wxDEFINE_EVENT(EVT_FAVORITES_MATCH_DONE, wxCommandEvent);
+
+wxString SortModeLabel(SortMode m) {
+  switch (m) {
+  case SortMode::NameAsc:
+    return _U("Name ▲");
+  case SortMode::NameDesc:
+    return _U("Name ▼");
+  case SortMode::GroupAsc:
+    return _U("Group ▲");
+  case SortMode::GroupDesc:
+    return _U("Group ▼");
+  case SortMode::CountryAsc:
+    return _U("Country ▲");
+  case SortMode::CountryDesc:
+    return _U("Country ▼");
+  case SortMode::LangAsc:
+    return _U("Language ▲");
+  case SortMode::LangDesc:
+    return _U("Language ▼");
+  }
+  return {};
+}
 
 MainFrame::MainFrame(Application *app)
     : wxFrame(nullptr, wxID_ANY, "IPTV Player", wxDefaultPosition,

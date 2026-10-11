@@ -1,9 +1,10 @@
-// MainFrame_Filters.cpp
 #include "Application.h"
 #include "FavoritesManager.h"
 #include "LogControl.h"
 #include "MainFrame.h"
 #include "Profiler.h"
+#include "Utils.h"
+
 #include <algorithm>
 #include <set>
 
@@ -20,9 +21,10 @@ void MainFrame::FillFilterChoices(const std::vector<Channel> &channels) {
   m_countryChoice->Clear();
   m_langChoice->Clear();
 
-  m_groupChoice->Append("All groups");
-  m_countryChoice->Append("All countries");
-  m_langChoice->Append("All languages");
+  // Индекс 0 = "показать все". Логика фильтрации читает GetSelection() (см. ApplyFiltersAndSort).
+  m_groupChoice->Append(_U("All groups"));
+  m_countryChoice->Append(_U("All countries"));
+  m_langChoice->Append(_U("All languages"));
 
   std::set<std::string> groups, countries, langs;
   for (const auto &c : channels) {
@@ -70,7 +72,7 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
       LOG_DEBUG("ApplyFiltersAndSort(inc): cards refreshed");
     }
     // Обновляем заголовок
-    wxString header = wxString::Format("Playlist: %s / Channels: %zu",
+    wxString header = wxString::Format(_U("Playlist: %s / Channels: %zu"),
                                        wxString::FromUTF8(m_loadedPlaylistName),
                                        m_allChannels.size());
     m_channelsHeader->SetLabel(header);
@@ -89,37 +91,49 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
     return;
   }
 
-  // Read UI state
-  wxString selGroup =
-      m_groupChoice ? m_groupChoice->GetStringSelection() : "All groups";
-  wxString selCountry =
-      m_countryChoice ? m_countryChoice->GetStringSelection() : "All countries";
-  wxString selLang =
-      m_langChoice ? m_langChoice->GetStringSelection() : "All languages";
-  wxString sort = m_sortChoice ? m_sortChoice->GetStringSelection() : "Name ▲";
-  bool favFirst = m_favFirst ? m_favFirst->GetValue() : false;
+  // Read UI state by index. Index 0 = "все"; индексы > 0 = реальные
+  // значения каналов. Нельзя сравнивать с отображаемой строкой: после
+  // локализации она зависит от языка и фильтр молча сломается.
+  int selGroup   = m_groupChoice   ? m_groupChoice->GetSelection()   : 0;
+  int selCountry = m_countryChoice ? m_countryChoice->GetSelection() : 0;
+  int selLang    = m_langChoice    ? m_langChoice->GetSelection()    : 0;
+  int sortIdx    = m_sortChoice    ? m_sortChoice->GetSelection()    : 0;
+  const bool favFirst = m_favFirst ? m_favFirst->GetValue() : false;
+
+  // Normalize wxNOT_FOUND (-1).
+  if (selGroup   < 0) selGroup   = 0;
+  if (selCountry < 0) selCountry = 0;
+  if (selLang    < 0) selLang    = 0;
+  if (sortIdx    < 0 ||
+      sortIdx >= static_cast<int>(std::size(kSortOrder)))
+    sortIdx = 0;
+
+  // Pre-resolve real filter values (once, not per channel).
+  wxString groupFilter, countryFilter, langFilter;
+  if (m_groupChoice   && selGroup   > 0)
+    groupFilter   = m_groupChoice->GetString(selGroup);
+  if (m_countryChoice && selCountry > 0)
+    countryFilter = m_countryChoice->GetString(selCountry);
+  if (m_langChoice    && selLang    > 0)
+    langFilter    = m_langChoice->GetString(selLang);
 
   // Build filtered list
   std::vector<Channel> out;
   out.reserve(m_allChannels.size());
 
   for (const auto &c : m_allChannels) {
-    // Name filter: none (TypeAheadSearch handles incremental search)
     // Group
-    if (selGroup != "All groups") {
-      if (wxString::FromUTF8(c.getGroupTitle()) != selGroup)
-        continue;
-    }
+    if (selGroup > 0 &&
+        wxString::FromUTF8(c.getGroupTitle()) != groupFilter)
+      continue;
     // Country
-    if (selCountry != "All countries") {
-      if (wxString::FromUTF8(c.getCountry()) != selCountry)
-        continue;
-    }
+    if (selCountry > 0 &&
+        wxString::FromUTF8(c.getCountry()) != countryFilter)
+      continue;
     // Language
-    if (selLang != "All languages") {
-      if (wxString::FromUTF8(c.getLanguage()) != selLang)
-        continue;
-    }
+    if (selLang > 0 &&
+        wxString::FromUTF8(c.getLanguage()) != langFilter)
+      continue;
     out.push_back(c);
   }
 
@@ -143,6 +157,14 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
   auto cmpCountryDesc = [](const Channel &a, const Channel &b) {
     return a.getCountry() > b.getCountry();
   };
+  auto cmpLangAsc = [](const Channel &a, const Channel &b) {
+    return a.getLanguage() < b.getLanguage();
+  };
+  auto cmpLangDesc = [](const Channel &a, const Channel &b) {
+    return a.getLanguage() > b.getLanguage();
+  };
+
+  const SortMode mode = kSortOrder[sortIdx];
 
   std::sort(out.begin(), out.end(), [&](const Channel &a, const Channel &b) {
     if (favFirst) {
@@ -152,20 +174,17 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
         return fa > fb;
     }
 
-    if (sort == "Name ▲")
-      return cmpNameAsc(a, b);
-    if (sort == "Name ▼")
-      return cmpNameDesc(a, b);
-    if (sort == "Group ▲")
-      return cmpGroupAsc(a, b);
-    if (sort == "Group ▼")
-      return cmpGroupDesc(a, b);
-    if (sort == "Country ▲")
-      return cmpCountryAsc(a, b);
-    if (sort == "Country ▼")
-      return cmpCountryDesc(a, b);
-
-    return cmpNameAsc(a, b);
+    switch (mode) {
+      case SortMode::NameAsc:     return cmpNameAsc(a, b);
+      case SortMode::NameDesc:    return cmpNameDesc(a, b);
+      case SortMode::GroupAsc:    return cmpGroupAsc(a, b);
+      case SortMode::GroupDesc:   return cmpGroupDesc(a, b);
+      case SortMode::CountryAsc:  return cmpCountryAsc(a, b);
+      case SortMode::CountryDesc: return cmpCountryDesc(a, b);
+      case SortMode::LangAsc:     return cmpLangAsc(a, b);
+      case SortMode::LangDesc:    return cmpLangDesc(a, b);
+    }
+    return cmpNameAsc(a, b); // недостижимо, защита от -Wswitch
   });
 
   // ⭐ MEMORY RESET on filters (medium)

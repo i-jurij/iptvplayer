@@ -42,6 +42,25 @@ class UpdateAllThread;
 
 enum class ChannelsViewState { Uninitialized, Initializing, Ready, Paused };
 
+enum class SortMode {
+  NameAsc,
+  NameDesc,
+  GroupAsc,
+  GroupDesc,
+  CountryAsc,
+  CountryDesc,
+  LangAsc,
+  LangDesc
+};
+
+inline constexpr SortMode kSortOrder[] = {
+    SortMode::NameAsc,   SortMode::NameDesc,   SortMode::GroupAsc,
+    SortMode::GroupDesc, SortMode::CountryAsc, SortMode::CountryDesc,
+    SortMode::LangAsc,   SortMode::LangDesc,
+};
+
+wxString SortModeLabel(SortMode m);
+
 class MainFrame : public wxFrame {
 public:
   explicit MainFrame(Application *app);

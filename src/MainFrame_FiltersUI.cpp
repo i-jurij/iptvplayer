@@ -1,4 +1,6 @@
 #include "MainFrame.h"
+#include "Utils.h"
+
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
@@ -36,49 +38,47 @@ void MainFrame::createChannelsFilterPanel() {
 
   // Group choice
   m_groupChoice = new wxChoice(m_filterPanel, wxID_ANY);
-  m_groupChoice->Append("All groups");
+  m_groupChoice->Append(_U("All groups"));
   m_groupChoice->SetSelection(0);
   filterSizer->Add(m_groupChoice, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                    FromDIP(8));
 
   // Country choice
   m_countryChoice = new wxChoice(m_filterPanel, wxID_ANY);
-  m_countryChoice->Append("All countries");
+  m_countryChoice->Append(_U("All countries"));
   m_countryChoice->SetSelection(0);
   filterSizer->Add(m_countryChoice, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                    FromDIP(8));
 
   // Language choice
   m_langChoice = new wxChoice(m_filterPanel, wxID_ANY);
-  m_langChoice->Append("All languages");
+  m_langChoice->Append(_U("All languages"));
   m_langChoice->SetSelection(0);
   filterSizer->Add(m_langChoice, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                    FromDIP(12));
 
   // Sort label + choice (compact with ▲▼ in text)
-  filterSizer->Add(new wxStaticText(m_filterPanel, wxID_ANY, "Sort:"), 0,
+  filterSizer->Add(new wxStaticText(m_filterPanel, wxID_ANY, _U("Sort:")), 0,
                    wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(6));
 
+  // Порядок и подписи задаются kSortOrder и SortModeLabel().
+  // Здесь ничего про конкретные значения знать не нужно.
   m_sortChoice = new wxChoice(m_filterPanel, wxID_ANY);
-  m_sortChoice->Append("Name ▲");
-  m_sortChoice->Append("Name ▼");
-  m_sortChoice->Append("Group ▲");
-  m_sortChoice->Append("Group ▼");
-  m_sortChoice->Append("Country ▲");
-  m_sortChoice->Append("Country ▼");
+  for (SortMode m : kSortOrder)
+    m_sortChoice->Append(SortModeLabel(m));
   m_sortChoice->SetSelection(0);
   filterSizer->Add(m_sortChoice, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                    FromDIP(12));
 
   // Favorites first
-  m_favFirst = new wxCheckBox(m_filterPanel, wxID_ANY, "Fav first");
+  m_favFirst = new wxCheckBox(m_filterPanel, wxID_ANY, _U("Fav first"));
   filterSizer->Add(m_favFirst, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                    FromDIP(12));
 
   filterSizer->AddStretchSpacer(1);
   // Reset button
-  m_resetBtn = new wxButton(m_filterPanel, wxID_ANY, "Reset", wxDefaultPosition,
-                            wxDefaultSize);
+  m_resetBtn = new wxButton(m_filterPanel, wxID_ANY, _U("Reset"),
+                            wxDefaultPosition, wxDefaultSize);
   filterSizer->Add(m_resetBtn, 0, wxALIGN_CENTER_VERTICAL);
 
   m_filterPanel->SetSizer(filterSizer);
