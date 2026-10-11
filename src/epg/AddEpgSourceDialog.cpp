@@ -21,51 +21,55 @@
 
 //-----------------------------------------------------------------------------
 AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
-    : wxDialog(parent, wxID_ANY, _("Add EPG Source"), wxDefaultPosition,
+    : wxDialog(parent, wxID_ANY, _U("Add EPG Source"), wxDefaultPosition,
                wxSize(FromDIP(550), -1),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
   // ---- Кнопка "More info" ----
   wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_infoBtn =
-      new wxButton(this, wxID_ANY, _U("More info about popular sources →"));
+  // Стрелка вынесена за _U(): в .pot не нужен \u2192, переводчику — только текст.
+  m_infoBtn = new wxButton(this, wxID_ANY,
+                           _U("More info about popular sources") +
+                               wxString::FromUTF8(" →"));
   topSizer->Add(m_infoBtn, 0);
   mainSizer->Add(topSizer, 0, wxEXPAND | wxALL, FromDIP(14));
 
   // ---- Информационная строка  ----
   wxBoxSizer *infoSizer = new wxBoxSizer(wxHORIZONTAL);
-  infoSizer->Add(new wxStaticText(this, wxID_ANY,
-                                  _("Enter XMLTV URL or choose a local file.")),
-                 0, wxALIGN_CENTER_VERTICAL);
+  infoSizer->Add(
+      new wxStaticText(this, wxID_ANY,
+                       _U("Enter XMLTV URL or choose a local file.")),
+      0, wxALIGN_CENTER_VERTICAL);
   mainSizer->Add(infoSizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));
 
   // Основная сетка
   wxFlexGridSizer *grid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
   grid->AddGrowableCol(1);
 
-  grid->Add(new wxStaticText(this, wxID_ANY, _("URL / Path:")), 0,
+  grid->Add(new wxStaticText(this, wxID_ANY, _U("URL / Path:")), 0,
             wxALIGN_CENTER_VERTICAL);
   wxBoxSizer *rowSizer = new wxBoxSizer(wxHORIZONTAL);
+  // "https://" — технический префикс по умолчанию, не UI-текст.
   m_urlCtrl = new wxTextCtrl(this, wxID_ANY, "https://");
-  m_browseBtn = new wxButton(this, wxID_ANY, _("Browse..."));
+  m_browseBtn = new wxButton(this, wxID_ANY, _U("Browse..."));
   rowSizer->Add(m_urlCtrl, 1, wxEXPAND | wxRIGHT, FromDIP(5));
   rowSizer->Add(m_browseBtn, 0);
   grid->Add(rowSizer, 1, wxEXPAND);
 
-  grid->Add(new wxStaticText(this, wxID_ANY, _("Name (optional):")), 0,
+  grid->Add(new wxStaticText(this, wxID_ANY, _U("Name (optional):")), 0,
             wxALIGN_CENTER_VERTICAL);
   m_nameCtrl = new wxTextCtrl(this, wxID_ANY, "");
   grid->Add(m_nameCtrl, 1, wxEXPAND);
   wxStaticText *nameNote = new wxStaticText(
       this, wxID_ANY,
-      _("If empty, name will be auto-filled from URL or file name."));
+      _U("If empty, name will be auto-filled from URL or file name."));
   nameNote->SetForegroundColour(*wxLIGHT_GREY);
   mainSizer->Add(nameNote, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
 
   // ---- Чекбокс "Auto-update" ----
   grid->Add(new wxStaticText(this, wxID_ANY, ""), 0, wxALIGN_CENTER_VERTICAL);
-  m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, _("Auto-update"));
+  m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, _U("Auto-update"));
   m_autoUpdateCheck->SetValue(false);
   grid->Add(m_autoUpdateCheck, 0, wxALL, FromDIP(14));
 
@@ -88,10 +92,12 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
 
 //-----------------------------------------------------------------------------
 void AddEpgSourceDialog::OnBrowse(wxCommandEvent &) {
+  // i18n: wildcard mask — split into description + literal mask in a
+  // later pass (preserve '|').
   wxFileDialog dlg(
-      this, _("Select XMLTV file"), wxEmptyString, wxEmptyString,
-      _("XMLTV files (*.xml;*.xml.gz;*.gz)|*.xml;*.xml.gz;*.gz|All "
-        "files (*.*)|*.*"),
+      this, _U("Select XMLTV file"), wxEmptyString, wxEmptyString,
+      _U("XMLTV files (*.xml;*.xml.gz;*.gz)|*.xml;*.xml.gz;*.gz|All "
+         "files (*.*)|*.*"),
       wxFD_OPEN | wxFD_FILE_MUST_EXIST);
   if (dlg.ShowModal() == wxID_OK) {
     m_urlCtrl->SetValue(dlg.GetPath());
@@ -105,18 +111,21 @@ void AddEpgSourceDialog::OnInfo(wxCommandEvent &) { ShowInfoDialog(); }
 
 //-----------------------------------------------------------------------------
 void AddEpgSourceDialog::ShowInfoDialog() {
-  wxDialog infoDlg(this, wxID_ANY, _("Popular EPG Sources"), wxDefaultPosition,
+  wxDialog infoDlg(this, wxID_ANY, _U("Popular EPG Sources"),
+                   wxDefaultPosition,
                    wxSize(FromDIP(700), FromDIP(450)),
                    wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
   // ---- Подсказка (вверху) ----
+  // Эмодзи ℹ вынесен за _U(), в .pot не нужен \u2139.
   wxStaticText *hint = new wxStaticText(
       &infoDlg, wxID_ANY,
-      _U("ℹ Double‑click on any row to copy the URL to clipboard.\n"
-         "Note: URLs may become outdated; you can search for current XMLTV "
-         "sources online."));
+      wxString::FromUTF8("ℹ ") +
+          _U("Double‑click on any row to copy the URL to clipboard.\n"
+             "Note: URLs may become outdated; you can search for current "
+             "XMLTV sources online."));
   wxFont hintFont = hint->GetFont();
   hintFont.SetWeight(wxFONTWEIGHT_BOLD);
   hint->SetFont(hintFont);
@@ -137,9 +146,9 @@ void AddEpgSourceDialog::ShowInfoDialog() {
   if (!found || jsonContent.IsEmpty()) {
     wxStaticText *msg =
         new wxStaticText(&infoDlg, wxID_ANY,
-                         _("EPG sources file (epg_sources.json) not found.\n\n"
-                           "Please check installation or search online for "
-                           "'XMLTV EPG sources'."));
+                         _U("EPG sources file (epg_sources.json) not found.\n\n"
+                            "Please check installation or search online for "
+                            "'XMLTV EPG sources'."));
     msg->SetForegroundColour(*wxRED);
     mainSizer->Add(msg, 1, wxEXPAND | wxALL, infoDlg.FromDIP(20));
   } else {
@@ -148,20 +157,21 @@ void AddEpgSourceDialog::ShowInfoDialog() {
     if (doc.HasParseError()) {
       wxStaticText *err =
           new wxStaticText(&infoDlg, wxID_ANY,
-                           _("Error parsing epg_sources.json.\n\n"
-                             "Please check file format (valid JSON array)."));
+                           _U("Error parsing epg_sources.json.\n\n"
+                              "Please check file format (valid JSON array)."));
       err->SetForegroundColour(*wxRED);
       mainSizer->Add(err, 1, wxEXPAND | wxALL, infoDlg.FromDIP(20));
     } else if (doc.IsArray()) {
       wxListView *list =
           new wxListView(&infoDlg, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                          wxLC_REPORT | wxLC_SINGLE_SEL);
-      list->InsertColumn(0, _("Region"), wxLIST_FORMAT_LEFT,
+      list->InsertColumn(0, _U("Region"), wxLIST_FORMAT_LEFT,
                          infoDlg.FromDIP(100));
-      list->InsertColumn(1, _("Name"), wxLIST_FORMAT_LEFT,
+      list->InsertColumn(1, _U("Name"), wxLIST_FORMAT_LEFT,
                          infoDlg.FromDIP(150));
-      list->InsertColumn(2, _("URL"), wxLIST_FORMAT_LEFT, infoDlg.FromDIP(280));
-      list->InsertColumn(3, _("Notes"), wxLIST_FORMAT_LEFT,
+      list->InsertColumn(2, _U("URL"), wxLIST_FORMAT_LEFT,
+                         infoDlg.FromDIP(280));
+      list->InsertColumn(3, _U("Notes"), wxLIST_FORMAT_LEFT,
                          infoDlg.FromDIP(150));
 
       int row = 0;
@@ -206,9 +216,12 @@ void AddEpgSourceDialog::ShowInfoDialog() {
               wxTheClipboard->SetData(new wxTextDataObject(url));
               wxTheClipboard->Close();
 
-              hint->SetLabel(_U("✓ URL copied to clipboard!\n"
-                                "Note: URLs may become outdated; you can "
-                                "search for current XMLTV sources online."));
+              // Эмодзи ✓ вынесен за _U().
+              hint->SetLabel(
+                  wxString::FromUTF8("✓ ") +
+                  _U("URL copied to clipboard!\n"
+                     "Note: URLs may become outdated; you can search for "
+                     "current XMLTV sources online."));
               hint->SetForegroundColour(wxColour(0, 180, 0));
               timer->StartOnce(2000);
             }
@@ -216,8 +229,10 @@ void AddEpgSourceDialog::ShowInfoDialog() {
 
       infoDlg.Bind(wxEVT_TIMER, [hint, timer](wxTimerEvent &evt) {
         if (evt.GetId() == timer->GetId()) {
+          // Симметрично верхней подсказке: эмодзи ℹ вне _U().
           hint->SetLabel(
-              _U("ℹ Double‑click on any row to copy the URL to clipboard.\n"
+              wxString::FromUTF8("ℹ ") +
+              _U("Double‑click on any row to copy the URL to clipboard.\n"
                  "Note: URLs may become outdated; you can search for current "
                  "XMLTV sources online."));
           hint->SetForegroundColour(wxNullColour);
@@ -227,7 +242,7 @@ void AddEpgSourceDialog::ShowInfoDialog() {
     } else {
       wxStaticText *err = new wxStaticText(
           &infoDlg, wxID_ANY,
-          _("epg_sources.json must contain a JSON array of objects."));
+          _U("epg_sources.json must contain a JSON array of objects."));
       err->SetForegroundColour(*wxRED);
       mainSizer->Add(err, 1, wxEXPAND | wxALL, infoDlg.FromDIP(20));
     }
@@ -246,7 +261,7 @@ void AddEpgSourceDialog::ShowInfoDialog() {
 void AddEpgSourceDialog::OnOk(wxCommandEvent &) {
   wxString value = m_urlCtrl->GetValue().Trim();
   if (value.IsEmpty()) {
-    wxMessageBox(_("Please enter a URL or select a file."), _("Error"),
+    wxMessageBox(_U("Please enter a URL or select a file."), _U("Error"),
                  wxOK | wxICON_ERROR, this);
     return;
   }
@@ -255,8 +270,9 @@ void AddEpgSourceDialog::OnOk(wxCommandEvent &) {
     wxURI uri(value);
     // Проверяем, что есть схема (http/https) и сервер (хост)
     if (!uri.HasScheme() || !uri.HasServer() || uri.GetServer().IsEmpty()) {
-      wxMessageBox(_("Invalid URL: missing host (e.g., https://example.com)."),
-                   _("Error"), wxOK | wxICON_ERROR, this);
+      wxMessageBox(
+          _U("Invalid URL: missing host (e.g., https://example.com)."),
+          _U("Error"), wxOK | wxICON_ERROR, this);
       return;
     }
     // URL корректен — сохраняем как есть
@@ -268,8 +284,8 @@ void AddEpgSourceDialog::OnOk(wxCommandEvent &) {
       value = fn.GetFullPath();
     }
     if (!wxFileExists(value)) {
-      wxMessageBox(_("File does not exist."), _("Error"), wxOK | wxICON_ERROR,
-                   this);
+      wxMessageBox(_U("File does not exist."), _U("Error"),
+                   wxOK | wxICON_ERROR, this);
       return;
     }
     m_urlCtrl->SetValue(value);
