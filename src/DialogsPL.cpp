@@ -2,6 +2,7 @@
 #include "GUIManager.h"
 #include "MainFrame.h"
 #include "Playlist.h"
+#include "Utils.h"
 
 #include <wx/wx.h>
 #include <wx/button.h>
@@ -32,41 +33,42 @@ wxBEGIN_EVENT_TABLE(AddPlaylistFileDialog, wxDialog)
 wxEND_EVENT_TABLE()
 
 AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow* parent)
-    : wxDialog(parent, wxID_ANY, "Add Playlist from File",
+    : wxDialog(parent, wxID_ANY, _U("Add Playlist from File"),
                wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
 {
     // ----- controls -------------------------------------------------
+    // i18n: wildcard masks are handled in a separate step (preserve '|').
     m_filePicker = new wxFilePickerCtrl(this, wxID_ANY, wxEmptyString,
-                                        "Select a playlist file",
+                                        _U("Select a playlist file"),
                                         "Playlist files (*.m3u;*.m3u8)|*.m3u;*.m3u8|All files (*.*)|*.*",
                                         wxDefaultPosition, wxDefaultSize,
                                         wxFLP_OPEN | wxFLP_FILE_MUST_EXIST);
     m_titleCtrl = new wxTextCtrl(this, wxID_ANY, "",
                                  wxDefaultPosition, wxSize(300, -1));
-    m_titleCtrl->SetHint("Leave empty to use filename");
+    m_titleCtrl->SetHint(_U("Leave empty to use filename"));
 
     // ----- layout ---------------------------------------------------
     auto* topSizer = new wxBoxSizer(wxVERTICAL);
 
     // file‑picker row
     auto* fileRow = new wxBoxSizer(wxHORIZONTAL);
-    fileRow->Add(new wxStaticText(this, wxID_ANY, "File:"), 0,
+    fileRow->Add(new wxStaticText(this, wxID_ANY, _U("File:")), 0,
                  wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
     fileRow->Add(m_filePicker, 1, wxEXPAND);
     topSizer->Add(fileRow, 0, wxEXPAND | wxALL, 10);
 
     // title row
     auto* titleRow = new wxBoxSizer(wxHORIZONTAL);
-    titleRow->Add(new wxStaticText(this, wxID_ANY, "Title:"), 0,
+    titleRow->Add(new wxStaticText(this, wxID_ANY, _U("Title:")), 0,
                   wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
     titleRow->Add(m_titleCtrl, 1, wxEXPAND);
     topSizer->Add(titleRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
 
     // custom buttons (own IDs!)
     auto* btnSizer = new wxBoxSizer(wxHORIZONTAL);
-    btnSizer->Add(new wxButton(this, ID_BtnOk,     "Ok"),     0, wxRIGHT, 5);
-    btnSizer->Add(new wxButton(this, ID_BtnCancel, "Cancel"), 0);
+    btnSizer->Add(new wxButton(this, ID_BtnOk,     _U("OK")),     0, wxRIGHT, 5);
+    btnSizer->Add(new wxButton(this, ID_BtnCancel, _U("Cancel")), 0);
     topSizer->Add(btnSizer, 0, wxALIGN_RIGHT | wxALL, 20);
 
     SetSizerAndFit(topSizer);
@@ -80,13 +82,13 @@ void AddPlaylistFileDialog::OnOK(wxCommandEvent&)
 
     if (path.IsEmpty())
     {
-        wxMessageBox("Please select a playlist file.", "Error",
+        wxMessageBox(_U("Please select a playlist file."), _U("Error"),
                      wxOK | wxICON_ERROR, this);
         return;
     }
     if (!wxFileExists(path))
     {
-        wxMessageBox("The selected file does not exist.", "Error",
+        wxMessageBox(_U("The selected file does not exist."), _U("Error"),
                      wxOK | wxICON_ERROR, this);
         return;
     }
@@ -107,7 +109,7 @@ void AddPlaylistFileDialog::OnCancel(wxCommandEvent&)
 // AddPlaylistUrlDialog
 // ============================================================================
 AddPlaylistUrlDialog::AddPlaylistUrlDialog(wxWindow* parent)
-    : wxDialog(parent, wxID_ANY, "Add Playlist from URL",
+    : wxDialog(parent, wxID_ANY, _U("Add Playlist from URL"),
                wxDefaultPosition, wxSize(DIALOG_WIDTH, URL_DIALOG_HEIGHT))
 {
     initializeControls();
@@ -118,6 +120,7 @@ AddPlaylistUrlDialog::AddPlaylistUrlDialog(wxWindow* parent)
 void AddPlaylistUrlDialog::initializeControls() {
     m_urlCtrl = new wxTextCtrl(this, wxID_ANY, "",
                                wxDefaultPosition, wxSize(400, -1));
+    // i18n: example URL, not translated.
     m_urlCtrl->SetHint("http://example.com/playlist.m3u");
 
     m_titleCtrl = new wxTextCtrl(this, wxID_ANY, "",
@@ -125,16 +128,17 @@ void AddPlaylistUrlDialog::initializeControls() {
 
     m_userAgentCtrl = new wxTextCtrl(this, wxID_ANY, "",
                                      wxDefaultPosition, wxSize(400, -1));
-    m_userAgentCtrl->SetHint("Optional");
+    m_userAgentCtrl->SetHint(_U("Optional"));
 }
 
 void AddPlaylistUrlDialog::setupLayout() {
     auto* mainSizer = new wxBoxSizer(wxVERTICAL);
 
-    mainSizer->Add(createInputField("URL:", m_urlCtrl), 0, wxEXPAND | wxALL, 10);
-    mainSizer->Add(createInputField("Title:", m_titleCtrl), 0,
+    mainSizer->Add(createInputField(_U("URL:"), m_urlCtrl), 0,
+                   wxEXPAND | wxALL, 10);
+    mainSizer->Add(createInputField(_U("Title:"), m_titleCtrl), 0,
                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(createInputField("User Agent:", m_userAgentCtrl), 0,
+    mainSizer->Add(createInputField(_U("User Agent:"), m_userAgentCtrl), 0,
                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
     mainSizer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0, wxEXPAND | wxALL, 10);
 
@@ -164,7 +168,7 @@ void AddPlaylistUrlDialog::onOK(wxCommandEvent& event)
     // ---- 2. validate URL --------------------------------------------------
     if (m_url.IsEmpty())
     {
-        showError(this, "Please enter a URL");
+        showError(this, _U("Please enter a URL"));
         return;                     // keep dialog open
     }
 
@@ -180,7 +184,7 @@ EditPlaylistDialog::EditPlaylistDialog(wxWindow* parent,
                                        const wxString& source,
                                        const wxString& userAgent,
                                        bool autoUpdate)
-    : wxDialog(parent, wxID_ANY, "Edit Playlist",
+    : wxDialog(parent, wxID_ANY, _U("Edit Playlist"),
                wxDefaultPosition,
                wxSize(DIALOG_WIDTH, EDIT_DIALOG_HEIGHT))
     , m_title(title)
@@ -204,17 +208,19 @@ void EditPlaylistDialog::initializeControls() {
                                   wxDefaultPosition, wxSize(400, -1));
     m_userAgentCtrl = new wxTextCtrl(this, wxID_ANY, m_userAgent,
                                      wxDefaultPosition, wxSize(400, -1));
-    m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, "Auto-update on startup");
+    m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY,
+                                       _U("Auto-update on startup"));
     m_autoUpdateCheck->SetValue(m_autoUpdate);
 }
 
 void EditPlaylistDialog::setupLayout() {
     auto* mainSizer = new wxBoxSizer(wxVERTICAL);
 
-    mainSizer->Add(createInputField("Title:", m_titleCtrl), 0, wxEXPAND | wxALL, 10);
-    mainSizer->Add(createInputField("Source:", m_sourceCtrl), 0,
+    mainSizer->Add(createInputField(_U("Title:"), m_titleCtrl), 0,
+                   wxEXPAND | wxALL, 10);
+    mainSizer->Add(createInputField(_U("Source:"), m_sourceCtrl), 0,
                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(createInputField("User Agent:", m_userAgentCtrl), 0,
+    mainSizer->Add(createInputField(_U("User Agent:"), m_userAgentCtrl), 0,
                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
     mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
     mainSizer->Add(createButtonSection(), 0, wxEXPAND | wxALL, 10);
@@ -234,7 +240,7 @@ wxSizer* EditPlaylistDialog::createInputField(const wxString& label,
 wxSizer* EditPlaylistDialog::createButtonSection() {
     auto* buttonSizer = new wxBoxSizer(wxHORIZONTAL);
 
-    auto* exportBtn = new wxButton(this, wxID_ANY, "Export as M3U");
+    auto* exportBtn = new wxButton(this, wxID_ANY, _U("Export as M3U"));
     exportBtn->Bind(wxEVT_BUTTON, &EditPlaylistDialog::onExport, this);
 
     buttonSizer->Add(exportBtn, 0, wxRIGHT, 5);
@@ -255,7 +261,7 @@ void EditPlaylistDialog::onOK(wxCommandEvent& event) {
     m_autoUpdate = m_autoUpdateCheck->GetValue();
 
     if (m_title.IsEmpty()) {
-        showError(this, "Please enter a title");
+        showError(this, _U("Please enter a title"));
         return;
     }
 
@@ -281,8 +287,9 @@ static wxString ensureM3uExtension(const wxString& path)
 // -----------------------------------------------------------------------
 void EditPlaylistDialog::onExport(wxCommandEvent& WXUNUSED(event))
 {
+    // i18n: wildcard mask handled in a separate step (preserve '|').
     wxFileDialog dlg(this,
-                     "Export Playlist", "", "",
+                     _U("Export Playlist"), "", "",
                      "M3U files (*.m3u)|*.m3u",
                      wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
 
@@ -292,10 +299,10 @@ void EditPlaylistDialog::onExport(wxCommandEvent& WXUNUSED(event))
     wxString outPath = ensureM3uExtension(rawPath);
 
     auto* parent = dynamic_cast<MainFrame*>(GetParent());
-    if (!parent) { showError(this, "Unable to locate parent frame"); return; }
+    if (!parent) { showError(this, _U("Unable to locate parent frame")); return; }
 
     Playlist* pl = parent->GetPlaylistByIndex(m_playlistIndex);
-    if (!pl) { showError(this, "Playlist not found"); return; }
+    if (!pl) { showError(this, _U("Playlist not found")); return; }
 
     // ✅ Используем геттеры
     wxString m3u = "#EXTM3U\n";
@@ -309,7 +316,7 @@ void EditPlaylistDialog::onExport(wxCommandEvent& WXUNUSED(event))
                            wxS_DIR_DEFAULT,
                            wxPATH_MKDIR_FULL)) {
         showError(this,
-                  wxString::Format("Cannot create folder \"%s\"",
+                  wxString::Format(_U("Cannot create folder \"%s\""),
                                    fn.GetPath()));
         return;
     }
@@ -319,7 +326,7 @@ void EditPlaylistDialog::onExport(wxCommandEvent& WXUNUSED(event))
 
     if (!tempFile.Create(tempPath, true)) {
         showError(this,
-                  wxString::Format("Cannot create file \"%s\"", tempPath));
+                  wxString::Format(_U("Cannot create file \"%s\""), tempPath));
         return;
     }
 
@@ -328,7 +335,7 @@ void EditPlaylistDialog::onExport(wxCommandEvent& WXUNUSED(event))
     if (written != len) {
         tempFile.Close();
         wxRemoveFile(tempPath);
-        showError(this, "Write error while creating the playlist file");
+        showError(this, _U("Write error while creating the playlist file"));
         return;
     }
     tempFile.Close();
@@ -336,14 +343,15 @@ void EditPlaylistDialog::onExport(wxCommandEvent& WXUNUSED(event))
     if (!wxRenameFile(tempPath, outPath, true)) {
         wxRemoveFile(tempPath);
         showError(this,
-                  wxString::Format("Failed to rename temporary file to \"%s\"",
-                                   outPath));
+                  wxString::Format(
+                      _U("Failed to rename temporary file to \"%s\""),
+                      outPath));
         return;
     }
 
     wxMessageBox(wxString::Format(
-                     "Playlist exported successfully to:\n%s", outPath),
-                 "Export successful",
+                     _U("Playlist exported successfully to:\n%s"), outPath),
+                 _U("Export successful"),
                  wxOK | wxICON_INFORMATION,
                  this);
 }
@@ -370,16 +378,19 @@ static void onRemoveDialogNo(wxDialog* dlg)
 
 bool showRemovePlaylistDialog(wxWindow* parent, const Playlist* playlist, bool& removeSource)
 {
-    wxDialog dlg(parent, wxID_ANY, "Remove Playlist", wxDefaultPosition, wxDefaultSize);
+    wxDialog dlg(parent, wxID_ANY, _U("Remove Playlist"),
+                 wxDefaultPosition, wxDefaultSize);
     wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
 
     // Сообщение
     wxStaticText* msg = new wxStaticText(&dlg, wxID_ANY,
-        wxString::Format("Remove playlist \"%s\"?", wxString::FromUTF8(playlist->getTitle())));
+        wxString::Format(_U("Remove playlist \"%s\"?"),
+                         wxString::FromUTF8(playlist->getTitle())));
     mainSizer->Add(msg, 0, wxALL | wxEXPAND, 10);
 
     // Чекбокс
-    wxCheckBox* removeSourceCheck = new wxCheckBox(&dlg, wxID_ANY, "Remove source file");
+    wxCheckBox* removeSourceCheck =
+        new wxCheckBox(&dlg, wxID_ANY, _U("Remove source file"));
     if (playlist->isUrl()) {
         removeSourceCheck->Disable();
     }
@@ -387,8 +398,8 @@ bool showRemovePlaylistDialog(wxWindow* parent, const Playlist* playlist, bool& 
 
     // --- стандартные кнопки ---
     wxStdDialogButtonSizer* btnSizer = new wxStdDialogButtonSizer();
-    wxButton* yesBtn = new wxButton(&dlg, wxID_YES, "Yes");
-    wxButton* noBtn  = new wxButton(&dlg, wxID_NO, "No");
+    wxButton* yesBtn = new wxButton(&dlg, wxID_YES, _U("Yes"));
+    wxButton* noBtn  = new wxButton(&dlg, wxID_NO, _U("No"));
 
     btnSizer->AddButton(yesBtn);
     btnSizer->AddButton(noBtn);
