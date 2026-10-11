@@ -243,7 +243,7 @@ void MainFrame::refreshFavorites() {
   auto favChannels = m_application->getFavoritesManager().list();
 
   if (m_favHeader) {
-    m_favHeader->SetLabel(wxString::Format("Favorites: %lu channels",
+    m_favHeader->SetLabel(wxString::Format(_U("Favorites: %lu channels"),
                                            (unsigned long)favChannels.size()));
   }
 

@@ -4,6 +4,7 @@
 #include "LogControl.h"
 #include "MainFrame.h"
 #include "Profiler.h"
+#include "Utils.h"
 #include "VP_SvgIcon.h"
 
 #include <wx/button.h>
@@ -25,7 +26,7 @@ void MainFrame::createFavoritesUI() {
   // Заголовок
   wxBoxSizer *favHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
   m_favHeader =
-      new wxStaticText(m_favoritesPanel, wxID_ANY, "Favorites: 0 channels");
+      new wxStaticText(m_favoritesPanel, wxID_ANY, _U("Favorites: 0 channels"));
   wxFont favFont = m_favHeader->GetFont();
   favFont.SetPointSize(12);
   favFont.SetWeight(wxFONTWEIGHT_BOLD);
@@ -37,12 +38,12 @@ void MainFrame::createFavoritesUI() {
   wxBitmapBundle iconFavList = LoadSvgIcon("list", this);
   wxBitmapBundle iconFavGrid = LoadSvgIcon("grid", this);
 
-  m_favToolBar->AddTool(ID_FAV_VIEW_LIST, "List",
+  m_favToolBar->AddTool(ID_FAV_VIEW_LIST, _U("List"),
                         iconFavList.IsOk() ? iconFavList : wxNullBitmap,
-                        "List view", wxITEM_RADIO);
-  m_favToolBar->AddTool(ID_FAV_VIEW_GRID, "Grid",
+                        _U("List view"), wxITEM_RADIO);
+  m_favToolBar->AddTool(ID_FAV_VIEW_GRID, _U("Grid"),
                         iconFavGrid.IsOk() ? iconFavGrid : wxNullBitmap,
-                        "Grid view", wxITEM_RADIO);
+                        _U("Grid view"), wxITEM_RADIO);
   m_favToolBar->Realize();
   favHeaderSizer->Add(m_favToolBar, 0, wxALL, 0);
 
@@ -59,15 +60,16 @@ void MainFrame::createFavoritesUI() {
   m_favLangChoice = new wxChoice(favFilterPanel, wxID_ANY);
   m_favSortChoice = new wxChoice(favFilterPanel, wxID_ANY);
 
-  m_favGroupChoice->Append("All groups");
-  m_favCountryChoice->Append("All countries");
-  m_favLangChoice->Append("All languages");
-  m_favSortChoice->Append("Name ▲");
-  m_favSortChoice->Append("Name ▼");
-  m_favSortChoice->Append("Group ▲");
-  m_favSortChoice->Append("Group ▼");
-  m_favSortChoice->Append("Country ▲");
-  m_favSortChoice->Append("Country ▼");
+  // Индекс 0 = "показать все". Логика фильтрации читает GetSelection()
+  // (см. ApplyFavoritesFiltersAndSort).
+  m_favGroupChoice->Append(_U("All groups"));
+  m_favCountryChoice->Append(_U("All countries"));
+  m_favLangChoice->Append(_U("All languages"));
+
+  // Порядок и подписи задаются kSortOrder и SortModeLabel() — те же,
+  // что в Channels. Здесь ничего про конкретные значения знать не нужно.
+  for (SortMode m : kSortOrder)
+    m_favSortChoice->Append(SortModeLabel(m));
 
   m_favGroupChoice->SetSelection(0);
   m_favCountryChoice->SetSelection(0);
@@ -77,11 +79,11 @@ void MainFrame::createFavoritesUI() {
   favFilterSizer->Add(m_favGroupChoice, 0, wxRIGHT, FromDIP(8));
   favFilterSizer->Add(m_favCountryChoice, 0, wxRIGHT, FromDIP(8));
   favFilterSizer->Add(m_favLangChoice, 0, wxRIGHT, FromDIP(8));
-  favFilterSizer->Add(new wxStaticText(favFilterPanel, wxID_ANY, "Sort:"), 0,
+  favFilterSizer->Add(new wxStaticText(favFilterPanel, wxID_ANY, _U("Sort:")), 0,
                       wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(6));
   favFilterSizer->Add(m_favSortChoice, 0, wxRIGHT, FromDIP(8));
   favFilterSizer->AddStretchSpacer(1);
-  m_favFilterResetBtn = new wxButton(favFilterPanel, wxID_ANY, "Reset");
+  m_favFilterResetBtn = new wxButton(favFilterPanel, wxID_ANY, _U("Reset"));
   favFilterSizer->Add(m_favFilterResetBtn, 0, wxLEFT, FromDIP(8));
 
   favFilterPanel->SetSizer(favFilterSizer);
@@ -200,28 +202,43 @@ void MainFrame::ApplyFavoritesFiltersAndSort() {
   std::vector<Channel> out;
   out.reserve(favList.size());
 
-  wxString selGroup =
-      m_favGroupChoice ? m_favGroupChoice->GetStringSelection() : "All groups";
-  wxString selCountry = m_favCountryChoice
-                            ? m_favCountryChoice->GetStringSelection()
-                            : "All countries";
-  wxString selLang =
-      m_favLangChoice ? m_favLangChoice->GetStringSelection() : "All languages";
-  wxString sort =
-      m_favSortChoice ? m_favSortChoice->GetStringSelection() : "Name ▲";
+  // Read UI state by index. Index 0 = "все"; индексы > 0 = реальные
+  // значения каналов. Нельзя сравнивать с отображаемой строкой: после
+  // локализации она зависит от языка и фильтр молча сломается.
+  int selGroup   = m_favGroupChoice   ? m_favGroupChoice->GetSelection()   : 0;
+  int selCountry = m_favCountryChoice ? m_favCountryChoice->GetSelection() : 0;
+  int selLang    = m_favLangChoice    ? m_favLangChoice->GetSelection()    : 0;
+  int sortIdx    = m_favSortChoice    ? m_favSortChoice->GetSelection()    : 0;
+
+  // Normalize wxNOT_FOUND (-1).
+  if (selGroup   < 0) selGroup   = 0;
+  if (selCountry < 0) selCountry = 0;
+  if (selLang    < 0) selLang    = 0;
+  if (sortIdx    < 0 ||
+      sortIdx >= static_cast<int>(std::size(kSortOrder)))
+    sortIdx = 0;
+
+  // Pre-resolve real filter values (once, not per channel).
+  wxString groupFilter, countryFilter, langFilter;
+  if (m_favGroupChoice   && selGroup   > 0)
+    groupFilter   = m_favGroupChoice->GetString(selGroup);
+  if (m_favCountryChoice && selCountry > 0)
+    countryFilter = m_favCountryChoice->GetString(selCountry);
+  if (m_favLangChoice    && selLang    > 0)
+    langFilter    = m_favLangChoice->GetString(selLang);
 
   // --- FILTERING ---
   for (const auto &c : favList) {
-    if (selGroup != "All groups" &&
-        wxString::FromUTF8(c.getGroupTitle()) != selGroup)
+    if (selGroup > 0 &&
+        wxString::FromUTF8(c.getGroupTitle()) != groupFilter)
       continue;
 
-    if (selCountry != "All countries" &&
-        wxString::FromUTF8(c.getCountry()) != selCountry)
+    if (selCountry > 0 &&
+        wxString::FromUTF8(c.getCountry()) != countryFilter)
       continue;
 
-    if (selLang != "All languages" &&
-        wxString::FromUTF8(c.getLanguage()) != selLang)
+    if (selLang > 0 &&
+        wxString::FromUTF8(c.getLanguage()) != langFilter)
       continue;
 
     out.push_back(c);
@@ -253,26 +270,21 @@ void MainFrame::ApplyFavoritesFiltersAndSort() {
     return a.getLanguage() > b.getLanguage();
   };
 
+  const SortMode mode = kSortOrder[sortIdx];
+
   std::stable_sort(out.begin(), out.end(),
                    [&](const Channel &a, const Channel &b) {
-                     if (sort == "Name ▲")
-                       return cmpNameAsc(a, b);
-                     if (sort == "Name ▼")
-                       return cmpNameDesc(a, b);
-                     if (sort == "Group ▲")
-                       return cmpGroupAsc(a, b);
-                     if (sort == "Group ▼")
-                       return cmpGroupDesc(a, b);
-                     if (sort == "Country ▲")
-                       return cmpCountryAsc(a, b);
-                     if (sort == "Country ▼")
-                       return cmpCountryDesc(a, b);
-                     if (sort == "Language ▲")
-                       return cmpLangAsc(a, b);
-                     if (sort == "Language ▼")
-                       return cmpLangDesc(a, b);
-
-                     return cmpNameAsc(a, b);
+                     switch (mode) {
+                       case SortMode::NameAsc:     return cmpNameAsc(a, b);
+                       case SortMode::NameDesc:    return cmpNameDesc(a, b);
+                       case SortMode::GroupAsc:    return cmpGroupAsc(a, b);
+                       case SortMode::GroupDesc:   return cmpGroupDesc(a, b);
+                       case SortMode::CountryAsc:  return cmpCountryAsc(a, b);
+                       case SortMode::CountryDesc: return cmpCountryDesc(a, b);
+                       case SortMode::LangAsc:     return cmpLangAsc(a, b);
+                       case SortMode::LangDesc:    return cmpLangDesc(a, b);
+                     }
+                     return cmpNameAsc(a, b); // недостижимо, защита от -Wswitch
                    });
 
   // --- CLEAR CACHES (same as channels) ---
@@ -298,35 +310,21 @@ void MainFrame::ApplyFavoritesFiltersAndSort() {
   if (m_favCards)
     m_favCards->SetChannels(out);
 
-  // --- APPLY SORTING TO LIST MODEL (correct columns: 2/4/5/6) ---
+  // --- APPLY SORTING TO LIST MODEL ---
+  // Колонки модели: 2 = Name, 4 = Group, 5 = Language, 6 = Country.
   if (m_favList && m_favList->GetModel()) {
     int col = 2;
     bool asc = true;
 
-    if (sort == "Name ▲") {
-      col = 2;
-      asc = true;
-    } else if (sort == "Name ▼") {
-      col = 2;
-      asc = false;
-    } else if (sort == "Group ▲") {
-      col = 4;
-      asc = true;
-    } else if (sort == "Group ▼") {
-      col = 4;
-      asc = false;
-    } else if (sort == "Country ▲") {
-      col = 6;
-      asc = true;
-    } else if (sort == "Country ▼") {
-      col = 6;
-      asc = false;
-    } else if (sort == "Language ▲") {
-      col = 5;
-      asc = true;
-    } else if (sort == "Language ▼") {
-      col = 5;
-      asc = false;
+    switch (mode) {
+      case SortMode::NameAsc:     col = 2; asc = true;  break;
+      case SortMode::NameDesc:    col = 2; asc = false; break;
+      case SortMode::GroupAsc:    col = 4; asc = true;  break;
+      case SortMode::GroupDesc:   col = 4; asc = false; break;
+      case SortMode::CountryAsc:  col = 6; asc = true;  break;
+      case SortMode::CountryDesc: col = 6; asc = false; break;
+      case SortMode::LangAsc:     col = 5; asc = true;  break;
+      case SortMode::LangDesc:    col = 5; asc = false; break;
     }
 
     m_favList->GetModel()->SetSorting(col, asc);
