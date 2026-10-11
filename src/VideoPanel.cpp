@@ -5,6 +5,7 @@
 #include "LogControl.h"
 #include "MainFrame.h"
 #include "MpvBackend.h"
+#include "Utils.h"
 #include "VP_SvgIcon.h"
 
 #include <wx/dnd.h>
@@ -55,7 +56,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   wxBoxSizer *headerSizer = new wxBoxSizer(wxHORIZONTAL);
 
   wxStaticText *lbl =
-      new wxStaticText(header, wxID_ANY, _("Temporary playlist"));
+      new wxStaticText(header, wxID_ANY, _U("Temporary playlist"));
 
   headerSizer->Add(lbl, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(5));
   header->SetSizer(headerSizer);
@@ -68,8 +69,10 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL | wxBORDER_NONE);
 
   // Колонки
-  m_tempPlaylistList->InsertColumn(0, _("#"), wxLIST_FORMAT_RIGHT, FromDIP(40));
-  m_tempPlaylistList->InsertColumn(1, _("Name"), wxLIST_FORMAT_LEFT,
+  // "#" — типографский символ (ru: "№"), подлежит переводу.
+  m_tempPlaylistList->InsertColumn(0, _U("#"), wxLIST_FORMAT_RIGHT,
+                                   FromDIP(40));
+  m_tempPlaylistList->InsertColumn(1, _U("Name"), wxLIST_FORMAT_LEFT,
                                    FromDIP(260));
 
   tempSizer->Add(m_tempPlaylistList, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
@@ -100,11 +103,11 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
       new wxBitmapButton(m_tempPlaylistButtonsPanel, wxID_ANY, clearIcon);
 
   // Tooltips
-  m_btnPrev->SetToolTip(_("Previous"));
-  m_btnNext->SetToolTip(_("Next"));
-  m_btnShuffle->SetToolTip(_("Shuffle / Restore"));
-  m_btnRemove->SetToolTip(_("Remove selected"));
-  m_btnClear->SetToolTip(_("Clear playlist"));
+  m_btnPrev->SetToolTip(_U("Previous"));
+  m_btnNext->SetToolTip(_U("Next"));
+  m_btnShuffle->SetToolTip(_U("Shuffle / Restore"));
+  m_btnRemove->SetToolTip(_U("Remove selected"));
+  m_btnClear->SetToolTip(_U("Clear playlist"));
 
   // Добавляем кнопки в сайзер
   btnSizer->Add(m_btnPrev, 0, wxALL, FromDIP(5));
@@ -246,7 +249,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     if (icon.IsOk())
       m_btnOpen->SetBitmap(icon);
     else
-      m_btnOpen->SetLabel("Open");
+      m_btnOpen->SetLabel(_U("Open"));
   }
   m_btnOpen->Bind(wxEVT_BUTTON, &VideoPanel::OnOpen, this);
   ctrlSizer->Add(m_btnOpen, 0, wxALL, FromDIP(5));
@@ -258,7 +261,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     if (icon.IsOk())
       m_btnPlay->SetBitmap(icon);
     else
-      m_btnPlay->SetLabel("Play");
+      m_btnPlay->SetLabel(_U("Play"));
   }
   m_btnPlay->Bind(wxEVT_BUTTON, &VideoPanel::OnPlay, this);
   ctrlSizer->Add(m_btnPlay, 0, wxALL, FromDIP(5));
@@ -270,7 +273,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     if (icon.IsOk())
       m_btnPause->SetBitmap(icon);
     else
-      m_btnPause->SetLabel("Pause");
+      m_btnPause->SetLabel(_U("Pause"));
   }
   m_btnPause->Bind(wxEVT_BUTTON, &VideoPanel::OnPause, this);
   ctrlSizer->Add(m_btnPause, 0, wxALL, FromDIP(5));
@@ -282,7 +285,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     if (icon.IsOk())
       m_btnStop->SetBitmap(icon);
     else
-      m_btnStop->SetLabel("Stop");
+      m_btnStop->SetLabel(_U("Stop"));
   }
   m_btnStop->Bind(wxEVT_BUTTON, &VideoPanel::OnStop, this);
   ctrlSizer->Add(m_btnStop, 0, wxALL, FromDIP(5));
@@ -297,7 +300,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     if (icon.IsOk())
       m_btnRecord->SetBitmap(icon);
     else
-      m_btnRecord->SetLabel(wxString::FromUTF8("🔴 Rec"));
+      m_btnRecord->SetLabel(wxString::FromUTF8("🔴 ") + _U("Rec"));
   }
   m_btnRecord->Bind(wxEVT_BUTTON, &VideoPanel::OnRecord, this);
   ctrlSizer->Add(m_btnRecord, 0, wxALL, FromDIP(5));
@@ -312,7 +315,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     if (icon.IsOk())
       m_btnMute->SetBitmap(icon);
     else
-      m_btnMute->SetLabel("Vol");
+      m_btnMute->SetLabel(_U("Vol"));
   }
   m_btnMute->Bind(wxEVT_TOGGLEBUTTON, &VideoPanel::OnMute, this);
   ctrlSizer->Add(m_btnMute, 0, wxALL, FromDIP(5));
@@ -332,7 +335,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
     if (icon.IsOk())
       m_btnFullscreen->SetBitmap(icon);
     else
-      m_btnFullscreen->SetLabel("Full");
+      m_btnFullscreen->SetLabel(_U("Full"));
   }
   m_btnFullscreen->Bind(wxEVT_BUTTON, &VideoPanel::OnFullscreen, this);
   ctrlSizer->Add(m_btnFullscreen, 0, wxALL, FromDIP(5));
@@ -685,7 +688,7 @@ void VideoPanel::ResetNetworkCacheToDefault() {
 void VideoPanel::SetErrorStatus(const wxString &errorMsg) {
   wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
   if (frame && frame->GetStatusBar()) {
-    frame->SetStatusText("Error", 0);
+    frame->SetStatusText(_U("Error"), 0);
     frame->SetStatusText(errorMsg, 1);
   }
 }
@@ -759,7 +762,7 @@ VideoPanel::~VideoPanel() {
   } catch (const std::exception &e) {
     LOG_ERROR(wxString::Format("VideoPanel dtor std::exception: %s", e.what()));
   } catch (...) {
-    wxMessageBox("VideoPanel dtor unknown exception");
+    wxMessageBox(_U("VideoPanel dtor unknown exception"));
   }
 }
 
@@ -798,7 +801,7 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
   if (info.pausedForCache && !m_isLoading) {
     if (!m_bufferingStatusShown) {
       m_bufferingStatusShown = true;
-      frame->SetStatusText("Buffering...", 0);
+      frame->SetStatusText(_U("Buffering..."), 0);
     }
   } else if (m_bufferingStatusShown) {
     m_bufferingStatusShown = false;
@@ -813,13 +816,13 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
     case TempPlayState::Loading:
     case TempPlayState::FileLoaded:
     case TempPlayState::Starting:
-      statusText = "Loading...";
+      statusText = _U("Loading...");
       break;
     case TempPlayState::Playing:
-      statusText = "Playing";
+      statusText = _U("Playing");
       break;
     case TempPlayState::Paused:
-      statusText = "Paused";
+      statusText = _U("Paused");
       break;
     }
     frame->SetStatusText(statusText, 0);
@@ -845,7 +848,7 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     // ---- Обработка ошибки загрузки ----
     m_isLoading = false;
     m_tempState = TempPlayState::Error;
-    SetErrorStatus("Failed to load stream");
+    SetErrorStatus(_U("Failed to load stream"));
     MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
     if (canvas) {
       canvas->ShowSpinner(false);
@@ -927,19 +930,19 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     wxString stateText;
     switch (st) {
     case PlayerState::FileLoaded:
-      stateText = "File loaded";
+      stateText = _U("File loaded");
       break;
     case PlayerState::Playing:
-      stateText = "Playing";
+      stateText = _U("Playing");
       break;
     case PlayerState::Paused:
-      stateText = "Paused";
+      stateText = _U("Paused");
       break;
     case PlayerState::Stopped:
-      stateText = "Stopped";
+      stateText = _U("Stopped");
       break;
     case PlayerState::Error:
-      stateText = "Error";
+      stateText = _U("Error");
       break;
     default:
       stateText = "";
@@ -1023,20 +1026,20 @@ void VideoPanel::UpdateUiButtons() {
   if (frame && frame->GetStatusBar()) {
     wxString statusText;
     if (m_isLoading) {
-      statusText = "Loading...";
+      statusText = _U("Loading...");
     } else {
       switch (effectiveState) {
       case UiState::Idle:
         statusText = "";
         break;
       case UiState::Loading:
-        statusText = "Loading...";
+        statusText = _U("Loading...");
         break;
       case UiState::Playing:
-        statusText = "Playing";
+        statusText = _U("Playing");
         break;
       case UiState::Paused:
-        statusText = "Paused";
+        statusText = _U("Paused");
         break;
       }
     }
@@ -1286,20 +1289,21 @@ void VideoPanel::OnRecord(wxCommandEvent &) {
 
   PlayerState state = m_playerController->GetState();
   if (state != PlayerState::Playing && state != PlayerState::Paused) {
-    wxMessageBox("Recording is only available during playback", "Error",
-                 wxOK | wxICON_WARNING);
+    wxMessageBox(_U("Recording is only available during playback"),
+                 _U("Error"), wxOK | wxICON_WARNING);
     return;
   }
 
   if (!InitializeRecordDirectory()) {
-    wxMessageBox("Could not initialize record directory", "Error",
-                 wxOK | wxICON_ERROR);
+    wxMessageBox(_U("Could not initialize record directory"),
+                 _U("Error"), wxOK | wxICON_ERROR);
     return;
   }
 
   wxString filename = GenerateRecordFilename();
   if (filename.IsEmpty()) {
-    wxMessageBox("Could not generate filename", "Error", wxOK | wxICON_ERROR);
+    wxMessageBox(_U("Could not generate filename"), _U("Error"),
+                 wxOK | wxICON_ERROR);
     return;
   }
 
@@ -1319,7 +1323,8 @@ void VideoPanel::OnRecordStateChanged(bool isRecording,
 
   if (!error.empty()) {
     m_recordStatusTimer.Stop();
-    frame->SetStatusText("Record error: " + wxString::FromUTF8(error), 1);
+    frame->SetStatusText(
+        wxString::Format(_U("Record error: %s"), wxString::FromUTF8(error)), 1);
     return;
   }
 
@@ -1328,9 +1333,11 @@ void VideoPanel::OnRecordStateChanged(bool isRecording,
     m_recordStatusTimer.Start(1000, wxTIMER_CONTINUOUS);
     wxString fname = wxString::FromUTF8(filename);
     wxFileName fn(fname);
-    frame->GetStatusBar()->SetStatusText(wxString::FromUTF8("🔴 Recording: ") +
-                                             fn.GetFullName() + " [00:00:00]",
-                                         1);
+    frame->GetStatusBar()->SetStatusText(
+        wxString::Format(wxString::FromUTF8("🔴 ") +
+                             _U("Recording: %s [00:00:00]"),
+                         fn.GetFullName()),
+        1);
   } else {
     m_recordStatusTimer.Stop();
     if (!m_lastStreamInfo.IsEmpty()) {
@@ -1359,7 +1366,9 @@ void VideoPanel::OnRecordStatusTimer(wxTimerEvent &) {
   wxString duration = wxString::Format("%02d:%02d:%02d", hours, minutes, secs);
 
   wxString current = frame->GetStatusBar()->GetStatusText(1);
-  const wxString prefix = wxString::FromUTF8("🔴 Recording: ");
+  // Совпадает с форматом, выставленным в OnRecordStateChanged:
+  // "🔴 " + _U("Recording: %s [00:00:00]")
+  const wxString prefix = wxString::FromUTF8("🔴 ") + _U("Recording: ");
   if (current.StartsWith(prefix)) {
     int pos = current.find(prefix);
     if (pos != wxNOT_FOUND) {
@@ -1384,7 +1393,7 @@ void VideoPanel::UpdateRecordButtonState() {
       if (icon.IsOk()) {
         m_btnRecord->SetBitmap(icon);
       } else {
-        m_btnRecord->SetLabel(wxString::FromUTF8("🔴 Stop"));
+        m_btnRecord->SetLabel(wxString::FromUTF8("🔴 ") + _U("Stop"));
         m_btnRecord->SetBackgroundColour(wxColour(200, 50, 50));
         m_btnRecord->SetForegroundColour(*wxWHITE);
       }
@@ -1396,7 +1405,7 @@ void VideoPanel::UpdateRecordButtonState() {
       if (icon.IsOk()) {
         m_btnRecord->SetBitmap(icon);
       } else {
-        m_btnRecord->SetLabel(wxString::FromUTF8("🔴 Rec"));
+        m_btnRecord->SetLabel(wxString::FromUTF8("🔴 ") + _U("Rec"));
         m_btnRecord->SetBackgroundColour(wxNullColour);
         m_btnRecord->SetForegroundColour(wxNullColour);
       }
