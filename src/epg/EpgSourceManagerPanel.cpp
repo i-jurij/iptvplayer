@@ -56,7 +56,7 @@ EpgSourceManagerPanel::~EpgSourceManagerPanel() {}
 
 void EpgSourceManagerPanel::OnAutoApply(wxCommandEvent &) {
   SaveSettings();
-  wxMessageBox(_("Auto-update settings applied."), _("Info"),
+  wxMessageBox(_U("Auto-update settings applied."), _U("Info"),
                wxOK | wxICON_INFORMATION, this);
 }
 
@@ -70,20 +70,20 @@ void EpgSourceManagerPanel::SetupUI() {
 
   // ---- Блок "EPG Sources" ----
   wxStaticBox *sourceBox =
-      new wxStaticBox(m_scrolledWindow, wxID_ANY, _("EPG Sources"));
+      new wxStaticBox(m_scrolledWindow, wxID_ANY, _U("EPG Sources"));
   wxStaticBoxSizer *sourceBoxSizer =
       new wxStaticBoxSizer(sourceBox, wxVERTICAL);
 
   m_sourceList = new wxListCtrl(sourceBox, wxID_ANY, wxDefaultPosition,
                                 wxSize(FromDIP(300), FromDIP(150)),
                                 wxLC_REPORT | wxLC_SINGLE_SEL);
-  m_sourceList->InsertColumn(0, _("URL"), wxLIST_FORMAT_LEFT, FromDIP(300));
-  m_sourceList->InsertColumn(1, _("Name"), wxLIST_FORMAT_LEFT, FromDIP(150));
-  m_sourceList->InsertColumn(2, _("Imported"), wxLIST_FORMAT_LEFT,
+  m_sourceList->InsertColumn(0, _U("URL"), wxLIST_FORMAT_LEFT, FromDIP(300));
+  m_sourceList->InsertColumn(1, _U("Name"), wxLIST_FORMAT_LEFT, FromDIP(150));
+  m_sourceList->InsertColumn(2, _U("Imported"), wxLIST_FORMAT_LEFT,
                              FromDIP(150));
-  m_sourceList->InsertColumn(3, _("Availability"), wxLIST_FORMAT_LEFT,
+  m_sourceList->InsertColumn(3, _U("Availability"), wxLIST_FORMAT_LEFT,
                              FromDIP(100));
-  m_sourceList->InsertColumn(4, _("Auto"), wxLIST_FORMAT_CENTER, FromDIP(50));
+  m_sourceList->InsertColumn(4, _U("Auto"), wxLIST_FORMAT_CENTER, FromDIP(50));
   m_sourceList->SetMinSize(wxSize(-1, FromDIP(150)));
 
   m_sourceList->Bind(wxEVT_LIST_ITEM_ACTIVATED,
@@ -93,10 +93,10 @@ void EpgSourceManagerPanel::SetupUI() {
 
   // ---- Кнопки управления источниками ----
   wxBoxSizer *btnSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_addBtn = new wxButton(sourceBox, wxID_ANY, _("Add"));
-  m_editBtn = new wxButton(sourceBox, wxID_ANY, _("Edit"));
-  m_removeBtn = new wxButton(sourceBox, wxID_ANY, _("Remove"));
-  m_refreshBtn = new wxButton(sourceBox, wxID_ANY, _("Refresh Now"));
+  m_addBtn = new wxButton(sourceBox, wxID_ANY, _U("Add"));
+  m_editBtn = new wxButton(sourceBox, wxID_ANY, _U("Edit"));
+  m_removeBtn = new wxButton(sourceBox, wxID_ANY, _U("Remove"));
+  m_refreshBtn = new wxButton(sourceBox, wxID_ANY, _U("Refresh Now"));
 
   btnSizer->Add(m_addBtn, 0, wxRIGHT, FromDIP(5));
   btnSizer->Add(m_editBtn, 0, wxRIGHT, FromDIP(5));
@@ -110,7 +110,7 @@ void EpgSourceManagerPanel::SetupUI() {
                 FromDIP(5));
 
   // ---- Кнопка Cancel ----
-  m_cancelBtn = new wxButton(sourceBox, wxID_ANY, _("Cancel"));
+  m_cancelBtn = new wxButton(sourceBox, wxID_ANY, _U("Cancel"));
   m_cancelBtn->Hide();
   btnSizer->Add(m_cancelBtn, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(5));
 
@@ -122,15 +122,15 @@ void EpgSourceManagerPanel::SetupUI() {
 
   // ---- Блок "Cache Management" ----
   wxStaticBox *cacheBox =
-      new wxStaticBox(m_scrolledWindow, wxID_ANY, _("Cache Management"));
+      new wxStaticBox(m_scrolledWindow, wxID_ANY, _U("Cache Management"));
   wxStaticBoxSizer *cacheBoxSizer = new wxStaticBoxSizer(cacheBox, wxVERTICAL);
   wxStaticText *cacheNote = new wxStaticText(
       cacheBox, wxID_ANY,
-      _("Deletes all locally cached EPG data. Next update will re-download."));
+      _U("Deletes all locally cached EPG data. Next update will re-download."));
   cacheNote->SetForegroundColour(*wxLIGHT_GREY);
   cacheBoxSizer->Add(cacheNote, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
   m_deleteCacheBtn =
-      new wxButton(cacheBox, wxID_ANY, _("Delete cache / Update all"));
+      new wxButton(cacheBox, wxID_ANY, _U("Delete cache / Update all"));
   cacheBoxSizer->Add(m_deleteCacheBtn, 0, wxLEFT | wxRIGHT | wxBOTTOM,
                      FromDIP(10));
   mainSizer->Add(cacheBoxSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
@@ -140,19 +140,21 @@ void EpgSourceManagerPanel::SetupUI() {
   // ---- Блок "Auto-update settings" ----
   if (m_showAutoUpdateSettings) {
     wxStaticBox *settingsBox =
-        new wxStaticBox(m_scrolledWindow, wxID_ANY, _("Auto-update settings"));
+        new wxStaticBox(m_scrolledWindow, wxID_ANY,
+                        _U("Auto-update settings"));
     wxStaticBoxSizer *settingsSizer =
         new wxStaticBoxSizer(settingsBox, wxVERTICAL);
 
     wxFlexGridSizer *grid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
 
-    grid->Add(new wxStaticText(settingsBox, wxID_ANY, _("Auto-update:")), 0,
+    grid->Add(new wxStaticText(settingsBox, wxID_ANY, _U("Auto-update:")), 0,
               wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_autoUpdateCheck = new wxCheckBox(settingsBox, wxID_ANY, "");
     grid->Add(m_autoUpdateCheck, 0, wxALIGN_LEFT);
 
     grid->Add(
-        new wxStaticText(settingsBox, wxID_ANY, _("Update interval (hours):")),
+        new wxStaticText(settingsBox, wxID_ANY,
+                         _U("Update interval (hours):")),
         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_updateIntervalSpin =
         new wxSpinCtrl(settingsBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
@@ -162,8 +164,9 @@ void EpgSourceManagerPanel::SetupUI() {
     grid->Add(m_updateIntervalSpin, 0, wxALIGN_LEFT);
 
     grid->Add(
-        new wxStaticText(settingsBox, wxID_ANY, _("Days to keep in cache:")), 0,
-        wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+        new wxStaticText(settingsBox, wxID_ANY,
+                         _U("Days to keep in cache:")),
+        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_daysToKeepSpin =
         new wxSpinCtrl(settingsBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
                        wxSize(FromDIP(120), -1));
@@ -174,7 +177,7 @@ void EpgSourceManagerPanel::SetupUI() {
     settingsSizer->Add(grid, 0, wxEXPAND | wxALL, FromDIP(5));
 
     // ---- Кнопка Apply ----
-    m_autoApplyBtn = new wxButton(settingsBox, wxID_ANY, _("Apply"));
+    m_autoApplyBtn = new wxButton(settingsBox, wxID_ANY, _U("Apply"));
     m_autoApplyBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnAutoApply,
                          this);
 
@@ -188,13 +191,14 @@ void EpgSourceManagerPanel::SetupUI() {
 
   // ---- Блок "Match settings" ----
   wxStaticBox *matchBox =
-      new wxStaticBox(m_scrolledWindow, wxID_ANY, _("Match settings"));
+      new wxStaticBox(m_scrolledWindow, wxID_ANY, _U("Match settings"));
   wxStaticBoxSizer *matchSizer = new wxStaticBoxSizer(matchBox, wxVERTICAL);
 
   // Кнопки над контролами
   wxBoxSizer *topMatchSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_aboutMatchBtn = new wxButton(matchBox, wxID_ANY, _("About matching"));
-  m_editRulesBtn = new wxButton(matchBox, wxID_ANY, _("Edit matching rules"));
+  m_aboutMatchBtn = new wxButton(matchBox, wxID_ANY, _U("About matching"));
+  m_editRulesBtn =
+      new wxButton(matchBox, wxID_ANY, _U("Edit matching rules"));
   topMatchSizer->Add(m_aboutMatchBtn, 0, wxRIGHT, FromDIP(10));
   topMatchSizer->Add(m_editRulesBtn, 0);
   matchSizer->Add(topMatchSizer, 0, wxEXPAND | wxALL, FromDIP(10));
@@ -207,8 +211,9 @@ void EpgSourceManagerPanel::SetupUI() {
   wxFlexGridSizer *matchGrid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
 
   matchGrid->Add(
-      new wxStaticText(matchBox, wxID_ANY, _("Fuzzy threshold (50-100):")), 0,
-      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+      new wxStaticText(matchBox, wxID_ANY,
+                       _U("Fuzzy threshold (50-100):")),
+      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
   m_fuzzyThresholdSpin =
       new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
                      wxSize(FromDIP(120), -1));
@@ -217,7 +222,8 @@ void EpgSourceManagerPanel::SetupUI() {
   matchGrid->Add(m_fuzzyThresholdSpin, 0, wxALIGN_LEFT);
 
   matchGrid->Add(
-      new wxStaticText(matchBox, wxID_ANY, _("Substring min length (1-20):")),
+      new wxStaticText(matchBox, wxID_ANY,
+                       _U("Substring min length (1-20):")),
       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
   m_substringMinLengthSpin =
       new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
@@ -227,8 +233,9 @@ void EpgSourceManagerPanel::SetupUI() {
   matchGrid->Add(m_substringMinLengthSpin, 0, wxALIGN_LEFT);
 
   matchGrid->Add(
-      new wxStaticText(matchBox, wxID_ANY, _("Substring ratio (1-100%):")), 0,
-      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+      new wxStaticText(matchBox, wxID_ANY,
+                       _U("Substring ratio (1-100%):")),
+      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
   m_substringMinRatioSpin =
       new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
                      wxSize(FromDIP(120), -1));
@@ -237,8 +244,9 @@ void EpgSourceManagerPanel::SetupUI() {
   matchGrid->Add(m_substringMinRatioSpin, 0, wxALIGN_LEFT);
 
   matchGrid->Add(
-      new wxStaticText(matchBox, wxID_ANY, _("Min match score (1-100):")), 0,
-      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+      new wxStaticText(matchBox, wxID_ANY,
+                       _U("Min match score (1-100):")),
+      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
   m_minScoreSpin = new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString,
                                   wxDefaultPosition, wxSize(FromDIP(120), -1));
   m_minScoreSpin->SetRange(1, 100);
@@ -247,7 +255,8 @@ void EpgSourceManagerPanel::SetupUI() {
 
   matchSizer->Add(matchGrid, 0, wxEXPAND | wxALL, FromDIP(5));
 
-  m_applyMatchBtn = new wxButton(matchBox, wxID_ANY, _("Apply (Match Now)"));
+  m_applyMatchBtn =
+      new wxButton(matchBox, wxID_ANY, _U("Apply (Match Now)"));
   wxBoxSizer *applySizer = new wxBoxSizer(wxHORIZONTAL);
   applySizer->Add(m_applyMatchBtn, 0, wxLEFT, FromDIP(5));
   matchSizer->Add(applySizer, 0, wxEXPAND | wxALL, FromDIP(5));
@@ -294,7 +303,7 @@ void EpgSourceManagerPanel::OnToggleAutoUpdate(wxListEvent &event) {
 
 void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
   if (!m_epgMgr) {
-    wxMessageBox(_("EPG Manager not available."), _("Error"),
+    wxMessageBox(_U("EPG Manager not available."), _U("Error"),
                  wxOK | wxICON_ERROR);
     return;
   }
@@ -311,7 +320,7 @@ void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
   std::string urlUtf8 = urlOrPath.ToUTF8().data();
   for (const auto &src : sources) {
     if (src.url == urlUtf8) {
-      wxMessageBox(_("This EPG source already exists."), _("Info"),
+      wxMessageBox(_U("This EPG source already exists."), _U("Info"),
                    wxOK | wxICON_INFORMATION);
       return;
     }
@@ -349,7 +358,7 @@ void EpgSourceManagerPanel::OnEdit(wxCommandEvent &) {
   long sel =
       m_sourceList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
   if (sel == -1) {
-    wxMessageBox(_("Please select a source to edit."), _("Info"),
+    wxMessageBox(_U("Please select a source to edit."), _U("Info"),
                  wxOK | wxICON_INFORMATION);
     return;
   }
@@ -359,7 +368,7 @@ void EpgSourceManagerPanel::OnEdit(wxCommandEvent &) {
     return;
 
   AddEpgSourceDialog dlg(this);
-  dlg.SetTitle(_("Edit EPG Source"));
+  dlg.SetTitle(_U("Edit EPG Source"));
   dlg.SetUrlOrPath(wxString::FromUTF8(sources[sel].url));
   dlg.SetName(wxString::FromUTF8(sources[sel].name));
   dlg.SetAutoUpdate(sources[sel].autoUpdate);
@@ -381,12 +390,12 @@ void EpgSourceManagerPanel::OnRemove(wxCommandEvent &) {
   long sel =
       m_sourceList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
   if (sel == -1) {
-    wxMessageBox(_("Please select a source to remove."), _("Info"),
+    wxMessageBox(_U("Please select a source to remove."), _U("Info"),
                  wxOK | wxICON_INFORMATION);
     return;
   }
 
-  if (wxMessageBox(_("Remove selected EPG source?"), _("Confirm"),
+  if (wxMessageBox(_U("Remove selected EPG source?"), _U("Confirm"),
                    wxYES_NO | wxICON_QUESTION) != wxYES)
     return;
 
@@ -404,7 +413,7 @@ void EpgSourceManagerPanel::OnRefresh(wxCommandEvent &) {
   long selected =
       m_sourceList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
   if (selected == -1) {
-    wxMessageBox(_("Please select a source to refresh."), _("Info"),
+    wxMessageBox(_U("Please select a source to refresh."), _U("Info"),
                  wxOK | wxICON_INFORMATION, this);
     return;
   }
@@ -417,25 +426,25 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
   if (!m_epgMgr)
     return;
 
-  wxDialog dlg(this, wxID_ANY, _("Delete EPG Cache"), wxDefaultPosition,
+  wxDialog dlg(this, wxID_ANY, _U("Delete EPG Cache"), wxDefaultPosition,
                wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
   wxBoxSizer *topSizer = new wxBoxSizer(wxVERTICAL);
 
   wxString msg =
-      _("EPG cache contains all downloaded programmes and channel mappings.\n"
-        "Deleting will completely clear this data. You will need to reload EPG "
-        "from sources.\n\n"
-        "Updating all sources may take several minutes (depending on number of "
-        "sources).\n"
-        "You can also update individual sources later using the \"Refresh "
-        "Now\" button.");
+      _U("EPG cache contains all downloaded programmes and channel mappings.\n"
+         "Deleting will completely clear this data. You will need to reload "
+         "EPG from sources.\n\n"
+         "Updating all sources may take several minutes (depending on number "
+         "of sources).\n"
+         "You can also update individual sources later using the \"Refresh "
+         "Now\" button.");
   wxStaticText *info = new wxStaticText(&dlg, wxID_ANY, msg);
   info->Wrap(FromDIP(460));
   topSizer->Add(info, 0, wxALL | wxEXPAND, FromDIP(12));
 
   wxCheckBox *updateCheck =
-      new wxCheckBox(&dlg, wxID_ANY, _("Update all sources now"));
+      new wxCheckBox(&dlg, wxID_ANY, _U("Update all sources now"));
   updateCheck->SetValue(false);
   topSizer->Add(updateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
 
@@ -444,7 +453,7 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
     wxButton *okBtn =
         wxDynamicCast(wxWindow::FindWindowById(wxID_OK, &dlg), wxButton);
     if (okBtn)
-      okBtn->SetLabel(_("Delete"));
+      okBtn->SetLabel(_U("Delete"));
     topSizer->Add(btnSizer, 0, wxALL | wxALIGN_RIGHT, FromDIP(12));
   }
 
@@ -455,7 +464,7 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
     return;
 
   if (!m_epgMgr->DeleteCache()) {
-    wxMessageBox(_("Failed to delete EPG cache."), _("Error"),
+    wxMessageBox(_U("Failed to delete EPG cache."), _U("Error"),
                  wxOK | wxICON_ERROR, this);
     return;
   }
@@ -469,8 +478,9 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
       m_epgMgr->UpdateAllSources(false);
     }
   } else {
-    wxMessageBox(_("EPG cache cleared. You can now refresh sources manually."),
-                 _("Info"), wxOK | wxICON_INFORMATION, this);
+    wxMessageBox(
+        _U("EPG cache cleared. You can now refresh sources manually."),
+        _U("Info"), wxOK | wxICON_INFORMATION, this);
   }
 }
 
@@ -513,29 +523,31 @@ void EpgSourceManagerPanel::UpdateSourceList() {
       if (it != m_availabilityCache.end()) {
         const auto &entry = it->second;
         if (entry.available) {
-          avail = _("online");
+          avail = _U("online");
         } else {
           if (entry.failCount >= 5) {
-            avail = _("offline (permanent)");
+            avail = _U("offline (permanent)");
           } else {
             auto now = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                 now - entry.timestamp);
             if (elapsed.count() >= 60) {
-              avail = _("checking...");
+              avail = _U("checking...");
               CheckAvailabilityAsync(sources[i].url);
             } else {
-              avail = _("offline");
+              avail = _U("offline");
             }
           }
         }
       } else {
-        avail = _("checking...");
+        avail = _U("checking...");
         CheckAvailabilityAsync(sources[i].url);
       }
     } else {
-      avail = wxFileExists(url) ? wxString::FromUTF8("✔")
-                                : _U("✘ (missing)");
+      // ✔ и ✘ — пиктограммы, вынесены за _U(); "(missing)" — текст.
+      avail = wxFileExists(url)
+                  ? wxString::FromUTF8("✔")
+                  : wxString::FromUTF8("✘ ") + _U("(missing)");
     }
     m_sourceList->SetItem(idx, 3, avail);
     m_sourceList->SetItem(idx, 4,
@@ -572,12 +584,12 @@ void EpgSourceManagerPanel::OnAvailabilityChecked(const std::string &url,
     if (itemUrl.ToUTF8().data() == url) {
       wxString status;
       if (entry.available) {
-        status = _("online");
+        status = _U("online");
       } else {
         if (entry.failCount >= 5) {
-          status = _("offline (permanent)");
+          status = _U("offline (permanent)");
         } else {
-          status = _("offline");
+          status = _U("offline");
         }
       }
       m_sourceList->SetItem(i, 3, status);
@@ -619,10 +631,10 @@ void EpgSourceManagerPanel::OnApplyMatch(wxCommandEvent &) {
   if (m_epgMgr) {
     m_epgMgr->ReMatchCurrentPlaylist();
     wxMessageBox(
-        _("Match settings applied. Re-matching channels in background."),
-        _("Info"), wxOK | wxICON_INFORMATION, this);
+        _U("Match settings applied. Re-matching channels in background."),
+        _U("Info"), wxOK | wxICON_INFORMATION, this);
   } else {
-    wxMessageBox(_("Match settings saved."), _("Info"),
+    wxMessageBox(_U("Match settings saved."), _U("Info"),
                  wxOK | wxICON_INFORMATION, this);
   }
 }
@@ -654,7 +666,8 @@ void EpgSourceManagerPanel::AdjustColumnWidths() {
   wxClientDC dc(m_sourceList);
   dc.SetFont(m_sourceList->GetFont());
 
-  wxString headers[] = {_("URL"), _("Name"), _("Imported"), _("Availability")};
+  wxString headers[] = {_U("URL"), _U("Name"), _U("Imported"),
+                        _U("Availability")};
   const int colCount = 4;
   int minWidths[colCount] = {FromDIP(150), FromDIP(100), FromDIP(100),
                              FromDIP(60)};
@@ -802,16 +815,17 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
             if (!playlistId.empty()) {
               m_epgMgr->ReMatchCurrentPlaylist();
             } else {
-              m_epgMgr->UpdateProgress({EpgProgressStage::Done, 100,
-                                       std::string(_("Done").ToUTF8().data())});
+              m_epgMgr->UpdateProgress(
+                  {EpgProgressStage::Done, 100, _U("Done").ToStdString()});
             }
           } else {
-            m_epgMgr->UpdateProgress({EpgProgressStage::Done, 100,
-                                     std::string(_("Done").ToUTF8().data())});
+            m_epgMgr->UpdateProgress(
+                {EpgProgressStage::Done, 100, _U("Done").ToStdString()});
           }
         } else {
-          wxMessageBox(_("Failed to update source: ") + wxString::FromUTF8(error),
-                       _("Error"), wxOK | wxICON_ERROR, this);
+          wxMessageBox(wxString::Format(_U("Failed to update source: %s"),
+                                        wxString::FromUTF8(error)),
+                       _U("Error"), wxOK | wxICON_ERROR, this);
         }
         if (onComplete)
           onComplete(success);
@@ -824,7 +838,7 @@ void EpgSourceManagerPanel::OnAboutMatch(wxCommandEvent &) {
   int maxWidth = static_cast<int>(screenW * 0.8);
   int maxHeight = static_cast<int>(screenH * 0.8);
 
-  wxDialog dlg(this, wxID_ANY, _("About EPG Matching"), wxDefaultPosition,
+  wxDialog dlg(this, wxID_ANY, _U("About EPG Matching"), wxDefaultPosition,
                wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
@@ -889,7 +903,7 @@ void EpgSourceManagerPanel::OnAboutMatch(wxCommandEvent &) {
   if (btnSizer) {
     okBtn = wxDynamicCast(wxWindow::FindWindowById(wxID_OK, &dlg), wxButton);
     if (okBtn)
-      okBtn->SetLabel(_("Close"));
+      okBtn->SetLabel(_U("Close"));
     mainSizer->Add(btnSizer, 0, wxALIGN_RIGHT | wxALL, FromDIP(10));
   }
 
@@ -922,14 +936,14 @@ void EpgSourceManagerPanel::OnAboutMatch(wxCommandEvent &) {
 
 void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
   if (!m_epgMgr) {
-    wxMessageBox(_("EPG Manager not available."), _("Error"),
+    wxMessageBox(_U("EPG Manager not available."), _U("Error"),
                  wxOK | wxICON_ERROR, this);
     return;
   }
 
   wxString configDir = m_epgMgr->GetConfigDirectory();
   if (configDir.IsEmpty()) {
-    wxMessageBox(_("Could not determine config directory."), _("Error"),
+    wxMessageBox(_U("Could not determine config directory."), _U("Error"),
                  wxOK | wxICON_ERROR, this);
     return;
   }
@@ -944,7 +958,7 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
   int maxWidth = static_cast<int>(screenW * 0.8);
   int maxHeight = static_cast<int>(screenH * 0.8);
 
-  wxDialog dlg(this, wxID_ANY, _("Edit Matching Rules"), wxDefaultPosition,
+  wxDialog dlg(this, wxID_ANY, _U("Edit Matching Rules"), wxDefaultPosition,
                wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
@@ -965,12 +979,12 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
 
   // Кнопки создаём заранее, чтобы знать их ширину
   wxButton *openFolderBtn =
-      new wxButton(&dlg, wxID_ANY, _("Open Config Folder"));
+      new wxButton(&dlg, wxID_ANY, _U("Open Config Folder"));
   wxButton *openRulesBtn =
-      new wxButton(&dlg, wxID_ANY, _("Open matching_rules.json"));
+      new wxButton(&dlg, wxID_ANY, _U("Open matching_rules.json"));
   wxButton *openAliasesBtn =
-      new wxButton(&dlg, wxID_ANY, _("Open channel_aliases.json"));
-  wxButton *closeBtn = new wxButton(&dlg, wxID_OK, _("Close"));
+      new wxButton(&dlg, wxID_ANY, _U("Open channel_aliases.json"));
+  wxButton *closeBtn = new wxButton(&dlg, wxID_OK, _U("Close"));
 
   // Базовая ширина – 700 DIP, не больше 80% экрана
   int desiredWidth = FromDIP(700);
