@@ -1,6 +1,7 @@
 #include "FavoritesList.h"
 #include "Application.h"
 #include "MainFrame.h"
+#include "Utils.h"
 
 #include <wx/clipbrd.h>
 #include <wx/dataview.h>
@@ -49,10 +50,10 @@ void FavoritesList::ShowContextMenu(const Channel &ch) {
   int idCopyUrl = wxNewId();
   int idCopyName = wxNewId();
 
-  menu.Append(idPlay, "Play");
+  menu.Append(idPlay, _U("Play"));
   menu.AppendSeparator();
-  menu.Append(idCopyUrl, "Copy URL");
-  menu.Append(idCopyName, "Copy Name");
+  menu.Append(idCopyUrl, _U("Copy URL"));
+  menu.Append(idCopyName, _U("Copy Name"));
 
   menu.Bind(
       wxEVT_MENU,

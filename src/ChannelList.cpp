@@ -434,11 +434,11 @@ void ChannelList::ShowContextMenu(const Channel &ch) {
   int idCopyName = wxNewId();
   int idRemove = wxNewId();
 
-  menu.Append(idPlay, "Play");
+  menu.Append(idPlay, _U("Play"));
   menu.AppendSeparator();
-  menu.Append(idCopyUrl, "Copy URL");
-  menu.Append(idCopyName, "Copy Name");
-  menu.Append(idRemove, "Remove from playlist");
+  menu.Append(idCopyUrl, _U("Copy URL"));
+  menu.Append(idCopyName, _U("Copy Name"));
+  menu.Append(idRemove, _U("Remove from playlist"));
 
   // Привязываем обработчики
   menu.Bind(
