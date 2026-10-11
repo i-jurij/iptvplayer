@@ -39,10 +39,10 @@ void MainFrame::onPlaylistRightClick(wxListEvent &event) {
 
   // Создаём меню
   wxMenu menu;
-  menu.Append(ID_OPEN_PLAYLIST, "Open");
-  menu.Append(ID_UPDATE_PLAYLIST, "Update");
-  menu.Append(ID_EDIT_PLAYLIST, "Edit");
-  menu.Append(ID_REMOVE_PLAYLIST, "Remove");
+  menu.Append(ID_OPEN_PLAYLIST, _U("Open"));
+  menu.Append(ID_UPDATE_PLAYLIST, _U("Update"));
+  menu.Append(ID_EDIT_PLAYLIST, _U("Edit"));
+  menu.Append(ID_REMOVE_PLAYLIST, _U("Remove"));
 
   // Показываем меню
   PopupMenu(&menu);
@@ -51,7 +51,8 @@ void MainFrame::onPlaylistRightClick(wxListEvent &event) {
 void MainFrame::OpenPlaylistInternal(int playlistIndex) {
   Playlist *pl = GetPlaylistByIndex(playlistIndex);
   if (!pl) {
-    wxMessageBox("Playlist not found", "Error", wxOK | wxICON_ERROR, this);
+    wxMessageBox(_U("Playlist not found"), _U("Error"),
+                 wxOK | wxICON_ERROR, this);
     return;
   }
 
@@ -66,7 +67,7 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
 
   ToggleHeaderGroup(m_btnChannels);
   showPanel(m_channelList->GetParent());
-  m_channelsHeader->SetLabel("Loading channels...");
+  m_channelsHeader->SetLabel(_U("Loading channels..."));
 
   // --- Загрузка нового плейлиста (асинхронно) ---
   wxTheApp->CallAfter([this, pl]() {
@@ -81,7 +82,8 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
     loadPlaylistChannels(channels, playlistName, playlistId);
 
     m_channelsHeader->SetLabel(wxString::Format(
-        "Playlist: %s / Channels: %zu", wxString::FromUTF8(pl->getTitle()),
+        _U("Playlist: %s / Channels: %zu"),
+        wxString::FromUTF8(pl->getTitle()),
         pl->getChannelCount()));
 
     refreshFavorites();
@@ -90,13 +92,13 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
 
 void MainFrame::OpenPlaylistByModelIndex(int playlistIndex) {
   if (playlistIndex < 0) {
-    SetStatusText("Please select a playlist first.", 1);
+    SetStatusText(_U("Please select a playlist first."), 1);
     return;
   }
 
   auto *mgr = getPlaylistManager();
   if (!mgr || static_cast<size_t>(playlistIndex) >= mgr->getPlaylists().size()) {
-    SetStatusText("Selected playlist is not available.", 1);
+    SetStatusText(_U("Selected playlist is not available."), 1);
     return;
   }
 
@@ -144,15 +146,15 @@ void MainFrame::onAddPlaylistFile(wxCommandEvent &WXUNUSED(event)) {
     savePlaylistsToConfig();
     RefreshPlaylistView();
     SetStatusText(
-        wxString::Format("Playlist added: %s",
+        wxString::Format(_U("Playlist added: %s"),
                          wxString::FromUTF8(dlg.GetTitle().ToStdString())));
   } else if (ec == ErrorCode::DUPLICATE) {
-    SetStatusText("Duplicate playlist not added.");
+    SetStatusText(_U("Duplicate playlist not added."));
     wxLogWarning(wxString::FromUTF8(mgr->getLastError()));
   } else {
-    showError(this, "Failed to add playlist:\n" +
-                        wxString::FromUTF8(mgr->getLastError()));
-    SetStatusText("Failed to add playlist from file.");
+    showError(this, wxString::Format(_U("Failed to add playlist:\n%s"),
+                                     wxString::FromUTF8(mgr->getLastError())));
+    SetStatusText(_U("Failed to add playlist from file."));
   }
 }
 
@@ -175,8 +177,8 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
   std::string userAgent = dlg.GetUserAgent().ToUTF8().data();
 
   if (!IsNetworkUrl(url)) {
-    wxMessageBox("Invalid URL. Please enter a valid address.", "Error",
-                 wxOK | wxICON_ERROR);
+    wxMessageBox(_U("Invalid URL. Please enter a valid address."),
+                 _U("Error"), wxOK | wxICON_ERROR);
     return;
   }
 
@@ -195,15 +197,16 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
 
   if (ec != ErrorCode::OK) {
     m_progressTimer.Stop();
-    SetStatusText("Failed to start playlist loading.", 0);
-    showError(this, wxString::Format("Failed to start playlist loading:\n\n%s",
-                                     wxString::FromUTF8(mgr->getLastError())));
+    SetStatusText(_U("Failed to start playlist loading."), 0);
+    showError(this,
+              wxString::Format(_U("Failed to start playlist loading:\n\n%s"),
+                               wxString::FromUTF8(mgr->getLastError())));
   }
 }
 
 void MainFrame::BeginPlaylistLoading(const wxString &sourceLabel) {
-  SetStatusText(wxString::Format("Loading playlist from %s...", sourceLabel),
-                0);
+  SetStatusText(
+      wxString::Format(_U("Loading playlist from %s..."), sourceLabel), 0);
   int timeout = std::stoi(
       wxGetApp().getConfigManager()->getSetting("playlistTimeoutMs", "30000"));
   m_progressTimer.Start(timeout, wxTIMER_ONE_SHOT);
@@ -215,7 +218,7 @@ void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
   savePlaylistsToConfig();
   RefreshPlaylistView();
 
-  SetStatusText("Playlist added from URL.", 0);
+  SetStatusText(_U("Playlist added from URL."), 0);
 }
 
 void MainFrame::onAddFromUrlError(wxCommandEvent &WXUNUSED(event)) {
@@ -224,21 +227,21 @@ void MainFrame::onAddFromUrlError(wxCommandEvent &WXUNUSED(event)) {
   const std::string lastError = mgr->getLastError();
 
   if (lastError.find("Duplicate") != std::string::npos) {
-    SetStatusText("Duplicate playlist not added.", 0);
+    SetStatusText(_U("Duplicate playlist not added."), 0);
     wxLogWarning(wxString::FromUTF8(lastError));
   } else {
-    SetStatusText("Failed to add playlist.", 0);
-    showError(this, wxString::Format("Failed to add playlist:\n\n%s",
+    SetStatusText(_U("Failed to add playlist."), 0);
+    showError(this, wxString::Format(_U("Failed to add playlist:\n\n%s"),
                                      wxString::FromUTF8(lastError)));
   }
 }
 
 void MainFrame::onProgressTimeout(wxTimerEvent &WXUNUSED(event)) {
-  SetStatusText("Playlist loading timed out.", 0);
+  SetStatusText(_U("Playlist loading timed out."), 0);
 
-  wxMessageDialog dlg(this,
-                      "Playlist loading timed out.\nDo you want to retry?",
-                      "Timeout", wxYES_NO | wxICON_WARNING);
+  wxMessageDialog dlg(
+      this, _U("Playlist loading timed out.\nDo you want to retry?"),
+      _U("Timeout"), wxYES_NO | wxICON_WARNING);
 
   if (dlg.ShowModal() == wxID_YES) {
     AddPlaylistUrlDialog retryDlg(this);
@@ -252,12 +255,13 @@ void MainFrame::onProgressTimeout(wxTimerEvent &WXUNUSED(event)) {
 
       // Проверка дубликата
       if (mgr->isDuplicate(title, url)) {
-        showError(this, "Duplicate playlist: " + title);
-        SetStatusText("Duplicate playlist not added.");
+        showError(this, wxString::Format(_U("Duplicate playlist: %s"),
+                                         wxString::FromUTF8(title)));
+        SetStatusText(_U("Duplicate playlist not added."));
         return;
       }
 
-      SetStatusText("Retrying playlist load...");
+      SetStatusText(_U("Retrying playlist load..."));
 
       int timeout = std::stoi(wxGetApp().getConfigManager()->getSetting(
           "playlistTimeoutMs", "30000"));
@@ -266,7 +270,7 @@ void MainFrame::onProgressTimeout(wxTimerEvent &WXUNUSED(event)) {
       mgr->addPlaylistFromUrl(url, title, userAgent);
     }
   } else {
-    showError(this, "Playlist loading canceled.");
+    showError(this, _U("Playlist loading canceled."));
   }
 }
 
@@ -300,7 +304,7 @@ void MainFrame::onPlaylistSelected(wxListEvent &event) {
   m_selectedPlaylistIndex = playlistIndex;
 
   // обновляем статусбар
-  wxString header = wxString::Format("Playlist selected: %s",
+  wxString header = wxString::Format(_U("Playlist selected: %s"),
                                      wxString::FromUTF8(pl->getTitle()));
   SetStatusText(header, 1);
 
@@ -334,7 +338,7 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
   const int removeIndex = m_selectedPlaylistIndex;
   Playlist *playlist = mgr->getPlaylist(static_cast<size_t>(removeIndex));
   if (!playlist) {
-    SetStatusText("Playlist not found");
+    SetStatusText(_U("Playlist not found"));
     wxLogWarning("Playlist not found for index %d", removeIndex);
     return;
   }
@@ -354,8 +358,9 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
   ErrorCode ec =
       mgr->removePlaylist(static_cast<size_t>(removeIndex), removeSource);
   if (ec != ErrorCode::OK) {
-    showError(this, "Failed to remove playlist:\n" +
-                        wxString::FromUTF8(mgr->getLastError()));
+    showError(this,
+              wxString::Format(_U("Failed to remove playlist:\n%s"),
+                               wxString::FromUTF8(mgr->getLastError())));
     return;
   }
 
@@ -380,8 +385,8 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
 
   savePlaylistsToConfig();
   RefreshPlaylistView();
-  SetStatusText(
-      wxString::Format("Playlist '%s' removed", wxString::FromUTF8(title)));
+  SetStatusText(wxString::Format(_U("Playlist '%s' removed"),
+                                 wxString::FromUTF8(title)));
   wxLogInfo("Playlist removed: %s", wxString::FromUTF8(title));
 
   if (removeIndex == m_loadedPlaylistIndex ||
@@ -391,7 +396,7 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
     if (m_channelCards)
       m_channelCards->SetChannels({}, "empty");
 
-    m_channelsHeader->SetLabel("Playlist: - / Channels: 0");
+    m_channelsHeader->SetLabel(_U("Playlist: - / Channels: 0"));
 
     m_loadedPlaylistIndex = -1;
     m_loadedPlaylistName.clear();
@@ -402,7 +407,7 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
   if (mgr->getPlaylists().empty()) {
     m_selectedPlaylistIndex = -1;
     enablePlaylistButtons(false);
-    SetStatusText("No playlist selected", 1);
+    SetStatusText(_U("No playlist selected"), 1);
 
     m_notebook->ChangeSelection(m_notebook->FindPage(m_playlistPanel));
   } else {
@@ -432,7 +437,8 @@ void MainFrame::onUpdatePlaylist(wxCommandEvent &WXUNUSED(event)) {
       Playlist *pl = mgr->getPlaylist(static_cast<size_t>(sel));
       if (pl) {
         wxString pname = wxString::FromUTF8(pl->getTitle());
-        SetStatusText(wxString::Format("Updating playlist: %s", pname), 0);
+        SetStatusText(wxString::Format(_U("Updating playlist: %s"), pname),
+                      0);
       }
     }
   }
@@ -455,7 +461,7 @@ void MainFrame::onUpdatePlaylist(wxCommandEvent &WXUNUSED(event)) {
       m_updateAllBtn->Enable(true);
     if (auto *sizer = GetSizer())
       sizer->Layout();
-    showError(this, "Unable to start update thread.");
+    showError(this, _U("Unable to start update thread."));
   }
 }
 
@@ -465,12 +471,12 @@ void MainFrame::onUpdateAllPlaylists(wxCommandEvent &WXUNUSED(event)) {
 
   auto *mgr = getPlaylistManager();
   if (!mgr) {
-    showError(this, "Playlist manager is not available.");
+    showError(this, _U("Playlist manager is not available."));
     return;
   }
   if (mgr->getPlaylists().empty()) {
-    SetStatusText("Playlist panel is open but list is empty. Add a playlist "
-                  "before updating all.");
+    SetStatusText(_U("Playlist panel is open but list is empty. Add a playlist "
+                     "before updating all."));
     return;
   }
 
@@ -495,7 +501,7 @@ void MainFrame::onUpdateAllPlaylists(wxCommandEvent &WXUNUSED(event)) {
 
   LOG_DEBUG("onUpdateAllPlaylists: initialized gauge range=%d", totalInt);
 
-  SetStatusText("Updating playlists...", 0);
+  SetStatusText(_U("Updating playlists..."), 0);
 
   if (auto *sizer = GetSizer())
     sizer->Layout();
@@ -512,7 +518,7 @@ void MainFrame::onUpdateAllPlaylists(wxCommandEvent &WXUNUSED(event)) {
       m_updateAllBtn->Enable(true);
     if (auto *sizer = GetSizer())
       sizer->Layout();
-    showError(this, "Unable to start update thread.");
+    showError(this, _U("Unable to start update thread."));
   }
 }
 
@@ -575,17 +581,19 @@ void MainFrame::onUpdateAllDone(wxCommandEvent &ev) {
   // Сообщение о результате
   if (updated > 0) {
     if (reloaded) {
-      SetStatusText(wxString::Format(
-                        "Updated %d playlists and reloaded current.", updated),
-                    0);
+      SetStatusText(
+          wxString::Format(_U("Updated %d playlists and reloaded current."),
+                           updated),
+          0);
     } else {
-      SetStatusText(wxString::Format("Updated %d playlists.", updated), 0);
+      SetStatusText(wxString::Format(_U("Updated %d playlists."), updated),
+                    0);
     }
-    SetStatusText("Update finished.", 1);
+    SetStatusText(_U("Update finished."), 1);
     LOG_INFO("UpdateAll done: %d playlists updated", updated);
   } else {
-    SetStatusText("No playlists updated.", 0);
-    SetStatusText("Update failed or no changes.", 1);
+    SetStatusText(_U("No playlists updated."), 0);
+    SetStatusText(_U("Update failed or no changes."), 1);
     LOG_WARN("UpdateAll done: 0 playlists updated");
   }
 
@@ -651,14 +659,17 @@ void MainFrame::onUpdateOneDone(wxCommandEvent &ev) {
   // Сообщение о результате
   wxString plName = GetPlaylistName(updatedPl);
   if (status != 0) {
+    SetStatusText(reloaded ? _U("Update finished and reloaded.")
+                           : _U("Update finished."),
+                  0);
     SetStatusText(
-        reloaded ? "Update finished and reloaded." : "Update finished.", 0);
-    SetStatusText(
-        wxString::Format("Playlist '%s' updated successfully.", plName), 1);
+        wxString::Format(_U("Playlist '%s' updated successfully."), plName),
+        1);
     LOG_INFO("UpdateOne done: playlist '%s' updated successfully", plName);
   } else {
-    SetStatusText("Update failed.", 0);
-    SetStatusText(wxString::Format("Playlist '%s' update failed.", plName), 1);
+    SetStatusText(_U("Update failed."), 0);
+    SetStatusText(
+        wxString::Format(_U("Playlist '%s' update failed."), plName), 1);
     LOG_ERROR("UpdateOne failed for playlist '%s': %s", plName,
               wxString::FromUTF8(getPlaylistManager()->getLastError()));
   }
@@ -712,11 +723,11 @@ void MainFrame::onUpdateProgress(wxCommandEvent &ev) {
     wxString title = wxString::FromUTF8(m_loadedPlaylistName);
     if (title.IsEmpty())
       title = "-";
-    SetStatusText(wxString::Format("Updating playlist: %s — %d%% (%d/%d)",
-                                   title, percent, clampedProcessed,
-                                   effectiveTotal),
-                  0);
-    SetStatusText(wxString::Format("Updating: %d%% (%d/%d)", percent,
+    SetStatusText(
+        wxString::Format(_U("Updating playlist: %s — %d%% (%d/%d)"), title,
+                         percent, clampedProcessed, effectiveTotal),
+        0);
+    SetStatusText(wxString::Format(_U("Updating: %d%% (%d/%d)"), percent,
                                    clampedProcessed, effectiveTotal),
                   1);
   }
@@ -816,9 +827,10 @@ void MainFrame::onAddIPTVPlaylist(wxCommandEvent &WXUNUSED(event)) {
     fflush(stderr);
 
     m_progressTimer.Stop();
-    SetStatusText("Failed to start playlist loading.", 0);
-    showError(this, wxString::Format("Failed to start playlist loading:\n\n%s",
-                                     wxString::FromUTF8(mgr->getLastError())));
+    SetStatusText(_U("Failed to start playlist loading."), 0);
+    showError(this,
+              wxString::Format(_U("Failed to start playlist loading:\n\n%s"),
+                               wxString::FromUTF8(mgr->getLastError())));
   }
 
   fprintf(stderr, "[MARK] A14: onAddIPTVPlaylist exit\n");
