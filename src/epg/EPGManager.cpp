@@ -388,7 +388,7 @@ EPGManager::MatchingSession::~MatchingSession() {
   }
   info.stage = EpgProgressStage::Done;
   info.percent = 100;
-  info.stageText = "Done";
+  info.stageText = _U("Done").ToStdString();
 
   wxTheApp->CallAfter([owner = owner, info]() { owner->UpdateProgress(info); });
 }
@@ -504,9 +504,9 @@ void EPGManager::OnProgressTimer(wxTimerEvent &) {
 
   int percent = (total > 0) ? static_cast<int>((downloaded / total) * 100) : 0;
 
-  std::string stageText = std::string(_("Downloading").ToUTF8().data());
+  std::string stageText = _U("Downloading").ToStdString();
   if (m_downloadProgress.abort.load()) {
-    stageText = std::string(_("Cancelled").ToUTF8().data());
+    stageText = _U("Cancelled").ToStdString();
     UpdateProgress({EpgProgressStage::Cancelled, percent, stageText, downloaded,
                    total, speed});
     StopProgressTimer();
@@ -583,7 +583,7 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
     // Уведомление UI о завершении (сбрасывает busy и гейдж)
     UpdateProgress(
         {EpgProgressStage::Done, 100,
-         std::string(_("No EPG sources to update").ToUTF8().data())});
+         _U("No EPG sources to update").ToStdString()});
     return;
   }
 
@@ -623,7 +623,7 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
             }
             if (!startedMatching) {
               UpdateProgress({EpgProgressStage::Done, 100,
-                              std::string(_("Done").ToUTF8().data())});
+                              _U("Done").ToStdString()});
             }
           }
         });
@@ -744,7 +744,7 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     EpgProgressInfo info;
     info.stage = EpgProgressStage::Downloading;
     info.percent = -1;
-    info.stageText = std::string(_("Downloading").ToUTF8().data());
+    info.stageText = _U("Downloading").ToStdString();
     info.downloadedBytes = 0;
     info.totalBytes = check.contentLength > 0 ? check.contentLength : 0;
     info.speedBytesPerSec = 0;
@@ -774,13 +774,13 @@ bool EPGManager::LoadFromUrl(const std::string &url,
 
   if (m_downloadProgress.abort.load()) {
     UpdateProgress({EpgProgressStage::Cancelled, -1,
-                    std::string(_("Cancelled").ToUTF8().data())});
+                    _U("Cancelled").ToStdString()});
     setLastError("Download cancelled");
     return false;
   }
 
   UpdateProgress({EpgProgressStage::Extracting, -1,
-                  std::string(_("Extracting").ToUTF8().data())});
+                  _U("Extracting").ToStdString()});
 
   // ... дальше распаковка и парсинг
   if (xmlData.size() > 100 * 1024 * 1024) {
@@ -808,14 +808,14 @@ bool EPGManager::LoadFromUrl(const std::string &url,
 bool EPGManager::LoadFromFile(const std::string &filePath) {
   // Уведомление о начале
   UpdateProgress({EpgProgressStage::Extracting, -1,
-                  std::string(_("Extracting").ToUTF8().data())});
+                  _U("Extracting").ToStdString()});
 
   std::ifstream file(filePath, std::ios::binary);
   if (!file.is_open()) {
     setLastError("Cannot open file: " + filePath);
     LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
     UpdateProgress({EpgProgressStage::Error, 0,
-                    std::string(_("Error: Cannot open file").ToUTF8().data())});
+                    _U("Error: Cannot open file").ToStdString()});
     return false;
   }
   std::string content((std::istreambuf_iterator<char>(file)),
@@ -827,7 +827,7 @@ bool EPGManager::LoadFromFile(const std::string &filePath) {
     LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
     UpdateProgress(
         {EpgProgressStage::Error, 0,
-         std::string(_("Error: Decompression failed").ToUTF8().data())});
+         _U("Error: Decompression failed").ToStdString()});
     return false;
   }
 
@@ -843,8 +843,7 @@ void EPGManager::RefreshSourceAsync(
     if (status != std::future_status::ready) {
       if (callback)
         callback(false,
-                 std::string(
-                     _("Previous refresh still in progress").ToUTF8().data()));
+                 _U("Previous refresh still in progress").ToStdString());
       return;
     }
   }
@@ -883,7 +882,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
 
   // Начало парсинга
   UpdateProgress({EpgProgressStage::Parsing, -1,
-                  std::string(_("Parsing").ToUTF8().data())});
+                  _U("Parsing").ToStdString()});
 
   EPGParserExpat parser;
   if (!parser.Parse(xmlData)) {
@@ -922,7 +921,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     if (processed % 10 == 0 || processed == total) {
       int percent = static_cast<int>((processed * 100) / total);
       UpdateProgress({EpgProgressStage::Parsing, percent,
-                      std::string(_("Parsing").ToUTF8().data())});
+                      _U("Parsing").ToStdString()});
     }
   }
 
@@ -956,8 +955,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     // Завершение
     UpdateProgress(
         {EpgProgressStage::Parsing, 100,
-         std::string(
-             _("Parsing complete, waiting for matching...").ToUTF8().data())});
+         _U("Parsing complete, waiting for matching...").ToStdString()});
   } else {
     m_db->RollbackTransaction();
     setLastError("Failed to insert data into database");
@@ -1165,7 +1163,7 @@ void EPGManager::RebuildNormalizedCache() {
       EpgProgressInfo info;
       info.stage = EpgProgressStage::Matching;
       info.percent = total > 0 ? (int)((i + 1) * 100 / total) : 100;
-      info.stageText = "Preparing EPG index";
+      info.stageText = _U("Preparing EPG index").ToStdString();
       UpdateProgress(info);
     }
   }
@@ -1551,7 +1549,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
     EpgProgressInfo info;
     info.stage = EpgProgressStage::Matching;
     info.percent = 0;
-    info.stageText = "Preparing EPG index";
+    info.stageText = _U("Preparing EPG index").ToStdString();
     UpdateProgress(info);
   }
 
@@ -1652,7 +1650,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
             if (m_cancelMatching) {
               wxTheApp->CallAfter([this]() {
                 UpdateProgress({EpgProgressStage::Cancelled, 0,
-                                std::string(_("Cancelled").ToUTF8().data())});
+                                _U("Cancelled").ToStdString()});
               });
               break;
             }
