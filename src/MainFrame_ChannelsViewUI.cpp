@@ -25,8 +25,8 @@ void MainFrame::createChannelsView() {
 
   // Заголовок
   wxBoxSizer *channelHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_channelsHeader =
-      new wxStaticText(m_channelsPage, wxID_ANY, "Playlist: - / Channels: 0");
+  m_channelsHeader = new wxStaticText(m_channelsPage, wxID_ANY,
+                                      _U("Playlist: - / Channels: 0"));
   wxFont hFont = m_channelsHeader->GetFont();
   hFont.SetPointSize(12);
   hFont.SetWeight(wxFONTWEIGHT_BOLD);
@@ -40,19 +40,19 @@ void MainFrame::createChannelsView() {
   wxBitmapBundle iconGrid = LoadSvgIcon("grid", this);
   wxBitmapBundle iconLogo = LoadSvgIcon("showlogo", this);
 
-  m_viewToolBar->AddTool(ID_VIEW_LIST, "List",
-                         iconList.IsOk() ? iconList : wxNullBitmap, "List view",
-                         wxITEM_RADIO);
-  m_viewToolBar->AddTool(ID_VIEW_GRID, "Cards",
+  m_viewToolBar->AddTool(ID_VIEW_LIST, _U("List"),
+                         iconList.IsOk() ? iconList : wxNullBitmap,
+                         _U("List view"), wxITEM_RADIO);
+  m_viewToolBar->AddTool(ID_VIEW_GRID, _U("Cards"),
                          iconGrid.IsOk() ? iconGrid : wxNullBitmap,
-                         "Cards view", wxITEM_RADIO);
+                         _U("Cards view"), wxITEM_RADIO);
   m_viewToolBar->AddSeparator();
-  m_viewToolBar->AddTool(ID_SHOW_LOGO, "Logo",
+  m_viewToolBar->AddTool(ID_SHOW_LOGO, _U("Logo"),
                          iconLogo.IsOk() ? iconLogo : wxNullBitmap,
-                         "Show channel logo", wxITEM_CHECK);
+                         _U("Show channel logo"), wxITEM_CHECK);
   m_viewToolBar->Realize();
   m_viewToolBar->ToggleTool(ID_SHOW_LOGO, !m_channelsNoLogo);
-  m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, "Show channel logo");
+  m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, _U("Show channel logo"));
 
   channelHeaderSizer->Add(m_viewToolBar, 0, wxALL, 0);
   channelsSizer->Add(channelHeaderSizer, 0, wxEXPAND | wxALL, 12);
@@ -274,9 +274,9 @@ void MainFrame::ApplyChannelsNoLogoToViews() {
       }
     }
 
-    SetStatusText("Channel logos enabled.", 0);
+    SetStatusText(_U("Channel logos enabled."), 0);
   } else {
-    SetStatusText("Channel logos disabled.", 0);
+    SetStatusText(_U("Channel logos disabled."), 0);
   }
 }
 
