@@ -47,7 +47,7 @@ void MainFrame::RefreshPlaylistView() {
     wxString title = wxString::FromUTF8(pl->getTitle());
     wxString source = wxString::FromUTF8(pl->getSource());
     wxString channels = wxString::Format("%zu", pl->getChannelCount());
-    wxString autoUpd = pl->getAutoUpdate() ? "Yes" : "No";
+    wxString autoUpd = pl->getAutoUpdate() ? _U("Yes") : _U("No");
     wxString lastUpd = formatTimestamp(pl->getLastUpdate());
 
     long itemIndex =
@@ -84,7 +84,7 @@ void MainFrame::RefreshPlaylistView() {
   if (!restored) {
     m_selectedPlaylistIndex = -1;
     enablePlaylistButtons(false);
-    SetStatusText("No playlist selected", 1);
+    SetStatusText(_U("No playlist selected"), 1);
   }
 }
 
@@ -97,13 +97,14 @@ void MainFrame::addPlaylistToView(size_t index, const Playlist *playlist) {
   m_playlistList->SetItem(item, 2, wxString::FromUTF8(playlist->getSource()));
   m_playlistList->SetItem(item, 3,
                           wxString::Format("%zu", playlist->getChannelCount()));
-  m_playlistList->SetItem(item, 4, playlist->getAutoUpdate() ? "Yes" : "No");
+  m_playlistList->SetItem(item, 4,
+                          playlist->getAutoUpdate() ? _U("Yes") : _U("No"));
   m_playlistList->SetItem(item, 5, formatTimestamp(playlist->getLastUpdate()));
   m_playlistList->SetItemData(item, static_cast<wxUIntPtr>(index));
 }
 
 void MainFrame::updateStatusBar(size_t playlistCount) {
-  SetStatusText(wxString::Format("Playlists: %zu", playlistCount), 1);
+  SetStatusText(wxString::Format(_U("Playlists: %zu"), playlistCount), 1);
 }
 
 void MainFrame::resetPlaylistSelection() {
@@ -136,7 +137,8 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
     m_epgChannels->Clear();
 
   wxString header =
-      wxString::Format("Playlist: %s / Channels: %zu", title, channels.size());
+      wxString::Format(_U("Playlist: %s / Channels: %zu"),
+                       title, channels.size());
   m_channelsHeader->SetLabel(header);
 
   // 1) Сохраняем оригинальный список каналов. Проставляем playlistName и
@@ -279,7 +281,7 @@ bool MainFrame::validatePlaylistSelection(bool showMessage) {
   // Контрол может быть ещё не создан
   if (!m_playlistList) {
     if (showMessage)
-      showError(this, "Playlist list is not available");
+      showError(this, _U("Playlist list is not available"));
     m_selectedPlaylistIndex = -1;
     enablePlaylistButtons(false);
     return false;
@@ -290,12 +292,12 @@ bool MainFrame::validatePlaylistSelection(bool showMessage) {
       m_playlistList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
   if (item == -1) {
     if (showMessage) {
-      wxMessageBox("Please select a playlist first.", "Info",
+      wxMessageBox(_U("Please select a playlist first."), _U("Info"),
                    wxOK | wxICON_INFORMATION, this);
     }
     m_selectedPlaylistIndex = -1;
     enablePlaylistButtons(false);
-    SetStatusText("No playlist selected", 1);
+    SetStatusText(_U("No playlist selected"), 1);
     return false;
   }
 
@@ -308,10 +310,10 @@ bool MainFrame::validatePlaylistSelection(bool showMessage) {
   if (!mgr || modelIndex < 0 ||
       static_cast<size_t>(modelIndex) >= mgr->getPlaylists().size()) {
     if (showMessage)
-      showError(this, "Selected playlist is not available");
+      showError(this, _U("Selected playlist is not available"));
     m_selectedPlaylistIndex = -1;
     enablePlaylistButtons(false);
-    SetStatusText("No playlist selected", 1);
+    SetStatusText(_U("No playlist selected"), 1);
     return false;
   }
 
@@ -322,7 +324,7 @@ bool MainFrame::validatePlaylistSelection(bool showMessage) {
   // Обновим статусбар с названием (необязательно, но полезно)
   Playlist *pl = mgr->getPlaylist(static_cast<size_t>(modelIndex));
   if (pl) {
-    SetStatusText(wxString::Format("Playlist selected: %s",
+    SetStatusText(wxString::Format(_U("Playlist selected: %s"),
                                    wxString::FromUTF8(pl->getTitle())),
                   1);
   }
@@ -332,7 +334,7 @@ bool MainFrame::validatePlaylistSelection(bool showMessage) {
 
 bool MainFrame::validatePlaylistManager() const {
   if (!getPlaylistManager()) {
-    showError(const_cast<MainFrame *>(this), "PlaylistManager not available");
+    showError(const_cast<MainFrame *>(this), _U("PlaylistManager not available"));
     return false;
   }
   return true;
@@ -340,7 +342,7 @@ bool MainFrame::validatePlaylistManager() const {
 
 bool MainFrame::validateApplication() const {
   if (!m_application) {
-    showError(const_cast<MainFrame *>(this), "Application not available");
+    showError(const_cast<MainFrame *>(this), _U("Application not available"));
     return false;
   }
   return true;
@@ -376,20 +378,21 @@ void MainFrame::handlePlaylistExport(const wxString &exportPath,
           ? playlistIndex
           : (validatePlaylistSelection(false) ? m_selectedPlaylistIndex : -1);
   if (idx < 0) {
-    showError(this, "No playlist selected for export");
+    showError(this, _U("No playlist selected for export"));
     return;
   }
 
   ErrorCode ec =
       mgr->exportPlaylist(static_cast<size_t>(idx), exportPath.ToStdString());
   if (ec != ErrorCode::OK) {
-    showError(this, "Failed to export playlist:\n" +
-                        wxString::FromUTF8(mgr->getLastError()));
+    showError(this,
+              wxString::Format(_U("Failed to export playlist:\n%s"),
+                               wxString::FromUTF8(mgr->getLastError())));
     return;
   }
   savePlaylistsToConfig();
   RefreshPlaylistView();
-  showInfo(this, "Playlist exported successfully.");
+  showInfo(this, _U("Playlist exported successfully."));
 }
 
 void MainFrame::editPlaylistAtIndex(int index) {
@@ -398,7 +401,7 @@ void MainFrame::editPlaylistAtIndex(int index) {
     return;
   Playlist *pl = mgr->getPlaylist(static_cast<size_t>(index));
   if (!pl) {
-    showError(this, "Playlist not found");
+    showError(this, _U("Playlist not found"));
     return;
   }
 
@@ -427,8 +430,9 @@ void MainFrame::updatePlaylistFromDialog(int index,
       dlg.GetSource().ToStdString(), dlg.GetUserAgent().ToStdString(),
       dlg.GetAutoUpdate());
   if (ec != ErrorCode::OK) {
-    showError(this, "Failed to save playlist:\n" +
-                        wxString::FromUTF8(mgr->getLastError()));
+    showError(this,
+              wxString::Format(_U("Failed to save playlist:\n%s"),
+                               wxString::FromUTF8(mgr->getLastError())));
     return;
   }
 
@@ -444,10 +448,12 @@ void MainFrame::updatePlaylistFromDialog(int index,
 
   std::string warning = mgr->getLastError();
   if (!warning.empty()) {
-    wxMessageBox("Playlist saved, but:\n\n" + wxString::FromUTF8(warning),
-                 "Warning", wxOK | wxICON_WARNING, this);
+    wxMessageBox(
+        wxString::Format(_U("Playlist saved, but:\n\n%s"),
+                         wxString::FromUTF8(warning)),
+        _U("Warning"), wxOK | wxICON_WARNING, this);
   } else {
-    showInfo(this, "Playlist saved.");
+    showInfo(this, _U("Playlist saved."));
   }
 }
 
@@ -502,7 +508,7 @@ void MainFrame::startAutoUpdateFromSavedPlaylists() {
       m_updateAllBtn->Enable(true);
     if (auto *sizer = GetSizer())
       sizer->Layout();
-    showError(this, "Unable to start auto-update thread.");
+    showError(this, _U("Unable to start auto-update thread."));
   }
 }
 
@@ -524,7 +530,7 @@ void MainFrame::HighlightLoadedPlaylistInList() {
   m_playlistList->EnsureVisible(m_loadedPlaylistIndex);
 
   // обновляем статусбар
-  SetStatusText(wxString::Format("Playlist selected: %s",
+  SetStatusText(wxString::Format(_U("Playlist selected: %s"),
                                  wxString::FromUTF8(m_loadedPlaylistName)),
                 1);
 }
@@ -559,11 +565,12 @@ void MainFrame::CheckAndSuggestPlaylist() {
     return;
 
   // Показываем вопрос
-  wxMessageDialog dlg(this,
-                      "No playlists found.\n\n"
-                      "Would you like to add one from the IPTV-Org repository?",
-                      "Welcome to IPTV Player", wxYES_NO | wxICON_QUESTION);
-  dlg.SetYesNoLabels("Yes, add playlist", "No, I'll add later");
+  wxMessageDialog dlg(
+      this,
+      _U("No playlists found.\n\n"
+         "Would you like to add one from the IPTV-Org repository?"),
+      _U("Welcome to IPTV Player"), wxYES_NO | wxICON_QUESTION);
+  dlg.SetYesNoLabels(_U("Yes, add playlist"), _U("No, I'll add later"));
 
   if (dlg.ShowModal() != wxID_YES)
     return;
@@ -592,9 +599,9 @@ void MainFrame::CheckAndSuggestPlaylist() {
 
     if (ec != ErrorCode::OK) {
       m_progressTimer.Stop();
-      SetStatusText("Failed to start playlist loading.", 0);
+      SetStatusText(_U("Failed to start playlist loading."), 0);
       showError(this,
-                wxString::Format("Failed to start playlist loading:\n\n%s",
+                wxString::Format(_U("Failed to start playlist loading:\n\n%s"),
                                  wxString::FromUTF8(mgr->getLastError())));
     }
   }
@@ -714,10 +721,10 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
   // Диалог подтверждения
   wxMessageDialog dlg(
       this,
-      wxString::Format("Remove channel '%s' from playlist '%s' permanently?",
+      wxString::Format(_U("Remove channel '%s' from playlist '%s' permanently?"),
                        wxString::FromUTF8(ch.getName()),
                        wxString::FromUTF8(playlistName)),
-      "Remove Channel", wxYES_NO | wxICON_QUESTION);
+      _U("Remove Channel"), wxYES_NO | wxICON_QUESTION);
   if (dlg.ShowModal() != wxID_YES) {
     LOG_DEBUG("RemoveChannelFromPlaylist: user cancelled");
     return;
@@ -791,7 +798,7 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
   }
 
   // 4) Статусбар
-  SetStatusText(wxString::Format("Channel '%s' removed from playlist '%s'",
+  SetStatusText(wxString::Format(_U("Channel '%s' removed from playlist '%s'"),
                                  wxString::FromUTF8(ch.getName()),
                                  wxString::FromUTF8(playlistName)),
                 1);
