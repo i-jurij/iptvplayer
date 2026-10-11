@@ -28,7 +28,8 @@
 #endif
 
 SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
-    : wxDialog(parent, wxID_ANY, "Settings", wxDefaultPosition, wxDefaultSize,
+    : wxDialog(parent, wxID_ANY, _U("Settings"), wxDefaultPosition,
+               wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       m_config(cfg), m_mainFrame(parent) {
   const wxSize basePadDLU(6, 6);
@@ -54,14 +55,14 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
   // -------------------------
   {
     wxStaticBox *logoBox =
-        new wxStaticBox(scrolled, wxID_ANY, "User interface — Logo Options");
+        new wxStaticBox(scrolled, wxID_ANY, _U("User interface — Logo Options"));
     wxStaticBoxSizer *logoBoxSizer = new wxStaticBoxSizer(logoBox, wxVERTICAL);
 
     thumbHint =
         new wxStaticText(logoBox, wxID_ANY,
-                         "Note: this feature is experimental and may use "
-                         "significant memory for very large playlists.\nLogo "
-                         "in list view wiil be show after restart.");
+                         _U("Note: this feature is experimental and may use "
+                            "significant memory for very large playlists.\n"
+                            "Logo in list view will be shown after restart."));
     wxFont hintFont = thumbHint->GetFont();
     hintFont.SetPointSize(hintFont.GetPointSize() - 1);
     thumbHint->SetFont(hintFont);
@@ -69,17 +70,17 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
     logoBoxSizer->Add(thumbHint, 0, wxALL | wxEXPAND, INNER_PAD);
 
     bool nologo = (m_config->getSetting("nologo", "true") == "true");
-    m_noLogoCheck =
-        new wxCheckBox(logoBox, wxID_ANY, "Show channel logos (thumbnails)");
+    m_noLogoCheck = new wxCheckBox(
+        logoBox, wxID_ANY, _U("Show channel logos (thumbnails)"));
     m_noLogoCheck->SetValue(!nologo);
     logoBoxSizer->Add(m_noLogoCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM,
                       INNER_PAD / 2);
 
     m_deleteLogoCacheOnDisableCheck = new wxCheckBox(
-        logoBox, wxID_ANY, "Delete logo cache (disk and memory)");
+        logoBox, wxID_ANY, _U("Delete logo cache (disk and memory)"));
     m_deleteLogoCacheOnDisableCheck->SetToolTip(
-        "If checked, when you disable channel logos the on-disk and in-memory "
-        "logo cache will be deleted when you apply settings.");
+        _U("If checked, when you disable channel logos the on-disk and "
+           "in-memory logo cache will be deleted when you apply settings."));
     logoBoxSizer->Add(m_deleteLogoCacheOnDisableCheck, 0,
                       wxLEFT | wxRIGHT | wxBOTTOM, INNER_PAD / 2);
 
@@ -91,34 +92,34 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
   // -------------------------
   {
     wxStaticBox *actionsBox =
-        new wxStaticBox(scrolled, wxID_ANY, "Logo maintenance");
+        new wxStaticBox(scrolled, wxID_ANY, _U("Logo maintenance"));
     wxStaticBoxSizer *actionsSizer =
         new wxStaticBoxSizer(actionsBox, wxVERTICAL);
 
     cacheNote = new wxStaticText(actionsBox, wxID_ANY,
-                                 "Disk cache removes stored icon files; RAM "
-                                 "cache clears loaded images.");
+                                 _U("Disk cache removes stored icon files; RAM "
+                                    "cache clears loaded images."));
     cacheNote->SetForegroundColour(*wxLIGHT_GREY);
     actionsSizer->Add(cacheNote, 0, wxALL | wxEXPAND, INNER_PAD);
 
     m_deleteDiskCacheBtn =
-        new wxButton(actionsBox, wxID_ANY, "Delete disk cache");
+        new wxButton(actionsBox, wxID_ANY, _U("Delete disk cache"));
     actionsSizer->Add(m_deleteDiskCacheBtn, 0,
                       wxLEFT | wxRIGHT | wxBOTTOM | wxALIGN_LEFT, INNER_PAD);
 
     m_deleteRamCacheBtn =
-        new wxButton(actionsBox, wxID_ANY, "Delete RAM cache");
+        new wxButton(actionsBox, wxID_ANY, _U("Delete RAM cache"));
     actionsSizer->Add(m_deleteRamCacheBtn, 0,
                       wxLEFT | wxRIGHT | wxBOTTOM | wxALIGN_LEFT, INNER_PAD);
 
     logoNote = new wxStaticText(
         actionsBox, wxID_ANY,
-        "Use this to force re-download of logos that previously failed.");
+        _U("Use this to force re-download of logos that previously failed."));
     logoNote->SetForegroundColour(*wxLIGHT_GREY);
     actionsSizer->Add(logoNote, 0, wxALL | wxEXPAND, INNER_PAD);
 
     m_reloadMissingLogosBtn =
-        new wxButton(actionsBox, wxID_ANY, "Reload missing logos");
+        new wxButton(actionsBox, wxID_ANY, _U("Reload missing logos"));
     actionsSizer->Add(m_reloadMissingLogosBtn, 0,
                       wxLEFT | wxRIGHT | wxBOTTOM | wxALIGN_LEFT, INNER_PAD);
 
@@ -129,17 +130,17 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
   // Block 3: Playlists
   // -------------------------
   {
-    wxStaticBox *plBox = new wxStaticBox(scrolled, wxID_ANY, "Playlists");
+    wxStaticBox *plBox = new wxStaticBox(scrolled, wxID_ANY, _U("Playlists"));
     wxStaticBoxSizer *plBoxSizer = new wxStaticBoxSizer(plBox, wxVERTICAL);
 
     plNote = new wxStaticText(plBox, wxID_ANY,
-                              "Playlist auto-update and related settings.");
+                              _U("Playlist auto-update and related settings."));
     plNote->SetForegroundColour(*wxLIGHT_GREY);
     plBoxSizer->Add(plNote, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, INNER_PAD);
 
     bool autoUpdate = (m_config->getSetting("auto_update", "false") == "true");
     m_autoUpdateCheck =
-        new wxCheckBox(plBox, wxID_ANY, "Enable playlists auto update");
+        new wxCheckBox(plBox, wxID_ANY, _U("Enable playlists auto update"));
     m_autoUpdateCheck->SetValue(autoUpdate);
     plBoxSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM,
                     INNER_PAD / 2);
@@ -156,14 +157,14 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
   // Bottom buttons
   wxBoxSizer *bottomSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  wxButton *restoreBtn = new wxButton(this, wxID_ANY, "Restore Defaults");
+  wxButton *restoreBtn = new wxButton(this, wxID_ANY, _U("Restore Defaults"));
   bottomSizer->Add(restoreBtn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, PAD);
 
   bottomSizer->AddStretchSpacer(1);
 
-  wxButton *applyBtn = new wxButton(this, wxID_APPLY, "Apply");
-  wxButton *okBtn = new wxButton(this, wxID_OK, "OK");
-  wxButton *cancelBtn = new wxButton(this, wxID_CANCEL, "Cancel");
+  wxButton *applyBtn = new wxButton(this, wxID_APPLY, _U("Apply"));
+  wxButton *okBtn = new wxButton(this, wxID_OK, _U("OK"));
+  wxButton *cancelBtn = new wxButton(this, wxID_CANCEL, _U("Cancel"));
 
   applyBtn->SetMinSize(applyBtn->GetBestSize());
   okBtn->SetMinSize(okBtn->GetBestSize());
@@ -256,7 +257,7 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
 void SettingsDialog::OnApply(wxCommandEvent &WXUNUSED(event)) {
   ApplySettings(true);
   wxLogStatus("Settings applied");
-  m_mainFrame->SetStatusText("Settings applied.", 0);
+  m_mainFrame->SetStatusText(_U("Settings applied."), 0);
 }
 
 void SettingsDialog::OnOk(wxCommandEvent &WXUNUSED(event)) {
@@ -304,13 +305,13 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
         if (!mf)
           return;
         if (ec == ErrorCode::OK) {
-          mf->SetStatusText("Logo cache deleted (disk and memory).", 1);
+          mf->SetStatusText(_U("Logo cache deleted (disk and memory)."), 1);
         } else if (ec == ErrorCode::FileNotFound) {
-          mf->SetStatusText("Logo cache: nothing to delete.", 1);
+          mf->SetStatusText(_U("Logo cache: nothing to delete."), 1);
         } else if (ec == ErrorCode::UnsafePath) {
-          mf->SetStatusText("Refused to delete icons: unsafe path.", 1);
+          mf->SetStatusText(_U("Refused to delete icons: unsafe path."), 1);
         } else {
-          mf->SetStatusText("Failed to delete logo cache. See log.", 1);
+          mf->SetStatusText(_U("Failed to delete logo cache. See log."), 1);
         }
       });
     }).detach();
@@ -322,20 +323,22 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
         "auto_update",
         m_autoUpdateCheck && m_autoUpdateCheck->GetValue() ? "true" : "false");
     m_config->saveSettings();
-    m_mainFrame->SetStatusText("Settings saved.", 0);
+    m_mainFrame->SetStatusText(_U("Settings saved."), 0);
   }
 }
 
 void SettingsDialog::OnDeleteDiskCacheNow(wxCommandEvent &WXUNUSED(event)) {
-  wxMessageDialog dlg(this, "Delete on-disk logo cache (icon files) from disk?",
-                      "Confirm delete disk cache", wxYES_NO | wxICON_WARNING);
+  wxMessageDialog dlg(this,
+                      _U("Delete on-disk logo cache (icon files) from disk?"),
+                      _U("Confirm delete disk cache"),
+                      wxYES_NO | wxICON_WARNING);
   if (dlg.ShowModal() != wxID_YES) {
     LOG_DEBUG("OnDeleteDiskCacheNow: user cancelled disk cache deletion");
     return;
   }
 
   if (m_mainFrame) {
-    m_mainFrame->SetStatusText("Deleting on-disk logo cache...", 0);
+    m_mainFrame->SetStatusText(_U("Deleting on-disk logo cache..."), 0);
   }
 
   MainFrame *mf = m_mainFrame;
@@ -345,19 +348,20 @@ void SettingsDialog::OnDeleteDiskCacheNow(wxCommandEvent &WXUNUSED(event)) {
       if (!mf)
         return;
       if (ec == ErrorCode::OK) {
-        mf->SetStatusText("Disk logo cache deleted.", 1);
+        mf->SetStatusText(_U("Disk logo cache deleted."), 1);
       } else if (ec == ErrorCode::FileNotFound) {
-        mf->SetStatusText("Disk logo cache: nothing to delete.", 1);
+        mf->SetStatusText(_U("Disk logo cache: nothing to delete."), 1);
       } else {
-        mf->SetStatusText("Failed to delete disk logo cache. See log.", 1);
+        mf->SetStatusText(_U("Failed to delete disk logo cache. See log."), 1);
       }
     });
   }).detach();
 }
 
 void SettingsDialog::OnDeleteRamCacheNow(wxCommandEvent &WXUNUSED(event)) {
-  wxMessageDialog dlg(this, "Clear in-memory logo cache (RAM)?",
-                      "Confirm clear RAM cache", wxYES_NO | wxICON_QUESTION);
+  wxMessageDialog dlg(this, _U("Clear in-memory logo cache (RAM)?"),
+                      _U("Confirm clear RAM cache"),
+                      wxYES_NO | wxICON_QUESTION);
   if (dlg.ShowModal() != wxID_YES) {
     LOG_DEBUG("OnDeleteRamCacheNow: user cancelled RAM cache clear");
     return;
@@ -367,7 +371,7 @@ void SettingsDialog::OnDeleteRamCacheNow(wxCommandEvent &WXUNUSED(event)) {
   wxLogInfo("OnDeleteRamCacheNow: in-memory logo cache cleared.");
 
   if (m_mainFrame) {
-    m_mainFrame->SetStatusText("In-memory logo cache cleared.", 0);
+    m_mainFrame->SetStatusText(_U("In-memory logo cache cleared."), 0);
   }
 }
 
@@ -377,12 +381,13 @@ void SettingsDialog::OnReloadMissingLogos(wxCommandEvent &) {
 
   if (!wxDirExists(iconsBase)) {
     if (m_mainFrame)
-      m_mainFrame->SetStatusText("No icon cache found (nothing to reload).", 0);
+      m_mainFrame->SetStatusText(_U("No icon cache found (nothing to reload)."),
+                                 0);
     return;
   }
 
   if (m_mainFrame)
-    m_mainFrame->SetStatusText("Removing .marker files...", 0);
+    m_mainFrame->SetStatusText(_U("Removing .marker files..."), 0);
 
   std::thread([iconsBase, this]() {
     size_t removed = 0, skipped = 0, failed = 0;
@@ -392,7 +397,8 @@ void SettingsDialog::OnReloadMissingLogos(wxCommandEvent &) {
     LogoCache::ClearAll();
 
     wxString msg = wxString::Format(
-        "Found %zu marker(s). Removed %zu; skipped %zu unsafe; failed %zu.",
+        _U("Found %zu marker(s). Removed %zu; skipped %zu unsafe; "
+           "failed %zu."),
         found, removed, skipped, failed);
 
     wxTheApp->CallAfter([this, msg]() {
