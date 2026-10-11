@@ -287,7 +287,11 @@ void CardsBase::UpdateTooltip(int index) {
       if (!tvgId.empty()) {
         EpgProgram prog = epg->GetCurrentProgram(tvgId);
         if (!prog.title.empty()) {
-          tip << "\nProgram: " << wxString::FromUTF8(prog.title);
+          // Format, а не конкатенация: переводчик должен уметь
+          // поменять порядок слов вокруг названия программы.
+          tip << "\n" << wxString::Format(
+                             _U("Program: %s"),
+                             wxString::FromUTF8(prog.title));
         }
       }
     }
@@ -644,12 +648,12 @@ void CardsBase::OnContextMenu(wxContextMenuEvent &evt) {
   int idCopyUrl = wxNewId();
   int idCopyName = wxNewId();
   int idRemove = wxNewId();
-  menu.Append(idPlay, "Play");
+  menu.Append(idPlay, _U("Play"));
   menu.AppendSeparator();
-  menu.Append(idCopyUrl, "Copy URL");
-  menu.Append(idCopyName, "Copy Name");
-  menu.Append(idRemove, m_isFavoritesCards ? "Remove from favorites"
-                                           : "Remove from playlist");
+  menu.Append(idCopyUrl, _U("Copy URL"));
+  menu.Append(idCopyName, _U("Copy Name"));
+  menu.Append(idRemove, m_isFavoritesCards ? _U("Remove from favorites")
+                                           : _U("Remove from playlist"));
 
   int selection = GetPopupMenuSelectionFromUser(menu);
   if (selection == idPlay) {
