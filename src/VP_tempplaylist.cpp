@@ -617,7 +617,7 @@ void VideoPanel::TempPlaylistRename() {
 
   wxString oldName = m_tempPlaylistList->GetItemText(sel, 1);
 
-  wxTextEntryDialog dlg(this, _("Rename item:"), _("Rename"), oldName);
+  wxTextEntryDialog dlg(this, _U("Rename item:"), _U("Rename"), oldName);
   if (dlg.ShowModal() != wxID_OK)
     return;
 
