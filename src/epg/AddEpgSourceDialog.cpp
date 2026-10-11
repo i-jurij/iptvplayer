@@ -92,12 +92,15 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
 
 //-----------------------------------------------------------------------------
 void AddEpgSourceDialog::OnBrowse(wxCommandEvent &) {
-  // i18n: wildcard mask — split into description + literal mask in a
-  // later pass (preserve '|').
+  // i18n: описания переводятся, маски и '|' — константы кода.
+  const wxString xmltvWildcard =
+      _U("XMLTV files") + " (*.xml;*.xml.gz;*.gz)"
+                          "|*.xml;*.xml.gz;*.gz|"
+      + _U("All files") + " (*.*)|*.*";
+
   wxFileDialog dlg(
       this, _U("Select XMLTV file"), wxEmptyString, wxEmptyString,
-      _U("XMLTV files (*.xml;*.xml.gz;*.gz)|*.xml;*.xml.gz;*.gz|All "
-         "files (*.*)|*.*"),
+      xmltvWildcard,
       wxFD_OPEN | wxFD_FILE_MUST_EXIST);
   if (dlg.ShowModal() == wxID_OK) {
     m_urlCtrl->SetValue(dlg.GetPath());

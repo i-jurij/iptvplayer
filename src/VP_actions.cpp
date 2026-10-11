@@ -16,14 +16,15 @@
 #include <cassert>
 
 void VideoPanel::OpenFile() {
-  // i18n: wildcard masks handled in a separate step (preserve '|').
+  // i18n: описания переводятся, маски и '|' — константы кода.
   const wxString wildcard =
-      "Video files (*.mp4;*.mkv;*.avi;*.mov;*.flv;*.ts;*.m2ts;*.mts)|"
-      "*.mp4;*.mkv;*.avi;*.mov;*.flv;*.ts;*.m2ts;*.mts|"
-      "Playlists (*.m3u;*.m3u8;*.pls;*.xspf)|*.m3u;*.m3u8;*.pls;*.xspf|"
-      "Audio files (*.mp3;*.flac;*.wav;*.aac;*.m4a;*.ogg)|"
-      "*.mp3;*.flac;*.wav;*.aac;*.m4a;*.ogg|"
-      "All files (*.*)|*.*";
+      _U("Video files") + " (*.mp4;*.mkv;*.avi;*.mov;*.flv;*.ts;*.m2ts;*.mts)"
+                          "|*.mp4;*.mkv;*.avi;*.mov;*.flv;*.ts;*.m2ts;*.mts|"
+      + _U("Playlists") + " (*.m3u;*.m3u8;*.pls;*.xspf)"
+                          "|*.m3u;*.m3u8;*.pls;*.xspf|"
+      + _U("Audio files") + " (*.mp3;*.flac;*.wav;*.aac;*.m4a;*.ogg)"
+                            "|*.mp3;*.flac;*.wav;*.aac;*.m4a;*.ogg|"
+      + _U("All files") + " (*.*)|*.*";
 
   // ======= 1. Получить ConfigManager =======
   Application *app = dynamic_cast<Application *>(wxTheApp);

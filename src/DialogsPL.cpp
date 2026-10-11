@@ -38,10 +38,14 @@ AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow* parent)
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
 {
     // ----- controls -------------------------------------------------
-    // i18n: wildcard masks are handled in a separate step (preserve '|').
+    // i18n: описания переводятся, маски и '|' — константы кода.
+    const wxString playlistWildcard =
+        _U("Playlist files") + " (*.m3u;*.m3u8)|*.m3u;*.m3u8|"
+        + _U("All files") + " (*.*)|*.*";
+
     m_filePicker = new wxFilePickerCtrl(this, wxID_ANY, wxEmptyString,
                                         _U("Select a playlist file"),
-                                        "Playlist files (*.m3u;*.m3u8)|*.m3u;*.m3u8|All files (*.*)|*.*",
+                                        playlistWildcard,
                                         wxDefaultPosition, wxDefaultSize,
                                         wxFLP_OPEN | wxFLP_FILE_MUST_EXIST);
     m_titleCtrl = new wxTextCtrl(this, wxID_ANY, "",
@@ -287,10 +291,13 @@ static wxString ensureM3uExtension(const wxString& path)
 // -----------------------------------------------------------------------
 void EditPlaylistDialog::onExport(wxCommandEvent& WXUNUSED(event))
 {
-    // i18n: wildcard mask handled in a separate step (preserve '|').
+    // i18n: описание переводится, маска и '|' — константы кода.
+    const wxString m3uWildcard =
+        _U("M3U files") + " (*.m3u)|*.m3u";
+
     wxFileDialog dlg(this,
                      _U("Export Playlist"), "", "",
-                     "M3U files (*.m3u)|*.m3u",
+                     m3uWildcard,
                      wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
 
     if (dlg.ShowModal() != wxID_OK) return;
