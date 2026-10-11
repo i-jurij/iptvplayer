@@ -117,12 +117,13 @@ void MainFrame::createMainPanel() {
     return btn;
   };
 
-  m_btnPlaylists = makeButton("Playlists", "playlists");
-  m_btnChannels = makeButton("Channels", "channels");
-  m_btnFavorites = makeButton("Favorites", "favorites");
-  m_btnVideo = makeButton("Video", "video");
-  m_btnEpg = makeButton("Program", "program");
-  wxButton *btnMenu = new wxButton(headerPanel, wxID_ANY, " Menu");
+  m_btnPlaylists = makeButton(_U("Playlists"), "playlists");
+  m_btnChannels = makeButton(_U("Channels"), "channels");
+  m_btnFavorites = makeButton(_U("Favorites"), "favorites");
+  m_btnVideo = makeButton(_U("Video"), "video");
+  m_btnEpg = makeButton(_U("Program"), "program");
+  wxButton *btnMenu = new wxButton(headerPanel, wxID_ANY,
+                                   wxString::FromUTF8(" ") + _U("Menu"));
   m_menuButton = btnMenu;
   wxBitmapBundle menuIcon = LoadSvgIcon("menu", this);
   if (menuIcon.IsOk()) {
@@ -278,8 +279,9 @@ void MainFrame::createMainPanel() {
   m_btnChannels->Bind(wxEVT_TOGGLEBUTTON,
                       [this](wxCommandEvent &) {
                         if (m_loadedPlaylistIndex < 0) {
-                          wxMessageBox("Please select a playlist first.",
-                                       "Info", wxOK | wxICON_INFORMATION, this);
+                          wxMessageBox(_U("Please select a playlist first."),
+                                       _U("Info"), wxOK | wxICON_INFORMATION,
+                                       this);
                           m_btnChannels->SetValue(false);
                           return;
                         }
@@ -392,10 +394,10 @@ void MainFrame::createMainPanel() {
 
         bool newShowState = m_viewToolBar->GetToolState(ID_SHOW_LOGO);
 
-        const wxString warnTitle = "Channel logo warning";
+        const wxString warnTitle = _U("Channel logo warning");
         const wxString warnMsg =
-            "Playlists larger than 1,000 channels may use a lot of RAM.\n"
-            "Logo in list view wiil be show after restart.";
+            _U("Playlists larger than 1,000 channels may use a lot of RAM.\n"
+               "Logo in list view will be shown after restart.");
 
         auto *cfg = getConfigManager();
 
@@ -414,17 +416,20 @@ void MainFrame::createMainPanel() {
             m_viewToolBar->ToggleTool(ID_SHOW_LOGO, false);
           }
         } else {
-          wxDialog dlg(this, wxID_ANY, "Delete logo cache?", wxDefaultPosition,
-                       wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+          wxDialog dlg(this, wxID_ANY, _U("Delete logo cache?"),
+                       wxDefaultPosition, wxDefaultSize,
+                       wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
           wxBoxSizer *top = new wxBoxSizer(wxVERTICAL);
           wxStaticText *msg =
-              new wxStaticText(&dlg, wxID_ANY, "You disabled channel logos.");
+              new wxStaticText(&dlg, wxID_ANY,
+                               _U("You disabled channel logos."));
           msg->Wrap(420);
           top->Add(msg, 0, wxALL | wxEXPAND, FromDIP(12));
 
           wxCheckBox *delChk = new wxCheckBox(
-              &dlg, wxID_ANY, "Delete locally cached logos (disk and memory)");
+              &dlg, wxID_ANY,
+              _U("Delete locally cached logos (disk and memory)"));
           top->Add(delChk, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
 
           wxSizer *btns = dlg.CreateButtonSizer(wxOK | wxCANCEL);
@@ -471,12 +476,13 @@ void MainFrame::createMainPanel() {
                       }
                       if (ec == ErrorCode::OK) {
                         mf->SetStatusText(
-                            "Logo cache deleted (disk and memory).", 0);
+                            _U("Logo cache deleted (disk and memory)."), 0);
                       } else if (ec == ErrorCode::FileNotFound) {
-                        mf->SetStatusText("Logo cache: nothing to delete.", 0);
+                        mf->SetStatusText(_U("Logo cache: nothing to delete."),
+                                          0);
                       } else {
                         mf->SetStatusText(
-                            "Failed to delete logo cache. See log.", 0);
+                            _U("Failed to delete logo cache. See log."), 0);
                       }
                     });
                   }));
@@ -488,7 +494,7 @@ void MainFrame::createMainPanel() {
                 cfg->saveSettings();
               }
               ApplyChannelsNoLogoToViews();
-              SetStatusText("Channel logos disabled (cache preserved).", 0);
+              SetStatusText(_U("Channel logos disabled (cache preserved)."), 0);
             }
           } else {
             m_viewToolBar->ToggleTool(ID_SHOW_LOGO, true);
@@ -602,8 +608,8 @@ void MainFrame::createStatusBar() {
   CreateStatusBar(2);
   int widths[] = {-2, -3}; // левое : правое = 2 : 3
   SetStatusWidths(2, widths);
-  SetStatusText("Ready", 0);
-  SetStatusText("No playlist loaded", 1);
+  SetStatusText(_U("Ready"), 0);
+  SetStatusText(_U("No playlist loaded"), 1);
 }
 
 void MainFrame::RestoreLastOpenedPlaylist() {
