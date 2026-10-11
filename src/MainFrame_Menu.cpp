@@ -1002,15 +1002,8 @@ void MainFrame::ShowMainMenu(bool deferred) {
   menu.Append(ID_MENU_ABOUT, _U("About"));
   menu.Append(ID_MENU_EXIT, _U("Quit"));
 
-  fprintf(stderr, "[MARK] M2: menu built\n");
-  fflush(stderr);
-
   auto doShow = [this, menuPtr]() {
-    fprintf(stderr, "[MARK] M3: showing PopupMenu\n");
-    fflush(stderr);
     PopupMenu(menuPtr.get());
-    fprintf(stderr, "[MARK] M4: PopupMenu returned\n");
-    fflush(stderr);
   };
 
   if (deferred) {

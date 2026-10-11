@@ -29,11 +29,11 @@ void MainFrame::onQuit(wxCommandEvent &WXUNUSED(event)) {
 
 void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
   wxString msg = wxString::Format(
-      _("IPTV Player %s\n"
-        "Commit: %s\n\n"
-        "A simple player for M3U playlists with EPG support.\n"
-        "Built with wxWidgets, MPV, and SQLite.\n\n"
-        "GitHub: https://github.com/i-jurij/iptvplayer\n\n"),
+      _U("IPTV Player %s\n"
+         "Commit: %s\n\n"
+         "A simple player for M3U playlists with EPG support.\n"
+         "Built with wxWidgets, MPV, and SQLite.\n\n"
+         "GitHub: https://github.com/i-jurij/iptvplayer\n\n"),
       IPTVPLAYER_VERSION_FULL,
       IPTVPLAYER_GIT_COMMIT[0] ? IPTVPLAYER_GIT_COMMIT : "unknown");
 
@@ -41,11 +41,11 @@ void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
 
   // Fallback: файла нет — старое поведение, без ссылки.
   if (detailsPath.IsEmpty()) {
-    showInfo(this, msg, _("About IPTV Player"));
+    showInfo(this, msg, _U("About IPTV Player"));
     return;
   }
 
-  wxDialog dlg(this, wxID_ANY, _("About IPTV Player"), wxDefaultPosition,
+  wxDialog dlg(this, wxID_ANY, _U("About IPTV Player"), wxDefaultPosition,
                wxDefaultSize, wxDEFAULT_DIALOG_STYLE);
 
   auto *top = new wxBoxSizer(wxVERTICAL);
@@ -56,7 +56,7 @@ void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
   top->Add(new wxStaticLine(&dlg), 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(12));
 
   auto *row = new wxBoxSizer(wxHORIZONTAL);
-  auto *label = new wxStaticText(&dlg, wxID_ANY, _("Details:"));
+  auto *label = new wxStaticText(&dlg, wxID_ANY, _U("Details:"));
   row->Add(label, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
 
   auto *link = new wxHyperlinkCtrl(
@@ -83,10 +83,10 @@ void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
 void MainFrame::onToggleFavoritesView(wxCommandEvent &) {
   if (m_favViewToggle->GetValue()) {
     m_favViewBook->ChangeSelection(1); // Grid
-    m_favViewToggle->SetLabel("List View");
+    m_favViewToggle->SetLabel(_U("List View"));
   } else {
     m_favViewBook->ChangeSelection(0); // List
-    m_favViewToggle->SetLabel("Grid View");
+    m_favViewToggle->SetLabel(_U("Grid View"));
   }
 }
 
@@ -124,19 +124,19 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
     wxString brief;
     switch (info.stage) {
     case EpgProgressStage::Downloading:
-      brief = "EPG: Downloading";
+      brief = _U("EPG: Downloading");
       break;
     case EpgProgressStage::Extracting:
-      brief = "EPG: Extracting";
+      brief = _U("EPG: Extracting");
       break;
     case EpgProgressStage::Parsing:
-      brief = "EPG: Parsing";
+      brief = _U("EPG: Parsing");
       break;
     case EpgProgressStage::Matching:
-      brief = "EPG: Matching channels";
+      brief = _U("EPG: Matching channels");
       break;
     default:
-      brief = "EPG: " + wxString::FromUTF8(info.stageText);
+      brief = _U("EPG: ") + wxString::FromUTF8(info.stageText);
       break;
     }
     SetStatusText(brief, 0);
@@ -147,27 +147,28 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
       double downloadedMB = info.downloadedBytes / (1024.0 * 1024.0);
       double totalMB = info.totalBytes / (1024.0 * 1024.0);
       double speedKB = info.speedBytesPerSec / 1024.0;
-      details += wxString::Format(" (%.1f MB / %.1f MB, %.1f KB/s)",
+      details += wxString::Format(_U(" (%.1f MB / %.1f MB, %.1f KB/s)"),
                                   downloadedMB, totalMB, speedKB);
     } else if (info.stage == EpgProgressStage::Matching) {
       wxString parts;
       if (info.totalChannels > 0) {
-        parts += wxString::Format("Channels %d/%d", info.matched,
+        parts += wxString::Format(_U("Channels %d/%d"), info.matched,
                                   info.totalChannels);
       }
       if (info.favoritesTotal > 0) {
         if (!parts.IsEmpty())
           parts += ", ";
-        parts += wxString::Format("Favorites %d/%d", info.favoritesMatched,
+        parts += wxString::Format(_U("Favorites %d/%d"),
+                                  info.favoritesMatched,
                                   info.favoritesTotal);
       }
       if (!parts.IsEmpty()) {
-        details += " (" + parts + ")";
+        details += " (" + parts + ")";  // разделители, не текст
       } else if (info.percent >= 0) {
-        details += wxString::Format(" (%d%%)", info.percent);
+        details += wxString::Format(" (%d%%)", info.percent);  // только цифры
       }
     } else if (info.percent >= 0) {
-      details += wxString::Format(" (%d%%)", info.percent);
+      details += wxString::Format(" (%d%%)", info.percent);  // только цифры
     }
     SetStatusText(details, 1);
   } else {
@@ -183,28 +184,29 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
     // Статус-бар завершения
     if (info.stage == EpgProgressStage::Done) {
       if (info.totalChannels == 0 && info.favoritesTotal == 0) {
-        SetStatusText("EPG: no channels matched", 0);
+        SetStatusText(_U("EPG: no channels matched"), 0);
         SetStatusText("", 1);
       } else {
-        SetStatusText("EPG Matching Done", 0);
+        SetStatusText(_U("EPG Matching Done"), 0);
         wxString parts;
         if (info.totalChannels > 0) {
-          parts += wxString::Format("Channels %d/%d", info.matched,
+          parts += wxString::Format(_U("Channels %d/%d"), info.matched,
                                     info.totalChannels);
         }
         if (info.favoritesTotal > 0) {
           if (!parts.IsEmpty())
             parts += ", ";
-          parts += wxString::Format("Favorites %d/%d", info.favoritesMatched,
+          parts += wxString::Format(_U("Favorites %d/%d"),
+                                    info.favoritesMatched,
                                     info.favoritesTotal);
         }
         SetStatusText(parts, 1);
       }
     } else if (info.stage == EpgProgressStage::Cancelled) {
-      SetStatusText("EPG cansel", 0);
-      SetStatusText("EPG update cancelled", 1);
+      SetStatusText(_U("EPG cancel"), 0);            // опечатка исправлена
+      SetStatusText(_U("EPG update cancelled"), 1);
     } else if (info.stage == EpgProgressStage::Error) {
-      SetStatusText("EPG error", 0);
+      SetStatusText(_U("EPG error"), 0);
       SetStatusText(wxString::FromUTF8(info.errorMessage), 1);
     } else {
       SetStatusText("", 0);
