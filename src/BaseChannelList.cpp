@@ -214,17 +214,18 @@ BaseChannelList::~BaseChannelList() {
 // Columns
 // ---------------------------------------------------------------------------
 void BaseChannelList::InitColumns() {
-  AppendTextColumn("#", 0, wxDATAVIEW_CELL_INERT, 50, wxALIGN_CENTER)
+  AppendTextColumn(_U("#"), 0, wxDATAVIEW_CELL_INERT, 50, wxALIGN_CENTER)
       ->SetSortable(false);
 
-  AppendColumn(new wxDataViewColumn("Logo", new ChannelListLogoRenderer(), 1,
-                                    LIST_LOGO_SIZE_DIP, wxALIGN_CENTER,
+  AppendColumn(new wxDataViewColumn(_U("Logo"), new ChannelListLogoRenderer(),
+                                    1, LIST_LOGO_SIZE_DIP, wxALIGN_CENTER,
                                     wxDATAVIEW_COL_RESIZABLE));
 
-  AppendTextColumn("Name", 2, wxDATAVIEW_CELL_INERT, wxCOL_WIDTH_AUTOSIZE,
+  AppendTextColumn(_U("Name"), 2, wxDATAVIEW_CELL_INERT, wxCOL_WIDTH_AUTOSIZE,
                    wxALIGN_LEFT)
       ->SetSortable(true);
 
+  // "★" — пиктограмма избранного, не текст.
   wxDataViewColumn *favCol = new wxDataViewColumn(
       "★",
       new InlineFavoriteStarRenderer(
@@ -248,14 +249,15 @@ void BaseChannelList::InitColumns() {
   AppendColumn(favCol);
   favCol->SetSortable(true);
 
-  AppendTextColumn("Group", 4, wxDATAVIEW_CELL_INERT, wxCOL_WIDTH_AUTOSIZE,
+  AppendTextColumn(_U("Group"), 4, wxDATAVIEW_CELL_INERT,
+                   wxCOL_WIDTH_AUTOSIZE, wxALIGN_LEFT)
+      ->SetSortable(true);
+
+  AppendTextColumn(_U("Language"), 5, wxDATAVIEW_CELL_INERT, 100,
                    wxALIGN_LEFT)
       ->SetSortable(true);
 
-  AppendTextColumn("Language", 5, wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT)
-      ->SetSortable(true);
-
-  AppendTextColumn("Country", 6, wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT)
+  AppendTextColumn(_U("Country"), 6, wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT)
       ->SetSortable(true);
 }
 
