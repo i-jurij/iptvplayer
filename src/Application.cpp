@@ -4,6 +4,7 @@
 #include "LogControl.h"
 #include "MainFrame.h"
 #include "PlaylistManager.h"
+#include "Utils.h"
 #include "epg/EPGManager.h"
 
 #include <wx/dir.h>
@@ -37,10 +38,10 @@ static bool HasAudioSystem() {
 static void CheckAudioOrWarn(wxWindow *parent) {
   if (HasAudioSystem())
     return;
-  wxMessageBox("No sound devices found.\n\n"
-               "Install ALSA, then initialize it:\n\n"
-               "  sudo alsactl init",
-               "Audio not available", wxOK | wxICON_WARNING, parent);
+  wxMessageBox(_U("No sound devices found.\n\n"
+                  "Install ALSA, then initialize it:\n\n"
+                  "  sudo alsactl init"),
+               _U("Audio not available"), wxOK | wxICON_WARNING, parent);
 }
 
 Application::Application() {
@@ -145,8 +146,8 @@ bool Application::OnInit() {
     if (cfgStatus != ErrorCode::OK) {
       std::cerr << "Failed to load settings: "
                 << m_configManager->getLastError() << std::endl;
-      wxMessageBox("Failed to load settings.\nSee log for details.", "Error",
-                   wxOK | wxICON_ERROR);
+      wxMessageBox(_U("Failed to load settings.\nSee log for details."),
+                   _U("Error"), wxOK | wxICON_ERROR);
       return false;
     }
 
