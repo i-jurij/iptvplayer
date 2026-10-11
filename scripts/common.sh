@@ -185,6 +185,10 @@ read_versions_from_install() {
 # === Генерация .desktop-файла ===
 # $1 — путь к целевому .desktop
 # Требует: PACKAGE_NAME, ICON_NAME
+#
+# Comment[<lang>] — локализованные описания. Языковой код без страны
+# (ru, а не ru_RU) соответствует спецификации Desktop Entry: если точного
+# совпадения с текущей локалью нет, применяется языковой вариант.
 write_desktop_file() {
     local target="$1"
     mkdir -p "$(dirname "$target")"
@@ -196,6 +200,12 @@ Icon=${ICON_NAME%.svg}
 Type=Application
 Categories=AudioVideo;
 Comment=IPTV Playlist Player
+Comment[de]=IPTV-Playlist-Player
+Comment[es]=Reproductor de listas IPTV
+Comment[fr]=Lecteur de listes IPTV
+Comment[pt]=Reprodutor de listas IPTV
+Comment[ru]=Плеер для плейлистов IPTV
+Comment[uk]=Плеєр для плейлистів IPTV
 Terminal=false
 StartupNotify=true
 StartupWMClass=$PACKAGE_NAME

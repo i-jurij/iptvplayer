@@ -1,0 +1,2473 @@
+# Polish translation of iptvplayer.
+# Copyright (C) 2026 ijurij
+# This file is distributed under the same license as the iptvplayer package.
+# ijurij <mnisjil@duck.com>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: iptvplayer\n"
+"Report-Msgid-Bugs-To: https://github.com/i-jurij/iptvplayer/issues\n"
+"POT-Creation-Date: 2026-10-11 19:30+0300\n"
+"PO-Revision-Date: 2026-10-11 23:30+0300\n"
+"Last-Translator: ijurij <mnisjil@duck.com>\n"
+"Language-Team: Polish\n"
+"Language: pl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
+"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#: src/VP_events.cpp:310
+msgid "Open File…"
+msgstr "Otwórz plik…"
+
+#: src/VP_events.cpp:311
+msgid "Open Folder…"
+msgstr "Otwórz folder…"
+
+#: src/VP_events.cpp:312
+msgid "Open URL…"
+msgstr "Otwórz URL…"
+
+#: src/SettingsDialog.cpp:31 src/MainFrame_Menu.cpp:1001
+msgid "Settings"
+msgstr "Ustawienia"
+
+#: src/SettingsDialog.cpp:58
+msgid "User interface — Logo Options"
+msgstr "Interfejs — Opcje logo"
+
+#: src/SettingsDialog.cpp:63
+msgid ""
+"Note: this feature is experimental and may use significant memory for very "
+"large playlists.\n"
+"Logo in list view will be shown after restart."
+msgstr ""
+"Uwaga: ta funkcja jest eksperymentalna i może zużywać dużo pamięci przy "
+"bardzo dużych playlistach.\n"
+"Logo w widoku listy pojawią się po ponownym uruchomieniu."
+
+#: src/SettingsDialog.cpp:74
+msgid "Show channel logos (thumbnails)"
+msgstr "Pokazuj logo kanałów (miniatury)"
+
+#: src/SettingsDialog.cpp:80
+msgid "Delete logo cache (disk and memory)"
+msgstr "Usuwaj pamięć podręczną logo (dysk i pamięć)"
+
+#: src/SettingsDialog.cpp:82
+msgid ""
+"If checked, when you disable channel logos the on-disk and in-memory logo "
+"cache will be deleted when you apply settings."
+msgstr ""
+"Jeśli zaznaczone, wyłączenie logo kanałów spowoduje usunięcie pamięci "
+"podręcznej na dysku i w pamięci przy zastosowaniu ustawień."
+
+#: src/SettingsDialog.cpp:95
+msgid "Logo maintenance"
+msgstr "Konserwacja logo"
+
+#: src/SettingsDialog.cpp:100
+msgid "Disk cache removes stored icon files; RAM cache clears loaded images."
+msgstr "Pamięć podręczna dysku usuwa zapisane pliki; pamięć RAM czyści załadowane obrazy."
+
+#: src/SettingsDialog.cpp:106
+msgid "Delete disk cache"
+msgstr "Usuń pamięć podręczną dysku"
+
+#: src/SettingsDialog.cpp:111
+msgid "Delete RAM cache"
+msgstr "Usuń pamięć podręczną RAM"
+
+#: src/SettingsDialog.cpp:117
+msgid "Use this to force re-download of logos that previously failed."
+msgstr "Użyj, aby ponownie pobrać logo, które wcześniej się nie powiodły."
+
+#: src/SettingsDialog.cpp:122
+msgid "Reload missing logos"
+msgstr "Wczytaj ponownie brakujące logo"
+
+#: src/SettingsDialog.cpp:133 src/MainFrame_PlaylistUI.cpp:87
+#: src/MainFrame_UI.cpp:120 src/VP_actions.cpp:23
+msgid "Playlists"
+msgstr "Playlisty"
+
+#: src/SettingsDialog.cpp:137
+msgid "Playlist auto-update and related settings."
+msgstr "Automatyczna aktualizacja playlist i powiązane ustawienia."
+
+#: src/SettingsDialog.cpp:143
+msgid "Enable playlists auto update"
+msgstr "Włącz automatyczną aktualizację playlist"
+
+#: src/SettingsDialog.cpp:160
+msgid "Restore Defaults"
+msgstr "Przywróć domyślne"
+
+#: src/SettingsDialog.cpp:165 src/epg/EpgSourceManagerPanel.cpp:180
+msgid "Apply"
+msgstr "Zastosuj"
+
+#: src/SettingsDialog.cpp:166 src/DialogsPL.cpp:74
+msgid "OK"
+msgstr "OK"
+
+#: src/SettingsDialog.cpp:167 src/epg/EpgSourceManagerPanel.cpp:113
+#: src/DialogsPL.cpp:75
+msgid "Cancel"
+msgstr "Anuluj"
+
+#: src/SettingsDialog.cpp:260
+msgid "Settings applied."
+msgstr "Ustawienia zastosowane."
+
+#: src/SettingsDialog.cpp:308 src/MainFrame_UI.cpp:479
+msgid "Logo cache deleted (disk and memory)."
+msgstr "Pamięć podręczna logo usunięta (dysk i pamięć)."
+
+#: src/SettingsDialog.cpp:310 src/MainFrame_UI.cpp:481
+msgid "Logo cache: nothing to delete."
+msgstr "Pamięć podręczna logo: nic do usunięcia."
+
+#: src/SettingsDialog.cpp:312
+msgid "Refused to delete icons: unsafe path."
+msgstr "Odmowa usunięcia ikon: niebezpieczna ścieżka."
+
+#: src/SettingsDialog.cpp:314 src/MainFrame_UI.cpp:485
+msgid "Failed to delete logo cache. See log."
+msgstr "Nie udało się usunąć pamięci podręcznej logo. Zobacz dziennik."
+
+#: src/SettingsDialog.cpp:326
+msgid "Settings saved."
+msgstr "Ustawienia zapisane."
+
+#: src/SettingsDialog.cpp:332
+msgid "Delete on-disk logo cache (icon files) from disk?"
+msgstr "Usunąć pamięć podręczną logo z dysku (pliki ikon)?"
+
+#: src/SettingsDialog.cpp:333
+msgid "Confirm delete disk cache"
+msgstr "Potwierdź usunięcie pamięci podręcznej dysku"
+
+#: src/SettingsDialog.cpp:341
+msgid "Deleting on-disk logo cache..."
+msgstr "Usuwanie pamięci podręcznej logo z dysku..."
+
+#: src/SettingsDialog.cpp:351
+msgid "Disk logo cache deleted."
+msgstr "Pamięć podręczna logo na dysku usunięta."
+
+#: src/SettingsDialog.cpp:353
+msgid "Disk logo cache: nothing to delete."
+msgstr "Pamięć podręczna logo na dysku: nic do usunięcia."
+
+#: src/SettingsDialog.cpp:355
+msgid "Failed to delete disk logo cache. See log."
+msgstr "Nie udało się usunąć pamięci podręcznej logo na dysku. Zobacz dziennik."
+
+#: src/SettingsDialog.cpp:362
+msgid "Clear in-memory logo cache (RAM)?"
+msgstr "Wyczyścić pamięć podręczną logo w pamięci RAM?"
+
+#: src/SettingsDialog.cpp:363
+msgid "Confirm clear RAM cache"
+msgstr "Potwierdź wyczyszczenie pamięci podręcznej RAM"
+
+#: src/SettingsDialog.cpp:374
+msgid "In-memory logo cache cleared."
+msgstr "Pamięć podręczna logo w pamięci wyczyszczona."
+
+#: src/SettingsDialog.cpp:384
+msgid "No icon cache found (nothing to reload)."
+msgstr "Nie znaleziono pamięci podręcznej ikon (nic do ponownego wczytania)."
+
+#: src/SettingsDialog.cpp:390
+msgid "Removing .marker files..."
+msgstr "Usuwanie plików .marker..."
+
+#: src/SettingsDialog.cpp:400
+#, c-format
+msgid "Found %zu marker(s). Removed %zu; skipped %zu unsafe; failed %zu."
+msgstr ""
+"Znaleziono %zu marker(ów). Usunięto: %zu; pominięto niebezpiecznych: %zu; "
+"błędów: %zu."
+
+#: src/MainFrame.cpp:43
+msgid "Name ▲"
+msgstr "Nazwa ▲"
+
+#: src/MainFrame.cpp:45
+msgid "Name ▼"
+msgstr "Nazwa ▼"
+
+#: src/MainFrame.cpp:47
+msgid "Group ▲"
+msgstr "Grupa ▲"
+
+#: src/MainFrame.cpp:49
+msgid "Group ▼"
+msgstr "Grupa ▼"
+
+#: src/MainFrame.cpp:51
+msgid "Country ▲"
+msgstr "Kraj ▲"
+
+#: src/MainFrame.cpp:53
+msgid "Country ▼"
+msgstr "Kraj ▼"
+
+#: src/MainFrame.cpp:55
+msgid "Language ▲"
+msgstr "Język ▲"
+
+#: src/MainFrame.cpp:57
+msgid "Language ▼"
+msgstr "Język ▼"
+
+#: src/VideoPanel.cpp:59
+msgid "Temporary playlist"
+msgstr "Tymczasowa playlista"
+
+#: src/VideoPanel.cpp:73 src/MainFrame_PlaylistUI.cpp:175
+#: src/BaseChannelList.cpp:217
+msgid "#"
+msgstr "Nr"
+
+#: src/VideoPanel.cpp:75 src/BaseChannelList.cpp:224
+#: src/epg/AddEpgSourceDialog.cpp:173 src/epg/ManualMappingDialog.cpp:44
+#: src/epg/EpgSourceManagerPanel.cpp:81 src/epg/EpgSourceManagerPanel.cpp:669
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:58
+msgid "Name"
+msgstr "Nazwa"
+
+#: src/VideoPanel.cpp:106
+msgid "Previous"
+msgstr "Poprzedni"
+
+#: src/VideoPanel.cpp:107
+msgid "Next"
+msgstr "Następny"
+
+#: src/VideoPanel.cpp:108
+msgid "Shuffle / Restore"
+msgstr "Losowo / Przywróć"
+
+#: src/VideoPanel.cpp:109
+msgid "Remove selected"
+msgstr "Usuń zaznaczone"
+
+#: src/VideoPanel.cpp:110
+msgid "Clear playlist"
+msgstr "Wyczyść playlistę"
+
+#: src/VideoPanel.cpp:252 src/MainFrame_PlaylistEvents.cpp:42
+#: src/MainFrame_PlaylistUI.cpp:144
+msgid "Open"
+msgstr "Otwórz"
+
+#: src/VideoPanel.cpp:264 src/FavoritesList.cpp:53 src/CardsBase_events.cpp:651
+#: src/ChannelList.cpp:437
+msgid "Play"
+msgstr "Odtwarzaj"
+
+#: src/VideoPanel.cpp:276
+msgid "Pause"
+msgstr "Pauza"
+
+#: src/VideoPanel.cpp:288 src/VideoPanel.cpp:1396
+msgid "Stop"
+msgstr "Zatrzymaj"
+
+#: src/VideoPanel.cpp:303 src/VideoPanel.cpp:1408
+msgid "Rec"
+msgstr "Nagr."
+
+#: src/VideoPanel.cpp:318 src/VP_actions.cpp:309
+msgid "Vol"
+msgstr "Głośn."
+
+#: src/VideoPanel.cpp:338 src/VP_actions.cpp:417
+msgid "Full"
+msgstr "Pełny ekran"
+
+#: src/VideoPanel.cpp:691 src/VideoPanel.cpp:945 src/VideoPanel.cpp:1293
+#: src/VideoPanel.cpp:1299 src/VideoPanel.cpp:1305
+#: src/MainFrame_PlaylistEvents.cpp:54 src/MainFrame_PlaylistEvents.cpp:181
+#: src/MainFrame_Menu.cpp:595 src/Application.cpp:154
+#: src/epg/AddEpgSourceDialog.cpp:267 src/epg/AddEpgSourceDialog.cpp:278
+#: src/epg/AddEpgSourceDialog.cpp:290 src/epg/ManualMappingDialog.cpp:707
+#: src/epg/ManualMappingDialog.cpp:731 src/epg/ManualMappingDialog.cpp:739
+#: src/epg/ManualMappingDialog.cpp:763 src/epg/ManualMappingDialog.cpp:771
+#: src/epg/EPGPanel.cpp:391 src/epg/EPGPanel.cpp:397
+#: src/epg/EpgSourceManagerPanel.cpp:306 src/epg/EpgSourceManagerPanel.cpp:467
+#: src/epg/EpgSourceManagerPanel.cpp:828 src/epg/EpgSourceManagerPanel.cpp:939
+#: src/epg/EpgSourceManagerPanel.cpp:946 src/DialogsPL.cpp:89
+#: src/DialogsPL.cpp:95 src/iptvorg/AddIPTVPlaylistDialog.cpp:327
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:334
+msgid "Error"
+msgstr "Błąd"
+
+#: src/VideoPanel.cpp:765
+msgid "VideoPanel dtor unknown exception"
+msgstr "VideoPanel: nieznany wyjątek w destruktorze"
+
+#: src/VideoPanel.cpp:804
+msgid "Buffering..."
+msgstr "Buforowanie..."
+
+#: src/VideoPanel.cpp:819 src/VideoPanel.cpp:1029 src/VideoPanel.cpp:1036
+msgid "Loading..."
+msgstr "Ładowanie..."
+
+#: src/VideoPanel.cpp:822 src/VideoPanel.cpp:936 src/VideoPanel.cpp:1039
+msgid "Playing"
+msgstr "Odtwarzanie"
+
+#: src/VideoPanel.cpp:825 src/VideoPanel.cpp:939 src/VideoPanel.cpp:1042
+msgid "Paused"
+msgstr "Wstrzymane"
+
+#: src/VideoPanel.cpp:851
+msgid "Failed to load stream"
+msgstr "Nie udało się załadować strumienia"
+
+#: src/VideoPanel.cpp:933
+msgid "File loaded"
+msgstr "Plik załadowany"
+
+#: src/VideoPanel.cpp:942
+msgid "Stopped"
+msgstr "Zatrzymane"
+
+#: src/VideoPanel.cpp:1292
+msgid "Recording is only available during playback"
+msgstr "Nagrywanie jest dostępne tylko podczas odtwarzania"
+
+#: src/VideoPanel.cpp:1298
+msgid "Could not initialize record directory"
+msgstr "Nie udało się zainicjować katalogu nagrań"
+
+#: src/VideoPanel.cpp:1305
+msgid "Could not generate filename"
+msgstr "Nie udało się wygenerować nazwy pliku"
+
+#: src/VideoPanel.cpp:1327
+#, c-format
+msgid "Record error: %s"
+msgstr "Błąd nagrywania: %s"
+
+#: src/VideoPanel.cpp:1338
+#, c-format
+msgid "Recording: %s [00:00:00]"
+msgstr "Nagrywanie: %s [00:00:00]"
+
+#: src/VideoPanel.cpp:1371
+msgid "Recording: "
+msgstr "Nagrywanie: "
+
+#: src/FavoritesList.cpp:55 src/CardsBase_events.cpp:653
+#: src/ChannelList.cpp:439
+msgid "Copy URL"
+msgstr "Kopiuj URL"
+
+#: src/FavoritesList.cpp:56 src/CardsBase_events.cpp:654
+#: src/ChannelList.cpp:440
+msgid "Copy Name"
+msgstr "Kopiuj nazwę"
+
+#: src/MainFrame_FavoritesUI.cpp:29
+msgid "Favorites: 0 channels"
+msgstr "Ulubione: 0 kanałów"
+
+#: src/MainFrame_FavoritesUI.cpp:41 src/MainFrame_ChannelsViewUI.cpp:43
+msgid "List"
+msgstr "Lista"
+
+#: src/MainFrame_FavoritesUI.cpp:43 src/MainFrame_ChannelsViewUI.cpp:45
+msgid "List view"
+msgstr "Widok listy"
+
+#: src/MainFrame_FavoritesUI.cpp:44
+msgid "Grid"
+msgstr "Siatka"
+
+#: src/MainFrame_FavoritesUI.cpp:46
+msgid "Grid view"
+msgstr "Widok siatki"
+
+#: src/MainFrame_FavoritesUI.cpp:65 src/MainFrame_Filters.cpp:25
+#: src/MainFrame_FiltersUI.cpp:41
+msgid "All groups"
+msgstr "Wszystkie grupy"
+
+#: src/MainFrame_FavoritesUI.cpp:66 src/MainFrame_Filters.cpp:26
+#: src/MainFrame_FiltersUI.cpp:48
+msgid "All countries"
+msgstr "Wszystkie kraje"
+
+#: src/MainFrame_FavoritesUI.cpp:67 src/MainFrame_Filters.cpp:27
+#: src/MainFrame_FiltersUI.cpp:55
+msgid "All languages"
+msgstr "Wszystkie języki"
+
+#: src/MainFrame_FavoritesUI.cpp:82 src/MainFrame_FiltersUI.cpp:61
+msgid "Sort:"
+msgstr "Sortuj:"
+
+#: src/MainFrame_FavoritesUI.cpp:86 src/MainFrame_Menu.cpp:129
+#: src/MainFrame_Menu.cpp:185 src/MainFrame_Menu.cpp:225
+#: src/MainFrame_FiltersUI.cpp:80
+msgid "Reset"
+msgstr "Resetuj"
+
+#: src/CardsBase_events.cpp:293
+#, c-format
+msgid "Program: %s"
+msgstr "Program: %s"
+
+#: src/CardsBase_events.cpp:655
+msgid "Remove from favorites"
+msgstr "Usuń z ulubionych"
+
+#: src/CardsBase_events.cpp:656 src/ChannelList.cpp:441
+msgid "Remove from playlist"
+msgstr "Usuń z playlisty"
+
+#: src/MainFrame_PlaylistLogic.cpp:50 src/MainFrame_PlaylistLogic.cpp:101
+#: src/DialogsPL.cpp:408
+msgid "Yes"
+msgstr "Tak"
+
+#: src/MainFrame_PlaylistLogic.cpp:50 src/MainFrame_PlaylistLogic.cpp:101
+#: src/MainFrame_Menu.cpp:410 src/DialogsPL.cpp:409
+msgid "No"
+msgstr "Nie"
+
+#: src/MainFrame_PlaylistLogic.cpp:87 src/MainFrame_PlaylistLogic.cpp:300
+#: src/MainFrame_PlaylistLogic.cpp:316 src/MainFrame_PlaylistEvents.cpp:410
+#: src/MainFrame_PlaylistUI.cpp:201
+msgid "No playlist selected"
+msgstr "Nie wybrano playlisty"
+
+#: src/MainFrame_PlaylistLogic.cpp:107
+#, c-format
+msgid "Playlists: %zu"
+msgstr "Playlisty: %zu"
+
+#: src/MainFrame_PlaylistLogic.cpp:140 src/MainFrame_PlaylistEvents.cpp:85
+#: src/MainFrame_Filters.cpp:75
+#, c-format
+msgid "Playlist: %s / Channels: %zu"
+msgstr "Playlista: %s / Kanałów: %zu"
+
+#: src/MainFrame_PlaylistLogic.cpp:248
+#, c-format
+msgid "Favorites: %lu channels"
+msgstr "Ulubione: %lu kanałów"
+
+#: src/MainFrame_PlaylistLogic.cpp:284
+msgid "Playlist list is not available"
+msgstr "Lista playlist jest niedostępna"
+
+#: src/MainFrame_PlaylistLogic.cpp:295 src/MainFrame_PlaylistEvents.cpp:95
+#: src/MainFrame_UI.cpp:282
+msgid "Please select a playlist first."
+msgstr "Najpierw wybierz playlistę."
+
+#: src/MainFrame_PlaylistLogic.cpp:295 src/epg/ManualMappingDialog.cpp:724
+#: src/epg/ManualMappingDialog.cpp:756 src/epg/EPGPanel.cpp:386
+#: src/epg/EpgSourceManagerPanel.cpp:59 src/epg/EpgSourceManagerPanel.cpp:323
+#: src/epg/EpgSourceManagerPanel.cpp:361 src/epg/EpgSourceManagerPanel.cpp:393
+#: src/epg/EpgSourceManagerPanel.cpp:416 src/epg/EpgSourceManagerPanel.cpp:483
+#: src/epg/EpgSourceManagerPanel.cpp:635 src/epg/EpgSourceManagerPanel.cpp:637
+#: src/MainFrame_UI.cpp:283 src/iptvorg/AddIPTVPlaylistDialog.cpp:321
+msgid "Info"
+msgstr "Informacja"
+
+#: src/MainFrame_PlaylistLogic.cpp:313
+msgid "Selected playlist is not available"
+msgstr "Wybrana playlista jest niedostępna"
+
+#: src/MainFrame_PlaylistLogic.cpp:327 src/MainFrame_PlaylistLogic.cpp:533
+#: src/MainFrame_PlaylistEvents.cpp:307 src/MainFrame_PlaylistUI.cpp:191
+#, c-format
+msgid "Playlist selected: %s"
+msgstr "Wybrano playlistę: %s"
+
+#: src/MainFrame_PlaylistLogic.cpp:337
+msgid "PlaylistManager not available"
+msgstr "PlaylistManager niedostępny"
+
+#: src/MainFrame_PlaylistLogic.cpp:345
+msgid "Application not available"
+msgstr "Aplikacja niedostępna"
+
+#: src/MainFrame_PlaylistLogic.cpp:381
+msgid "No playlist selected for export"
+msgstr "Nie wybrano playlisty do eksportu"
+
+#: src/MainFrame_PlaylistLogic.cpp:389
+#, c-format
+msgid ""
+"Failed to export playlist:\n"
+"%s"
+msgstr ""
+"Nie udało się wyeksportować playlisty:\n"
+"%s"
+
+#: src/MainFrame_PlaylistLogic.cpp:395
+msgid "Playlist exported successfully."
+msgstr "Playlista wyeksportowana pomyślnie."
+
+#: src/MainFrame_PlaylistLogic.cpp:404 src/MainFrame_PlaylistEvents.cpp:54
+#: src/MainFrame_PlaylistEvents.cpp:341 src/DialogsPL.cpp:312
+msgid "Playlist not found"
+msgstr "Nie znaleziono playlisty"
+
+#: src/MainFrame_PlaylistLogic.cpp:434
+#, c-format
+msgid ""
+"Failed to save playlist:\n"
+"%s"
+msgstr ""
+"Nie udało się zapisać playlisty:\n"
+"%s"
+
+#: src/MainFrame_PlaylistLogic.cpp:452
+#, c-format
+msgid ""
+"Playlist saved, but:\n"
+"\n"
+"%s"
+msgstr ""
+"Playlista zapisana, ale:\n"
+"\n"
+"%s"
+
+#: src/MainFrame_PlaylistLogic.cpp:454
+msgid "Warning"
+msgstr "Ostrzeżenie"
+
+#: src/MainFrame_PlaylistLogic.cpp:456
+msgid "Playlist saved."
+msgstr "Playlista zapisana."
+
+#: src/MainFrame_PlaylistLogic.cpp:511
+msgid "Unable to start auto-update thread."
+msgstr "Nie udało się uruchomić wątku automatycznej aktualizacji."
+
+#: src/MainFrame_PlaylistLogic.cpp:570
+msgid ""
+"No playlists found.\n"
+"\n"
+"Would you like to add one from the IPTV-Org repository?"
+msgstr ""
+"Nie znaleziono playlist.\n"
+"\n"
+"Czy chcesz dodać playlistę z repozytorium IPTV-Org?"
+
+#: src/MainFrame_PlaylistLogic.cpp:572
+msgid "Welcome to IPTV Player"
+msgstr "Witaj w IPTV Player"
+
+#: src/MainFrame_PlaylistLogic.cpp:573
+msgid "Yes, add playlist"
+msgstr "Tak, dodaj playlistę"
+
+#: src/MainFrame_PlaylistLogic.cpp:573
+msgid "No, I'll add later"
+msgstr "Nie, dodam później"
+
+#: src/MainFrame_PlaylistLogic.cpp:602 src/MainFrame_PlaylistEvents.cpp:200
+#: src/MainFrame_PlaylistEvents.cpp:830
+msgid "Failed to start playlist loading."
+msgstr "Nie udało się rozpocząć ładowania playlisty."
+
+#: src/MainFrame_PlaylistLogic.cpp:604 src/MainFrame_PlaylistEvents.cpp:202
+#: src/MainFrame_PlaylistEvents.cpp:832
+#, c-format
+msgid ""
+"Failed to start playlist loading:\n"
+"\n"
+"%s"
+msgstr ""
+"Nie udało się rozpocząć ładowania playlisty:\n"
+"\n"
+"%s"
+
+#: src/MainFrame_PlaylistLogic.cpp:724
+#, c-format
+msgid "Remove channel '%s' from playlist '%s' permanently?"
+msgstr "Trwale usunąć kanał „%s” z playlisty „%s”?"
+
+#: src/MainFrame_PlaylistLogic.cpp:727
+msgid "Remove Channel"
+msgstr "Usuń kanał"
+
+#: src/MainFrame_PlaylistLogic.cpp:801
+#, c-format
+msgid "Channel '%s' removed from playlist '%s'"
+msgstr "Kanał „%s” usunięty z playlisty „%s”"
+
+#: src/MainFrame_PlaylistEvents.cpp:43 src/MainFrame_PlaylistUI.cpp:145
+msgid "Update"
+msgstr "Aktualizuj"
+
+#: src/MainFrame_PlaylistEvents.cpp:44 src/MainFrame_PlaylistUI.cpp:146
+#: src/epg/EpgSourceManagerPanel.cpp:97
+msgid "Edit"
+msgstr "Edytuj"
+
+#: src/MainFrame_PlaylistEvents.cpp:45 src/MainFrame_PlaylistUI.cpp:148
+#: src/epg/EpgSourceManagerPanel.cpp:98
+msgid "Remove"
+msgstr "Usuń"
+
+#: src/MainFrame_PlaylistEvents.cpp:70
+msgid "Loading channels..."
+msgstr "Ładowanie kanałów..."
+
+#: src/MainFrame_PlaylistEvents.cpp:101
+msgid "Selected playlist is not available."
+msgstr "Wybrana playlista jest niedostępna."
+
+#: src/MainFrame_PlaylistEvents.cpp:149
+#, c-format
+msgid "Playlist added: %s"
+msgstr "Dodano playlistę: %s"
+
+#: src/MainFrame_PlaylistEvents.cpp:152 src/MainFrame_PlaylistEvents.cpp:230
+#: src/MainFrame_PlaylistEvents.cpp:260
+msgid "Duplicate playlist not added."
+msgstr "Zduplikowana playlista nie została dodana."
+
+#: src/MainFrame_PlaylistEvents.cpp:155
+#, c-format
+msgid ""
+"Failed to add playlist:\n"
+"%s"
+msgstr ""
+"Nie udało się dodać playlisty:\n"
+"%s"
+
+#: src/MainFrame_PlaylistEvents.cpp:157
+msgid "Failed to add playlist from file."
+msgstr "Nie udało się dodać playlisty z pliku."
+
+#: src/MainFrame_PlaylistEvents.cpp:180
+msgid "Invalid URL. Please enter a valid address."
+msgstr "Nieprawidłowy URL. Wpisz poprawny adres."
+
+#: src/MainFrame_PlaylistEvents.cpp:209
+#, c-format
+msgid "Loading playlist from %s..."
+msgstr "Ładowanie playlisty z %s..."
+
+#: src/MainFrame_PlaylistEvents.cpp:221
+msgid "Playlist added from URL."
+msgstr "Playlista dodana z URL."
+
+#: src/MainFrame_PlaylistEvents.cpp:233
+msgid "Failed to add playlist."
+msgstr "Nie udało się dodać playlisty."
+
+#: src/MainFrame_PlaylistEvents.cpp:234
+#, c-format
+msgid ""
+"Failed to add playlist:\n"
+"\n"
+"%s"
+msgstr ""
+"Nie udało się dodać playlisty:\n"
+"\n"
+"%s"
+
+#: src/MainFrame_PlaylistEvents.cpp:240
+msgid "Playlist loading timed out."
+msgstr "Przekroczono limit czasu ładowania playlisty."
+
+#: src/MainFrame_PlaylistEvents.cpp:243
+msgid ""
+"Playlist loading timed out.\n"
+"Do you want to retry?"
+msgstr ""
+"Przekroczono limit czasu ładowania playlisty.\n"
+"Czy chcesz spróbować ponownie?"
+
+#: src/MainFrame_PlaylistEvents.cpp:244
+msgid "Timeout"
+msgstr "Limit czasu"
+
+#: src/MainFrame_PlaylistEvents.cpp:258
+#, c-format
+msgid "Duplicate playlist: %s"
+msgstr "Zduplikowana playlista: %s"
+
+#: src/MainFrame_PlaylistEvents.cpp:264
+msgid "Retrying playlist load..."
+msgstr "Ponowna próba ładowania playlisty..."
+
+#: src/MainFrame_PlaylistEvents.cpp:273
+msgid "Playlist loading canceled."
+msgstr "Ładowanie playlisty anulowane."
+
+#: src/MainFrame_PlaylistEvents.cpp:362
+#, c-format
+msgid ""
+"Failed to remove playlist:\n"
+"%s"
+msgstr ""
+"Nie udało się usunąć playlisty:\n"
+"%s"
+
+#: src/MainFrame_PlaylistEvents.cpp:388
+#, c-format
+msgid "Playlist '%s' removed"
+msgstr "Playlista „%s” usunięta"
+
+#: src/MainFrame_PlaylistEvents.cpp:399 src/MainFrame_ChannelsViewUI.cpp:29
+msgid "Playlist: - / Channels: 0"
+msgstr "Playlista: - / Kanałów: 0"
+
+#: src/MainFrame_PlaylistEvents.cpp:440
+#, c-format
+msgid "Updating playlist: %s"
+msgstr "Aktualizacja playlisty: %s"
+
+#: src/MainFrame_PlaylistEvents.cpp:464 src/MainFrame_PlaylistEvents.cpp:521
+msgid "Unable to start update thread."
+msgstr "Nie udało się uruchomić wątku aktualizacji."
+
+#: src/MainFrame_PlaylistEvents.cpp:474
+msgid "Playlist manager is not available."
+msgstr "Menedżer playlist jest niedostępny."
+
+#: src/MainFrame_PlaylistEvents.cpp:478
+msgid ""
+"Playlist panel is open but list is empty. Add a playlist before updating all."
+msgstr ""
+"Panel playlist jest otwarty, ale lista jest pusta. Dodaj playlistę przed "
+"aktualizacją wszystkich."
+
+#: src/MainFrame_PlaylistEvents.cpp:504
+msgid "Updating playlists..."
+msgstr "Aktualizacja playlist..."
+
+#: src/MainFrame_PlaylistEvents.cpp:585
+#, c-format
+msgid "Updated %d playlists and reloaded current."
+msgstr "Zaktualizowano %d playlist i przeładowano bieżącą."
+
+#: src/MainFrame_PlaylistEvents.cpp:589
+#, c-format
+msgid "Updated %d playlists."
+msgstr "Zaktualizowano %d playlist."
+
+#: src/MainFrame_PlaylistEvents.cpp:592 src/MainFrame_PlaylistEvents.cpp:663
+msgid "Update finished."
+msgstr "Aktualizacja zakończona."
+
+#: src/MainFrame_PlaylistEvents.cpp:595
+msgid "No playlists updated."
+msgstr "Nie zaktualizowano żadnej playlisty."
+
+#: src/MainFrame_PlaylistEvents.cpp:596
+msgid "Update failed or no changes."
+msgstr "Aktualizacja nie powiodła się lub brak zmian."
+
+#: src/MainFrame_PlaylistEvents.cpp:662
+msgid "Update finished and reloaded."
+msgstr "Aktualizacja zakończona i przeładowano."
+
+#: src/MainFrame_PlaylistEvents.cpp:666
+#, c-format
+msgid "Playlist '%s' updated successfully."
+msgstr "Playlista „%s” zaktualizowana pomyślnie."
+
+#: src/MainFrame_PlaylistEvents.cpp:670
+msgid "Update failed."
+msgstr "Aktualizacja nie powiodła się."
+
+#: src/MainFrame_PlaylistEvents.cpp:672
+#, c-format
+msgid "Playlist '%s' update failed."
+msgstr "Aktualizacja playlisty „%s” nie powiodła się."
+
+#: src/MainFrame_PlaylistEvents.cpp:727
+#, c-format
+msgid "Updating playlist: %s — %d%% (%d/%d)"
+msgstr "Aktualizacja playlisty: %s — %d%% (%d/%d)"
+
+#: src/MainFrame_PlaylistEvents.cpp:730
+#, c-format
+msgid "Updating: %d%% (%d/%d)"
+msgstr "Aktualizacja: %d%% (%d/%d)"
+
+#: src/VP_tempplaylist.cpp:359
+msgid "Play (Enter)"
+msgstr "Odtwarzaj (Enter)"
+
+#: src/VP_tempplaylist.cpp:360
+msgid "Move up (Ctrl+↑)"
+msgstr "Przenieś w górę (Ctrl+↑)"
+
+#: src/VP_tempplaylist.cpp:361
+msgid "Move down (Ctrl+↓)"
+msgstr "Przenieś w dół (Ctrl+↓)"
+
+#: src/VP_tempplaylist.cpp:363
+msgid "Rename (F2)"
+msgstr "Zmień nazwę (F2)"
+
+#: src/VP_tempplaylist.cpp:365
+msgid "Remove (Delete)"
+msgstr "Usuń (Delete)"
+
+#: src/VP_tempplaylist.cpp:366
+msgid "Clear playlist (Ctrl+L)"
+msgstr "Wyczyść playlistę (Ctrl+L)"
+
+#: src/VP_tempplaylist.cpp:368
+msgid "Open containing folder"
+msgstr "Otwórz folder zawierający"
+
+#: src/VP_tempplaylist.cpp:620
+msgid "Rename item:"
+msgstr "Nowa nazwa:"
+
+#: src/VP_tempplaylist.cpp:620
+msgid "Rename"
+msgstr "Zmień nazwę"
+
+#: src/MainFrame_Menu.cpp:54 src/MainFrame_Menu.cpp:680
+#: src/MainFrame_Menu.cpp:722 src/MainFrame_Menu.cpp:921
+#: src/MainFrame_Menu.cpp:971
+msgid "Reset to default"
+msgstr "Przywróć domyślne"
+
+#: src/MainFrame_Menu.cpp:105
+#, c-format
+msgid "Current: %d%%"
+msgstr "Bieżące: %d%%"
+
+#: src/MainFrame_Menu.cpp:110
+msgid "25%"
+msgstr "25%"
+
+#: src/MainFrame_Menu.cpp:110
+msgid "50%"
+msgstr "50%"
+
+#: src/MainFrame_Menu.cpp:110
+msgid "75%"
+msgstr "75%"
+
+#: src/MainFrame_Menu.cpp:111
+msgid "100%"
+msgstr "100%"
+
+#: src/MainFrame_Menu.cpp:111
+msgid "125%"
+msgstr "125%"
+
+#: src/MainFrame_Menu.cpp:111
+msgid "150%"
+msgstr "150%"
+
+#: src/MainFrame_Menu.cpp:112
+msgid "200%"
+msgstr "200%"
+
+#: src/MainFrame_Menu.cpp:138
+msgid "Zoom"
+msgstr "Powiększenie"
+
+#: src/MainFrame_Menu.cpp:147
+msgid "Current: Auto"
+msgstr "Bieżące: Auto"
+
+#: src/MainFrame_Menu.cpp:149
+msgid "Current: "
+msgstr "Bieżące: "
+
+#: src/MainFrame_Menu.cpp:156
+msgid "16:9"
+msgstr "16:9"
+
+#: src/MainFrame_Menu.cpp:156
+msgid "4:3"
+msgstr "4:3"
+
+#: src/MainFrame_Menu.cpp:156
+msgid "21:9"
+msgstr "21:9"
+
+#: src/MainFrame_Menu.cpp:157
+msgid "16:10"
+msgstr "16:10"
+
+#: src/MainFrame_Menu.cpp:157
+msgid "5:4"
+msgstr "5:4"
+
+#: src/MainFrame_Menu.cpp:157
+msgid "1:1"
+msgstr "1:1"
+
+#: src/MainFrame_Menu.cpp:158
+msgid "2.35:1"
+msgstr "2.35:1"
+
+#: src/MainFrame_Menu.cpp:158
+msgid "1.85:1"
+msgstr "1.85:1"
+
+#: src/MainFrame_Menu.cpp:176 src/MainFrame_Menu.cpp:388
+#: src/MainFrame_Menu.cpp:408 src/epg/EpgSourceManagerPanel.cpp:86
+msgid "Auto"
+msgstr "Auto"
+
+#: src/MainFrame_Menu.cpp:194
+msgid "Aspect Ratio"
+msgstr "Proporcje obrazu"
+
+#: src/MainFrame_Menu.cpp:205
+#, c-format
+msgid "Current: %d°"
+msgstr "Bieżące: %d°"
+
+#: src/MainFrame_Menu.cpp:212
+#, c-format
+msgid "%d°"
+msgstr "%d°"
+
+#: src/MainFrame_Menu.cpp:234
+msgid "Rotate"
+msgstr "Obrót"
+
+#: src/MainFrame_Menu.cpp:247
+msgid "Toggle Mirror"
+msgstr "Przełącz lustro"
+
+#: src/MainFrame_Menu.cpp:258
+msgid "Toggle Vertical Flip"
+msgstr "Przełącz odbicie pionowe"
+
+#: src/MainFrame_Menu.cpp:269
+msgid "Toggle Deinterlace"
+msgstr "Przełącz odprzeplecenie"
+
+#: src/MainFrame_Menu.cpp:280
+msgid "Toggle Sharpen"
+msgstr "Przełącz wyostrzanie"
+
+#: src/MainFrame_Menu.cpp:291
+msgid "Crop…"
+msgstr "Przytnij…"
+
+#: src/MainFrame_Menu.cpp:298
+msgid "Crop parameters w:h:x:y, empty to reset:"
+msgstr "Parametry przycinania sz:w:x:y, puste aby zresetować:"
+
+#: src/MainFrame_Menu.cpp:299
+msgid "Video Crop"
+msgstr "Przycinanie wideo"
+
+#: src/MainFrame_Menu.cpp:313
+msgid "Reset All Filters"
+msgstr "Resetuj wszystkie filtry"
+
+#: src/MainFrame_Menu.cpp:322
+msgid "Mirror / Filters"
+msgstr "Lustro / Filtry"
+
+#: src/MainFrame_Menu.cpp:331
+msgid "Brightness"
+msgstr "Jasność"
+
+#: src/MainFrame_Menu.cpp:332
+msgid "Contrast"
+msgstr "Kontrast"
+
+#: src/MainFrame_Menu.cpp:333
+msgid "Saturation"
+msgstr "Nasycenie"
+
+#: src/MainFrame_Menu.cpp:334
+msgid "Gamma"
+msgstr "Gamma"
+
+#: src/MainFrame_Menu.cpp:335
+msgid "Hue"
+msgstr "Odcień"
+
+#: src/MainFrame_Menu.cpp:344
+#, c-format
+msgid "%s: %s"
+msgstr "%s: %s"
+
+#: src/MainFrame_Menu.cpp:350
+msgid "+5"
+msgstr "+5"
+
+#: src/MainFrame_Menu.cpp:350
+msgid "−5"
+msgstr "−5"
+
+#: src/MainFrame_Menu.cpp:369
+msgid "Reset equalizer"
+msgstr "Resetuj korektor"
+
+#: src/MainFrame_Menu.cpp:382
+msgid "Equalizer"
+msgstr "Korektor"
+
+#: src/MainFrame_Menu.cpp:386
+msgid "Hardware Decoding"
+msgstr "Dekodowanie sprzętowe"
+
+#: src/MainFrame_Menu.cpp:387
+msgid "Auto-safe"
+msgstr "Auto (bezpieczne)"
+
+#: src/MainFrame_Menu.cpp:389
+msgid "VAAPI"
+msgstr "VAAPI"
+
+#: src/MainFrame_Menu.cpp:390
+msgid "VDPAU"
+msgstr "VDPAU"
+
+#: src/MainFrame_Menu.cpp:391
+msgid "NVDEC"
+msgstr "NVDEC"
+
+#: src/MainFrame_Menu.cpp:392
+msgid "Disabled"
+msgstr "Wyłączone"
+
+#: src/MainFrame_Menu.cpp:394
+msgid "Video Sync"
+msgstr "Synchronizacja wideo"
+
+#: src/MainFrame_Menu.cpp:395 src/MainFrame_Menu.cpp:788
+msgid "Audio"
+msgstr "Dźwięk"
+
+#: src/MainFrame_Menu.cpp:396
+msgid "Display Resample"
+msgstr "Resampling ekranu"
+
+#: src/MainFrame_Menu.cpp:397
+msgid "Display Desync"
+msgstr "Desynchronizacja ekranu"
+
+#: src/MainFrame_Menu.cpp:398
+msgid "Display Tempo"
+msgstr "Tempo ekranu"
+
+#: src/MainFrame_Menu.cpp:400
+msgid "Scaling"
+msgstr "Skalowanie"
+
+#: src/MainFrame_Menu.cpp:401
+msgid "Bilinear"
+msgstr "Bilinearne"
+
+#: src/MainFrame_Menu.cpp:402
+msgid "Bicubic"
+msgstr "Bikubiczne"
+
+#: src/MainFrame_Menu.cpp:403
+msgid "Spline36"
+msgstr "Spline36"
+
+#: src/MainFrame_Menu.cpp:404
+msgid "Lanczos"
+msgstr "Lanczos"
+
+#: src/MainFrame_Menu.cpp:405
+msgid "EWA Lanczos"
+msgstr "EWA Lanczos"
+
+#: src/MainFrame_Menu.cpp:407
+msgid "Drop Frames"
+msgstr "Pomijanie klatek"
+
+#: src/MainFrame_Menu.cpp:409
+msgid "VO"
+msgstr "VO"
+
+#: src/MainFrame_Menu.cpp:411
+msgid "Decoder + VO"
+msgstr "Dekoder + VO"
+
+#: src/MainFrame_Menu.cpp:425
+msgid "Default (mpv)"
+msgstr "Domyślne (mpv)"
+
+#: src/MainFrame_Menu.cpp:425
+msgid "32 MB"
+msgstr "32 MB"
+
+#: src/MainFrame_Menu.cpp:425
+msgid "64 MB"
+msgstr "64 MB"
+
+#: src/MainFrame_Menu.cpp:426
+msgid "128 MB"
+msgstr "128 MB"
+
+#: src/MainFrame_Menu.cpp:426
+msgid "256 MB"
+msgstr "256 MB"
+
+#: src/MainFrame_Menu.cpp:426
+msgid "512 MB"
+msgstr "512 MB"
+
+#: src/MainFrame_Menu.cpp:439
+msgid "Network cache will apply on next stream load."
+msgstr "Pamięć podręczna sieci zostanie zastosowana przy następnym ładowaniu strumienia."
+
+#: src/MainFrame_Menu.cpp:447
+msgid "Custom…"
+msgstr "Własne…"
+
+#: src/MainFrame_Menu.cpp:452
+msgid "Network cache size in MB:"
+msgstr "Rozmiar pamięci podręcznej sieci w MB:"
+
+#: src/MainFrame_Menu.cpp:453
+msgid "0 = mpv default, 1-65536 = explicit size"
+msgstr "0 = domyślne mpv, 1–65536 = określony rozmiar"
+
+#: src/MainFrame_Menu.cpp:454
+msgid "Custom Network Cache"
+msgstr "Własna pamięć podręczna sieci"
+
+#: src/MainFrame_Menu.cpp:463
+#, c-format
+msgid "Network cache set to %d MB (applies on next stream)."
+msgstr "Pamięć podręczna sieci ustawiona na %d MB (zastosowane przy następnym strumieniu)."
+
+#: src/MainFrame_Menu.cpp:471
+msgid "Reset to mpv default"
+msgstr "Przywróć domyślne mpv"
+
+#: src/MainFrame_Menu.cpp:478
+msgid "Network cache reset (applies on next stream)."
+msgstr "Pamięć podręczna sieci zresetowana (zastosowane przy następnym strumieniu)."
+
+#: src/MainFrame_Menu.cpp:482
+msgid "Network Cache"
+msgstr "Pamięć podręczna sieci"
+
+#: src/MainFrame_Menu.cpp:487
+msgid "Interpolation"
+msgstr "Interpolacja"
+
+#: src/MainFrame_Menu.cpp:489
+msgid "Debanding"
+msgstr "Usuwanie pasm"
+
+#: src/MainFrame_Menu.cpp:494
+msgid "Reset video options to mpv defaults"
+msgstr "Przywróć opcje wideo do domyślnych mpv"
+
+#: src/MainFrame_Menu.cpp:508 src/MainFrame_UI.cpp:123
+msgid "Video"
+msgstr "Wideo"
+
+#: src/MainFrame_Menu.cpp:523
+msgid "(no audio tracks)"
+msgstr "(brak ścieżek audio)"
+
+#: src/MainFrame_Menu.cpp:540
+msgid "Track"
+msgstr "Ścieżka"
+
+#: src/MainFrame_Menu.cpp:551 src/MainFrame_Menu.cpp:862
+#, c-format
+msgid "Current: %+.2f s"
+msgstr "Bieżące: %+.2f s"
+
+#: src/MainFrame_Menu.cpp:561
+msgid "Sync (0s)"
+msgstr "Zsynchronizowane (0 s)"
+
+#: src/MainFrame_Menu.cpp:563
+#, c-format
+msgid "+%.1fs"
+msgstr "+%.1f s"
+
+#: src/MainFrame_Menu.cpp:565
+#, c-format
+msgid "%.1fs"
+msgstr "%.1f s"
+
+#: src/MainFrame_Menu.cpp:580
+msgid "Custom..."
+msgstr "Własne..."
+
+#: src/MainFrame_Menu.cpp:586
+msgid "Enter audio delay in seconds (e.g., -0.5 or 0.3):"
+msgstr "Wpisz opóźnienie dźwięku w sekundach (np. -0,5 lub 0,3):"
+
+#: src/MainFrame_Menu.cpp:587
+msgid "Custom Audio Delay"
+msgstr "Własne opóźnienie dźwięku"
+
+#: src/MainFrame_Menu.cpp:594
+msgid "Invalid number. Please enter a numeric value."
+msgstr "Nieprawidłowa liczba. Wpisz wartość liczbową."
+
+#: src/MainFrame_Menu.cpp:602 src/MainFrame_Menu.cpp:888
+msgid "Delay"
+msgstr "Opóźnienie"
+
+#: src/MainFrame_Menu.cpp:619 src/MainFrame_Menu.cpp:900
+#, c-format
+msgid "Current: %.2f×"
+msgstr "Bieżąca: %.2f×"
+
+#: src/MainFrame_Menu.cpp:624
+msgid "0.5×"
+msgstr "0,5×"
+
+#: src/MainFrame_Menu.cpp:624
+msgid "0.75×"
+msgstr "0,75×"
+
+#: src/MainFrame_Menu.cpp:625
+msgid "1.0×"
+msgstr "1,0×"
+
+#: src/MainFrame_Menu.cpp:625
+msgid "1.25×"
+msgstr "1,25×"
+
+#: src/MainFrame_Menu.cpp:626
+msgid "1.5×"
+msgstr "1,5×"
+
+#: src/MainFrame_Menu.cpp:626
+msgid "2.0×"
+msgstr "2,0×"
+
+#: src/MainFrame_Menu.cpp:644
+msgid "Reset to 1.0×"
+msgstr "Przywróć 1,0×"
+
+#: src/MainFrame_Menu.cpp:653
+msgid "Speed"
+msgstr "Prędkość"
+
+#: src/MainFrame_Menu.cpp:689 src/MainFrame_PlaylistUI.cpp:178
+#: src/MainFrame_UI.cpp:121
+msgid "Channels"
+msgstr "Kanały"
+
+#: src/MainFrame_Menu.cpp:702
+msgid "(no audio devices)"
+msgstr "(brak urządzeń audio)"
+
+#: src/MainFrame_Menu.cpp:731
+msgid "Device"
+msgstr "Urządzenie"
+
+#: src/MainFrame_Menu.cpp:744
+msgid "Off"
+msgstr "Wyłączone"
+
+#: src/MainFrame_Menu.cpp:745
+msgid "AC3 & DTS"
+msgstr "AC3 i DTS"
+
+#: src/MainFrame_Menu.cpp:746
+msgid "AC3, DTS, E-AC3, TrueHD, DTS-HD"
+msgstr "AC3, DTS, E-AC3, TrueHD, DTS-HD"
+
+#: src/MainFrame_Menu.cpp:760
+msgid "Passthrough will apply on next stream load."
+msgstr "Passthrough zostanie zastosowane przy następnym ładowaniu strumienia."
+
+#: src/MainFrame_Menu.cpp:765
+msgid "Passthrough (S/PDIF, HDMI)"
+msgstr "Passthrough (S/PDIF, HDMI)"
+
+#: src/MainFrame_Menu.cpp:768
+msgid "Pitch Correction"
+msgstr "Korekcja wysokości dźwięku"
+
+#: src/MainFrame_Menu.cpp:774
+msgid "Reset audio options to mpv defaults"
+msgstr "Przywróć opcje audio do domyślnych mpv"
+
+#: src/MainFrame_Menu.cpp:794
+msgid "Set Record Directory…"
+msgstr "Ustaw katalog nagrań…"
+
+#: src/MainFrame_Menu.cpp:800
+msgid "Choose record directory"
+msgstr "Wybierz katalog nagrań"
+
+#: src/MainFrame_Menu.cpp:812
+msgid "Open Recordings Folder"
+msgstr "Otwórz folder nagrań"
+
+#: src/MainFrame_Menu.cpp:823
+msgid "Record"
+msgstr "Nagrywanie"
+
+#: src/MainFrame_Menu.cpp:835
+msgid "(no subtitle tracks)"
+msgstr "(brak ścieżek napisów)"
+
+#: src/MainFrame_Menu.cpp:867
+msgid "−0.5s"
+msgstr "−0,5 s"
+
+#: src/MainFrame_Menu.cpp:868
+msgid "−0.1s"
+msgstr "−0,1 s"
+
+#: src/MainFrame_Menu.cpp:869
+msgid "Reset (0.0s)"
+msgstr "Reset (0,0 s)"
+
+#: src/MainFrame_Menu.cpp:870
+msgid "+0.1s"
+msgstr "+0,1 s"
+
+#: src/MainFrame_Menu.cpp:871
+msgid "+0.5s"
+msgstr "+0,5 s"
+
+#: src/MainFrame_Menu.cpp:907
+#, c-format
+msgid "%.2f×"
+msgstr "%.2f×"
+
+#: src/MainFrame_Menu.cpp:930
+msgid "Scale"
+msgstr "Skala"
+
+#: src/MainFrame_Menu.cpp:941
+#, c-format
+msgid "Current: %d"
+msgstr "Bieżące: %d"
+
+#: src/MainFrame_Menu.cpp:949
+msgid "100 (Default)"
+msgstr "100 (domyślne)"
+
+#: src/MainFrame_Menu.cpp:950
+msgid "90 (Above UI)"
+msgstr "90 (nad interfejsem)"
+
+#: src/MainFrame_Menu.cpp:951
+msgid "80 (Letterbox)"
+msgstr "80 (letterbox)"
+
+#: src/MainFrame_Menu.cpp:952
+msgid "75 (Upper letterbox)"
+msgstr "75 (górny letterbox)"
+
+#: src/MainFrame_Menu.cpp:953
+msgid "50 (Center)"
+msgstr "50 (wyśrodkowane)"
+
+#: src/MainFrame_Menu.cpp:980
+msgid "Position"
+msgstr "Pozycja"
+
+#: src/MainFrame_Menu.cpp:985
+msgid "Reset subtitle options"
+msgstr "Resetuj opcje napisów"
+
+#: src/MainFrame_Menu.cpp:998
+msgid "Subtitles"
+msgstr "Napisy"
+
+#: src/MainFrame_Menu.cpp:1002
+msgid "About"
+msgstr "O programie"
+
+#: src/MainFrame_Menu.cpp:1003
+msgid "Quit"
+msgstr "Zakończ"
+
+#: src/MainFrame_Events.cpp:32
+#, c-format
+msgid ""
+"IPTV Player %s\n"
+"Commit: %s\n"
+"\n"
+"A simple player for M3U playlists with EPG support.\n"
+"Built with wxWidgets, MPV, and SQLite.\n"
+"\n"
+"GitHub: https://github.com/i-jurij/iptvplayer\n"
+"\n"
+msgstr ""
+"IPTV Player %s\n"
+"Commit: %s\n"
+"\n"
+"Prosty odtwarzacz playlist M3U z obsługą EPG.\n"
+"Zbudowany z wxWidgets, MPV i SQLite.\n"
+"\n"
+"GitHub: https://github.com/i-jurij/iptvplayer\n"
+"\n"
+
+#: src/MainFrame_Events.cpp:44 src/MainFrame_Events.cpp:48
+msgid "About IPTV Player"
+msgstr "O programie IPTV Player"
+
+#: src/MainFrame_Events.cpp:59
+msgid "Details:"
+msgstr "Szczegóły:"
+
+#: src/MainFrame_Events.cpp:86
+msgid "List View"
+msgstr "Widok listy"
+
+#: src/MainFrame_Events.cpp:89
+msgid "Grid View"
+msgstr "Widok siatki"
+
+#: src/MainFrame_Events.cpp:127
+msgid "EPG: Downloading"
+msgstr "EPG: pobieranie"
+
+#: src/MainFrame_Events.cpp:130
+msgid "EPG: Extracting"
+msgstr "EPG: rozpakowywanie"
+
+#: src/MainFrame_Events.cpp:133
+msgid "EPG: Parsing"
+msgstr "EPG: analizowanie"
+
+#: src/MainFrame_Events.cpp:136
+msgid "EPG: Matching channels"
+msgstr "EPG: dopasowywanie kanałów"
+
+#: src/MainFrame_Events.cpp:139
+msgid "EPG: "
+msgstr "EPG: "
+
+#: src/MainFrame_Events.cpp:150
+#, c-format
+msgid " (%.1f MB / %.1f MB, %.1f KB/s)"
+msgstr " (%.1f MB / %.1f MB, %.1f KB/s)"
+
+#: src/MainFrame_Events.cpp:155 src/MainFrame_Events.cpp:193
+#, c-format
+msgid "Channels %d/%d"
+msgstr "Kanały %d/%d"
+
+#: src/MainFrame_Events.cpp:161 src/MainFrame_Events.cpp:199
+#, c-format
+msgid "Favorites %d/%d"
+msgstr "Ulubione %d/%d"
+
+#: src/MainFrame_Events.cpp:187
+msgid "EPG: no channels matched"
+msgstr "EPG: nie dopasowano żadnych kanałów"
+
+#: src/MainFrame_Events.cpp:190
+msgid "EPG Matching Done"
+msgstr "Dopasowywanie EPG zakończone"
+
+#: src/MainFrame_Events.cpp:206
+msgid "EPG cancel"
+msgstr "EPG: anulowanie"
+
+#: src/MainFrame_Events.cpp:207
+msgid "EPG update cancelled"
+msgstr "Aktualizacja EPG anulowana"
+
+#: src/MainFrame_Events.cpp:209
+msgid "EPG error"
+msgstr "Błąd EPG"
+
+#: src/MainFrame_PlaylistUI.cpp:119
+msgid "Add from IPTV-Org..."
+msgstr "Dodaj z IPTV-Org..."
+
+#: src/MainFrame_PlaylistUI.cpp:124
+msgid "Add from File..."
+msgstr "Dodaj z pliku..."
+
+#: src/MainFrame_PlaylistUI.cpp:129
+msgid "Add from URL..."
+msgstr "Dodaj z URL..."
+
+#: src/MainFrame_PlaylistUI.cpp:133
+msgid "Update All"
+msgstr "Aktualizuj wszystkie"
+
+#: src/MainFrame_PlaylistUI.cpp:176
+msgid "Title"
+msgstr "Tytuł"
+
+#: src/MainFrame_PlaylistUI.cpp:177
+msgid "Source"
+msgstr "Źródło"
+
+#: src/MainFrame_PlaylistUI.cpp:179
+msgid "Auto update"
+msgstr "Automatyczna aktualizacja"
+
+#: src/MainFrame_PlaylistUI.cpp:180
+msgid "Last Update"
+msgstr "Ostatnia aktualizacja"
+
+#: src/BaseChannelList.cpp:220 src/MainFrame_ChannelsViewUI.cpp:50
+msgid "Logo"
+msgstr "Logo"
+
+#: src/BaseChannelList.cpp:252
+msgid "Group"
+msgstr "Grupa"
+
+#: src/BaseChannelList.cpp:256 src/iptvorg/AddIPTVPlaylistDialog.cpp:105
+msgid "Language"
+msgstr "Język"
+
+#: src/BaseChannelList.cpp:260 src/iptvorg/AddIPTVPlaylistDialog.cpp:104
+msgid "Country"
+msgstr "Kraj"
+
+#: src/Application.cpp:41
+msgid ""
+"No sound devices found.\n"
+"\n"
+"Install ALSA, then initialize it:\n"
+"\n"
+"  sudo alsactl init"
+msgstr ""
+"Nie znaleziono urządzeń dźwiękowych.\n"
+"\n"
+"Zainstaluj ALSA, a następnie zainicjuj ją:\n"
+"\n"
+"  sudo alsactl init"
+
+#: src/Application.cpp:44
+msgid "Audio not available"
+msgstr "Dźwięk niedostępny"
+
+#: src/Application.cpp:153
+msgid ""
+"Failed to load settings.\n"
+"See log for details."
+msgstr ""
+"Nie udało się załadować ustawień.\n"
+"Szczegóły w dzienniku."
+
+#: src/MainFrame_FiltersUI.cpp:74
+msgid "Fav first"
+msgstr "Ulubione najpierw"
+
+#: src/epg/AddEpgSourceDialog.cpp:24
+msgid "Add EPG Source"
+msgstr "Dodaj źródło EPG"
+
+#: src/epg/AddEpgSourceDialog.cpp:33
+msgid "More info about popular sources"
+msgstr "Więcej informacji o popularnych źródłach"
+
+#: src/epg/AddEpgSourceDialog.cpp:42
+msgid "Enter XMLTV URL or choose a local file."
+msgstr "Wpisz URL XMLTV lub wybierz plik lokalny."
+
+#: src/epg/AddEpgSourceDialog.cpp:50
+msgid "URL / Path:"
+msgstr "URL / Ścieżka:"
+
+#: src/epg/AddEpgSourceDialog.cpp:55
+msgid "Browse..."
+msgstr "Przeglądaj..."
+
+#: src/epg/AddEpgSourceDialog.cpp:60
+msgid "Name (optional):"
+msgstr "Nazwa (opcjonalnie):"
+
+#: src/epg/AddEpgSourceDialog.cpp:66
+msgid "If empty, name will be auto-filled from URL or file name."
+msgstr "Jeśli puste, nazwa zostanie pobrana z URL lub nazwy pliku."
+
+#: src/epg/AddEpgSourceDialog.cpp:72
+msgid "Auto-update"
+msgstr "Automatyczna aktualizacja"
+
+#: src/epg/AddEpgSourceDialog.cpp:97
+msgid "XMLTV files"
+msgstr "Pliki XMLTV"
+
+#: src/epg/AddEpgSourceDialog.cpp:99 src/DialogsPL.cpp:44 src/VP_actions.cpp:27
+msgid "All files"
+msgstr "Wszystkie pliki"
+
+#: src/epg/AddEpgSourceDialog.cpp:102
+msgid "Select XMLTV file"
+msgstr "Wybierz plik XMLTV"
+
+#: src/epg/AddEpgSourceDialog.cpp:117
+msgid "Popular EPG Sources"
+msgstr "Popularne źródła EPG"
+
+#: src/epg/AddEpgSourceDialog.cpp:129 src/epg/AddEpgSourceDialog.cpp:238
+msgid ""
+"Double‑click on any row to copy the URL to clipboard.\n"
+"Note: URLs may become outdated; you can search for current XMLTV sources "
+"online."
+msgstr ""
+"Kliknij dwukrotnie dowolny wiersz, aby skopiować URL do schowka.\n"
+"Uwaga: adresy URL mogą być nieaktualne; aktualne źródła XMLTV można znaleźć "
+"w internecie."
+
+#: src/epg/AddEpgSourceDialog.cpp:152
+msgid ""
+"EPG sources file (epg_sources.json) not found.\n"
+"\n"
+"Please check installation or search online for 'XMLTV EPG sources'."
+msgstr ""
+"Nie znaleziono pliku źródeł EPG (epg_sources.json).\n"
+"\n"
+"Sprawdź instalację lub poszukaj w internecie „XMLTV EPG sources”."
+
+#: src/epg/AddEpgSourceDialog.cpp:163
+msgid ""
+"Error parsing epg_sources.json.\n"
+"\n"
+"Please check file format (valid JSON array)."
+msgstr ""
+"Błąd analizy epg_sources.json.\n"
+"\n"
+"Sprawdź format pliku (prawidłowa tablica JSON)."
+
+#: src/epg/AddEpgSourceDialog.cpp:171
+msgid "Region"
+msgstr "Region"
+
+#: src/epg/AddEpgSourceDialog.cpp:175 src/epg/EpgSourceManagerPanel.cpp:80
+#: src/epg/EpgSourceManagerPanel.cpp:669
+msgid "URL"
+msgstr "URL"
+
+#: src/epg/AddEpgSourceDialog.cpp:177
+msgid "Notes"
+msgstr "Uwagi"
+
+#: src/epg/AddEpgSourceDialog.cpp:225
+msgid ""
+"URL copied to clipboard!\n"
+"Note: URLs may become outdated; you can search for current XMLTV sources "
+"online."
+msgstr ""
+"URL skopiowany do schowka!\n"
+"Uwaga: adresy URL mogą być nieaktualne; aktualne źródła XMLTV można znaleźć "
+"w internecie."
+
+#: src/epg/AddEpgSourceDialog.cpp:248
+msgid "epg_sources.json must contain a JSON array of objects."
+msgstr "epg_sources.json musi zawierać tablicę JSON obiektów."
+
+#: src/epg/AddEpgSourceDialog.cpp:267
+msgid "Please enter a URL or select a file."
+msgstr "Wpisz URL lub wybierz plik."
+
+#: src/epg/AddEpgSourceDialog.cpp:277
+msgid "Invalid URL: missing host (e.g., https://example.com)."
+msgstr "Nieprawidłowy URL: brak hosta (np. https://example.com)."
+
+#: src/epg/AddEpgSourceDialog.cpp:290
+msgid "File does not exist."
+msgstr "Plik nie istnieje."
+
+#: src/epg/EPGManager.cpp:391 src/epg/EPGManager.cpp:626
+#: src/epg/EpgSourceManagerPanel.cpp:819 src/epg/EpgSourceManagerPanel.cpp:823
+msgid "Done"
+msgstr "Gotowe"
+
+#: src/epg/EPGManager.cpp:507 src/epg/EPGManager.cpp:747
+msgid "Downloading"
+msgstr "Pobieranie"
+
+#: src/epg/EPGManager.cpp:509 src/epg/EPGManager.cpp:777
+#: src/epg/EPGManager.cpp:1653
+msgid "Cancelled"
+msgstr "Anulowano"
+
+#: src/epg/EPGManager.cpp:586
+msgid "No EPG sources to update"
+msgstr "Brak źródeł EPG do aktualizacji"
+
+#: src/epg/EPGManager.cpp:783 src/epg/EPGManager.cpp:811
+msgid "Extracting"
+msgstr "Rozpakowywanie"
+
+#: src/epg/EPGManager.cpp:818
+msgid "Error: Cannot open file"
+msgstr "Błąd: nie można otworzyć pliku"
+
+#: src/epg/EPGManager.cpp:830
+msgid "Error: Decompression failed"
+msgstr "Błąd: dekompresja nie powiodła się"
+
+#: src/epg/EPGManager.cpp:846
+msgid "Previous refresh still in progress"
+msgstr "Poprzednia aktualizacja jest wciąż w toku"
+
+#: src/epg/EPGManager.cpp:885 src/epg/EPGManager.cpp:924
+msgid "Parsing"
+msgstr "Analizowanie"
+
+#: src/epg/EPGManager.cpp:958
+msgid "Parsing complete, waiting for matching..."
+msgstr "Analiza zakończona, oczekiwanie na dopasowanie..."
+
+#: src/epg/EPGManager.cpp:1166 src/epg/EPGManager.cpp:1552
+msgid "Preparing EPG index"
+msgstr "Przygotowywanie indeksu EPG"
+
+#: src/epg/ManualMappingDialog.cpp:16 src/epg/EPGPanel.cpp:100
+msgid "Manual Mapping"
+msgstr "Ręczne dopasowanie"
+
+#: src/epg/ManualMappingDialog.cpp:29
+msgid "Playlist Channels"
+msgstr "Kanały playlisty"
+
+#: src/epg/ManualMappingDialog.cpp:34 src/epg/ManualMappingDialog.cpp:56
+msgid "Search:"
+msgstr "Szukaj:"
+
+#: src/epg/ManualMappingDialog.cpp:46
+msgid "tvg-id"
+msgstr "tvg-id"
+
+#: src/epg/ManualMappingDialog.cpp:52
+msgid "EPG Channels"
+msgstr "Kanały EPG"
+
+#: src/epg/ManualMappingDialog.cpp:66
+msgid "ID"
+msgstr "ID"
+
+#: src/epg/ManualMappingDialog.cpp:67
+msgid "Display Name"
+msgstr "Nazwa wyświetlana"
+
+#: src/epg/ManualMappingDialog.cpp:78
+msgid "Add mapping"
+msgstr "Dodaj dopasowanie"
+
+#: src/epg/ManualMappingDialog.cpp:84
+msgid "Current Mappings"
+msgstr "Bieżące dopasowania"
+
+#: src/epg/ManualMappingDialog.cpp:89
+msgid "Playlist tvg-id"
+msgstr "tvg-id playlisty"
+
+#: src/epg/ManualMappingDialog.cpp:91
+msgid "Playlist Name"
+msgstr "Nazwa w playliście"
+
+#: src/epg/ManualMappingDialog.cpp:93
+msgid "EPG ID"
+msgstr "ID EPG"
+
+#: src/epg/ManualMappingDialog.cpp:95
+msgid "EPG Name"
+msgstr "Nazwa EPG"
+
+#: src/epg/ManualMappingDialog.cpp:97
+msgid "Status"
+msgstr "Status"
+
+#: src/epg/ManualMappingDialog.cpp:99
+msgid "Key"
+msgstr "Klucz"
+
+#: src/epg/ManualMappingDialog.cpp:103
+msgid "Remove mapping"
+msgstr "Usuń dopasowanie"
+
+#: src/epg/ManualMappingDialog.cpp:104
+msgid "Ignore"
+msgstr "Ignoruj"
+
+#: src/epg/ManualMappingDialog.cpp:105
+msgid "Unignore"
+msgstr "Przestań ignorować"
+
+#: src/epg/ManualMappingDialog.cpp:124 src/epg/EpgSourceManagerPanel.cpp:906
+#: src/epg/EpgSourceManagerPanel.cpp:987
+msgid "Close"
+msgstr "Zamknij"
+
+#: src/epg/ManualMappingDialog.cpp:707 src/epg/ManualMappingDialog.cpp:739
+#: src/epg/ManualMappingDialog.cpp:771
+msgid "No current playlist."
+msgstr "Brak bieżącej playlisty."
+
+#: src/epg/ManualMappingDialog.cpp:724
+msgid "Cannot ignore a manual mapping."
+msgstr "Nie można zignorować ręcznego dopasowania."
+
+#: src/epg/ManualMappingDialog.cpp:731 src/epg/ManualMappingDialog.cpp:763
+msgid "Internal error: missing mapping key."
+msgstr "Błąd wewnętrzny: brak klucza dopasowania."
+
+#: src/epg/ManualMappingDialog.cpp:756
+msgid "Only ignored mappings can be unignored."
+msgstr "Tylko zignorowane dopasowania można przywrócić."
+
+#: src/epg/EPGPanel.cpp:42 src/epg/EPGPanel.cpp:93 src/epg/EPGPanel.cpp:438
+msgid "No channel selected"
+msgstr "Nie wybrano kanału"
+
+#: src/epg/EPGPanel.cpp:113
+msgid "Previous day"
+msgstr "Poprzedni dzień"
+
+#: src/epg/EPGPanel.cpp:116
+msgid "Today"
+msgstr "Dzisiaj"
+
+#: src/epg/EPGPanel.cpp:120
+msgid "Next day"
+msgstr "Następny dzień"
+
+#: src/epg/EPGPanel.cpp:159
+msgid "Details"
+msgstr "Szczegóły"
+
+#: src/epg/EPGPanel.cpp:220
+msgid "EPG manager not available"
+msgstr "Menedżer EPG niedostępny"
+
+#: src/epg/EPGPanel.cpp:234
+msgid "No EPG sources configured. Add sources in Settings."
+msgstr "Nie skonfigurowano źródeł EPG. Dodaj źródła w Ustawieniach."
+
+#: src/epg/EPGPanel.cpp:238
+msgid "EPG not loaded yet. Try Refresh."
+msgstr "EPG nie jest jeszcze załadowane. Spróbuj «Odśwież»."
+
+#: src/epg/EPGPanel.cpp:249
+msgid "No EPG channels matched"
+msgstr "Nie dopasowano żadnych kanałów EPG"
+
+#: src/epg/EPGPanel.cpp:263
+msgid "No programs for this date"
+msgstr "Brak programów na tę datę"
+
+#: src/epg/EPGPanel.cpp:391
+msgid "MainFrame not available"
+msgstr "MainFrame niedostępny"
+
+#: src/epg/EPGPanel.cpp:397
+msgid "EPG Manager not available"
+msgstr "Menedżer EPG niedostępny"
+
+#: src/epg/EpgSourceManagerPanel.cpp:59
+msgid "Auto-update settings applied."
+msgstr "Ustawienia automatycznej aktualizacji zastosowane."
+
+#: src/epg/EpgSourceManagerPanel.cpp:73
+msgid "EPG Sources"
+msgstr "Źródła EPG"
+
+#: src/epg/EpgSourceManagerPanel.cpp:82 src/epg/EpgSourceManagerPanel.cpp:669
+msgid "Imported"
+msgstr "Zaimportowano"
+
+#: src/epg/EpgSourceManagerPanel.cpp:84 src/epg/EpgSourceManagerPanel.cpp:670
+msgid "Availability"
+msgstr "Dostępność"
+
+#: src/epg/EpgSourceManagerPanel.cpp:96
+msgid "Add"
+msgstr "Dodaj"
+
+#: src/epg/EpgSourceManagerPanel.cpp:99
+msgid "Refresh Now"
+msgstr "Odśwież teraz"
+
+#: src/epg/EpgSourceManagerPanel.cpp:125
+msgid "Cache Management"
+msgstr "Zarządzanie pamięcią podręczną"
+
+#: src/epg/EpgSourceManagerPanel.cpp:129
+msgid "Deletes all locally cached EPG data. Next update will re-download."
+msgstr "Usuwa wszystkie lokalne dane EPG. Następna aktualizacja pobierze je ponownie."
+
+#: src/epg/EpgSourceManagerPanel.cpp:133
+msgid "Delete cache / Update all"
+msgstr "Usuń pamięć podręczną / Aktualizuj wszystko"
+
+#: src/epg/EpgSourceManagerPanel.cpp:144
+msgid "Auto-update settings"
+msgstr "Ustawienia automatycznej aktualizacji"
+
+#: src/epg/EpgSourceManagerPanel.cpp:150
+msgid "Auto-update:"
+msgstr "Automatyczna aktualizacja:"
+
+#: src/epg/EpgSourceManagerPanel.cpp:157
+msgid "Update interval (hours):"
+msgstr "Interwał aktualizacji (godziny):"
+
+#: src/epg/EpgSourceManagerPanel.cpp:168
+msgid "Days to keep in cache:"
+msgstr "Dni przechowywania w pamięci podręcznej:"
+
+#: src/epg/EpgSourceManagerPanel.cpp:194
+msgid "Match settings"
+msgstr "Ustawienia dopasowania"
+
+#: src/epg/EpgSourceManagerPanel.cpp:199
+msgid "About matching"
+msgstr "O dopasowaniu"
+
+#: src/epg/EpgSourceManagerPanel.cpp:201
+msgid "Edit matching rules"
+msgstr "Edytuj reguły dopasowania"
+
+#: src/epg/EpgSourceManagerPanel.cpp:215
+msgid "Fuzzy threshold (50-100):"
+msgstr "Próg rozmycia (50–100):"
+
+#: src/epg/EpgSourceManagerPanel.cpp:226
+msgid "Substring min length (1-20):"
+msgstr "Minimalna długość podciągu (1–20):"
+
+#: src/epg/EpgSourceManagerPanel.cpp:237
+msgid "Substring ratio (1-100%):"
+msgstr "Współczynnik podciągu (1–100%):"
+
+#: src/epg/EpgSourceManagerPanel.cpp:248
+msgid "Min match score (1-100):"
+msgstr "Minimalny wynik dopasowania (1–100):"
+
+#: src/epg/EpgSourceManagerPanel.cpp:259
+msgid "Apply (Match Now)"
+msgstr "Zastosuj (dopasuj teraz)"
+
+#: src/epg/EpgSourceManagerPanel.cpp:306 src/epg/EpgSourceManagerPanel.cpp:939
+msgid "EPG Manager not available."
+msgstr "Menedżer EPG niedostępny."
+
+#: src/epg/EpgSourceManagerPanel.cpp:323
+msgid "This EPG source already exists."
+msgstr "To źródło EPG już istnieje."
+
+#: src/epg/EpgSourceManagerPanel.cpp:361
+msgid "Please select a source to edit."
+msgstr "Wybierz źródło do edycji."
+
+#: src/epg/EpgSourceManagerPanel.cpp:371
+msgid "Edit EPG Source"
+msgstr "Edytuj źródło EPG"
+
+#: src/epg/EpgSourceManagerPanel.cpp:393
+msgid "Please select a source to remove."
+msgstr "Wybierz źródło do usunięcia."
+
+#: src/epg/EpgSourceManagerPanel.cpp:398
+msgid "Remove selected EPG source?"
+msgstr "Usunąć wybrane źródło EPG?"
+
+#: src/epg/EpgSourceManagerPanel.cpp:398
+msgid "Confirm"
+msgstr "Potwierdź"
+
+#: src/epg/EpgSourceManagerPanel.cpp:416
+msgid "Please select a source to refresh."
+msgstr "Wybierz źródło do odświeżenia."
+
+#: src/epg/EpgSourceManagerPanel.cpp:429
+msgid "Delete EPG Cache"
+msgstr "Usuń pamięć podręczną EPG"
+
+#: src/epg/EpgSourceManagerPanel.cpp:435
+msgid ""
+"EPG cache contains all downloaded programmes and channel mappings.\n"
+"Deleting will completely clear this data. You will need to reload EPG from "
+"sources.\n"
+"\n"
+"Updating all sources may take several minutes (depending on number of "
+"sources).\n"
+"You can also update individual sources later using the \"Refresh Now\" "
+"button."
+msgstr ""
+"Pamięć podręczna EPG zawiera wszystkie pobrane programy i dopasowania kanałów.\n"
+"Usunięcie całkowicie wyczyści te dane. Będziesz musiał ponownie załadować EPG ze źródeł.\n"
+"\n"
+"Aktualizacja wszystkich źródeł może zająć kilka minut (w zależności od ich liczby).\n"
+"Możesz także zaktualizować pojedyncze źródła później, używając przycisku «Odśwież teraz»."
+
+#: src/epg/EpgSourceManagerPanel.cpp:447
+msgid "Update all sources now"
+msgstr "Zaktualizuj wszystkie źródła teraz"
+
+#: src/epg/EpgSourceManagerPanel.cpp:456
+msgid "Delete"
+msgstr "Usuń"
+
+#: src/epg/EpgSourceManagerPanel.cpp:467
+msgid "Failed to delete EPG cache."
+msgstr "Nie udało się usunąć pamięci podręcznej EPG."
+
+#: src/epg/EpgSourceManagerPanel.cpp:482
+msgid "EPG cache cleared. You can now refresh sources manually."
+msgstr "Pamięć podręczna EPG wyczyszczona. Możesz teraz odświeżyć źródła ręcznie."
+
+#: src/epg/EpgSourceManagerPanel.cpp:526 src/epg/EpgSourceManagerPanel.cpp:587
+msgid "online"
+msgstr "online"
+
+#: src/epg/EpgSourceManagerPanel.cpp:529 src/epg/EpgSourceManagerPanel.cpp:590
+msgid "offline (permanent)"
+msgstr "offline (na stałe)"
+
+#: src/epg/EpgSourceManagerPanel.cpp:535 src/epg/EpgSourceManagerPanel.cpp:543
+msgid "checking..."
+msgstr "sprawdzanie..."
+
+#: src/epg/EpgSourceManagerPanel.cpp:538 src/epg/EpgSourceManagerPanel.cpp:592
+msgid "offline"
+msgstr "offline"
+
+#: src/epg/EpgSourceManagerPanel.cpp:550
+msgid "(missing)"
+msgstr "(brak)"
+
+#: src/epg/EpgSourceManagerPanel.cpp:634
+msgid "Match settings applied. Re-matching channels in background."
+msgstr "Ustawienia dopasowania zastosowane. Ponowne dopasowywanie kanałów w tle."
+
+#: src/epg/EpgSourceManagerPanel.cpp:637
+msgid "Match settings saved."
+msgstr "Ustawienia dopasowania zapisane."
+
+#: src/epg/EpgSourceManagerPanel.cpp:826
+#, c-format
+msgid "Failed to update source: %s"
+msgstr "Nie udało się zaktualizować źródła: %s"
+
+#: src/epg/EpgSourceManagerPanel.cpp:841
+msgid "About EPG Matching"
+msgstr "O dopasowaniu EPG"
+
+#: src/epg/EpgSourceManagerPanel.cpp:847
+msgid ""
+"EPG Matching Algorithm\n"
+"\n"
+"1. Manual mappings (highest priority)\n"
+"2. TVG-ID match (if present)\n"
+"3. Exact name match (after normalization)\n"
+"4. Substring match (if one name contains the other)\n"
+"5. Token-sort (percentage of common words)\n"
+"6. Jaro-Winkler refinement for borderline cases\n"
+"\n"
+"Adjustable parameters (visible below):\n"
+"  • Fuzzy threshold (50–100) – influences Jaro-Winkler bonus\n"
+"  • Substring min length – minimum length for substring match\n"
+"  • Substring ratio – percentage threshold (not used directly, kept for "
+"compatibility)\n"
+"  • Min match score – required score (0–100) to accept a match\n"
+"\n"
+"Score thresholds:\n"
+"  • 85+ : High confidence\n"
+"  • 70+ : Medium confidence\n"
+"  • 60+ : Low confidence\n"
+"\n"
+"Rematching behavior:\n"
+"  • Apply (Match Now) always triggers a full rematch for both the current "
+"playlist (if loaded) and favorites.\n"
+"  • Automatic rematch after EPG source updates: current playlist is always "
+"rematched; favorites are rematched only if the EPG channel list has changed "
+"(hash check).\n"
+"  • Manual mappings and ignored entries are preserved during automatic "
+"rematch.\n"
+"\n"
+"For advanced tuning, you can manually edit the configuration files\n"
+"‘matching_rules.json’ located in the config directory.\n"
+"The default settings are already optimised – it is strongly recommended to "
+"use\n"
+"manual mappings or aliases (in ‘channel_aliases.json’) for specific "
+"corrections instead of modifying these files."
+msgstr ""
+"Algorytm dopasowania EPG\n"
+"\n"
+"1. Dopasowania ręczne (najwyższy priorytet)\n"
+"2. Dopasowanie TVG-ID (jeśli jest)\n"
+"3. Dokładne dopasowanie nazwy (po normalizacji)\n"
+"4. Dopasowanie podciągu (jeśli jedna nazwa zawiera drugą)\n"
+"5. Sortowanie tokenów (procent wspólnych słów)\n"
+"6. Ulepszenie Jaro-Winklera dla przypadków granicznych\n"
+"\n"
+"Regulowane parametry (widoczne poniżej):\n"
+"  • Próg rozmycia (50–100) – wpływa na bonus Jaro-Winklera\n"
+"  • Minimalna długość podciągu – minimalna długość dla dopasowania podciągu\n"
+"  • Współczynnik podciągu – próg procentowy (nieużywany bezpośrednio, zachowany dla zgodności)\n"
+"  • Minimalny wynik dopasowania – wymagany wynik (0–100) do zaakceptowania dopasowania\n"
+"\n"
+"Progi wyniku:\n"
+"  • 85+ : wysoka pewność\n"
+"  • 70+ : średnia pewność\n"
+"  • 60+ : niska pewność\n"
+"\n"
+"Zachowanie ponownego dopasowania:\n"
+"  • «Zastosuj (dopasuj teraz)» zawsze uruchamia pełne ponowne dopasowanie dla bieżącej playlisty (jeśli załadowana) i ulubionych.\n"
+"  • Automatyczne ponowne dopasowanie po aktualizacji źródeł EPG: bieżąca playlista jest zawsze dopasowywana ponownie; ulubione tylko wtedy, gdy lista kanałów EPG uległa zmianie (sprawdzenie hasha).\n"
+"  • Ręczne dopasowania i zignorowane wpisy są zachowywane podczas automatycznego ponownego dopasowania.\n"
+"\n"
+"Do zaawansowanej konfiguracji możesz ręcznie edytować pliki konfiguracyjne\n"
+"„matching_rules.json” znajdujące się w katalogu konfiguracji.\n"
+"Ustawienia domyślne są już zoptymalizowane – zdecydowanie zaleca się\n"
+"używanie ręcznych dopasowań lub aliasów (w „channel_aliases.json”) do konkretnych\n"
+"poprawek zamiast modyfikowania tych plików."
+
+#: src/epg/EpgSourceManagerPanel.cpp:946
+msgid "Could not determine config directory."
+msgstr "Nie udało się określić katalogu konfiguracji."
+
+#: src/epg/EpgSourceManagerPanel.cpp:961
+msgid "Edit Matching Rules"
+msgstr "Edytuj reguły dopasowania"
+
+#: src/epg/EpgSourceManagerPanel.cpp:967
+#, c-format
+msgid ""
+"After editing, restart the application for changes to take effect.\n"
+"\n"
+"You can fine-tune matching by editing the following JSON files in the config "
+"directory:\n"
+"\n"
+"  • %s\n"
+"  • %s\n"
+"\n"
+"These files contain advanced parameters (token_high, jaro_high, stopwords, "
+"etc.).\n"
+"The default values are already well-tuned. It is recommended to use manual "
+"mappings or aliases\n"
+"for specific channel corrections instead of modifying these files.\n"
+"\n"
+"If the files are missing, built‑in defaults are used."
+msgstr ""
+"Po edycji uruchom ponownie aplikację, aby zmiany zaczęły obowiązywać.\n"
+"\n"
+"Możesz dostroić dopasowanie, edytując następujące pliki JSON w katalogu konfiguracji:\n"
+"\n"
+"  • %s\n"
+"  • %s\n"
+"\n"
+"Pliki te zawierają zaawansowane parametry (token_high, jaro_high, stopwords itp.).\n"
+"Wartości domyślne są już dobrze dostrojone. Zaleca się używanie ręcznych dopasowań lub aliasów\n"
+"dla konkretnych poprawek kanałów zamiast modyfikowania tych plików.\n"
+"\n"
+"Jeśli pliki są nieobecne, używane są wbudowane wartości domyślne."
+
+#: src/epg/EpgSourceManagerPanel.cpp:982
+msgid "Open Config Folder"
+msgstr "Otwórz katalog konfiguracji"
+
+#: src/epg/EpgSourceManagerPanel.cpp:984
+msgid "Open matching_rules.json"
+msgstr "Otwórz matching_rules.json"
+
+#: src/epg/EpgSourceManagerPanel.cpp:986
+msgid "Open channel_aliases.json"
+msgstr "Otwórz channel_aliases.json"
+
+#: src/MainFrame_UI.cpp:122
+msgid "Favorites"
+msgstr "Ulubione"
+
+#: src/MainFrame_UI.cpp:124
+msgid "Program"
+msgstr "Program"
+
+#: src/MainFrame_UI.cpp:126
+msgid "Menu"
+msgstr "Menu"
+
+#: src/MainFrame_UI.cpp:397
+msgid "Channel logo warning"
+msgstr "Ostrzeżenie o logo kanałów"
+
+#: src/MainFrame_UI.cpp:399
+msgid ""
+"Playlists larger than 1,000 channels may use a lot of RAM.\n"
+"Logo in list view will be shown after restart."
+msgstr ""
+"Playlisty powyżej 1000 kanałów mogą zużywać dużo pamięci RAM.\n"
+"Logo w widoku listy pojawią się po ponownym uruchomieniu."
+
+#: src/MainFrame_UI.cpp:419
+msgid "Delete logo cache?"
+msgstr "Usunąć pamięć podręczną logo?"
+
+#: src/MainFrame_UI.cpp:426
+msgid "You disabled channel logos."
+msgstr "Wyłączyłeś logo kanałów."
+
+#: src/MainFrame_UI.cpp:432
+msgid "Delete locally cached logos (disk and memory)"
+msgstr "Usuń lokalnie zapisane logo (dysk i pamięć)"
+
+#: src/MainFrame_UI.cpp:497
+msgid "Channel logos disabled (cache preserved)."
+msgstr "Logo kanałów wyłączone (pamięć podręczna zachowana)."
+
+#: src/MainFrame_UI.cpp:611
+msgid "Ready"
+msgstr "Gotowe"
+
+#: src/MainFrame_UI.cpp:612
+msgid "No playlist loaded"
+msgstr "Nie załadowano playlisty"
+
+#: src/TypeAheadSearch.cpp:61
+#, c-format
+msgid "Search: %s"
+msgstr "Szukaj: %s"
+
+#: src/DialogsPL.cpp:36
+msgid "Add Playlist from File"
+msgstr "Dodaj playlistę z pliku"
+
+#: src/DialogsPL.cpp:43
+msgid "Playlist files"
+msgstr "Pliki playlist"
+
+#: src/DialogsPL.cpp:47
+msgid "Select a playlist file"
+msgstr "Wybierz plik playlisty"
+
+#: src/DialogsPL.cpp:53
+msgid "Leave empty to use filename"
+msgstr "Pozostaw puste, aby użyć nazwy pliku"
+
+#: src/DialogsPL.cpp:60
+msgid "File:"
+msgstr "Plik:"
+
+#: src/DialogsPL.cpp:67 src/DialogsPL.cpp:143 src/DialogsPL.cpp:223
+msgid "Title:"
+msgstr "Tytuł:"
+
+#: src/DialogsPL.cpp:89
+msgid "Please select a playlist file."
+msgstr "Wybierz plik playlisty."
+
+#: src/DialogsPL.cpp:95
+msgid "The selected file does not exist."
+msgstr "Wybrany plik nie istnieje."
+
+#: src/DialogsPL.cpp:116
+msgid "Add Playlist from URL"
+msgstr "Dodaj playlistę z URL"
+
+#: src/DialogsPL.cpp:135
+msgid "Optional"
+msgstr "Opcjonalne"
+
+#: src/DialogsPL.cpp:141
+msgid "URL:"
+msgstr "URL:"
+
+#: src/DialogsPL.cpp:145 src/DialogsPL.cpp:227
+msgid "User Agent:"
+msgstr "User-Agent:"
+
+#: src/DialogsPL.cpp:175
+msgid "Please enter a URL"
+msgstr "Wpisz URL"
+
+#: src/DialogsPL.cpp:191
+msgid "Edit Playlist"
+msgstr "Edytuj playlistę"
+
+#: src/DialogsPL.cpp:216
+msgid "Auto-update on startup"
+msgstr "Automatyczna aktualizacja przy starcie"
+
+#: src/DialogsPL.cpp:225
+msgid "Source:"
+msgstr "Źródło:"
+
+#: src/DialogsPL.cpp:247
+msgid "Export as M3U"
+msgstr "Eksportuj jako M3U"
+
+#: src/DialogsPL.cpp:268
+msgid "Please enter a title"
+msgstr "Wpisz tytuł"
+
+#: src/DialogsPL.cpp:296
+msgid "M3U files"
+msgstr "Pliki M3U"
+
+#: src/DialogsPL.cpp:299
+msgid "Export Playlist"
+msgstr "Eksportuj playlistę"
+
+#: src/DialogsPL.cpp:309
+msgid "Unable to locate parent frame"
+msgstr "Nie można zlokalizować okna nadrzędnego"
+
+#: src/DialogsPL.cpp:326
+#, c-format
+msgid "Cannot create folder \"%s\""
+msgstr "Nie można utworzyć folderu „%s”"
+
+#: src/DialogsPL.cpp:336
+#, c-format
+msgid "Cannot create file \"%s\""
+msgstr "Nie można utworzyć pliku „%s”"
+
+#: src/DialogsPL.cpp:345
+msgid "Write error while creating the playlist file"
+msgstr "Błąd zapisu podczas tworzenia pliku playlisty"
+
+#: src/DialogsPL.cpp:354
+#, c-format
+msgid "Failed to rename temporary file to \"%s\""
+msgstr "Nie udało się zmienić nazwy pliku tymczasowego na „%s”"
+
+#: src/DialogsPL.cpp:360
+#, c-format
+msgid ""
+"Playlist exported successfully to:\n"
+"%s"
+msgstr ""
+"Playlista wyeksportowana pomyślnie do:\n"
+"%s"
+
+#: src/DialogsPL.cpp:361
+msgid "Export successful"
+msgstr "Eksport zakończony pomyślnie"
+
+#: src/DialogsPL.cpp:388
+msgid "Remove Playlist"
+msgstr "Usuń playlistę"
+
+#: src/DialogsPL.cpp:394
+#, c-format
+msgid "Remove playlist \"%s\"?"
+msgstr "Usunąć playlistę „%s”?"
+
+#: src/DialogsPL.cpp:400
+msgid "Remove source file"
+msgstr "Usuń plik źródłowy"
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:18
+msgid "Add Playlist from IPTV-Org"
+msgstr "Dodaj playlistę z IPTV-Org"
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:39
+msgid "Filter by:"
+msgstr "Filtruj według:"
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:50
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:52
+msgid "Type to search..."
+msgstr "Wpisz, aby wyszukać..."
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:64
+msgid "Refresh List"
+msgstr "Odśwież listę"
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:106
+msgid "Category"
+msgstr "Kategoria"
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:199
+msgid "Failed to load data"
+msgstr "Nie udało się załadować danych"
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:201
+#, c-format
+msgid "Error: %s"
+msgstr "Błąd: %s"
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:321
+msgid "Refreshing data..."
+msgstr "Odświeżanie danych..."
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:327
+msgid "Please select a value from the list."
+msgstr "Wybierz wartość z listy."
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:334
+msgid "Failed to build playlist URL."
+msgstr "Nie udało się zbudować URL playlisty."
+
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:365
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:369
+#: src/iptvorg/AddIPTVPlaylistDialog.cpp:373
+msgid "IPTV "
+msgstr "IPTV "
+
+#: src/MainFrame_ChannelsViewUI.cpp:46
+msgid "Cards"
+msgstr "Karty"
+
+#: src/MainFrame_ChannelsViewUI.cpp:48
+msgid "Cards view"
+msgstr "Widok kart"
+
+#: src/MainFrame_ChannelsViewUI.cpp:52 src/MainFrame_ChannelsViewUI.cpp:55
+msgid "Show channel logo"
+msgstr "Pokaż logo kanału"
+
+#: src/MainFrame_ChannelsViewUI.cpp:277
+msgid "Channel logos enabled."
+msgstr "Logo kanałów włączone."
+
+#: src/MainFrame_ChannelsViewUI.cpp:279
+msgid "Channel logos disabled."
+msgstr "Logo kanałów wyłączone."
+
+#: src/VP_actions.cpp:21
+msgid "Video files"
+msgstr "Pliki wideo"
+
+#: src/VP_actions.cpp:25
+msgid "Audio files"
+msgstr "Pliki audio"
+
+#: src/VP_actions.cpp:43
+msgid "Open file"
+msgstr "Otwórz plik"
+
+#: src/VP_actions.cpp:99
+msgid "Select folder containing video files"
+msgstr "Wybierz folder z plikami wideo"
+
+#: src/VP_actions.cpp:119
+msgid "Enter URL:"
+msgstr "Wpisz URL:"
+
+#: src/VP_actions.cpp:119
+msgid "Open URL"
+msgstr "Otwórz URL"
+
+#: src/VP_actions.cpp:290
+msgid "Mute"
+msgstr "Wycisz"
+
+#: src/VP_actions.cpp:403
+msgid "Exit"
+msgstr "Wyjdź"
+
+#: src/VP_actions.cpp:718
+msgid "File limit exceeded (max 1000)"
+msgstr "Przekroczono limit plików (maks. 1000)"
