@@ -192,3 +192,12 @@ inline void CallAfterSafeById(int winId, F &&fn) {
 // Ищет файл в каталогах данных приложения: $APPDIR/usr/share/iptvplayer и т.д.
 // filename — "about.html", "icons/play.svg".
 wxString FindAppDataFile(const wxString &filename);
+
+// Регистрирует каталоги, где wxLocale ищет <lang>/LC_MESSAGES/<domain>.mo.
+// Linux/BSD: <exeDir>/../share/locale (установка), <exeDir>/locale (build),
+//            <root>/share/locale и <root>/usr/share/locale для
+//            $SHARUN_DIR/$APPDIR.
+// Windows:   <exeDir> и <exeDir>/../share/locale.
+// macOS:     <exeDir>/../Resources и <lang>.lproj внутри бандла.
+// Должна вызываться до wxLocale::Init()/AddCatalog().
+void RegisterLocaleSearchPaths();

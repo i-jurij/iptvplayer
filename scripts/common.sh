@@ -236,6 +236,12 @@ prepare_staging() {
         mkdir -p "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME"
         cp -r "$PROJECT_ROOT/install/share/licenses/$PACKAGE_NAME/"* "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME/" 2>/dev/null || true
     fi
+
+    # Локали: share/locale/<lang>/LC_MESSAGES/<domain>.mo (GNU-стандарт).
+    if [ -d "$PROJECT_ROOT/install/share/locale" ]; then
+        mkdir -p "$STAGING_DIR/usr/share/locale"
+        cp -r "$PROJECT_ROOT/install/share/locale/"* "$STAGING_DIR/usr/share/locale/" 2>/dev/null || true
+    fi
     return 0
 }
 
@@ -245,6 +251,7 @@ prepare_staging() {
 # Возвращает через stdout многострочный блок (без заголовка %files).
 rpm_files_block() {
     local entries=()
+    local lang lang_dir
 
     [ -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]                         && entries+=("%{_bindir}/$PACKAGE_NAME")
     [ -d "$STAGING_DIR/usr/share/$PACKAGE_NAME" ]                       && entries+=("%{_datadir}/$PACKAGE_NAME/")
@@ -254,6 +261,18 @@ rpm_files_block() {
     [ -f "$STAGING_DIR/usr/share/metainfo/$METAINFO_NAME" ]             && entries+=("%{_datadir}/metainfo/$METAINFO_NAME")
     [ -d "$STAGING_DIR/usr/share/doc/$PACKAGE_NAME" ]                   && entries+=("%{_datadir}/doc/$PACKAGE_NAME")
     [ -d "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME" ]              && entries+=("%{_datadir}/licenses/$PACKAGE_NAME")
+
+    # Локали с %lang — иначе rpmlint выдаёт locale-file-not-lang,
+    # а `rpm --install-langs` не сможет фильтровать по языку.
+    # GNU-стандарт: share/locale/<lang>/LC_MESSAGES/<domain>.mo
+    if [ -d "$STAGING_DIR/usr/share/locale" ]; then
+        for lang_dir in "$STAGING_DIR/usr/share/locale"/*/; do
+            [ -d "$lang_dir" ] || continue
+            lang="$(basename "$lang_dir")"
+            [ -f "$lang_dir/LC_MESSAGES/$PACKAGE_NAME.mo" ] || continue
+            entries+=("%lang(${lang}) %{_datadir}/locale/${lang}/LC_MESSAGES/$PACKAGE_NAME.mo")
+        done
+    fi
 
     printf '%s\n' "${entries[@]}"
 }

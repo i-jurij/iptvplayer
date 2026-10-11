@@ -63,6 +63,13 @@ populate_appdir() {
         cp "$STAGING_DIR/usr/share/metainfo/$METAINFO_NAME" "$APPDIR/usr/share/metainfo/"
     fi
 
+    # Локали: linuxdeploy их не тянет из staging — копируем явно.
+    # Приложение ищет <exeDir>/../share/locale = $APPDIR/usr/share/locale.
+    if [ -d "$STAGING_DIR/usr/share/locale" ]; then
+        mkdir -p "$APPDIR/usr/share/locale"
+        cp -r "$STAGING_DIR/usr/share/locale/"* "$APPDIR/usr/share/locale/"
+    fi
+
     local LINUXDEPLOY="$SCRIPT_DIR/linuxdeploy-${APPIMAGE_ARCH}.AppImage"
     local GTK_PLUGIN="$SCRIPT_DIR/linuxdeploy-plugin-gtk.sh"
 

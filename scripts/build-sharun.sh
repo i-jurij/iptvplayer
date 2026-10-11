@@ -193,6 +193,13 @@ build_sharun_appimage() {
         return 1
     fi
 
+    # Локали: sharun-раскладка — AppDir/ = /usr, поэтому share/locale.
+    if [ -d "$PROJECT_ROOT/install/share/locale" ]; then
+        mkdir -p "$APPDIR/share/locale"
+        cp -r "$PROJECT_ROOT/install/share/locale/"* "$APPDIR/share/locale/"
+        echo "[+] Локали: $APPDIR/share/locale"
+    fi
+    
     # gdk-pixbuf: SVG через .so-loader (Debian/Fedora) или через glycin (Arch).
     # Отсутствие обоих — фатально: иконки не отрисуются, приложение упадёт.
     _bundle_loader="$(find "$APPDIR" \( -type f -o -type l \) \

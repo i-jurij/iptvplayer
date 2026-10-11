@@ -135,10 +135,14 @@ bool Application::OnInit() {
 
     wxInitAllImageHandlers();
 
+    RegisterLocaleSearchPaths();
+
     if (!m_locale->Init(wxLANGUAGE_DEFAULT)) {
       LOG_ERROR("Failed to initialize locale");
-    } else {
-      m_locale->AddCatalog("iptvplayer");
+    } else if (!m_locale->AddCatalog("iptvplayer")) {
+      LOG_WARN("Translation catalog 'iptvplayer' not found for language '%s'; "
+               "UI will use source strings.",
+               m_locale->GetName());
     }
 
     // 1) Загружаем настройки

@@ -1167,3 +1167,88 @@ wxString FindAppDataFile(const wxString &filename) {
 
   return wxEmptyString;
 }
+
+void RegisterLocaleSearchPaths() {
+  wxArrayString paths;
+  auto pushUnique = [&paths](const wxString &p) {
+    if (!p.IsEmpty() && paths.Index(p) == wxNOT_FOUND)
+      paths.Add(p);
+  };
+
+  auto makeAbs = [](const wxString &p) -> wxString {
+    if (p.IsEmpty())
+      return p;
+    wxFileName fn(p);
+    fn.MakeAbsolute();
+    return fn.GetFullPath();
+  };
+
+  // --- 1. Runtime roots: $SHARUN_DIR, $APPDIR (Linux AppImage) ---
+  for (const char *var : {"SHARUN_DIR", "APPDIR"}) {
+    const char *v = std::getenv(var);
+    if (!v || !*v)
+      continue;
+
+    wxString probe = makeAbs(wxString::FromUTF8(v));
+    while (probe.Length() > 1 && probe.EndsWith("/"))
+      probe.RemoveLast();
+
+    for (int up = 0; up < 4 && probe.Length() > 1; ++up) {
+      // sharun-раскладка: <root>/share/locale/...
+      pushUnique(probe + "/share/locale");
+      // linuxdeploy / usr-раскладка: <root>/usr/share/locale/...
+      pushUnique(probe + "/usr/share/locale");
+
+      int slash = probe.Find('/', true);
+      if (slash <= 0)
+        break;
+      probe = probe.Left(slash);
+    }
+  }
+
+  // --- 2. Рядом с бинарником ---
+  {
+    wxFileName exeFn(wxStandardPaths::Get().GetExecutablePath());
+    exeFn.MakeAbsolute();
+    wxString exeDir = exeFn.GetPath();
+
+    // build-дерево (Linux/macOS/BSD): <build>/locale/<lang>/LC_MESSAGES/
+    pushUnique(exeDir + "/locale");
+
+#if defined(__WXMAC__)
+    // macOS: wxWidgets ищет .mo в Contents/Resources/<lang>.lproj/.
+    // CMake для бандла кладёт туда же через MACOSX_PACKAGE_LOCATION.
+    pushUnique(exeDir + "/../Resources");
+    pushUnique(exeDir + "/../share/locale");
+#elif defined(__WXMSW__)
+    // Windows: wxWidgets ищет каталоги в директории .exe.
+    pushUnique(exeDir);
+    pushUnique(exeDir + "/../share/locale");
+#else
+    // Linux/BSD: стандартные пути установки.
+    pushUnique(exeDir + "/../share/locale");
+    pushUnique(exeDir + "/../usr/share/locale");
+#endif
+  }
+
+  // --- 3. Системная установка через wxStandardPaths ---
+  pushUnique(wxStandardPaths::Get().GetDataDir() + "/locale");
+
+#if defined(__WXMAC__)
+  pushUnique(wxStandardPaths::Get().GetDataDir());
+#endif
+
+#ifdef DATADIR
+  pushUnique(wxString::FromUTF8(DATADIR) + "/locale");
+#endif
+
+  for (const auto &p : paths)
+    wxLocale::AddCatalogLookupPathPrefix(p);
+
+  static bool dumped = false;
+  if (!dumped) {
+    dumped = true;
+    for (const auto &p : paths)
+      LOG_DEBUG("Locale search path: %s", p.utf8_str().data());
+  }
+}

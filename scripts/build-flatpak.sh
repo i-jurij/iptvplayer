@@ -78,6 +78,7 @@ modules:
       - cp -a $install_dir/share/$PACKAGE_NAME /app/share/
       - install -Dm644 $install_dir/share/applications/$PACKAGE_NAME.desktop /app/share/applications/$PACKAGE_NAME.desktop
       - install -Dm644 $install_dir/share/icons/hicolor/scalable/apps/$ICON_NAME /app/share/icons/hicolor/scalable/apps/$ICON_NAME
+      - sh -c 'if [ -d $install_dir/share/locale ]; then mkdir -p /app/share/locale && cp -a $install_dir/share/locale/. /app/share/locale/; fi'
     sources:
       - type: dir
         path: $PROJECT_ROOT

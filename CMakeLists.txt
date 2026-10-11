@@ -218,7 +218,11 @@ set(SOURCES
 # ------------------------
 # Executable
 # ------------------------
-add_executable(${PROJECT_NAME} ${SOURCES})
+if(APPLE)
+    add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES})
+else()
+    add_executable(${PROJECT_NAME} ${SOURCES})
+endif()
 
 # ------------------------
 # Проверка наличия timegm (для EPG парсинга)
@@ -386,6 +390,70 @@ install(DIRECTORY ${ICONS_DIR}/ DESTINATION share/iptvplayer/icons)
 # ------------------------
 set(DATADIR "${CMAKE_INSTALL_PREFIX}/share")
 target_compile_definitions(${PROJECT_NAME} PRIVATE DATADIR=\"${DATADIR}\")
+
+
+# ------------------------
+# Локализация (gettext)
+# ------------------------
+include(GNUInstallDirs)
+
+find_program(GETTEXT_MSGFMT NAMES msgfmt)
+
+file(GLOB I18N_PO_FILES "${CMAKE_SOURCE_DIR}/po/*.po")
+
+if(GETTEXT_MSGFMT AND I18N_PO_FILES)
+    set(I18N_BUILD_LOCALE_DIR "${CMAKE_BINARY_DIR}/locale")
+    set(I18N_MO_FILES "")
+
+    foreach(PO IN LISTS I18N_PO_FILES)
+        get_filename_component(LANG "${PO}" NAME_WE)
+        set(MO_DIR "${I18N_BUILD_LOCALE_DIR}/${LANG}/LC_MESSAGES")
+        set(MO_FILE "${MO_DIR}/iptvplayer.mo")
+
+        add_custom_command(
+            OUTPUT "${MO_FILE}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${MO_DIR}"
+            COMMAND ${GETTEXT_MSGFMT} -o "${MO_FILE}" "${PO}"
+            DEPENDS "${PO}"
+            COMMENT "msgfmt ${LANG}: ${PO}"
+            VERBATIM)
+
+        list(APPEND I18N_MO_FILES "${MO_FILE}")
+
+        # Linux/BSD/Windows: стандартный share/locale
+        if(NOT APPLE)
+            install(FILES "${MO_FILE}"
+                    DESTINATION "${CMAKE_INSTALL_LOCALEDIR}/${LANG}/LC_MESSAGES")
+        endif()
+    endforeach()
+
+    # macOS bundle: MACOSX_PACKAGE_LOCATION кладёт .mo в
+    #   <name>.app/Contents/Resources/<lang>.lproj/iptvplayer.mo
+    # Ровно туда, где wxWidgets ищет каталоги на macOS.
+    if(APPLE AND MACOSX_BUNDLE)
+        set(MACOSX_LOCALE_SOURCES "")
+        foreach(PO IN LISTS I18N_PO_FILES)
+            get_filename_component(LANG "${PO}" NAME_WE)
+            set(MO_FILE "${I18N_BUILD_LOCALE_DIR}/${LANG}/LC_MESSAGES/iptvplayer.mo")
+            list(APPEND MACOSX_LOCALE_SOURCES "${MO_FILE}")
+            set_source_files_properties("${MO_FILE}" PROPERTIES
+                MACOSX_PACKAGE_LOCATION "Resources/${LANG}.lproj")
+        endforeach()
+        target_sources(${PROJECT_NAME} PRIVATE ${MACOSX_LOCALE_SOURCES})
+    endif()
+
+    add_custom_target(locales ALL DEPENDS ${I18N_MO_FILES})
+    add_dependencies(${PROJECT_NAME} locales)
+    message(STATUS "i18n: ${I18N_MO_FILES}")
+else()
+    if(NOT GETTEXT_MSGFMT)
+        message(STATUS "i18n: msgfmt not found — .mo files will not be built")
+    endif()
+    if(NOT I18N_PO_FILES)
+        message(STATUS "i18n: no po/*.po found — nothing to compile")
+    endif()
+endif()
+
 
 # ------------------------
 # Компиляторные флаги
