@@ -1,4 +1,6 @@
 #include "TypeAheadSearch.h"
+#include "Utils.h"
+
 #include <wx/frame.h>
 #include <wx/utils.h> // wxGetTopLevelParent
 #include <wx/window.h>
@@ -56,7 +58,7 @@ void TypeAheadSearch::StartSearch(const wxString &str) {
   m_buffer += str.Lower();
 
   if (auto *f = dynamic_cast<wxFrame *>(wxGetTopLevelParent(m_owner)))
-    f->SetStatusText("Поиск: " + m_buffer, 0);
+    f->SetStatusText(wxString::Format(_U("Search: %s"), m_buffer), 0);
 
   PerformSearch();
 
