@@ -1,6 +1,6 @@
-// src/MainFrame_PlaylistUI.cpp
-#include "MainFrame.h"
 #include "EventIDs.h"
+#include "MainFrame.h"
+#include "Utils.h"
 
 #include <wx/button.h>
 #include <wx/gauge.h>
@@ -84,7 +84,7 @@ void MainFrame::createPlaylistPanel() {
   auto *panelSizer = new wxBoxSizer(wxVERTICAL);
 
   // Заголовок
-  auto *title = new wxStaticText(m_playlistPanel, wxID_ANY, "Playlists");
+  auto *title = new wxStaticText(m_playlistPanel, wxID_ANY, _U("Playlists"));
   auto titleFont = title->GetFont();
   titleFont.SetPointSize(12);
   titleFont.SetWeight(wxFONTWEIGHT_BOLD);
@@ -116,19 +116,21 @@ wxSizer *MainFrame::createPlaylistTopButtons() {
   auto *topBtnSizer = new wxBoxSizer(wxHORIZONTAL);
 
   auto *addIptvBtn = new wxButton(m_playlistPanel, ID_ADD_IPTV_PLAYLIST,
-                                  "Add from IPTV-Org...");
+                                  _U("Add from IPTV-Org..."));
   topBtnSizer->Add(addIptvBtn, 0, wxRIGHT, 5);
 
   auto *addFileBtn =
-      new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_FILE, "Add from File...");
+      new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_FILE,
+                   _U("Add from File..."));
   topBtnSizer->Add(addFileBtn, 0, wxRIGHT, 5);
 
   auto *addUrlBtn =
-      new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_URL, "Add from URL...");
+      new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_URL,
+                   _U("Add from URL..."));
   topBtnSizer->Add(addUrlBtn, 0, wxRIGHT, 5);
 
   m_updateAllBtn =
-      new wxButton(m_playlistPanel, ID_UPDATE_ALL_PLAYLISTS, "Update All");
+      new wxButton(m_playlistPanel, ID_UPDATE_ALL_PLAYLISTS, _U("Update All"));
   topBtnSizer->Add(m_updateAllBtn, 0);
 
   auto *vbox = new wxBoxSizer(wxVERTICAL);
@@ -139,10 +141,11 @@ wxSizer *MainFrame::createPlaylistTopButtons() {
 wxSizer *MainFrame::createPlaylistButtons() {
   auto *btnSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  m_openBtn = new wxButton(m_playlistPanel, ID_OPEN_PLAYLIST, "Open");
-  m_updateBtn = new wxButton(m_playlistPanel, ID_UPDATE_PLAYLIST, "Update");
-  m_editBtn = new wxButton(m_playlistPanel, ID_EDIT_PLAYLIST, "Edit");
-  m_removeBtn = new wxButton(m_playlistPanel, ID_REMOVE_PLAYLIST, "Remove");
+  m_openBtn = new wxButton(m_playlistPanel, ID_OPEN_PLAYLIST, _U("Open"));
+  m_updateBtn = new wxButton(m_playlistPanel, ID_UPDATE_PLAYLIST, _U("Update"));
+  m_editBtn = new wxButton(m_playlistPanel, ID_EDIT_PLAYLIST, _U("Edit"));
+  m_removeBtn =
+      new wxButton(m_playlistPanel, ID_REMOVE_PLAYLIST, _U("Remove"));
 
   m_openBtn->Enable(false);
   m_updateBtn->Enable(false);
@@ -169,12 +172,12 @@ void MainFrame::createPlaylistList() {
       new wxListCtrl(m_playlistPanel, ID_PLAYLIST_LIST, wxDefaultPosition,
                      wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
 
-  m_playlistList->InsertColumn(0, "#", wxLIST_FORMAT_LEFT);
-  m_playlistList->InsertColumn(1, "Title", wxLIST_FORMAT_LEFT);
-  m_playlistList->InsertColumn(2, "Source", wxLIST_FORMAT_LEFT);
-  m_playlistList->InsertColumn(3, "Channels", wxLIST_FORMAT_LEFT);
-  m_playlistList->InsertColumn(4, "Auto update", wxLIST_FORMAT_LEFT);
-  m_playlistList->InsertColumn(5, "Last Update", wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(0, _U("#"), wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(1, _U("Title"), wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(2, _U("Source"), wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(3, _U("Channels"), wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(4, _U("Auto update"), wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(5, _U("Last Update"), wxLIST_FORMAT_LEFT);
 
   // Синхронизация состояния при выборе элемента
   m_playlistList->Bind(wxEVT_LIST_ITEM_SELECTED, [this](wxListEvent &evt) {
@@ -185,7 +188,7 @@ void MainFrame::createPlaylistList() {
       enablePlaylistButtons(true);
       // Обновляем статусбар с названием
       wxString title = m_playlistList->GetItemText(item, 1);
-      SetStatusText(wxString::Format("Playlist selected: %s", title), 1);
+      SetStatusText(wxString::Format(_U("Playlist selected: %s"), title), 1);
     }
   });
 
@@ -195,7 +198,7 @@ void MainFrame::createPlaylistList() {
                                     wxLIST_STATE_SELECTED) == -1) {
       m_selectedPlaylistIndex = -1;
       enablePlaylistButtons(false);
-      SetStatusText("No playlist selected", 1);
+      SetStatusText(_U("No playlist selected"), 1);
     } else {
       long cur = m_playlistList->GetNextItem(-1, wxLIST_NEXT_ALL,
                                              wxLIST_STATE_SELECTED);
