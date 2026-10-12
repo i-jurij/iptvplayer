@@ -107,4 +107,4 @@ fi
 
 section "3/3. Готово"
 log "Все зависимости на месте."
-echo "Следующий шаг: windows\\bats\\build-release.bat"
+printf 'Next step: windows\\bats\\build-release.bat\n'

@@ -3,7 +3,7 @@ call "%~dp0_common.bat" || exit /b 1
 
 echo.
 echo ============================================================
-echo   Сборка iptvplayer для Windows
+echo   iptvplayer: build release (Windows / MSYS2)
 echo   MSYS2: %MSYS2_ROOT% (%MSYS2_ENV%)
 echo ============================================================
 echo.
@@ -14,9 +14,9 @@ set RC=%ERRORLEVEL%
 
 echo.
 if %RC% EQU 0 (
-    echo [OK] Готово. Артефакты: windows\install\
+    echo [OK] Done. Output: windows\install\
 ) else (
-    echo [ERROR] Скрипт завершился с кодом %RC%.
+    echo [ERROR] Script exited with code %RC%.
 )
 pause
 exit /b %RC%

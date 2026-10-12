@@ -3,7 +3,7 @@ call "%~dp0_common.bat" || exit /b 1
 
 echo.
 echo ============================================================
-echo   Очистка рабочих каталогов Windows
+echo   iptvplayer: clean Windows build directories
 echo ============================================================
 echo.
 
@@ -12,6 +12,6 @@ echo.
 set RC=%ERRORLEVEL%
 
 echo.
-echo [OK] Очистка завершена.
+echo [OK] Cleanup done.
 pause
 exit /b %RC%
