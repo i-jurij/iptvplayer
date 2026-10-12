@@ -12,7 +12,11 @@ MpvBackend::MpvBackend(wxWindow *parentWindow, const MpvInitOptions &opts)
   //LOG_DEBUG("MpvBackend::MpvBackend()");
 
   setlocale(LC_NUMERIC, "C");
+#if !defined(_WIN32)
+  // На Linux WINDOWID может утечь от wxWidgets/GTK в дочерние процессы
+  // и заставить mpv создать собственное окно. На Windows переменной нет.
   unsetenv("WINDOWID");
+#endif
 
   m_mpv = mpv_create();
   if (!m_mpv) {

@@ -46,53 +46,68 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ------------------------
-# Local wxWidgets install
-# ------------------------
-set(LOCAL_WX_INSTALL "${CMAKE_SOURCE_DIR}/third_party/wx/install" CACHE PATH "Local wxWidgets install dir")
-list(PREPEND CMAKE_PREFIX_PATH "${LOCAL_WX_INSTALL}")
-
-find_package(wxWidgets CONFIG REQUIRED COMPONENTS
-    core base aui adv gl
-    HINTS "${LOCAL_WX_INSTALL}"
-    NO_DEFAULT_PATH
-)
-
-message(STATUS "wxWidgets version: ${wxWidgets_VERSION}")
-message(STATUS "wxWidgets dir: ${wxWidgets_DIR}")
-
-file(TO_CMAKE_PATH "${wxWidgets_DIR}" _wx_dir_norm)
-file(TO_CMAKE_PATH "${LOCAL_WX_INSTALL}" _local_norm)
-string(FIND "${_wx_dir_norm}" "${_local_norm}" _pos)
-if(_pos EQUAL -1)
-    message(FATAL_ERROR "wxWidgets found outside local install: ${wxWidgets_DIR}")
+# -----------------------------------------------------------------------------
+# Windows: специфика (MSYS2 / MinGW-w64)
+# -----------------------------------------------------------------------------
+if(WIN32)
+    include(${CMAKE_SOURCE_DIR}/windows/cmake/platform.cmake)
 endif()
 
 # ------------------------
-# Local wxSQLite3 install (надёжный поиск с проверкой)
+# wxWidgets
 # ------------------------
-set(LOCAL_WXSQLITE3_INSTALL "${CMAKE_SOURCE_DIR}/third_party/wxsqlite3/install" CACHE PATH "Local wxSQLite3 install dir")
-set(WXSQLITE3_INCLUDE_DIR "${LOCAL_WXSQLITE3_INSTALL}/include")
+if(WIN32)
+    # Windows: MSYS2-пакет, find_package сам находит через CMAKE_PREFIX_PATH.
+    # Поиск и проверки — в windows/cmake/deps.cmake.
+    include(${CMAKE_SOURCE_DIR}/windows/cmake/deps.cmake)
+else()
+    # Linux/macOS: локальная сборка в third_party/wx/install.
+    set(LOCAL_WX_INSTALL "${CMAKE_SOURCE_DIR}/third_party/wx/install"
+        CACHE PATH "Local wxWidgets install dir")
+    list(PREPEND CMAKE_PREFIX_PATH "${LOCAL_WX_INSTALL}")
 
-# Поиск статической библиотеки – GLOB с проверкой единственности
-file(GLOB WXSQLITE3_LIBRARIES "${LOCAL_WXSQLITE3_INSTALL}/lib/libwxcode*.a")
-list(LENGTH WXSQLITE3_LIBRARIES _count)
-if(NOT _count EQUAL 1)
-    message(FATAL_ERROR 
-        "Ожидается ровно один файл библиотеки wxSQLite3, но найдено ${_count}:\n"
-        "  ${WXSQLITE3_LIBRARIES}\n"
-        "Удалите лишние или переустановите wxSQLite3."
+    find_package(wxWidgets CONFIG REQUIRED COMPONENTS
+        core base aui adv gl
+        HINTS "${LOCAL_WX_INSTALL}"
+        NO_DEFAULT_PATH
+    )
+
+    message(STATUS "wxWidgets version: ${wxWidgets_VERSION}")
+    message(STATUS "wxWidgets dir: ${wxWidgets_DIR}")
+
+    file(TO_CMAKE_PATH "${wxWidgets_DIR}" _wx_dir_norm)
+    file(TO_CMAKE_PATH "${LOCAL_WX_INSTALL}" _local_norm)
+    string(FIND "${_wx_dir_norm}" "${_local_norm}" _pos)
+    if(_pos EQUAL -1)
+        message(FATAL_ERROR "wxWidgets found outside local install: ${wxWidgets_DIR}")
+    endif()
+endif()
+
+# ------------------------
+# wxSQLite3
+# ------------------------
+if(NOT WIN32)
+    set(LOCAL_WXSQLITE3_INSTALL "${CMAKE_SOURCE_DIR}/third_party/wxsqlite3/install"
+        CACHE PATH "Local wxSQLite3 install dir")
+    set(WXSQLITE3_INCLUDE_DIR "${LOCAL_WXSQLITE3_INSTALL}/include")
+
+    file(GLOB WXSQLITE3_LIBRARIES "${LOCAL_WXSQLITE3_INSTALL}/lib/libwxcode*.a")
+    list(LENGTH WXSQLITE3_LIBRARIES _count)
+    if(NOT _count EQUAL 1)
+        message(FATAL_ERROR
+            "Ожидается ровно один файл библиотеки wxSQLite3, но найдено ${_count}:\n"
+            "  ${WXSQLITE3_LIBRARIES}\n"
+            "Удалите лишние или переустановите wxSQLite3.")
+    endif()
+    set(WXSQLITE3_LIBRARY "${WXSQLITE3_LIBRARIES}")
+    message(STATUS "wxSQLite3 library: ${WXSQLITE3_LIBRARY}")
+
+    add_library(wxsqlite3 STATIC IMPORTED)
+    set_target_properties(wxsqlite3 PROPERTIES
+        IMPORTED_LOCATION             "${WXSQLITE3_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${WXSQLITE3_INCLUDE_DIR}"
     )
 endif()
-set(WXSQLITE3_LIBRARY "${WXSQLITE3_LIBRARIES}")
-message(STATUS "wxSQLite3 library: ${WXSQLITE3_LIBRARY}")
-
-# Импортная цель
-add_library(wxsqlite3 STATIC IMPORTED)
-set_target_properties(wxsqlite3 PROPERTIES
-    IMPORTED_LOCATION "${WXSQLITE3_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${WXSQLITE3_INCLUDE_DIR}"
-)
 
 # ------------------------
 # Aggregate wx_all target
@@ -107,22 +122,21 @@ foreach(_comp IN LISTS _wx_components)
     endif()
 endforeach()
 
-# wxGLCanvas static lib.
-file(GLOB WX_GL_LIBS "${LOCAL_WX_INSTALL}/lib/libwx_gtk3u_gl-*.a")
-list(LENGTH WX_GL_LIBS _gl_count)
-if(NOT _gl_count EQUAL 1)
-    message(FATAL_ERROR
-        "Ожидается ровно один libwx_gtk3u_gl-*.a, найдено ${_gl_count}:\n"
-        "  ${WX_GL_LIBS}\n"
-        "Удалите лишние или переустановите wxWidgets в ${LOCAL_WX_INSTALL}.")
-endif()
-set(WX_GL_LIB "${WX_GL_LIBS}")
-target_link_libraries(wx_all INTERFACE "${WX_GL_LIB}")
+if(NOT WIN32)
+    # wxGLCanvas static lib (только для локальной Linux-сборки).
+    file(GLOB WX_GL_LIBS "${LOCAL_WX_INSTALL}/lib/libwx_gtk3u_gl-*.a")
+    list(LENGTH WX_GL_LIBS _gl_count)
+    if(NOT _gl_count EQUAL 1)
+        message(FATAL_ERROR ...)
+    endif()
+    set(WX_GL_LIB "${WX_GL_LIBS}")
+    target_link_libraries(wx_all INTERFACE "${WX_GL_LIB}")
 
-# Wayland EGL for wxGLCanvas
-find_library(WAYLAND_EGL_LIB NAMES wayland-egl libwayland-egl PATHS /usr/lib /usr/lib64 "${LOCAL_WX_INSTALL}/lib" NO_DEFAULT_PATH)
-if(WAYLAND_EGL_LIB)
-    target_link_libraries(wx_all INTERFACE ${WAYLAND_EGL_LIB})
+    # Wayland EGL
+    find_library(WAYLAND_EGL_LIB ...)
+    if(WAYLAND_EGL_LIB)
+        target_link_libraries(wx_all INTERFACE ${WAYLAND_EGL_LIB})
+    endif()
 endif()
 
 # ------------------------
@@ -458,7 +472,7 @@ endif()
 # ------------------------
 # Компиляторные флаги
 # ------------------------
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(NOT WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic)
 
     # Оптимизация размера для релизных сборок

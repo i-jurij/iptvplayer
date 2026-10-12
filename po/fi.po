@@ -2469,4 +2469,4 @@ msgstr "Poistu"
 
 #: src/VP_actions.cpp:718
 msgid "File limit exceeded (max 1000)"
-msgstr "Tiedostoraja ylitetty (enintään 1000)"дальше
+msgstr "Tiedostoraja ylitetty (enintään 1000)"

@@ -14,9 +14,13 @@
 #include <wx/stdpaths.h>
 
 #include <csignal>
-#include <execinfo.h>
+#include <cstring>
 #include <iostream>
+
+#if !defined(_WIN32)
+#include <execinfo.h>
 #include <unistd.h>
+#endif
 
 // ============================================================================
 //  Audio subsystem availability
@@ -106,6 +110,7 @@ Application::~Application() {
   }
 }
 
+#if !defined(_WIN32)
 static void IptvplayerCrashHandler(int sig) {
   void *frames[64];
   int n = backtrace(frames, 64);
@@ -117,12 +122,23 @@ static void IptvplayerCrashHandler(int sig) {
   signal(sig, SIG_DFL);
   raise(sig);
 }
+#else
+static void IptvplayerCrashHandler(int sig) {
+  (void)sig;
+}
+#endif
 
 bool Application::OnInit() {
+#if !defined(_WIN32)
   signal(SIGSEGV, IptvplayerCrashHandler);
   signal(SIGABRT, IptvplayerCrashHandler);
   signal(SIGBUS, IptvplayerCrashHandler);
   signal(SIGFPE, IptvplayerCrashHandler);
+#else
+  // На Windows обрабатываем только SIGABRT: SIGBUS отсутствует,
+  // а SIGSEGV/SIGFPE через signal() работают нестабильно.
+  signal(SIGABRT, IptvplayerCrashHandler);
+#endif
   try {
     setlocale(LC_ALL, "");
     wxLocale *m_locale = new wxLocale();

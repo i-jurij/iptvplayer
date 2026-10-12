@@ -27,8 +27,11 @@
 #include <string>
 #include <system_error>
 #include <thread>
-#include <unistd.h>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 // Измеряет высоту текста с учётом переноса слов в заданной ширине
 int MeasureWrappedTextHeight(wxWindow *parent, const wxString &text,
