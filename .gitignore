@@ -1,6 +1,14 @@
 # -------------------------------
 # Артефакты сборки
 # -------------------------------
+# Windows-сборка
+windows/build/
+windows/install/
+windows/dist/
+windows/third_party/
+windows/*.user
+
+# Linux-сборка
 build/
 build-release/ 
 build-debug/ 
@@ -54,6 +62,8 @@ Makefile
 *.tmp
 *.swp
 *.swo
+*.orig
+*.rej
 *~
 
 # -------------------------------
