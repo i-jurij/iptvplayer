@@ -1,0 +1,38 @@
+# Базовое поведение: нормализация в LF в репозитории.
+* text=auto eol=lf
+
+# Shell-скрипты — всегда LF (иначе bash ругается на \r).
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# Windows-скрипты — всегда CRLF.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# CMake, gettext, docs — LF.
+*.cmake  text eol=lf
+CMakeLists.txt text eol=lf
+*.po     text eol=lf
+*.pot    text eol=lf
+*.nsi    text eol=crlf
+
+# Бинарные форматы — не трогаем.
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.icns   binary
+*.webp   binary
+*.AppImage binary
+*.deb    binary
+*.rpm    binary
+*.zip    binary
+*.tar.gz binary
+
+# SVG — текстовый, но с LF.
+*.svg    text eol=lf
+
+# Скрипты с shebang — LF.
+bootstrap-bash.sh text eol=lf
