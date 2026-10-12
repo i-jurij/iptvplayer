@@ -1,3 +1,11 @@
+rpmbuild in common.sh - name of packet in different distro? 
+which required? 
+==================================================================
+
+in linux build scripts again need rpmbuild and other tools in build-package
+make check and interactive install as in setup-deps and clean after too
+===========================================================================
+
 Шаг 10 (опционально, на будущее): замена ручного %lang на %find_lang
 
 Текущая ручная разметка %lang() работает во всех семействах RPM, но более идиоматично для RPM — вызвать %find_lang после %install:

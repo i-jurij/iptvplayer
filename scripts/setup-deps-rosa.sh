@@ -13,7 +13,7 @@ autoconf:autoconf
 automake:automake
 libtool:libtool
 gnupg:gnupg
-pkg-config:pkg-config
+pkg-config:pkgconf
 wget:wget
 curl:curl
 curl-dev:${_pfx}curl-devel
@@ -30,7 +30,7 @@ jpeg-dev:${_pfx}jpeg-devel
 webp-dev:${_pfx}webp-devel
 zlib-dev:${_pfx}zlib-devel
 expat-dev:${_pfx}expat-devel
-freetype-dev:${_pfx}freetype-devel
+freetype-dev:${_pfx}freetype6-devel
 EOF
 }
 
