@@ -35,11 +35,31 @@ PKG_PREFIX="$(msys2_pkg_prefix)"
 
 section "1/3. Пакеты MSYS2"
 
-PKGS=(
+# MSYS-инструменты: autotools работают в базовом MSYS-окружении, не в UCRT64.
+# Префикс mingw-w64-ucrt-x86_64- им не подходит.
+#   autoconf, automake, libtool — для autoreconf -fi.
+#   autoconf-archive — дополнительные макросы, которые ищет wxSQLite3.
+#   make — MSYS make; autotools зовёт именно make.exe.
+#   pkgconf — pkg-config для configure.
+#   gettext, gettext-devel — MSYS gettext, нужен для autopoint.
+#   texinfo — для генерации документации autoreconf.
+MSYS_PKGS=(
+    "autoconf"
+    "autoconf-archive"
+    "automake"
+    "libtool"
+    "make"
+    "pkgconf"
+    "gettext"
+    "gettext-devel"
+    "texinfo"
+)
+
+# UCRT64-пакеты: компилятор и библиотеки, линкуются в итоговый бинарник.
+UCRT_PKGS=(
     "${PKG_PREFIX}-gcc"
     "${PKG_PREFIX}-cmake"
     "${PKG_PREFIX}-ninja"
-    "${PKG_PREFIX}-make"
     "${PKG_PREFIX}-wxwidgets3.2-msw"
     "${PKG_PREFIX}-mpv"
     "${PKG_PREFIX}-curl"
@@ -51,6 +71,8 @@ PKGS=(
     "${PKG_PREFIX}-nsis"
     "git"
 )
+
+PKGS=("${MSYS_PKGS[@]}" "${UCRT_PKGS[@]}")
 
 MISSING=()
 for pkg in "${PKGS[@]}"; do
@@ -105,20 +127,61 @@ else
     mkdir -p ../build
     cd ../build
 
-    prefix="$(msys2_prefix)"
+    # Используем wx-config из UCRT64. Формат пути — Unix-стиль (/ucrt64/...),
+    # MSYS2 autotools его понимает. Проверяем, что бинарь существует.
+    WX_CONFIG="$prefix/bin/wx-config"
+    [[ -x "$WX_CONFIG" ]] || error "wx-config не найден: $WX_CONFIG"
+
     ../src/configure \
         --prefix="$WXSQLITE3_DIR/install" \
-        --with-wx-config="$prefix/bin/wx-config" \
+        --with-wx-config="$WX_CONFIG" \
         --disable-shared \
         --enable-static \
-        --without-sqlcipher
+        --without-sqlcipher \
+        --disable-dependency-tracking \
+        2>&1 | tee configure.log
 
-    lib_target=$(grep -E '^[[:space:]]*lib.*_LTLIBRARIES' Makefile 2>/dev/null \
+    # Если configure упал — покажем хвост лога и выйдем.
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        echo "=== хвост configure.log ===" >&2
+        tail -50 configure.log >&2 || true
+        error "configure wxSQLite3 завершился с ошибкой"
+    fi
+
+    # Определяем цель библиотеки. В Makefile.am lib_LTLIBRARIES = libwxcode_..._wxsqlite3-3.2.la
+    # Поэтому ищем в Makefile именно lib_LTLIBRARIES.
+    lib_target=$(grep -E '^lib_LTLIBRARIES' Makefile 2>/dev/null \
+                 | sed 's/.*=[[:space:]]*//' | awk '{print $1}' || true)
+    [[ -n "$lib_target" ]] || lib_target=$(grep -E '^[[:space:]]*lib.*_LTLIBRARIES' Makefile 2>/dev/null \
                  | sed 's/.*=//' | awk '{print $1}' | head -1 | xargs || true)
-    [[ -n "$lib_target" ]] || error "Не удалось определить цель библиотеки."
+    [[ -n "$lib_target" ]] || error "Не удалось определить цель библиотеки в Makefile"
 
-    make -j"$(nproc)" "$lib_target"
-    make install-exec
+    log "Цель сборки: $lib_target"
+
+    # -j$(nproc): nproc есть в MSYS coreutils. --no-print-directory — чище лог.
+    make -j"$(nproc)" --no-print-directory "$lib_target" 2>&1 | tee build.log
+
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        echo "=== хвост build.log ===" >&2
+        tail -80 build.log >&2 || true
+        error "make wxSQLite3 завершился с ошибкой"
+    fi
+
+    # install-exec может отсутствовать в некоторых automake-сборках.
+    # Проверяем наличие цели; если нет — копируем вручную.
+    if ! make -n install-exec >/dev/null 2>&1; then
+        warn "цель install-exec отсутствует — копирую вручную"
+        mkdir -p "$WXSQLITE3_DIR/install/lib"
+        cp -v .libs/libwxcode*.a "$WXSQLITE3_DIR/install/lib/" 2>/dev/null || true
+    else
+        make install-exec 2>&1 | tee install.log
+        [[ ${PIPESTATUS[0]} -eq 0 ]] || error "make install-exec wxSQLite3 завершился с ошибкой"
+    fi
+
+    # Проверяем, что .a действительно установлена.
+    ls "$WXSQLITE3_DIR/install/lib/"libwxcode*.a >/dev/null 2>&1 \
+        || error "libwxcode*.a не найдена в $WXSQLITE3_DIR/install/lib после сборки"
+
     mkdir -p "$WXSQLITE3_DIR/install/include/wx"
     cp -r ../src/include/wx/* "$WXSQLITE3_DIR/install/include/wx/"
 
