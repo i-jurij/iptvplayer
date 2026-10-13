@@ -129,6 +129,7 @@ else
 
     # Используем wx-config из UCRT64. Формат пути — Unix-стиль (/ucrt64/...),
     # MSYS2 autotools его понимает. Проверяем, что бинарь существует.
+    prefix="$(msys2_prefix)"
     WX_CONFIG="$prefix/bin/wx-config"
     [[ -x "$WX_CONFIG" ]] || error "wx-config не найден: $WX_CONFIG"
 
