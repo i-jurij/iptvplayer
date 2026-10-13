@@ -8,6 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/bootstrap.sh"
 
+# Проверяем инструменты сборки. setup-deps.sh их уже поставил.
+check_build_tools
+
 BUILD_DIR="$(win_build_dir)"
 INSTALL_DIR="$(win_install_dir)"
 THIRDPARTY="$(win_thirdparty)"

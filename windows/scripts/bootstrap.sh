@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # bootstrap.sh — проверка окружения перед сборкой.
+#
+# ВАЖНО: здесь только проверка MSYS2. Проверки наличия инструментов
+# (cmake/ninja/gcc) — в check_build_tools() из common.sh. Их нельзя
+# звать из setup-deps.sh: на свежей системе эти инструменты ещё не
+# установлены, их ставит как раз setup-deps.sh.
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     echo "bootstrap.sh — библиотека." >&2
@@ -7,11 +12,3 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 check_msys2
-
-PKG_PREFIX="$(msys2_pkg_prefix)"
-
-command -v cmake >/dev/null 2>&1 || error "cmake не найден. Установите: pacman -S cmake"
-command -v ninja >/dev/null 2>&1 || error "ninja не найден. Установите: pacman -S ninja"
-command -v make  >/dev/null 2>&1 || error "make не найден. Установите: pacman -S make"
-command -v gcc   >/dev/null 2>&1 || error "gcc не найден. Установите: pacman -S ${PKG_PREFIX}-gcc"
-command -v ldd   >/dev/null 2>&1 || error "ldd не найден"

@@ -64,6 +64,22 @@ msys2_pkg_prefix() {
     esac
 }
 
+# Проверка наличия инструментов сборки. Вызывается из build-release.sh
+# ПОСЛЕ setup-deps.sh — иначе на свежей системе упадёт на отсутствии cmake.
+check_build_tools() {
+    local pkg_prefix
+    pkg_prefix="$(msys2_pkg_prefix)"
+
+    command -v cmake >/dev/null 2>&1 || error "cmake не найден. Установите: pacman -S ${pkg_prefix}-cmake"
+    command -v ninja >/dev/null 2>&1 || error "ninja не найден. Установите: pacman -S ${pkg_prefix}-ninja"
+    command -v make  >/dev/null 2>&1 || error "make не найден. Установите: pacman -S make"
+    command -v gcc   >/dev/null 2>&1 || error "gcc не найден. Установите: pacman -S ${pkg_prefix}-gcc"
+    command -v ldd   >/dev/null 2>&1 || error "ldd не найден"
+
+    # Дополнительные инструменты для build-package.sh.
+    command -v zip >/dev/null 2>&1 || error "zip не найден. Установите: pacman -S zip"
+}
+
 win_build_dir()   { echo "$PROJECT_ROOT/windows/build"; }
 win_install_dir() { echo "$PROJECT_ROOT/windows/install"; }
 win_dist_dir()    { echo "$PROJECT_ROOT/windows/dist"; }
