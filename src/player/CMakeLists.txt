@@ -32,65 +32,72 @@ endif()
 message(STATUS "mpv include dir: ${MPV_INCLUDE_DIRS}")
 
 # ------------------------
-# OpenGL / EGL / Wayland for mpv GL renderer
+# OpenGL for mpv GL renderer
+# Кросс-платформенно: на Windows find_package находит opengl32,
+# на Linux — GL/GLX. EGL/Wayland специфичны для Linux.
 # ------------------------
 find_package(OpenGL REQUIRED)
 
-# EGL (системный)
-if(TARGET OpenGL::EGL)
-    set(EGL_TARGET OpenGL::EGL)
-else()
-    find_library(EGL_LIB EGL)
-    if(EGL_LIB)
-        set(EGL_TARGET ${EGL_LIB})
-    else()
-        message(WARNING "EGL not found; some mpv features may fail to link")
-    endif()
-endif()
-
-find_library(WAYLAND_EGL_LIB NAMES wayland-egl libwayland-egl)
-if(NOT WAYLAND_EGL_LIB)
-    message(WARNING "wayland-egl not found; Wayland EGL support may be unavailable")
-endif()
-
-# ------------------------
-# Static mpv dependencies
-# ------------------------
 set(_MPV_SYS_LIBS "")
 
-if(MPV_STATIC_LIB MATCHES "\\.a$")
-    message(STATUS "Linking additional system libraries for static libmpv")
-
-    # GL
-    set(_GL_TARGET OpenGL::GL)
-
-    # EGL
-    if(DEFINED EGL_TARGET)
-        set(_EGL_LIB ${EGL_TARGET})
+if(NOT WIN32)
+    # ------------------------
+    # EGL / Wayland (Linux only)
+    # ------------------------
+    if(TARGET OpenGL::EGL)
+        set(EGL_TARGET OpenGL::EGL)
+    else()
+        find_library(EGL_LIB EGL)
+        if(EGL_LIB)
+            set(EGL_TARGET ${EGL_LIB})
+        else()
+            message(WARNING "EGL not found; some mpv features may fail to link")
+        endif()
     endif()
 
-    # Common system libs
-    find_library(DL_LIB dl)
-    find_library(M_LIB m)
-    find_library(PTHREAD_LIB pthread)
-    find_library(GBM_LIB gbm)
-    find_library(DRM_LIB drm)
-    find_library(WAYLAND_CLIENT_LIB wayland-client)
-    find_library(PLACEBO_LIB NAMES placebo libplacebo)
+    find_library(WAYLAND_EGL_LIB NAMES wayland-egl libwayland-egl)
+    if(NOT WAYLAND_EGL_LIB)
+        message(WARNING "wayland-egl not found; Wayland EGL support may be unavailable")
+    endif()
 
-    list(APPEND _MPV_SYS_LIBS
-        ${_EGL_LIB}
-        ${_GL_TARGET}
-        ${DL_LIB}
-        ${M_LIB}
-        ${PTHREAD_LIB}
-        ${GBM_LIB}
-        ${DRM_LIB}
-        ${WAYLAND_CLIENT_LIB}
-        ${WAYLAND_EGL_LIB}
-        ${PLACEBO_LIB}
-    )
-    list(FILTER _MPV_SYS_LIBS EXCLUDE REGEX "^$")
+    # ------------------------
+    # Static mpv dependencies (Linux only)
+    #
+    # На Windows libmpv — это import library (libmpv.dll.a) для libmpv-2.dll.
+    # Все зависимости (ffmpeg, curl, …) вшиты в DLL, и линковать dl/m/pthread/
+    # gbm/drm/wayland-* к нашему бинарнику не нужно — их там просто нет.
+    # ------------------------
+    if(MPV_STATIC_LIB MATCHES "\\.a$")
+        message(STATUS "Linking additional system libraries for static libmpv")
+
+        set(_GL_TARGET OpenGL::GL)
+
+        if(DEFINED EGL_TARGET)
+            set(_EGL_LIB ${EGL_TARGET})
+        endif()
+
+        find_library(DL_LIB dl)
+        find_library(M_LIB m)
+        find_library(PTHREAD_LIB pthread)
+        find_library(GBM_LIB gbm)
+        find_library(DRM_LIB drm)
+        find_library(WAYLAND_CLIENT_LIB wayland-client)
+        find_library(PLACEBO_LIB NAMES placebo libplacebo)
+
+        list(APPEND _MPV_SYS_LIBS
+            ${_EGL_LIB}
+            ${_GL_TARGET}
+            ${DL_LIB}
+            ${M_LIB}
+            ${PTHREAD_LIB}
+            ${GBM_LIB}
+            ${DRM_LIB}
+            ${WAYLAND_CLIENT_LIB}
+            ${WAYLAND_EGL_LIB}
+            ${PLACEBO_LIB}
+        )
+        list(FILTER _MPV_SYS_LIBS EXCLUDE REGEX "^$")
+    endif()
 endif()
 
 # ------------------------
