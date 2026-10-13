@@ -52,6 +52,8 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 *.cmake
+!windows/cmake/*.cmake
+!src/player/cmake/*.cmake
 !CMakeLists.txt
 !*.cmake.in
 
