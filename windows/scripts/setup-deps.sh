@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup-deps.sh — установка зависимостей под Windows (MSYS2).
+# setup-deps.sh — установка зависимостей под Windows (MSYS2 UCRT64).
 # =============================================================================
 
 set -euo pipefail
@@ -8,26 +8,47 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/bootstrap.sh"
 
+# --- Парсинг аргументов ---------------------------------------------------
+ASSUME_YES=false
+for arg in "$@"; do
+    case "$arg" in
+        -y|--yes)
+            ASSUME_YES=true
+            ;;
+        -h|--help)
+            cat <<'EOF'
+Использование: ./windows/scripts/setup-deps.sh [--yes]
+
+  --yes    не задавать вопросов; ставить отсутствующие пакеты без подтверждения
+EOF
+            exit 0
+            ;;
+        *)
+            error "Неизвестный аргумент: $arg"
+            ;;
+    esac
+done
+
 WXSQLITE3_VERSION="${WXSQLITE3_VERSION:-5.0.1}"
 WXSQLITE3_DIR="$(win_thirdparty)/wxsqlite3"
-prefix_lower="${MSYSTEM,,}"
+PKG_PREFIX="$(msys2_pkg_prefix)"
 
 section "1/3. Пакеты MSYS2"
 
 PKGS=(
-    "mingw-w64-${prefix_lower}-gcc"
-    "mingw-w64-${prefix_lower}-cmake"
-    "mingw-w64-${prefix_lower}-ninja"
-    "mingw-w64-${prefix_lower}-make"
-    "mingw-w64-${prefix_lower}-wxwidgets3.2-msw"
-    "mingw-w64-${prefix_lower}-mpv"
-    "mingw-w64-${prefix_lower}-curl"
-    "mingw-w64-${prefix_lower}-expat"
-    "mingw-w64-${prefix_lower}-zlib"
-    "mingw-w64-${prefix_lower}-libwebp"
-    "mingw-w64-${prefix_lower}-rapidjson"
-    "mingw-w64-${prefix_lower}-gettext"
-    "mingw-w64-${prefix_lower}-nsis"
+    "${PKG_PREFIX}-gcc"
+    "${PKG_PREFIX}-cmake"
+    "${PKG_PREFIX}-ninja"
+    "${PKG_PREFIX}-make"
+    "${PKG_PREFIX}-wxwidgets3.2-msw"
+    "${PKG_PREFIX}-mpv"
+    "${PKG_PREFIX}-curl"
+    "${PKG_PREFIX}-expat"
+    "${PKG_PREFIX}-zlib"
+    "${PKG_PREFIX}-libwebp"
+    "${PKG_PREFIX}-rapidjson"
+    "${PKG_PREFIX}-gettext"
+    "${PKG_PREFIX}-nsis"
     "git"
 )
 

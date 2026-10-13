@@ -1,5 +1,6 @@
 @echo off
 REM _common.bat - shared variables for windows/bats/*.bat
+REM Поддерживается только MSYS2 UCRT64 (см. windows/scripts/common.sh).
 
 set "WIN_BATS_DIR=%~dp0"
 pushd "%WIN_BATS_DIR%..\.." >nul
@@ -26,21 +27,22 @@ if not defined MSYS2_ROOT (
 
 if not defined MSYS2_ENV set "MSYS2_ENV=UCRT64"
 
+if /I not "%MSYS2_ENV%"=="UCRT64" (
+    echo [ERROR] Only UCRT64 is supported. MINGW64 has been deprecated by MSYS2.
+    echo Set: set MSYS2_ENV=UCRT64
+    echo Current: MSYS2_ENV=%MSYS2_ENV%
+    exit /b 1
+)
+
 set "MSYS2_BASH=%MSYS2_ROOT%\usr\bin\bash.exe"
 if not exist "%MSYS2_BASH%" (
     echo [ERROR] bash.exe not found: %MSYS2_BASH%
     exit /b 1
 )
 
-if /I "%MSYS2_ENV%"=="UCRT64"  set "MSYS2_SHELL=%MSYS2_ROOT%\ucrt64.exe"
-if /I "%MSYS2_ENV%"=="MINGW64" set "MSYS2_SHELL=%MSYS2_ROOT%\mingw64.exe"
-if /I "%MSYS2_ENV%"=="CLANG64" set "MSYS2_SHELL=%MSYS2_ROOT%\clang64.exe"
-if not defined MSYS2_SHELL (
-    echo [ERROR] Unknown MSYS2_ENV: %MSYS2_ENV%
-    echo Allowed: UCRT64, MINGW64, CLANG64
+set "MSYS2_SHELL=%MSYS2_ROOT%\ucrt64.exe"
+if not exist "%MSYS2_SHELL%" (
+    echo [ERROR] MSYS2 UCRT64 shell not found: %MSYS2_SHELL%
+    echo Install the UCRT64 environment in MSYS2.
     exit /b 1
 )
-if not exist "%MSYS2_SHELL%" (
-    echo [ERROR] MSYS2 shell not found: %MSYS2_SHELL%
-    exit /b 1
-)

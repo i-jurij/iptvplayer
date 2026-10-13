@@ -62,6 +62,7 @@ jobs:
               "Rebuild arch build image" \
               "Native packages" \
               "Deploy Pages" \
+              "Windows-package-build" \
               "Cleanup old releases and runs"; do
             echo "[i] workflow: $WF"
             gh run list --repo "$REPO" --workflow "$WF" --limit 200 \

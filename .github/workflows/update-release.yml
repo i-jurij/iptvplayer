@@ -11,13 +11,18 @@ on:
         description: 'Run ID job-а Native packages (пусто = последний успешный)'
         required: false
         type: string
+      windows_run_id:
+        description: 'Run ID job-а Windows-package-build (пусто = не трогать Windows)'
+        required: false
+        type: string
 
 permissions:
   contents: write
   actions: read
 
 jobs:
-  update:
+  native-packages:
+    if: inputs.windows_run_id == '' || inputs.native_run_id != ''
     runs-on: ubuntu-latest
     steps:
       # Локальный composite action ./.github/actions/import-gpg доступен только после checkout.
@@ -109,3 +114,29 @@ jobs:
       - name: Cleanup GPG
         if: always()
         uses: ./.github/actions/cleanup-gpg
+
+  resolve-version:
+    if: inputs.windows_run_id != ''
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            echo "::error::tag должен начинаться с 'v' и цифры, получено: $TAG"
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: resolve-version
+    if: inputs.windows_run_id != ''
+    uses: ./.github/workflows/windows-packages.yml
+    with:
+      version: ${{ needs.resolve-version.outputs.version }}
+      tag: ${{ inputs.tag }}
+      reuse_run_id: ${{ inputs.windows_run_id }}
+      upload_to_release: true

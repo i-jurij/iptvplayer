@@ -1,0 +1,208 @@
+name: Windows-package-build
+
+# =============================================================================
+# Reusable workflow: сборка Windows-пакета (zip + NSIS setup.exe).
+#
+# Режимы вызова:
+#   1. workflow_call из release.yml — свежая сборка, публикация false.
+#   2. workflow_call из update-release.yml — reuse_run_id + upload_to_release: true.
+#   3. workflow_dispatch вручную — для отладки, без публикации.
+# =============================================================================
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Версия без префикса v (например, 0.2.0)'
+        required: true
+        type: string
+      tag:
+        description: 'Тег релиза с префиксом v (например, v0.2.0)'
+        required: true
+        type: string
+      reuse_run_id:
+        description: 'Run ID для переиспользования артефакта (пусто = собрать заново)'
+        required: false
+        type: string
+        default: ''
+      upload_to_release:
+        description: 'Загрузить артефакты в указанный релиз'
+        required: false
+        type: boolean
+        default: false
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Версия без префикса v (например, 0.2.0)'
+        required: true
+        type: string
+      tag:
+        description: 'Тег релиза с префиксом v (например, v0.2.0)'
+        required: true
+        type: string
+      reuse_run_id:
+        description: 'Run ID для переиспользования артефакта (пусто = собрать заново)'
+        required: false
+        type: string
+        default: ''
+      upload_to_release:
+        description: 'Загрузить артефакты в указанный релиз'
+        required: false
+        type: boolean
+        default: false
+
+# contents:write — публикация в релиз (softprops/action-gh-release).
+# actions:read  — скачивание артефактов из чужого run по reuse_run_id.
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  # =========================================================================
+  # Сборка Windows-пакета. Пропускается, если задан reuse_run_id —
+  # в этом случае артефакт берётся из другого run'а (см. publish).
+  # =========================================================================
+  build:
+    if: inputs.reuse_run_id == ''
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # UCRT64 — единственное поддерживаемое окружение.
+      # update:true обновляет базу MSYS2; cache:true кэширует pacman-БД.
+      - name: Setup MSYS2 (UCRT64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          cache: true
+          # Минимум для инфраструктуры: bash, git, архиваторы для
+          # build-package.sh. Остальные зависимости ставит setup-deps.sh.
+          install: >-
+            git
+            zip
+            unzip
+
+      # Кэш third_party (wxWidgets, wxSQLite3) — per-target.
+      # Ключ ломается при правках setup-скриптов; restore-keys даёт
+      # возможность переиспользовать предыдущий кэш при добавлении
+      # новой зависимости (соберётся инкрементально).
+      - name: Cache windows/third_party
+        uses: actions/cache@v5
+        with:
+          path: windows/third_party
+          key: >-
+            windows-third_party-ucrt64-${{ hashFiles(
+              'windows/scripts/setup-deps.sh',
+              'windows/scripts/common.sh',
+              'windows/scripts/bootstrap.sh'
+            ) }}
+          restore-keys: |
+            windows-third_party-ucrt64-
+
+      - name: Install dependencies
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          ./windows/scripts/setup-deps.sh --yes
+
+      - name: Build release
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          ./windows/scripts/build-release.sh
+
+      - name: Build package (zip + NSIS)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          ./windows/scripts/build-package.sh --require-nsis
+
+      - name: Upload windows-packages
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-packages
+          path: windows/dist/
+          retention-days: 3
+          if-no-files-found: error
+
+  # =========================================================================
+  # Публикация в релиз. Включается только при upload_to_release == true.
+  #
+  # Источник артефакта:
+  #   - reuse_run_id != '' — скачиваем из указанного run'а (режим update-release);
+  #   - reuse_run_id == '' — скачиваем из текущего run'а (свежая сборка).
+  #
+  # needs: build + if: always() — чтобы publish отработал и когда build
+  # был пропущен (reuse_run_id != '').
+  # =========================================================================
+  publish:
+    needs: build
+    if: |
+      always() &&
+      inputs.upload_to_release == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # Защита от опечатки в tag: softprops/action-gh-release молча
+      # создаёт новый релиз, если тега нет. Нам это не нужно — релиз
+      # должен уже существовать (его создал release.yml или пользователь).
+      - name: Verify release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::релиз $TAG не найден. Создайте его заранее (например, пустой pre-release) и повторите."
+            exit 1
+          fi
+          echo "[i] релиз $TAG существует"
+
+      - name: Download windows-packages (from another run)
+        if: inputs.reuse_run_id != ''
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-packages
+          path: dist
+          run-id: ${{ inputs.reuse_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          if-no-files-found: error
+
+      - name: Download windows-packages (current run)
+        if: inputs.reuse_run_id == ''
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-packages
+          path: dist
+          if-no-files-found: error
+
+      - name: Verify artifacts
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=(dist/*.zip)
+          setups=(dist/*-setup.exe)
+          (( ${#zips[@]}   > 0 )) || { echo "::error::zip не найден в dist/";        exit 1; }
+          (( ${#setups[@]} > 0 )) || { echo "::error::setup.exe не найден в dist/"; exit 1; }
+          echo "[i] zip: ${#zips[@]}, setup.exe: ${#setups[@]}"
+          ls -la dist/
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: |
+            dist/*.zip
+            dist/*-setup.exe
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

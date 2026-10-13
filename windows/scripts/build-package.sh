@@ -8,6 +8,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/bootstrap.sh"
 
+# --- Парсинг аргументов ---------------------------------------------------
+REQUIRE_NSIS=false
+for arg in "$@"; do
+    case "$arg" in
+        --require-nsis)
+            REQUIRE_NSIS=true
+            ;;
+        -h|--help)
+            cat <<'EOF'
+Использование: ./windows/scripts/build-package.sh [--require-nsis]
+
+  --require-nsis   завершиться ошибкой, если makensis не найден.
+                   Используется в CI: в релиз обязательно должен попасть
+                   setup.exe, а не только zip.
+  -h, --help       эта справка.
+EOF
+            exit 0
+            ;;
+        *)
+            error "Неизвестный аргумент: $arg"
+            ;;
+    esac
+done
+
 INSTALL_DIR="$(win_install_dir)"
 DIST_DIR="$(win_dist_dir)"
 EXE="$INSTALL_DIR/bin/iptvplayer.exe"
@@ -51,13 +75,20 @@ log "ZIP создан: $ZIP_PATH ($(du -h "$ZIP_PATH" | cut -f1))"
 section "2/2. NSIS-инсталлятор"
 
 if ! command -v makensis >/dev/null 2>&1; then
+    if [[ "$REQUIRE_NSIS" == true ]]; then
+        error "makensis не найден, а сборка запущена с --require-nsis. " \
+              "Установите: pacman -S $(msys2_pkg_prefix)-nsis"
+    fi
     warn "makensis не найден. Пропускаю NSIS."
-    warn "Установите: pacman -S mingw-w64-${MSYSTEM,,}-nsis"
+    warn "Установите: pacman -S $(msys2_pkg_prefix)-nsis"
     exit 0
 fi
 
 NSI_SCRIPT="$PROJECT_ROOT/windows/installer.nsi"
 if [[ ! -f "$NSI_SCRIPT" ]]; then
+    if [[ "$REQUIRE_NSIS" == true ]]; then
+        error "Скрипт NSIS не найден: $NSI_SCRIPT (--require-nsis)"
+    fi
     warn "Скрипт NSIS не найден: $NSI_SCRIPT"
     exit 0
 fi
