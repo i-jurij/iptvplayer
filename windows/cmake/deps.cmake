@@ -76,24 +76,18 @@ set_target_properties(wxsqlite3 PROPERTIES
 # -----------------------------------------------------------------------------
 # 3. libmpv
 # -----------------------------------------------------------------------------
-find_path(WIN_MPV_INCLUDE_DIR
-    NAMES mpv/client.h
-    PATHS "${MSYS2_PREFIX}/include"
-    NO_DEFAULT_PATH)
+find_path(WIN_MPV_INCLUDE_DIR NAMES mpv/client.h)
 if(NOT WIN_MPV_INCLUDE_DIR)
     message(FATAL_ERROR
-        "mpv/client.h не найден в ${MSYS2_PREFIX}/include. "
-        "Установите пакет mingw-w64-<env>-mpv через pacman.")
+        "mpv/client.h не найден. Установите пакет "
+        "mingw-w64-ucrt-x86_64-mpv через pacman.")
 endif()
 
-find_library(WIN_MPV_LIBRARY
-    NAMES mpv libmpv
-    PATHS "${MSYS2_PREFIX}/lib"
-    NO_DEFAULT_PATH)
+find_library(WIN_MPV_LIBRARY NAMES mpv libmpv)
 if(NOT WIN_MPV_LIBRARY)
     message(FATAL_ERROR
-        "libmpv не найден в ${MSYS2_PREFIX}/lib. "
-        "Установите пакет mingw-w64-<env>-mpv через pacman.")
+        "libmpv не найден. Установите пакет "
+        "mingw-w64-ucrt-x86_64-mpv через pacman.")
 endif()
 
 message(STATUS "libmpv include: ${WIN_MPV_INCLUDE_DIR}")
@@ -111,24 +105,17 @@ target_link_libraries(mpv_win INTERFACE "${WIN_MPV_LIBRARY}")
 find_package(WebP QUIET)
 
 if(NOT WebP_FOUND)
-    find_path(WIN_WEBP_INCLUDE_DIR
-        NAMES webp/decode.h
-        PATHS "${MSYS2_PREFIX}/include"
-        NO_DEFAULT_PATH)
-    find_library(WIN_WEBP_LIBRARY
-        NAMES webp libwebp
-        PATHS "${MSYS2_PREFIX}/lib"
-        NO_DEFAULT_PATH)
+    find_path(WIN_WEBP_INCLUDE_DIR NAMES webp/decode.h)
+    find_library(WIN_WEBP_LIBRARY NAMES webp libwebp)
 
     if(WIN_WEBP_INCLUDE_DIR AND WIN_WEBP_LIBRARY)
         add_library(WebP::webp UNKNOWN IMPORTED)
         set_target_properties(WebP::webp PROPERTIES
             IMPORTED_LOCATION             "${WIN_WEBP_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${WIN_WEBP_INCLUDE_DIR}"
-        )
+            INTERFACE_INCLUDE_DIRECTORIES "${WIN_WEBP_INCLUDE_DIR}")
         message(STATUS "WebP найден вручную: ${WIN_WEBP_LIBRARY}")
     else()
         message(FATAL_ERROR
-            "libwebp не найден. Установите: pacman -S mingw-w64-<env>-libwebp")
+            "libwebp не найден. Установите: pacman -S mingw-w64-ucrt-x86_64-libwebp")
     endif()
 endif()
