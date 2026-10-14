@@ -79,6 +79,34 @@ for src in "${all_dlls[@]}"; do
 done
 log "Скопировано runtime DLL: $copied"
 
+# --- Vulkan loader ---
+# libplacebo в MSYS2 UCRT64 пока линкуется с vulkan-1.dll напрямую
+# (исправление в 7.360.1-3 доступно только в Cygwin).
+# На Windows 10 без Vulkan Runtime этой DLL нет — кладём рядом с exe.
+VULKAN_DLL="$PREFIX/bin/vulkan-1.dll"
+if [[ -f "$VULKAN_DLL" ]]; then
+    if [[ ! -f "$INSTALL_DIR/bin/vulkan-1.dll" ]]; then
+        cp "$VULKAN_DLL" "$INSTALL_DIR/bin/"
+        log "Скопирован Vulkan loader: vulkan-1.dll"
+    fi
+else
+    warn "vulkan-1.dll не найден в $PREFIX/bin — установите ${PKG_PREFIX}-vulkan-loader"
+fi
+
+# --- Strip отладочных символов из DLL и EXE ---
+# Уменьшает размер пакета на ~20-30%. Символы в релизе не нужны:
+# бэктрейсы всё равно нечитаемы без .pdb-файлов.
+if command -v strip >/dev/null 2>&1; then
+    before_kb=$(du -sk "$INSTALL_DIR/bin" | cut -f1)
+    find "$INSTALL_DIR/bin" -maxdepth 1 -type f \
+        \( -name '*.dll' -o -name '*.exe' \) -print0 \
+        | xargs -0 -r strip --strip-unneeded 2>/dev/null || true
+    after_kb=$(du -sk "$INSTALL_DIR/bin" | cut -f1)
+    log "Strip: bin/ $((before_kb / 1024))MB -> $((after_kb / 1024))MB"
+else
+    warn "strip не найден — пропускаю оптимизацию размера"
+fi
+
 log "Копирование ресурсов в bin/..."
 for res in icons epg_sources.json matching_rules.json channel_aliases.json about.html; do
     src="$PROJECT_ROOT/resources/$res"
