@@ -1,3 +1,9 @@
+19:09:57: Debug: EPGManager: URL http://www.teleguide.info/download/new3/xmltv.xml.gz, Content-Length: 4097551 bytes
+19:10:28: Ошибка: EPGManager: Failed to download EPG from http://www.teleguide.info/download/new3/xmltv.xml.gz
+и состояние busy не снимается, кнопки отключены, прогресс и индикатор акивности работают,
+хотя все должно было отмениться автоматически.
+
+=================================================================
 rpmbuild in common.sh - name of packet in different distro? 
 which required? 
 ==================================================================

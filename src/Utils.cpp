@@ -1,5 +1,6 @@
 #include "Utils.h"
 #include "LogControl.h"
+#include "Utils_FsPath.h"
 
 #include <curl/curl.h>
 
@@ -615,8 +616,10 @@ static bool ReadMachCPUTicks(uint64_t &idle, uint64_t &total) {
 #endif
 
 #if defined(_WIN32)
-#define NOMINMAX
-#include <windows.h>
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
 
 static bool ReadWindowsCPUTimes(uint64_t &idle, uint64_t &total) {
   FILETIME idleTime, kernelTime, userTime;
@@ -941,8 +944,7 @@ bool RemoveMarkerFilesRecursive(const wxString &baseDir, size_t &removed,
 
   std::error_code ec;
 
-  std::string baseUtf8 = baseDir.ToUTF8().data();
-  fs::path basePath(baseUtf8);
+  fs::path basePath = ToFsPath(std::string(baseDir.ToUTF8().data()));
 
   if (!fs::exists(basePath, ec) || !fs::is_directory(basePath, ec)) {
     return false;
@@ -974,8 +976,12 @@ bool RemoveMarkerFilesRecursive(const wxString &baseDir, size_t &removed,
     if (ext != ".marker")
       continue;
 
-    // Проверка безопасности
-    wxString markerWx = wxString::FromUTF8(p.string());
+    // Проверка безопасности. p.u8string() даёт UTF-8 на всех платформах;
+    // p.string() на Windows возвращает CP_ACP и ломает не-ASCII пути.
+    const auto u8 = p.u8string();
+    wxString markerWx =
+        wxString::FromUTF8(reinterpret_cast<const char *>(u8.data()),
+                           u8.size());
     if (!IsSafeSubpath(baseDir, markerWx)) {
       skippedUnsafe++;
       continue;

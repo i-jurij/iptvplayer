@@ -1,4 +1,6 @@
 #include "ConfigManager.h"
+#include "Utils_FsPath.h"
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -18,20 +20,24 @@ ConfigManager::~ConfigManager() {
 
 std::string ConfigManager::getConfigDirectory() const {
   namespace fs = std::filesystem;
-  fs::path p(m_configPath);
+  fs::path p = ToFsPath(m_configPath);
   auto parent = p.parent_path();
   if (parent.empty())
     return ".";
-  return parent.string();
+  const auto u8 = parent.u8string();
+  return std::string(reinterpret_cast<const char *>(u8.data()), u8.size());
 }
 
 ErrorCode ConfigManager::ensureConfigDirectory() {
   namespace fs = std::filesystem;
-  fs::path dirPath = getConfigDirectory();
+  fs::path dirPath = ToFsPath(getConfigDirectory());
   std::error_code ec;
   fs::create_directories(dirPath, ec);
   if (ec) {
-    setError("Cannot create config directory: " + dirPath.string());
+    const auto u8 = dirPath.u8string();
+    setError("Cannot create config directory: " +
+             std::string(reinterpret_cast<const char *>(u8.data()),
+                         u8.size()));
     return ErrorCode::FileNotFound;
   }
   return ErrorCode::OK;
@@ -61,7 +67,7 @@ ErrorCode ConfigManager::loadSettings() {
 
   try {
     // Проверяем наличие файла
-    if (!fs::exists(m_configPath)) {
+    if (!fs::exists(ToFsPath(m_configPath))) {
       std::cout << "Config file not found, creating default configuration\n";
       createDefaultSettings();
       m_loaded = true;
@@ -70,7 +76,7 @@ ErrorCode ConfigManager::loadSettings() {
 
     // Проверяем размер файла
     std::error_code ec;
-    auto fileSize = fs::file_size(m_configPath, ec);
+    auto fileSize = fs::file_size(ToFsPath(m_configPath), ec);
     if (ec || fileSize == 0 || fileSize > 5 * 1024 * 1024) {
       std::cerr << "Config file invalid or too large, recreating\n";
       createDefaultSettings();
@@ -79,7 +85,7 @@ ErrorCode ConfigManager::loadSettings() {
     }
 
     // Читаем файл
-    std::ifstream file(m_configPath, std::ios::binary);
+    std::ifstream file(ToFsPath(m_configPath), std::ios::binary);
     if (!file.is_open()) {
       setError("Cannot open config file: " + m_configPath);
       createDefaultSettings();
@@ -143,7 +149,7 @@ ErrorCode ConfigManager::saveSettings() {
     return ErrorCode::FileNotFound;
 
   try {
-    std::ofstream file(m_configPath);
+    std::ofstream file(ToFsPath(m_configPath));
     if (!file.is_open()) {
       setError("Cannot open config file for writing: " + m_configPath);
       return ErrorCode::FileNotFound;

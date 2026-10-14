@@ -30,7 +30,7 @@ public:
   EPGDatabase();
   ~EPGDatabase();
 
-  bool Open(const std::string &dbPath);
+  bool Open(const wxString &dbPath);
   void Close();
   bool IsOpen() const;
 

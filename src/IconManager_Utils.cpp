@@ -1,5 +1,6 @@
 #include "IconManager.h"
 #include "Utils.h"
+#include "Utils_FsPath.h"
 
 #include <curl/curl.h>
 #include <filesystem>
@@ -86,7 +87,8 @@ std::string IconManager::GetIconPath(const std::string &playlist,
   std::string safeChannel =
       NormalizeFileNameForDisk(channel.empty() ? "channel" : channel);
 
-  fs::path base = fs::path(GetCacheDir()) / "icons" / safePlaylist / "original";
+  fs::path base =
+      ToFsPath(GetCacheDir()) / "icons" / safePlaylist / "original";
   std::error_code ec;
   if (!fs::exists(base)) {
     if (!fs::create_directories(base, ec)) {
@@ -110,7 +112,8 @@ std::string IconManager::GetSvgPath(const std::string &playlist,
   std::string safeChannel =
       NormalizeFileNameForDisk(channel.empty() ? "channel" : channel);
 
-  fs::path base = fs::path(GetCacheDir()) / "icons" / safePlaylist / "original";
+  fs::path base =
+      ToFsPath(GetCacheDir()) / "icons" / safePlaylist / "original";
   std::error_code ec;
   if (!fs::exists(base)) {
     if (!fs::create_directories(base, ec)) {

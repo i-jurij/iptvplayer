@@ -5,6 +5,7 @@
 
 #include <wx/log.h>
 
+#include <cstring>
 #include <locale.h>
 
 MpvBackend::MpvBackend(wxWindow *parentWindow, const MpvInitOptions &opts)

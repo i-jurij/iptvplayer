@@ -6,6 +6,7 @@
 #include "MainFrame.h"
 #include "Playlist.h"
 #include "Utils.h"
+#include "Utils_FsPath.h"
 
 #include <wx/app.h>
 #include <wx/event.h>
@@ -14,6 +15,10 @@
 #include <wx/window.h>
 
 #include <curl/curl.h>
+
+#ifdef _WIN32
+#include <io.h>
+#endif
 
 #include <cerrno>
 #include <chrono>
@@ -52,7 +57,7 @@ void PlaylistManager::setError(const std::string &msg) const {
 
 bool PlaylistManager::readFile(const std::string &path,
                                std::string &outContent) {
-  std::filesystem::path fsPath(path);
+  std::filesystem::path fsPath = ToFsPath(path);
   std::ifstream in(fsPath, std::ios::binary | std::ios::ate);
   if (!in) {
     std::string utf8Path(fsPath.u8string().begin(), fsPath.u8string().end());
@@ -89,11 +94,12 @@ std::string PlaylistManager::copyIntoConfigFolder(const std::string &srcPath) {
   std::string baseDir = m_configDir;
 
   if (baseDir.empty()) {
+    // ToUTF8(), не ToStdString() — на Windows второй вернёт CP_ACP.
     wxString wxDir = wxStandardPaths::Get().GetUserConfigDir();
-    baseDir = wxDir.ToStdString();
+    baseDir = std::string(wxDir.ToUTF8().data());
   }
 
-  fs::path destDir = fs::path(baseDir) / "playlists";
+  fs::path destDir = ToFsPath(baseDir) / "playlists";
   std::error_code ec;
   fs::create_directories(destDir, ec);
   if (ec)
@@ -104,8 +110,14 @@ std::string PlaylistManager::copyIntoConfigFolder(const std::string &srcPath) {
   std::stringstream ss;
   ss << std::put_time(std::localtime(&t), "%Y%m%d_%H%M%S");
 
-  fs::path src(srcPath);
-  fs::path dest = destDir / (ss.str() + "_" + src.filename().string());
+  fs::path src = ToFsPath(srcPath);
+
+  // filename() определяет имя по правилам платформы (учитывает и '/', и '\\'
+  const auto fnU8 = src.filename().u8string();
+  std::string srcFileName(reinterpret_cast<const char *>(fnU8.data()),
+                          fnU8.size());
+
+  fs::path dest = destDir / ToFsPath(ss.str() + "_" + srcFileName);
 
   fs::copy_file(src, dest, fs::copy_options::overwrite_existing, ec);
   if (ec)
@@ -531,7 +543,8 @@ ErrorCode PlaylistManager::removePlaylist(size_t index, bool removeSource) {
 
   {
     std::string filename = makePlaylistFileName(title);
-    fs::path configFilePath = fs::path(m_configDir) / "playlists" / filename;
+    fs::path configFilePath =
+        ToFsPath(m_configDir) / "playlists" / ToFsPath(filename);
 
     std::error_code ec;
     fs::remove(configFilePath, ec);
@@ -542,7 +555,7 @@ ErrorCode PlaylistManager::removePlaylist(size_t index, bool removeSource) {
   }
 
   if (removeSource && !pl->isUrl()) {
-    fs::path sourcePath = pl->getSource();
+    fs::path sourcePath = ToFsPath(pl->getSource());
     std::error_code ec;
     fs::remove(sourcePath, ec);
     if (ec) {
@@ -633,8 +646,8 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
   // чтобы loadPlaylists при следующем запуске не нашёл дубликат.
   if (!oldTitle.empty() && oldTitle != title) {
     namespace fs = std::filesystem;
-    fs::path dir = fs::path(m_configDir) / "playlists";
-    fs::path oldPath = dir / makePlaylistFileName(oldTitle);
+    fs::path dir = ToFsPath(m_configDir) / "playlists";
+    fs::path oldPath = dir / ToFsPath(makePlaylistFileName(oldTitle));
 
     if (fs::exists(oldPath)) {
       std::error_code rmEc;
@@ -680,7 +693,7 @@ ErrorCode PlaylistManager::savePlaylist(const Playlist *pl, size_t idx) const {
   }
 
   namespace fs = std::filesystem;
-  fs::path dir = fs::path(m_configDir) / "playlists";
+  fs::path dir = ToFsPath(m_configDir) / "playlists";
   std::error_code ec;
   fs::create_directories(dir, ec);
   if (ec) {
@@ -689,7 +702,7 @@ ErrorCode PlaylistManager::savePlaylist(const Playlist *pl, size_t idx) const {
   }
 
   std::string filename = makePlaylistFileName(pl->getTitle());
-  fs::path filePath = dir / filename;
+  fs::path filePath = dir / ToFsPath(filename);
 
   std::string json;
   try {
@@ -723,7 +736,7 @@ ErrorCode PlaylistManager::loadPlaylists() {
   namespace fs = std::filesystem;
   std::lock_guard<std::mutex> lock(m_playlistsMutex);
   try {
-    fs::path dir = fs::path(m_configDir) / "playlists";
+    fs::path dir = ToFsPath(m_configDir) / "playlists";
 
     if (!fs::exists(dir)) {
       m_playlists.clear();
@@ -856,7 +869,7 @@ bool PlaylistManager::atomicWrite(const std::string &path,
   namespace fs = std::filesystem;
   std::error_code ec;
 
-  fs::path target(path);
+  fs::path target = ToFsPath(path);
   fs::path dir = target.parent_path();
   if (dir.empty())
     dir = ".";

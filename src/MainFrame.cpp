@@ -279,7 +279,7 @@ MainFrame::~MainFrame() {
       std::vector<std::string> recentRaw;
       recentRaw.reserve(recentWx.size());
       for (auto &s : recentWx)
-        recentRaw.push_back(std::string(s.mb_str()));
+        recentRaw.push_back(std::string(s.ToUTF8().data()));
 
       cfg->setRecentFiles(recentRaw);
     }

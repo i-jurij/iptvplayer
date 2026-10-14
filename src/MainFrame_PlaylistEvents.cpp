@@ -20,7 +20,6 @@
 #include <wx/timer.h>
 
 #include <cstdio>
-#include <unistd.h>
 
 // ─────────────────────────────────────────────────────────────
 // Event handler implementations

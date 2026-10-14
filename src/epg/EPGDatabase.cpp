@@ -66,7 +66,7 @@ EPGDatabase::~EPGDatabase() { Close(); }
 // ------------------------------------------------------------------
 // Открытие / Закрытие
 // ------------------------------------------------------------------
-bool EPGDatabase::Open(const std::string &dbPath) {
+bool EPGDatabase::Open(const wxString &dbPath) {
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
   if (m_isOpen)
     Close();

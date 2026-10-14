@@ -74,22 +74,15 @@ Application::Application() {
   wxFileName configFile(baseDir, "config.json");
   wxFileName playlistsPath(baseDir, "");
 
-#ifdef _WIN32
-  m_configManager =
-      std::make_unique<ConfigManager>(configFile.GetFullPath().ToStdWstring());
-  m_playlistManager = std::make_unique<PlaylistManager>(
-      playlistsPath.GetFullPath().ToStdWstring());
-#else
   m_configManager =
       std::make_unique<ConfigManager>(configFile.GetFullPath().ToUTF8().data());
   m_playlistManager = std::make_unique<PlaylistManager>(
       playlistsPath.GetFullPath().ToUTF8().data());
-#endif
 
   wxString favPathWx =
       configFile.GetPath() + wxFILE_SEP_PATH + "favorites.json";
-  m_favoritesManager =
-      std::make_unique<FavoritesManager>(favPathWx.ToStdString());
+  m_favoritesManager = std::make_unique<FavoritesManager>(
+      std::string(favPathWx.ToUTF8().data()));
 
   // init UI
   m_guiManager = std::make_unique<GUIManager>();

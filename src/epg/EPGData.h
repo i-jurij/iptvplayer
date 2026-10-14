@@ -7,6 +7,8 @@
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <limits>
 #include <string>

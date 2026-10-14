@@ -23,6 +23,34 @@
 #endif
 
 // ------------------------------------------------------------
+// Платформенный загрузчик GL-функций.
+//
+// Linux:  wxGLContext::GetProcAddress (обёртка над glXGetProcAddress).
+// macOS:  dlsym по умолчанию — NSOpenGL-контекст уже активен.
+// MSW:    wglGetProcAddress для GL 2.0+; функции GL 1.1 (glClear,
+//         glViewport и т.п.) экспортируются напрямую из opengl32.dll,
+//         для них wglGetProcAddress вернёт NULL — нужен fallback
+//         через GetProcAddress.
+// ------------------------------------------------------------
+namespace {
+void *GetGLProcAddress(const char *name) {
+#if defined(_WIN32) || defined(_WIN64)
+  void *p = reinterpret_cast<void *>(wglGetProcAddress(name));
+  if (p)
+    return p;
+  static HMODULE hGL = ::LoadLibraryA("opengl32.dll");
+  if (!hGL)
+    return nullptr;
+  return reinterpret_cast<void *>(::GetProcAddress(hGL, name));
+#elif defined(__APPLE__)
+  return dlsym(RTLD_DEFAULT, name);
+#else
+  return reinterpret_cast<void *>(wxGLContext::GetProcAddress(name));
+#endif
+}
+} // namespace
+
+// ------------------------------------------------------------
 // Таблица событий wxWidgets
 // ------------------------------------------------------------
 wxBEGIN_EVENT_TABLE(MpvGLCanvas, wxGLCanvas) EVT_PAINT(MpvGLCanvas::OnPaint)
@@ -255,7 +283,7 @@ bool MpvGLCanvas::InitializeGL() {
 void MpvGLCanvas::LoadGLFunctions() {
   auto load = [&](auto &fn, const char *name) {
     fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(
-        wxGLContext::GetProcAddress(name));
+        GetGLProcAddress(name));
     if (!fn)
       LOG_ERROR("Failed to load GL function: %s", name);
   };
@@ -558,7 +586,7 @@ bool MpvGLCanvas::CreateRenderContext() {
 
   mpv_opengl_init_params gl_init_params{};
   gl_init_params.get_proc_address = [](void *, const char *name) -> void * {
-    return reinterpret_cast<void *>(wxGLContext::GetProcAddress(name));
+    return GetGLProcAddress(name);
   };
 
   const char *api = "opengl";

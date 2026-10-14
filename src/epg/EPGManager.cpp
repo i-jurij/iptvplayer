@@ -9,6 +9,7 @@
 #include "EventIDs.h"
 #include "FavoritesManager.h"
 #include "Utils.h"
+#include "Utils_FsPath.h"
 
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -394,15 +395,18 @@ EPGManager::MatchingSession::~MatchingSession() {
 }
 
 wxString EPGManager::GetConfigDirectory() const {
-  if (m_configManager)
-    return m_configManager->getConfigDirectory();
+  if (m_configManager) {
+    const std::string dir = m_configManager->getConfigDirectory();
+    return wxString::FromUTF8(dir.c_str());
+  }
   return wxString();
 }
 
 void EPGManager::EnsureConfigFile(const wxString &filename) {
   if (!m_configManager)
     return;
-  wxString configDir = m_configManager->getConfigDirectory();
+  wxString configDir =
+      wxString::FromUTF8(m_configManager->getConfigDirectory().c_str());
   if (configDir.IsEmpty())
     return;
   wxString configPath = configDir + wxFileName::GetPathSeparator() + filename;
@@ -672,7 +676,7 @@ bool EPGManager::OpenDatabase() {
   }
 
   m_db = std::make_unique<EPGDatabase>();
-  if (!m_db->Open(m_dbPath)) {
+  if (!m_db->Open(wxString::FromUTF8(m_dbPath.c_str()))) {
     setLastError("Failed to open EPG database");
     return false;
   }
@@ -810,7 +814,7 @@ bool EPGManager::LoadFromFile(const std::string &filePath) {
   UpdateProgress({EpgProgressStage::Extracting, -1,
                   _U("Extracting").ToStdString()});
 
-  std::ifstream file(filePath, std::ios::binary);
+  std::ifstream file(ToFsPath(filePath), std::ios::binary);
   if (!file.is_open()) {
     setLastError("Cannot open file: " + filePath);
     LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
@@ -2416,13 +2420,12 @@ bool EPGManager::DeleteCache() {
   }
 
   // Удаляем файл БД
-  if (std::remove(m_dbPath.c_str()) != 0) {
-    // Если файла нет — не страшно
-    if (errno != ENOENT) {
-      LOG_ERROR("EPGManager: Failed to remove database file: %s",
-                m_dbPath.c_str());
-      return false;
-    }
+  std::error_code rmEc;
+  std::filesystem::remove(ToFsPath(m_dbPath), rmEc);
+  if (rmEc && rmEc != std::errc::no_such_file_or_directory) {
+    LOG_ERROR("EPGManager: Failed to remove database file: %s (%s)",
+              m_dbPath.c_str(), rmEc.message().c_str());
+    return false;
   }
 
   // Создаём новую БД

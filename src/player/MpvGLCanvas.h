@@ -9,6 +9,24 @@
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 
+// Платформенные include'ы OpenGL. Нужны для типов PFNGL*PROC и констант
+// вроде GL_ARRAY_BUFFER/GL_FRAMEBUFFER: их нет в базовом <GL/gl.h>
+// (OpenGL 1.1), который на MSW подтягивается через <wx/glcanvas.h>.
+#if defined(_WIN32) || defined(_WIN64)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  include <GL/gl.h>
+#  include <GL/glext.h>
+#elif defined(__APPLE__)
+#  include <OpenGL/gl3.h>
+#  include <OpenGL/gl3ext.h>
+#else
+#  include <GL/gl.h>
+#  include <GL/glext.h>
+#endif
+
 // ------------------------------------------------------------
 // MpvGLCanvas — OpenGL рендерер mpv с FBO + VAO/VBO + шейдерами
 // ------------------------------------------------------------

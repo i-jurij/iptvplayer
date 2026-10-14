@@ -21,7 +21,7 @@ public:
     m_rowIndex = UINT_MAX;
 
     wxString s = value.GetString();
-    std::string str = s.ToStdString();
+    std::string str(s.ToUTF8().data());
     if (str.empty())
       return true;
 

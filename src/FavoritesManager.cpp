@@ -1,4 +1,5 @@
 #include "FavoritesManager.h"
+#include "Utils_FsPath.h"
 
 #include <wx/filefn.h>
 #include <wx/filename.h>
@@ -33,10 +34,10 @@ std::string FavoritesManager::MakeKey(const Channel &ch) {
 
 void FavoritesManager::loadFromFile() {
   namespace fs = std::filesystem;
-  if (!fs::exists(m_storagePath))
+  if (!fs::exists(ToFsPath(m_storagePath)))
     return;
 
-  std::ifstream file(m_storagePath);
+  std::ifstream file(ToFsPath(m_storagePath));
   if (!file.is_open())
     return;
 
@@ -87,7 +88,7 @@ void FavoritesManager::loadFromFile() {
 
 void FavoritesManager::saveToFile() {
   namespace fs = std::filesystem;
-  fs::path path = m_storagePath;
+  fs::path path = ToFsPath(m_storagePath);
   fs::create_directories(path.parent_path());
 
   Document doc;
@@ -119,7 +120,7 @@ void FavoritesManager::saveToFile() {
   Writer<StringBuffer> writer(buffer);
   doc.Accept(writer);
 
-  std::ofstream file(m_storagePath);
+  std::ofstream file(ToFsPath(m_storagePath));
   file << buffer.GetString();
 }
 
