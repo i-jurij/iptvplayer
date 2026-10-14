@@ -144,16 +144,14 @@ void IconManager::RenderSvgAsync(const std::string &svgText, IconCallback cb) {
     wxString wxSvg = wxString::FromUTF8(svgText);
     const wxSize baseSize(256, 256);
 
-    // wxBitmapBundle::FromSVG — GUI-функция (на GTK трогает GDK).
-    // Вызывать только в UI-потоке: на минималистичных системах
-    // вызов из worker-потока приводит к молчаливому падению.
     wxTheApp->CallAfter([cb, wxSvg, baseSize]() {
       if (shuttingDown.load()) {
         SafeCallReady(cb, wxNullBitmap);
         return;
       }
 
-      wxBitmapBundle bundle = wxBitmapBundle::FromSVG(wxSvg, baseSize);
+      std::string svgUtf8(wxSvg.ToUTF8().data());
+      wxBitmapBundle bundle = wxBitmapBundle::FromSVG(svgUtf8.c_str(), baseSize);
       if (!bundle.IsOk()) {
         SafeCallReady(cb, wxNullBitmap);
         return;
