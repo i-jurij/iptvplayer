@@ -412,15 +412,51 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE DATADIR=\"${DATADIR}\")
 
 
 # ------------------------
-# Локализация (gettext)
+# Локализация (gettext) / msgfmt обязателен. 
 # ------------------------
 include(GNUInstallDirs)
 
 find_program(GETTEXT_MSGFMT NAMES msgfmt)
 
-file(GLOB I18N_PO_FILES "${CMAKE_SOURCE_DIR}/po/*.po")
+# Список .po. Если есть po/LINGUAS — берём только перечисленные языки
+# (формат: коды через пробел; # — комментарий до конца строки).
+# Без LINGUAS — все *.po из po/.
+set(I18N_PO_FILES "")
+set(_i18n_linguas_file "${CMAKE_SOURCE_DIR}/po/LINGUAS")
 
-if(GETTEXT_MSGFMT AND I18N_PO_FILES)
+if(EXISTS "${_i18n_linguas_file}")
+    file(STRINGS "${_i18n_linguas_file}" _i18n_linguas_raw)
+    set(_i18n_langs "")
+    foreach(_line IN LISTS _i18n_linguas_raw)
+        string(REGEX REPLACE "#.*" "" _line "${_line}")
+        separate_arguments(_line_ws UNIX_COMMAND "${_line}")
+        list(APPEND _i18n_langs ${_line_ws})
+    endforeach()
+
+    foreach(_lang IN LISTS _i18n_langs)
+        if(_lang STREQUAL "")
+            continue()
+        endif()
+        set(_po "${CMAKE_SOURCE_DIR}/po/${_lang}.po")
+        if(EXISTS "${_po}")
+            list(APPEND I18N_PO_FILES "${_po}")
+        else()
+            message(WARNING
+                "i18n: LINGUAS указывает '${_lang}', но ${_po} отсутствует — пропущено")
+        endif()
+    endforeach()
+else()
+    file(GLOB I18N_PO_FILES "${CMAKE_SOURCE_DIR}/po/*.po")
+endif()
+
+list(SORT I18N_PO_FILES)
+
+if(I18N_PO_FILES AND NOT GETTEXT_MSGFMT)
+    message(FATAL_ERROR
+        "В po/ есть .po-файлы, но msgfmt (gettext) не найден в PATH. Установите gettext")
+endif()
+
+if(I18N_PO_FILES)
     set(I18N_BUILD_LOCALE_DIR "${CMAKE_BINARY_DIR}/locale")
     set(I18N_MO_FILES "")
 
@@ -463,13 +499,19 @@ if(GETTEXT_MSGFMT AND I18N_PO_FILES)
 
     add_custom_target(locales ALL DEPENDS ${I18N_MO_FILES})
     add_dependencies(${PROJECT_NAME} locales)
-    message(STATUS "i18n: ${I18N_MO_FILES}")
+
+    list(LENGTH I18N_PO_FILES _i18n_count)
+    message(STATUS "i18n: ${_i18n_count} языков → ${I18N_BUILD_LOCALE_DIR}")
+    message(STATUS "i18n: msgfmt: ${GETTEXT_MSGFMT}")
 else()
-    if(NOT GETTEXT_MSGFMT)
-        message(STATUS "i18n: msgfmt not found — .mo files will not be built")
-    endif()
-    if(NOT I18N_PO_FILES)
-        message(STATUS "i18n: no po/*.po found — nothing to compile")
+    if(EXISTS "${_i18n_linguas_file}")
+        message(WARNING
+            "i18n: po/LINGUAS не содержит языков с соответствующими .po — "
+            "приложение соберётся без переводов.")
+    else()
+        message(WARNING
+            "i18n: в po/ нет .po-файлов — приложение соберётся без переводов. "
+            "Запустите scripts/update-po.sh, если это не задумано.")
     endif()
 endif()
 

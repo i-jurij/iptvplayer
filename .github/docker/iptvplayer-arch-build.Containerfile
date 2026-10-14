@@ -21,7 +21,7 @@ ARG DEBLOATED_SCRIPT_SHA=unknown
 # ВСЕ в одном RUN: установка пакетов, генерация кэшей и debloated Mesa.
 RUN pacman -Syu --noconfirm --needed \
         base-devel \
-        cmake git wget curl file tar xz zstd bzip2 patchelf \
+        cmake git wget curl file tar xz zstd bzip2 patchelf gettext \
         gnupg python \
         mpv gtk3 gdk-pixbuf2 librsvg \
         libjpeg-turbo expat zlib libwebp freetype2 libpng rapidjson \

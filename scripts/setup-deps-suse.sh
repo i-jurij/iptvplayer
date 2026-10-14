@@ -29,6 +29,7 @@ webp-dev:libwebp-devel
 zlib-dev:zlib-devel
 expat-dev:libexpat-devel
 freetype-dev:freetype2-devel
+gettext-runtime:gettext-runtime
 EOF
 }
 

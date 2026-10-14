@@ -106,7 +106,7 @@ jobs:
             apt-get install -y --no-install-recommends \
               build-essential cmake git autoconf automake libtool pkg-config \
               wget curl ca-certificates file xz-utils dpkg-dev fakeroot \
-              gnupg debsigs
+              gnupg debsigs gettext
           elif [ "${{ matrix.pkgmgr }}" = "dnf" ]; then
             if grep -qiE '^(rhel|rocky|almalinux)' /etc/os-release; then
               dnf install -y dnf-plugins-core
@@ -115,7 +115,7 @@ jobs:
             fi
             dnf install -y gcc gcc-c++ make cmake git autoconf automake libtool \
               pkgconf-pkg-config wget curl ca-certificates file xz \
-              rpm-build rpm-sign gnupg2
+              rpm-build rpm-sign gnupg2 gettext
           fi
 
       - name: Install runtime + dev libs

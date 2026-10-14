@@ -242,6 +242,7 @@ prepare_staging() {
         mkdir -p "$STAGING_DIR/usr/share/doc/$PACKAGE_NAME"
         cp -r "$PROJECT_ROOT/install/share/doc/$PACKAGE_NAME/"* "$STAGING_DIR/usr/share/doc/$PACKAGE_NAME/" 2>/dev/null || true
     fi
+    
     if [ -d "$PROJECT_ROOT/install/share/licenses/$PACKAGE_NAME" ]; then
         mkdir -p "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME"
         cp -r "$PROJECT_ROOT/install/share/licenses/$PACKAGE_NAME/"* "$STAGING_DIR/usr/share/licenses/$PACKAGE_NAME/" 2>/dev/null || true
@@ -250,8 +251,19 @@ prepare_staging() {
     # Локали: share/locale/<lang>/LC_MESSAGES/<domain>.mo (GNU-стандарт).
     if [ -d "$PROJECT_ROOT/install/share/locale" ]; then
         mkdir -p "$STAGING_DIR/usr/share/locale"
-        cp -r "$PROJECT_ROOT/install/share/locale/"* "$STAGING_DIR/usr/share/locale/" 2>/dev/null || true
+        if ! cp -r "$PROJECT_ROOT/install/share/locale/." \
+                    "$STAGING_DIR/usr/share/locale/"; then
+            echo "[!] не удалось скопировать локали из install/" >&2
+            return 1
+        fi
+        if ! find "$STAGING_DIR/usr/share/locale" -name '*.mo' -print -quit \
+            | grep -q .; then
+            warn "install/share/locale есть, но .mo-файлов в нём нет — msgfmt не отработал?"
+        fi
+    elif [ -d "$PROJECT_ROOT/po" ] && ls "$PROJECT_ROOT"/po/*.po >/dev/null 2>&1; then
+        warn "В po/ есть .po, но install/share/locale отсутствует — локали не собраны"
     fi
+
     return 0
 }
 
@@ -321,6 +333,11 @@ check_deps() {
 
     if [ -n "${GPG_KEY_ID:-}" ]; then
         command -v gpg >/dev/null 2>&1 || required+=("gpg")
+    fi
+
+    if [ -d "$PROJECT_ROOT/po" ] && ls "$PROJECT_ROOT"/po/*.po >/dev/null 2>&1; then
+        command -v msgfmt  >/dev/null 2>&1 || required+=("msgfmt (gettext)")
+        command -v msgmerge >/dev/null 2>&1 || required+=("msgmerge (gettext)")
     fi
 
     # Все rpm-варианты требуют rpmbuild+rpm.
