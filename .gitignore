@@ -86,3 +86,7 @@ member
 *.a
 *.dylib
 *.pyc
+*.mo
+*.mo~
+*.po~
+po/*.pot~

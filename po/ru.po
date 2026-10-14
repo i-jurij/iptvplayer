@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: iptvplayer\n"
 "Report-Msgid-Bugs-To: https://github.com/i-jurij/iptvplayer/issues\n"
-"POT-Creation-Date: 2026-10-11 19:30+0300\n"
+"POT-Creation-Date: 2026-10-14 20:44+0300\n"
 "PO-Revision-Date: 2026-10-11 20:00+0300\n"
 "Last-Translator: ijurij <mnisjil@duck.com>\n"
 "Language-Team: Russian\n"
@@ -15,8 +15,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
-"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
 #: src/VP_events.cpp:310
 msgid "Open File…"
@@ -40,12 +39,10 @@ msgstr "Интерфейс — Логотипы"
 
 #: src/SettingsDialog.cpp:63
 msgid ""
-"Note: this feature is experimental and may use significant memory for very "
-"large playlists.\n"
+"Note: this feature is experimental and may use significant memory for very large playlists.\n"
 "Logo in list view will be shown after restart."
 msgstr ""
-"Примечание: функция экспериментальная и может потреблять много памяти на "
-"очень больших плейлистах.\n"
+"Примечание: функция экспериментальная и может потреблять много памяти на очень больших плейлистах.\n"
 "Логотипы в виде списка появятся после перезапуска."
 
 #: src/SettingsDialog.cpp:74
@@ -57,12 +54,8 @@ msgid "Delete logo cache (disk and memory)"
 msgstr "Удалять кэш логотипов (диск и память)"
 
 #: src/SettingsDialog.cpp:82
-msgid ""
-"If checked, when you disable channel logos the on-disk and in-memory logo "
-"cache will be deleted when you apply settings."
-msgstr ""
-"Если включено, при отключении логотипов каналов будут удалены дисковый и "
-"оперативный кэши логотипов при применении настроек."
+msgid "If checked, when you disable channel logos the on-disk and in-memory logo cache will be deleted when you apply settings."
+msgstr "Если включено, при отключении логотипов каналов будут удалены дисковый и оперативный кэши логотипов при применении настроек."
 
 #: src/SettingsDialog.cpp:95
 msgid "Logo maintenance"
@@ -105,7 +98,7 @@ msgstr "Включить автообновление плейлистов"
 msgid "Restore Defaults"
 msgstr "Сбросить настройки"
 
-#: src/SettingsDialog.cpp:165 src/epg/EpgSourceManagerPanel.cpp:180
+#: src/SettingsDialog.cpp:165 src/epg/EpgSourceManagerPanel.cpp:177
 msgid "Apply"
 msgstr "Применить"
 
@@ -189,9 +182,7 @@ msgstr "Удаление файлов .marker..."
 #: src/SettingsDialog.cpp:400
 #, c-format
 msgid "Found %zu marker(s). Removed %zu; skipped %zu unsafe; failed %zu."
-msgstr ""
-"Найдено маркеров: %zu. Удалено: %zu; пропущено небезопасных: %zu; "
-"ошибок: %zu."
+msgstr "Найдено маркеров: %zu. Удалено: %zu; пропущено небезопасных: %zu; ошибок: %zu."
 
 #: src/MainFrame.cpp:43
 msgid "Name ▲"
@@ -236,7 +227,7 @@ msgstr "№"
 
 #: src/VideoPanel.cpp:75 src/BaseChannelList.cpp:224
 #: src/epg/AddEpgSourceDialog.cpp:173 src/epg/ManualMappingDialog.cpp:44
-#: src/epg/EpgSourceManagerPanel.cpp:81 src/epg/EpgSourceManagerPanel.cpp:669
+#: src/epg/EpgSourceManagerPanel.cpp:81 src/epg/EpgSourceManagerPanel.cpp:658
 #: src/iptvorg/AddIPTVPlaylistDialog.cpp:58
 msgid "Name"
 msgstr "Имя"
@@ -261,7 +252,7 @@ msgstr "Удалить выбранное"
 msgid "Clear playlist"
 msgstr "Очистить плейлист"
 
-#: src/VideoPanel.cpp:252 src/MainFrame_PlaylistEvents.cpp:42
+#: src/VideoPanel.cpp:252 src/MainFrame_PlaylistEvents.cpp:41
 #: src/MainFrame_PlaylistUI.cpp:144
 msgid "Open"
 msgstr "Открыть"
@@ -293,16 +284,16 @@ msgstr "Полный"
 
 #: src/VideoPanel.cpp:691 src/VideoPanel.cpp:945 src/VideoPanel.cpp:1293
 #: src/VideoPanel.cpp:1299 src/VideoPanel.cpp:1305
-#: src/MainFrame_PlaylistEvents.cpp:54 src/MainFrame_PlaylistEvents.cpp:181
-#: src/MainFrame_Menu.cpp:595 src/Application.cpp:154
+#: src/MainFrame_PlaylistEvents.cpp:53 src/MainFrame_PlaylistEvents.cpp:180
+#: src/MainFrame_Menu.cpp:595 src/Application.cpp:163
 #: src/epg/AddEpgSourceDialog.cpp:267 src/epg/AddEpgSourceDialog.cpp:278
 #: src/epg/AddEpgSourceDialog.cpp:290 src/epg/ManualMappingDialog.cpp:707
 #: src/epg/ManualMappingDialog.cpp:731 src/epg/ManualMappingDialog.cpp:739
 #: src/epg/ManualMappingDialog.cpp:763 src/epg/ManualMappingDialog.cpp:771
 #: src/epg/EPGPanel.cpp:391 src/epg/EPGPanel.cpp:397
-#: src/epg/EpgSourceManagerPanel.cpp:306 src/epg/EpgSourceManagerPanel.cpp:467
-#: src/epg/EpgSourceManagerPanel.cpp:828 src/epg/EpgSourceManagerPanel.cpp:939
-#: src/epg/EpgSourceManagerPanel.cpp:946 src/DialogsPL.cpp:89
+#: src/epg/EpgSourceManagerPanel.cpp:297 src/epg/EpgSourceManagerPanel.cpp:458
+#: src/epg/EpgSourceManagerPanel.cpp:819 src/epg/EpgSourceManagerPanel.cpp:930
+#: src/epg/EpgSourceManagerPanel.cpp:937 src/DialogsPL.cpp:89
 #: src/DialogsPL.cpp:95 src/iptvorg/AddIPTVPlaylistDialog.cpp:327
 #: src/iptvorg/AddIPTVPlaylistDialog.cpp:334
 msgid "Error"
@@ -445,7 +436,7 @@ msgid "No"
 msgstr "Нет"
 
 #: src/MainFrame_PlaylistLogic.cpp:87 src/MainFrame_PlaylistLogic.cpp:300
-#: src/MainFrame_PlaylistLogic.cpp:316 src/MainFrame_PlaylistEvents.cpp:410
+#: src/MainFrame_PlaylistLogic.cpp:316 src/MainFrame_PlaylistEvents.cpp:409
 #: src/MainFrame_PlaylistUI.cpp:201
 msgid "No playlist selected"
 msgstr "Плейлист не выбран"
@@ -455,7 +446,7 @@ msgstr "Плейлист не выбран"
 msgid "Playlists: %zu"
 msgstr "Плейлистов: %zu"
 
-#: src/MainFrame_PlaylistLogic.cpp:140 src/MainFrame_PlaylistEvents.cpp:85
+#: src/MainFrame_PlaylistLogic.cpp:140 src/MainFrame_PlaylistEvents.cpp:84
 #: src/MainFrame_Filters.cpp:75
 #, c-format
 msgid "Playlist: %s / Channels: %zu"
@@ -470,17 +461,17 @@ msgstr "Избранное: %lu каналов"
 msgid "Playlist list is not available"
 msgstr "Список плейлистов недоступен"
 
-#: src/MainFrame_PlaylistLogic.cpp:295 src/MainFrame_PlaylistEvents.cpp:95
+#: src/MainFrame_PlaylistLogic.cpp:295 src/MainFrame_PlaylistEvents.cpp:94
 #: src/MainFrame_UI.cpp:282
 msgid "Please select a playlist first."
 msgstr "Сначала выберите плейлист."
 
 #: src/MainFrame_PlaylistLogic.cpp:295 src/epg/ManualMappingDialog.cpp:724
 #: src/epg/ManualMappingDialog.cpp:756 src/epg/EPGPanel.cpp:386
-#: src/epg/EpgSourceManagerPanel.cpp:59 src/epg/EpgSourceManagerPanel.cpp:323
-#: src/epg/EpgSourceManagerPanel.cpp:361 src/epg/EpgSourceManagerPanel.cpp:393
-#: src/epg/EpgSourceManagerPanel.cpp:416 src/epg/EpgSourceManagerPanel.cpp:483
-#: src/epg/EpgSourceManagerPanel.cpp:635 src/epg/EpgSourceManagerPanel.cpp:637
+#: src/epg/EpgSourceManagerPanel.cpp:59 src/epg/EpgSourceManagerPanel.cpp:314
+#: src/epg/EpgSourceManagerPanel.cpp:352 src/epg/EpgSourceManagerPanel.cpp:384
+#: src/epg/EpgSourceManagerPanel.cpp:407 src/epg/EpgSourceManagerPanel.cpp:473
+#: src/epg/EpgSourceManagerPanel.cpp:624 src/epg/EpgSourceManagerPanel.cpp:626
 #: src/MainFrame_UI.cpp:283 src/iptvorg/AddIPTVPlaylistDialog.cpp:321
 msgid "Info"
 msgstr "Сведения"
@@ -490,7 +481,7 @@ msgid "Selected playlist is not available"
 msgstr "Выбранный плейлист недоступен"
 
 #: src/MainFrame_PlaylistLogic.cpp:327 src/MainFrame_PlaylistLogic.cpp:533
-#: src/MainFrame_PlaylistEvents.cpp:307 src/MainFrame_PlaylistUI.cpp:191
+#: src/MainFrame_PlaylistEvents.cpp:306 src/MainFrame_PlaylistUI.cpp:191
 #, c-format
 msgid "Playlist selected: %s"
 msgstr "Выбран плейлист: %s"
@@ -520,8 +511,8 @@ msgstr ""
 msgid "Playlist exported successfully."
 msgstr "Плейлист успешно экспортирован."
 
-#: src/MainFrame_PlaylistLogic.cpp:404 src/MainFrame_PlaylistEvents.cpp:54
-#: src/MainFrame_PlaylistEvents.cpp:341 src/DialogsPL.cpp:312
+#: src/MainFrame_PlaylistLogic.cpp:404 src/MainFrame_PlaylistEvents.cpp:53
+#: src/MainFrame_PlaylistEvents.cpp:340 src/DialogsPL.cpp:312
 msgid "Playlist not found"
 msgstr "Плейлист не найден"
 
@@ -579,13 +570,13 @@ msgstr "Да, добавить плейлист"
 msgid "No, I'll add later"
 msgstr "Нет, добавлю позже"
 
-#: src/MainFrame_PlaylistLogic.cpp:602 src/MainFrame_PlaylistEvents.cpp:200
-#: src/MainFrame_PlaylistEvents.cpp:830
+#: src/MainFrame_PlaylistLogic.cpp:602 src/MainFrame_PlaylistEvents.cpp:199
+#: src/MainFrame_PlaylistEvents.cpp:829
 msgid "Failed to start playlist loading."
 msgstr "Не удалось начать загрузку плейлиста."
 
-#: src/MainFrame_PlaylistLogic.cpp:604 src/MainFrame_PlaylistEvents.cpp:202
-#: src/MainFrame_PlaylistEvents.cpp:832
+#: src/MainFrame_PlaylistLogic.cpp:604 src/MainFrame_PlaylistEvents.cpp:201
+#: src/MainFrame_PlaylistEvents.cpp:831
 #, c-format
 msgid ""
 "Failed to start playlist loading:\n"
@@ -610,39 +601,39 @@ msgstr "Удаление канала"
 msgid "Channel '%s' removed from playlist '%s'"
 msgstr "Канал «%s» удалён из плейлиста «%s»"
 
-#: src/MainFrame_PlaylistEvents.cpp:43 src/MainFrame_PlaylistUI.cpp:145
+#: src/MainFrame_PlaylistEvents.cpp:42 src/MainFrame_PlaylistUI.cpp:145
 msgid "Update"
 msgstr "Обновить"
 
-#: src/MainFrame_PlaylistEvents.cpp:44 src/MainFrame_PlaylistUI.cpp:146
+#: src/MainFrame_PlaylistEvents.cpp:43 src/MainFrame_PlaylistUI.cpp:146
 #: src/epg/EpgSourceManagerPanel.cpp:97
 msgid "Edit"
 msgstr "Изменить"
 
-#: src/MainFrame_PlaylistEvents.cpp:45 src/MainFrame_PlaylistUI.cpp:148
+#: src/MainFrame_PlaylistEvents.cpp:44 src/MainFrame_PlaylistUI.cpp:148
 #: src/epg/EpgSourceManagerPanel.cpp:98
 msgid "Remove"
 msgstr "Удалить"
 
-#: src/MainFrame_PlaylistEvents.cpp:70
+#: src/MainFrame_PlaylistEvents.cpp:69
 msgid "Loading channels..."
 msgstr "Загрузка каналов..."
 
-#: src/MainFrame_PlaylistEvents.cpp:101
+#: src/MainFrame_PlaylistEvents.cpp:100
 msgid "Selected playlist is not available."
 msgstr "Выбранный плейлист недоступен."
 
-#: src/MainFrame_PlaylistEvents.cpp:149
+#: src/MainFrame_PlaylistEvents.cpp:148
 #, c-format
 msgid "Playlist added: %s"
 msgstr "Плейлист добавлен: %s"
 
-#: src/MainFrame_PlaylistEvents.cpp:152 src/MainFrame_PlaylistEvents.cpp:230
-#: src/MainFrame_PlaylistEvents.cpp:260
+#: src/MainFrame_PlaylistEvents.cpp:151 src/MainFrame_PlaylistEvents.cpp:229
+#: src/MainFrame_PlaylistEvents.cpp:259
 msgid "Duplicate playlist not added."
 msgstr "Дубликат плейлиста не добавлен."
 
-#: src/MainFrame_PlaylistEvents.cpp:155
+#: src/MainFrame_PlaylistEvents.cpp:154
 #, c-format
 msgid ""
 "Failed to add playlist:\n"
@@ -651,28 +642,28 @@ msgstr ""
 "Не удалось добавить плейлист:\n"
 "%s"
 
-#: src/MainFrame_PlaylistEvents.cpp:157
+#: src/MainFrame_PlaylistEvents.cpp:156
 msgid "Failed to add playlist from file."
 msgstr "Не удалось добавить плейлист из файла."
 
-#: src/MainFrame_PlaylistEvents.cpp:180
+#: src/MainFrame_PlaylistEvents.cpp:179
 msgid "Invalid URL. Please enter a valid address."
 msgstr "Неверный URL. Введите корректный адрес."
 
-#: src/MainFrame_PlaylistEvents.cpp:209
+#: src/MainFrame_PlaylistEvents.cpp:208
 #, c-format
 msgid "Loading playlist from %s..."
 msgstr "Загрузка плейлиста из %s..."
 
-#: src/MainFrame_PlaylistEvents.cpp:221
+#: src/MainFrame_PlaylistEvents.cpp:220
 msgid "Playlist added from URL."
 msgstr "Плейлист добавлен по URL."
 
-#: src/MainFrame_PlaylistEvents.cpp:233
+#: src/MainFrame_PlaylistEvents.cpp:232
 msgid "Failed to add playlist."
 msgstr "Не удалось добавить плейлист."
 
-#: src/MainFrame_PlaylistEvents.cpp:234
+#: src/MainFrame_PlaylistEvents.cpp:233
 #, c-format
 msgid ""
 "Failed to add playlist:\n"
@@ -683,11 +674,11 @@ msgstr ""
 "\n"
 "%s"
 
-#: src/MainFrame_PlaylistEvents.cpp:240
+#: src/MainFrame_PlaylistEvents.cpp:239
 msgid "Playlist loading timed out."
 msgstr "Превышено время загрузки плейлиста."
 
-#: src/MainFrame_PlaylistEvents.cpp:243
+#: src/MainFrame_PlaylistEvents.cpp:242
 msgid ""
 "Playlist loading timed out.\n"
 "Do you want to retry?"
@@ -695,24 +686,24 @@ msgstr ""
 "Превышено время загрузки плейлиста.\n"
 "Повторить?"
 
-#: src/MainFrame_PlaylistEvents.cpp:244
+#: src/MainFrame_PlaylistEvents.cpp:243
 msgid "Timeout"
 msgstr "Тайм-аут"
 
-#: src/MainFrame_PlaylistEvents.cpp:258
+#: src/MainFrame_PlaylistEvents.cpp:257
 #, c-format
 msgid "Duplicate playlist: %s"
 msgstr "Дубликат плейлиста: %s"
 
-#: src/MainFrame_PlaylistEvents.cpp:264
+#: src/MainFrame_PlaylistEvents.cpp:263
 msgid "Retrying playlist load..."
 msgstr "Повторная загрузка плейлиста..."
 
-#: src/MainFrame_PlaylistEvents.cpp:273
+#: src/MainFrame_PlaylistEvents.cpp:272
 msgid "Playlist loading canceled."
 msgstr "Загрузка плейлиста отменена."
 
-#: src/MainFrame_PlaylistEvents.cpp:362
+#: src/MainFrame_PlaylistEvents.cpp:361
 #, c-format
 msgid ""
 "Failed to remove playlist:\n"
@@ -721,85 +712,82 @@ msgstr ""
 "Не удалось удалить плейлист:\n"
 "%s"
 
-#: src/MainFrame_PlaylistEvents.cpp:388
+#: src/MainFrame_PlaylistEvents.cpp:387
 #, c-format
 msgid "Playlist '%s' removed"
 msgstr "Плейлист «%s» удалён"
 
-#: src/MainFrame_PlaylistEvents.cpp:399 src/MainFrame_ChannelsViewUI.cpp:29
+#: src/MainFrame_PlaylistEvents.cpp:398 src/MainFrame_ChannelsViewUI.cpp:29
 msgid "Playlist: - / Channels: 0"
 msgstr "Плейлист: - / Каналов: 0"
 
-#: src/MainFrame_PlaylistEvents.cpp:440
+#: src/MainFrame_PlaylistEvents.cpp:439
 #, c-format
 msgid "Updating playlist: %s"
 msgstr "Обновление плейлиста: %s"
 
-#: src/MainFrame_PlaylistEvents.cpp:464 src/MainFrame_PlaylistEvents.cpp:521
+#: src/MainFrame_PlaylistEvents.cpp:463 src/MainFrame_PlaylistEvents.cpp:520
 msgid "Unable to start update thread."
 msgstr "Не удалось запустить поток обновления."
 
-#: src/MainFrame_PlaylistEvents.cpp:474
+#: src/MainFrame_PlaylistEvents.cpp:473
 msgid "Playlist manager is not available."
 msgstr "Менеджер плейлистов недоступен."
 
-#: src/MainFrame_PlaylistEvents.cpp:478
-msgid ""
-"Playlist panel is open but list is empty. Add a playlist before updating all."
-msgstr ""
-"Панель плейлистов открыта, но список пуст. Добавьте плейлист перед "
-"обновлением всех."
+#: src/MainFrame_PlaylistEvents.cpp:477
+msgid "Playlist panel is open but list is empty. Add a playlist before updating all."
+msgstr "Панель плейлистов открыта, но список пуст. Добавьте плейлист перед обновлением всех."
 
-#: src/MainFrame_PlaylistEvents.cpp:504
+#: src/MainFrame_PlaylistEvents.cpp:503
 msgid "Updating playlists..."
 msgstr "Обновление плейлистов..."
 
-#: src/MainFrame_PlaylistEvents.cpp:585
+#: src/MainFrame_PlaylistEvents.cpp:584
 #, c-format
 msgid "Updated %d playlists and reloaded current."
 msgstr "Обновлено плейлистов: %d, текущий перезагружен."
 
-#: src/MainFrame_PlaylistEvents.cpp:589
+#: src/MainFrame_PlaylistEvents.cpp:588
 #, c-format
 msgid "Updated %d playlists."
 msgstr "Обновлено плейлистов: %d."
 
-#: src/MainFrame_PlaylistEvents.cpp:592 src/MainFrame_PlaylistEvents.cpp:663
+#: src/MainFrame_PlaylistEvents.cpp:591 src/MainFrame_PlaylistEvents.cpp:662
 msgid "Update finished."
 msgstr "Обновление завершено."
 
-#: src/MainFrame_PlaylistEvents.cpp:595
+#: src/MainFrame_PlaylistEvents.cpp:594
 msgid "No playlists updated."
 msgstr "Ни один плейлист не обновлён."
 
-#: src/MainFrame_PlaylistEvents.cpp:596
+#: src/MainFrame_PlaylistEvents.cpp:595
 msgid "Update failed or no changes."
 msgstr "Обновление не удалось или изменений нет."
 
-#: src/MainFrame_PlaylistEvents.cpp:662
+#: src/MainFrame_PlaylistEvents.cpp:661
 msgid "Update finished and reloaded."
 msgstr "Обновление завершено, плейлист перезагружен."
 
-#: src/MainFrame_PlaylistEvents.cpp:666
+#: src/MainFrame_PlaylistEvents.cpp:665
 #, c-format
 msgid "Playlist '%s' updated successfully."
 msgstr "Плейлист «%s» успешно обновлён."
 
-#: src/MainFrame_PlaylistEvents.cpp:670
+#: src/MainFrame_PlaylistEvents.cpp:669
 msgid "Update failed."
 msgstr "Обновление не удалось."
 
-#: src/MainFrame_PlaylistEvents.cpp:672
+#: src/MainFrame_PlaylistEvents.cpp:671
 #, c-format
 msgid "Playlist '%s' update failed."
 msgstr "Не удалось обновить плейлист «%s»."
 
-#: src/MainFrame_PlaylistEvents.cpp:727
+#: src/MainFrame_PlaylistEvents.cpp:726
 #, c-format
 msgid "Updating playlist: %s — %d%% (%d/%d)"
 msgstr "Обновление плейлиста: %s — %d%% (%d/%d)"
 
-#: src/MainFrame_PlaylistEvents.cpp:730
+#: src/MainFrame_PlaylistEvents.cpp:729
 #, c-format
 msgid "Updating: %d%% (%d/%d)"
 msgstr "Обновление: %d%% (%d/%d)"
@@ -1539,7 +1527,7 @@ msgstr "Язык"
 msgid "Country"
 msgstr "Страна"
 
-#: src/Application.cpp:41
+#: src/Application.cpp:45
 msgid ""
 "No sound devices found.\n"
 "\n"
@@ -1553,11 +1541,11 @@ msgstr ""
 "\n"
 "  sudo alsactl init"
 
-#: src/Application.cpp:44
+#: src/Application.cpp:48
 msgid "Audio not available"
 msgstr "Звук недоступен"
 
-#: src/Application.cpp:153
+#: src/Application.cpp:162
 msgid ""
 "Failed to load settings.\n"
 "See log for details."
@@ -1620,12 +1608,10 @@ msgstr "Популярные источники EPG"
 #: src/epg/AddEpgSourceDialog.cpp:129 src/epg/AddEpgSourceDialog.cpp:238
 msgid ""
 "Double‑click on any row to copy the URL to clipboard.\n"
-"Note: URLs may become outdated; you can search for current XMLTV sources "
-"online."
+"Note: URLs may become outdated; you can search for current XMLTV sources online."
 msgstr ""
 "Двойной клик по строке — копирование URL в буфер обмена.\n"
-"Примечание: URL могут устаревать; актуальные источники XMLTV можно найти "
-"в интернете."
+"Примечание: URL могут устаревать; актуальные источники XMLTV можно найти в интернете."
 
 #: src/epg/AddEpgSourceDialog.cpp:152
 msgid ""
@@ -1652,7 +1638,7 @@ msgid "Region"
 msgstr "Регион"
 
 #: src/epg/AddEpgSourceDialog.cpp:175 src/epg/EpgSourceManagerPanel.cpp:80
-#: src/epg/EpgSourceManagerPanel.cpp:669
+#: src/epg/EpgSourceManagerPanel.cpp:658
 msgid "URL"
 msgstr "URL"
 
@@ -1663,12 +1649,10 @@ msgstr "Примечания"
 #: src/epg/AddEpgSourceDialog.cpp:225
 msgid ""
 "URL copied to clipboard!\n"
-"Note: URLs may become outdated; you can search for current XMLTV sources "
-"online."
+"Note: URLs may become outdated; you can search for current XMLTV sources online."
 msgstr ""
 "URL скопирован в буфер обмена!\n"
-"Примечание: URL могут устаревать; актуальные источники XMLTV можно найти "
-"в интернете."
+"Примечание: URL могут устаревать; актуальные источники XMLTV можно найти в интернете."
 
 #: src/epg/AddEpgSourceDialog.cpp:248
 msgid "epg_sources.json must contain a JSON array of objects."
@@ -1686,49 +1670,45 @@ msgstr "Неверный URL: отсутствует хост (например,
 msgid "File does not exist."
 msgstr "Файл не существует."
 
-#: src/epg/EPGManager.cpp:391 src/epg/EPGManager.cpp:626
-#: src/epg/EpgSourceManagerPanel.cpp:819 src/epg/EpgSourceManagerPanel.cpp:823
+#: src/epg/EPGManager.cpp:392 src/epg/EPGManager.cpp:625
+#: src/epg/EpgSourceManagerPanel.cpp:808 src/epg/EpgSourceManagerPanel.cpp:812
 msgid "Done"
 msgstr "Готово"
 
-#: src/epg/EPGManager.cpp:507 src/epg/EPGManager.cpp:747
+#: src/epg/EPGManager.cpp:511 src/epg/EPGManager.cpp:761
 msgid "Downloading"
 msgstr "Загрузка"
 
-#: src/epg/EPGManager.cpp:509 src/epg/EPGManager.cpp:777
-#: src/epg/EPGManager.cpp:1653
+#: src/epg/EPGManager.cpp:513 src/epg/EPGManager.cpp:882
+#: src/epg/EPGManager.cpp:1681
 msgid "Cancelled"
 msgstr "Отменено"
 
-#: src/epg/EPGManager.cpp:586
+#: src/epg/EPGManager.cpp:588
 msgid "No EPG sources to update"
 msgstr "Нет источников EPG для обновления"
 
-#: src/epg/EPGManager.cpp:783 src/epg/EPGManager.cpp:811
+#: src/epg/EPGManager.cpp:798 src/epg/EPGManager.cpp:826
 msgid "Extracting"
 msgstr "Распаковка"
 
-#: src/epg/EPGManager.cpp:818
-msgid "Error: Cannot open file"
-msgstr "Ошибка: не удалось открыть файл"
-
-#: src/epg/EPGManager.cpp:830
-msgid "Error: Decompression failed"
-msgstr "Ошибка: не удалось распаковать данные"
-
-#: src/epg/EPGManager.cpp:846
+#: src/epg/EPGManager.cpp:858
 msgid "Previous refresh still in progress"
 msgstr "Предыдущее обновление ещё выполняется"
 
-#: src/epg/EPGManager.cpp:885 src/epg/EPGManager.cpp:924
+#: src/epg/EPGManager.cpp:885
+msgid "Update failed"
+msgstr "Обновление не удалось."
+
+#: src/epg/EPGManager.cpp:913 src/epg/EPGManager.cpp:952
 msgid "Parsing"
 msgstr "Разбор"
 
-#: src/epg/EPGManager.cpp:958
+#: src/epg/EPGManager.cpp:986
 msgid "Parsing complete, waiting for matching..."
 msgstr "Разбор завершён, ожидание сопоставления..."
 
-#: src/epg/EPGManager.cpp:1166 src/epg/EPGManager.cpp:1552
+#: src/epg/EPGManager.cpp:1194 src/epg/EPGManager.cpp:1580
 msgid "Preparing EPG index"
 msgstr "Подготовка индекса EPG"
 
@@ -1804,8 +1784,8 @@ msgstr "Игнорировать"
 msgid "Unignore"
 msgstr "Восстановить"
 
-#: src/epg/ManualMappingDialog.cpp:124 src/epg/EpgSourceManagerPanel.cpp:906
-#: src/epg/EpgSourceManagerPanel.cpp:987
+#: src/epg/ManualMappingDialog.cpp:124 src/epg/EpgSourceManagerPanel.cpp:897
+#: src/epg/EpgSourceManagerPanel.cpp:981
 msgid "Close"
 msgstr "Закрыть"
 
@@ -1882,11 +1862,11 @@ msgstr "Настройки автообновления применены."
 msgid "EPG Sources"
 msgstr "Источники EPG"
 
-#: src/epg/EpgSourceManagerPanel.cpp:82 src/epg/EpgSourceManagerPanel.cpp:669
+#: src/epg/EpgSourceManagerPanel.cpp:82 src/epg/EpgSourceManagerPanel.cpp:658
 msgid "Imported"
 msgstr "Импортировано"
 
-#: src/epg/EpgSourceManagerPanel.cpp:84 src/epg/EpgSourceManagerPanel.cpp:670
+#: src/epg/EpgSourceManagerPanel.cpp:84 src/epg/EpgSourceManagerPanel.cpp:659
 msgid "Availability"
 msgstr "Доступность"
 
@@ -1910,163 +1890,164 @@ msgstr "Удаляет весь локальный кэш EPG. Следующе�
 msgid "Delete cache / Update all"
 msgstr "Удалить кэш / Обновить все"
 
-#: src/epg/EpgSourceManagerPanel.cpp:144
+#: src/epg/EpgSourceManagerPanel.cpp:143
 msgid "Auto-update settings"
 msgstr "Настройки автообновления"
 
-#: src/epg/EpgSourceManagerPanel.cpp:150
+#: src/epg/EpgSourceManagerPanel.cpp:149
 msgid "Auto-update:"
 msgstr "Автообновление:"
 
-#: src/epg/EpgSourceManagerPanel.cpp:157
+#: src/epg/EpgSourceManagerPanel.cpp:155
 msgid "Update interval (hours):"
 msgstr "Интервал обновления (часы):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:168
+#: src/epg/EpgSourceManagerPanel.cpp:165
 msgid "Days to keep in cache:"
 msgstr "Хранить в кэше (дней):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:194
+#: src/epg/EpgSourceManagerPanel.cpp:191
 msgid "Match settings"
 msgstr "Настройки сопоставления"
 
-#: src/epg/EpgSourceManagerPanel.cpp:199
+#: src/epg/EpgSourceManagerPanel.cpp:196
 msgid "About matching"
 msgstr "О сопоставлении"
 
-#: src/epg/EpgSourceManagerPanel.cpp:201
+#: src/epg/EpgSourceManagerPanel.cpp:197
 msgid "Edit matching rules"
 msgstr "Правила сопоставления"
 
-#: src/epg/EpgSourceManagerPanel.cpp:215
+#: src/epg/EpgSourceManagerPanel.cpp:210
 msgid "Fuzzy threshold (50-100):"
 msgstr "Порог нечёткости (50–100):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:226
+#: src/epg/EpgSourceManagerPanel.cpp:220
 msgid "Substring min length (1-20):"
 msgstr "Мин. длина подстроки (1–20):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:237
+#: src/epg/EpgSourceManagerPanel.cpp:230
 msgid "Substring ratio (1-100%):"
 msgstr "Доля подстроки (1–100%):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:248
+#: src/epg/EpgSourceManagerPanel.cpp:240
 msgid "Min match score (1-100):"
 msgstr "Мин. оценка совпадения (1–100):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:259
+#: src/epg/EpgSourceManagerPanel.cpp:250
 msgid "Apply (Match Now)"
 msgstr "Применить (сопоставить)"
 
-#: src/epg/EpgSourceManagerPanel.cpp:306 src/epg/EpgSourceManagerPanel.cpp:939
+#: src/epg/EpgSourceManagerPanel.cpp:297 src/epg/EpgSourceManagerPanel.cpp:930
 msgid "EPG Manager not available."
 msgstr "Менеджер EPG недоступен."
 
-#: src/epg/EpgSourceManagerPanel.cpp:323
+#: src/epg/EpgSourceManagerPanel.cpp:314
 msgid "This EPG source already exists."
 msgstr "Этот источник EPG уже добавлен."
 
-#: src/epg/EpgSourceManagerPanel.cpp:361
+#: src/epg/EpgSourceManagerPanel.cpp:352
 msgid "Please select a source to edit."
 msgstr "Выберите источник для редактирования."
 
-#: src/epg/EpgSourceManagerPanel.cpp:371
+#: src/epg/EpgSourceManagerPanel.cpp:362
 msgid "Edit EPG Source"
 msgstr "Редактирование источника EPG"
 
-#: src/epg/EpgSourceManagerPanel.cpp:393
+#: src/epg/EpgSourceManagerPanel.cpp:384
 msgid "Please select a source to remove."
 msgstr "Выберите источник для удаления."
 
-#: src/epg/EpgSourceManagerPanel.cpp:398
+#: src/epg/EpgSourceManagerPanel.cpp:389
 msgid "Remove selected EPG source?"
 msgstr "Удалить выбранный источник EPG?"
 
-#: src/epg/EpgSourceManagerPanel.cpp:398
+#: src/epg/EpgSourceManagerPanel.cpp:389
 msgid "Confirm"
 msgstr "Подтверждение"
 
-#: src/epg/EpgSourceManagerPanel.cpp:416
+#: src/epg/EpgSourceManagerPanel.cpp:407
 msgid "Please select a source to refresh."
 msgstr "Выберите источник для обновления."
 
-#: src/epg/EpgSourceManagerPanel.cpp:429
+#: src/epg/EpgSourceManagerPanel.cpp:420
 msgid "Delete EPG Cache"
 msgstr "Удаление кэша EPG"
 
-#: src/epg/EpgSourceManagerPanel.cpp:435
+#: src/epg/EpgSourceManagerPanel.cpp:426
 msgid ""
 "EPG cache contains all downloaded programmes and channel mappings.\n"
-"Deleting will completely clear this data. You will need to reload EPG from "
-"sources.\n"
+"Deleting will completely clear this data. You will need to reload EPG from sources.\n"
 "\n"
-"Updating all sources may take several minutes (depending on number of "
-"sources).\n"
-"You can also update individual sources later using the \"Refresh Now\" "
-"button."
+"Updating all sources may take several minutes (depending on number of sources).\n"
+"You can also update individual sources later using the \"Refresh Now\" button."
 msgstr ""
 "Кэш EPG содержит все загруженные программы и сопоставления каналов.\n"
-"Удаление полностью очистит эти данные. Потребуется заново загрузить EPG "
-"из источников.\n"
+"Удаление полностью очистит эти данные. Потребуется заново загрузить EPG из источников.\n"
 "\n"
-"Обновление всех источников может занять несколько минут (зависит от их "
-"количества).\n"
+"Обновление всех источников может занять несколько минут (зависит от их количества).\n"
 "Отдельные источники можно обновить позже кнопкой «Обновить»."
 
-#: src/epg/EpgSourceManagerPanel.cpp:447
+#: src/epg/EpgSourceManagerPanel.cpp:438
 msgid "Update all sources now"
 msgstr "Обновить все источники сейчас"
 
-#: src/epg/EpgSourceManagerPanel.cpp:456
+#: src/epg/EpgSourceManagerPanel.cpp:447
 msgid "Delete"
 msgstr "Удалить"
 
-#: src/epg/EpgSourceManagerPanel.cpp:467
+#: src/epg/EpgSourceManagerPanel.cpp:458
 msgid "Failed to delete EPG cache."
 msgstr "Не удалось удалить кэш EPG."
 
-#: src/epg/EpgSourceManagerPanel.cpp:482
+#: src/epg/EpgSourceManagerPanel.cpp:472
 msgid "EPG cache cleared. You can now refresh sources manually."
 msgstr "Кэш EPG очищен. Можно обновить источники вручную."
 
-#: src/epg/EpgSourceManagerPanel.cpp:526 src/epg/EpgSourceManagerPanel.cpp:587
+#: src/epg/EpgSourceManagerPanel.cpp:516 src/epg/EpgSourceManagerPanel.cpp:576
 msgid "online"
 msgstr "доступен"
 
-#: src/epg/EpgSourceManagerPanel.cpp:529 src/epg/EpgSourceManagerPanel.cpp:590
+#: src/epg/EpgSourceManagerPanel.cpp:519 src/epg/EpgSourceManagerPanel.cpp:579
 msgid "offline (permanent)"
 msgstr "недоступен (постоянно)"
 
-#: src/epg/EpgSourceManagerPanel.cpp:535 src/epg/EpgSourceManagerPanel.cpp:543
+#: src/epg/EpgSourceManagerPanel.cpp:525 src/epg/EpgSourceManagerPanel.cpp:533
 msgid "checking..."
 msgstr "проверка..."
 
-#: src/epg/EpgSourceManagerPanel.cpp:538 src/epg/EpgSourceManagerPanel.cpp:592
+#: src/epg/EpgSourceManagerPanel.cpp:528 src/epg/EpgSourceManagerPanel.cpp:581
 msgid "offline"
 msgstr "недоступен"
 
-#: src/epg/EpgSourceManagerPanel.cpp:550
+#: src/epg/EpgSourceManagerPanel.cpp:539
 msgid "(missing)"
 msgstr "(отсутствует)"
 
-#: src/epg/EpgSourceManagerPanel.cpp:634
+#: src/epg/EpgSourceManagerPanel.cpp:623
 msgid "Match settings applied. Re-matching channels in background."
 msgstr "Настройки сопоставления применены. Повторное сопоставление в фоне."
 
-#: src/epg/EpgSourceManagerPanel.cpp:637
+#: src/epg/EpgSourceManagerPanel.cpp:626
 msgid "Match settings saved."
 msgstr "Настройки сопоставления сохранены."
 
-#: src/epg/EpgSourceManagerPanel.cpp:826
+#: src/epg/EpgSourceManagerPanel.cpp:815
 #, c-format
-msgid "Failed to update source: %s"
-msgstr "Не удалось обновить источник: %s"
+msgid ""
+"Failed to update source: %s\n"
+"\n"
+"The source is kept in the list. Use \"Refresh Now\" to retry."
+msgstr ""
+"Ошибка обновления источника: %s\n"
+"\n"
+"Источник добавлен в список. Нажмите \"Обновить сейчас\" для завершения."
 
-#: src/epg/EpgSourceManagerPanel.cpp:841
+#: src/epg/EpgSourceManagerPanel.cpp:832
 msgid "About EPG Matching"
 msgstr "О сопоставлении EPG"
 
-#: src/epg/EpgSourceManagerPanel.cpp:847
+#: src/epg/EpgSourceManagerPanel.cpp:838
 msgid ""
 "EPG Matching Algorithm\n"
 "\n"
@@ -2080,8 +2061,7 @@ msgid ""
 "Adjustable parameters (visible below):\n"
 "  • Fuzzy threshold (50–100) – influences Jaro-Winkler bonus\n"
 "  • Substring min length – minimum length for substring match\n"
-"  • Substring ratio – percentage threshold (not used directly, kept for "
-"compatibility)\n"
+"  • Substring ratio – percentage threshold (not used directly, kept for compatibility)\n"
 "  • Min match score – required score (0–100) to accept a match\n"
 "\n"
 "Score thresholds:\n"
@@ -2090,20 +2070,14 @@ msgid ""
 "  • 60+ : Low confidence\n"
 "\n"
 "Rematching behavior:\n"
-"  • Apply (Match Now) always triggers a full rematch for both the current "
-"playlist (if loaded) and favorites.\n"
-"  • Automatic rematch after EPG source updates: current playlist is always "
-"rematched; favorites are rematched only if the EPG channel list has changed "
-"(hash check).\n"
-"  • Manual mappings and ignored entries are preserved during automatic "
-"rematch.\n"
+"  • Apply (Match Now) always triggers a full rematch for both the current playlist (if loaded) and favorites.\n"
+"  • Automatic rematch after EPG source updates: current playlist is always rematched; favorites are rematched only if the EPG channel list has changed (hash check).\n"
+"  • Manual mappings and ignored entries are preserved during automatic rematch.\n"
 "\n"
 "For advanced tuning, you can manually edit the configuration files\n"
 "‘matching_rules.json’ located in the config directory.\n"
-"The default settings are already optimised – it is strongly recommended to "
-"use\n"
-"manual mappings or aliases (in ‘channel_aliases.json’) for specific "
-"corrections instead of modifying these files."
+"The default settings are already optimised – it is strongly recommended to use\n"
+"manual mappings or aliases (in ‘channel_aliases.json’) for specific corrections instead of modifying these files."
 msgstr ""
 "Алгоритм сопоставления EPG\n"
 "\n"
@@ -2117,10 +2091,8 @@ msgstr ""
 "Настраиваемые параметры (см. ниже):\n"
 "  • Порог нечёткости (50–100) — влияет на бонус Jaro-Winkler\n"
 "  • Мин. длина подстроки — минимальная длина для совпадения по подстроке\n"
-"  • Доля подстроки — процентный порог (не используется напрямую, "
-"оставлен для совместимости)\n"
-"  • Мин. оценка совпадения — требуемая оценка (0–100) для принятия "
-"совпадения\n"
+"  • Доля подстроки — процентный порог (не используется напрямую, оставлен для совместимости)\n"
+"  • Мин. оценка совпадения — требуемая оценка (0–100) для принятия совпадения\n"
 "\n"
 "Пороги оценки:\n"
 "  • 85+ : высокая уверенность\n"
@@ -2128,73 +2100,61 @@ msgstr ""
 "  • 60+ : низкая уверенность\n"
 "\n"
 "Поведение повторного сопоставления:\n"
-"  • «Применить (сопоставить)» всегда запускает полное сопоставление для "
-"текущего плейлиста (если загружен) и избранного.\n"
-"  • Автоматическое повторное сопоставление после обновления источников "
-"EPG: текущий плейлист — всегда; избранное — только если список каналов "
-"EPG изменился (проверка хэша).\n"
-"  • Ручные сопоставления и проигнорированные записи сохраняются при "
-"автоматическом повторном сопоставлении.\n"
+"  • «Применить (сопоставить)» всегда запускает полное сопоставление для текущего плейлиста (если загружен) и избранного.\n"
+"  • Автоматическое повторное сопоставление после обновления источников EPG: текущий плейлист — всегда; избранное — только если список каналов EPG изменился (проверка хэша).\n"
+"  • Ручные сопоставления и проигнорированные записи сохраняются при автоматическом повторном сопоставлении.\n"
 "\n"
 "Для тонкой настройки можно отредактировать файлы конфигурации\n"
 "«matching_rules.json» в каталоге конфигурации.\n"
 "Значения по умолчанию уже оптимизированы — настоятельно рекомендуется\n"
-"использовать ручные сопоставления или псевдонимы (в «channel_aliases.json») "
-"для конкретных правок вместо изменения этих файлов."
+"использовать ручные сопоставления или псевдонимы (в «channel_aliases.json») для конкретных правок вместо изменения этих файлов."
 
-#: src/epg/EpgSourceManagerPanel.cpp:946
+#: src/epg/EpgSourceManagerPanel.cpp:937
 msgid "Could not determine config directory."
 msgstr "Не удалось определить каталог конфигурации."
 
-#: src/epg/EpgSourceManagerPanel.cpp:961
+#: src/epg/EpgSourceManagerPanel.cpp:952
 msgid "Edit Matching Rules"
 msgstr "Редактирование правил сопоставления"
 
-#: src/epg/EpgSourceManagerPanel.cpp:967
+#: src/epg/EpgSourceManagerPanel.cpp:958
 #, c-format
 msgid ""
 "After editing, restart the application for changes to take effect.\n"
 "\n"
-"You can fine-tune matching by editing the following JSON files in the config "
-"directory:\n"
+"You can fine-tune matching by editing the following JSON files in the config directory:\n"
 "\n"
 "  • %s\n"
 "  • %s\n"
 "\n"
-"These files contain advanced parameters (token_high, jaro_high, stopwords, "
-"etc.).\n"
-"The default values are already well-tuned. It is recommended to use manual "
-"mappings or aliases\n"
+"These files contain advanced parameters (token_high, jaro_high, stopwords, etc.).\n"
+"The default values are already well-tuned. It is recommended to use manual mappings or aliases\n"
 "for specific channel corrections instead of modifying these files.\n"
 "\n"
 "If the files are missing, built‑in defaults are used."
 msgstr ""
-"После редактирования перезапустите приложение, чтобы изменения вступили "
-"в силу.\n"
+"После редактирования перезапустите приложение, чтобы изменения вступили в силу.\n"
 "\n"
-"Тонкая настройка сопоставления — через JSON-файлы в каталоге "
-"конфигурации:\n"
+"Тонкая настройка сопоставления — через JSON-файлы в каталоге конфигурации:\n"
 "\n"
 "  • %s\n"
 "  • %s\n"
 "\n"
-"Эти файлы содержат расширенные параметры (token_high, jaro_high, "
-"stopwords и т. д.).\n"
-"Значения по умолчанию хорошо настроены. Рекомендуется использовать ручные "
-"сопоставления\n"
+"Эти файлы содержат расширенные параметры (token_high, jaro_high, stopwords и т. д.).\n"
+"Значения по умолчанию хорошо настроены. Рекомендуется использовать ручные сопоставления\n"
 "или псевдонимы для конкретных каналов вместо изменения этих файлов.\n"
 "\n"
 "Если файлы отсутствуют, используются встроенные значения по умолчанию."
 
-#: src/epg/EpgSourceManagerPanel.cpp:982
+#: src/epg/EpgSourceManagerPanel.cpp:976
 msgid "Open Config Folder"
 msgstr "Открыть каталог конфигурации"
 
-#: src/epg/EpgSourceManagerPanel.cpp:984
+#: src/epg/EpgSourceManagerPanel.cpp:978
 msgid "Open matching_rules.json"
 msgstr "Открыть matching_rules.json"
 
-#: src/epg/EpgSourceManagerPanel.cpp:986
+#: src/epg/EpgSourceManagerPanel.cpp:980
 msgid "Open channel_aliases.json"
 msgstr "Открыть channel_aliases.json"
 
@@ -2483,3 +2443,13 @@ msgstr "Выход"
 #: src/VP_actions.cpp:718
 msgid "File limit exceeded (max 1000)"
 msgstr "Превышен лимит файлов (максимум 1000)"
+
+#~ msgid "Error: Cannot open file"
+#~ msgstr "Ошибка: не удалось открыть файл"
+
+#~ msgid "Error: Decompression failed"
+#~ msgstr "Ошибка: не удалось распаковать данные"
+
+#, c-format
+#~ msgid "Failed to update source: %s"
+#~ msgstr "Не удалось обновить источник: %s"

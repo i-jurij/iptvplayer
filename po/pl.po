@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: iptvplayer\n"
 "Report-Msgid-Bugs-To: https://github.com/i-jurij/iptvplayer/issues\n"
-"POT-Creation-Date: 2026-10-11 19:30+0300\n"
+"POT-Creation-Date: 2026-10-14 20:44+0300\n"
 "PO-Revision-Date: 2026-10-11 23:30+0300\n"
 "Last-Translator: ijurij <mnisjil@duck.com>\n"
 "Language-Team: Polish\n"
@@ -15,8 +15,8 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
-"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2);\n"
 
 #: src/VP_events.cpp:310
 msgid "Open File…"
@@ -70,7 +70,9 @@ msgstr "Konserwacja logo"
 
 #: src/SettingsDialog.cpp:100
 msgid "Disk cache removes stored icon files; RAM cache clears loaded images."
-msgstr "Pamięć podręczna dysku usuwa zapisane pliki; pamięć RAM czyści załadowane obrazy."
+msgstr ""
+"Pamięć podręczna dysku usuwa zapisane pliki; pamięć RAM czyści załadowane "
+"obrazy."
 
 #: src/SettingsDialog.cpp:106
 msgid "Delete disk cache"
@@ -105,7 +107,7 @@ msgstr "Włącz automatyczną aktualizację playlist"
 msgid "Restore Defaults"
 msgstr "Przywróć domyślne"
 
-#: src/SettingsDialog.cpp:165 src/epg/EpgSourceManagerPanel.cpp:180
+#: src/SettingsDialog.cpp:165 src/epg/EpgSourceManagerPanel.cpp:177
 msgid "Apply"
 msgstr "Zastosuj"
 
@@ -164,7 +166,8 @@ msgstr "Pamięć podręczna logo na dysku: nic do usunięcia."
 
 #: src/SettingsDialog.cpp:355
 msgid "Failed to delete disk logo cache. See log."
-msgstr "Nie udało się usunąć pamięci podręcznej logo na dysku. Zobacz dziennik."
+msgstr ""
+"Nie udało się usunąć pamięci podręcznej logo na dysku. Zobacz dziennik."
 
 #: src/SettingsDialog.cpp:362
 msgid "Clear in-memory logo cache (RAM)?"
@@ -236,7 +239,7 @@ msgstr "Nr"
 
 #: src/VideoPanel.cpp:75 src/BaseChannelList.cpp:224
 #: src/epg/AddEpgSourceDialog.cpp:173 src/epg/ManualMappingDialog.cpp:44
-#: src/epg/EpgSourceManagerPanel.cpp:81 src/epg/EpgSourceManagerPanel.cpp:669
+#: src/epg/EpgSourceManagerPanel.cpp:81 src/epg/EpgSourceManagerPanel.cpp:658
 #: src/iptvorg/AddIPTVPlaylistDialog.cpp:58
 msgid "Name"
 msgstr "Nazwa"
@@ -261,7 +264,7 @@ msgstr "Usuń zaznaczone"
 msgid "Clear playlist"
 msgstr "Wyczyść playlistę"
 
-#: src/VideoPanel.cpp:252 src/MainFrame_PlaylistEvents.cpp:42
+#: src/VideoPanel.cpp:252 src/MainFrame_PlaylistEvents.cpp:41
 #: src/MainFrame_PlaylistUI.cpp:144
 msgid "Open"
 msgstr "Otwórz"
@@ -293,16 +296,16 @@ msgstr "Pełny ekran"
 
 #: src/VideoPanel.cpp:691 src/VideoPanel.cpp:945 src/VideoPanel.cpp:1293
 #: src/VideoPanel.cpp:1299 src/VideoPanel.cpp:1305
-#: src/MainFrame_PlaylistEvents.cpp:54 src/MainFrame_PlaylistEvents.cpp:181
-#: src/MainFrame_Menu.cpp:595 src/Application.cpp:154
+#: src/MainFrame_PlaylistEvents.cpp:53 src/MainFrame_PlaylistEvents.cpp:180
+#: src/MainFrame_Menu.cpp:595 src/Application.cpp:163
 #: src/epg/AddEpgSourceDialog.cpp:267 src/epg/AddEpgSourceDialog.cpp:278
 #: src/epg/AddEpgSourceDialog.cpp:290 src/epg/ManualMappingDialog.cpp:707
 #: src/epg/ManualMappingDialog.cpp:731 src/epg/ManualMappingDialog.cpp:739
 #: src/epg/ManualMappingDialog.cpp:763 src/epg/ManualMappingDialog.cpp:771
 #: src/epg/EPGPanel.cpp:391 src/epg/EPGPanel.cpp:397
-#: src/epg/EpgSourceManagerPanel.cpp:306 src/epg/EpgSourceManagerPanel.cpp:467
-#: src/epg/EpgSourceManagerPanel.cpp:828 src/epg/EpgSourceManagerPanel.cpp:939
-#: src/epg/EpgSourceManagerPanel.cpp:946 src/DialogsPL.cpp:89
+#: src/epg/EpgSourceManagerPanel.cpp:297 src/epg/EpgSourceManagerPanel.cpp:458
+#: src/epg/EpgSourceManagerPanel.cpp:819 src/epg/EpgSourceManagerPanel.cpp:930
+#: src/epg/EpgSourceManagerPanel.cpp:937 src/DialogsPL.cpp:89
 #: src/DialogsPL.cpp:95 src/iptvorg/AddIPTVPlaylistDialog.cpp:327
 #: src/iptvorg/AddIPTVPlaylistDialog.cpp:334
 msgid "Error"
@@ -445,7 +448,7 @@ msgid "No"
 msgstr "Nie"
 
 #: src/MainFrame_PlaylistLogic.cpp:87 src/MainFrame_PlaylistLogic.cpp:300
-#: src/MainFrame_PlaylistLogic.cpp:316 src/MainFrame_PlaylistEvents.cpp:410
+#: src/MainFrame_PlaylistLogic.cpp:316 src/MainFrame_PlaylistEvents.cpp:409
 #: src/MainFrame_PlaylistUI.cpp:201
 msgid "No playlist selected"
 msgstr "Nie wybrano playlisty"
@@ -455,7 +458,7 @@ msgstr "Nie wybrano playlisty"
 msgid "Playlists: %zu"
 msgstr "Playlisty: %zu"
 
-#: src/MainFrame_PlaylistLogic.cpp:140 src/MainFrame_PlaylistEvents.cpp:85
+#: src/MainFrame_PlaylistLogic.cpp:140 src/MainFrame_PlaylistEvents.cpp:84
 #: src/MainFrame_Filters.cpp:75
 #, c-format
 msgid "Playlist: %s / Channels: %zu"
@@ -470,17 +473,17 @@ msgstr "Ulubione: %lu kanałów"
 msgid "Playlist list is not available"
 msgstr "Lista playlist jest niedostępna"
 
-#: src/MainFrame_PlaylistLogic.cpp:295 src/MainFrame_PlaylistEvents.cpp:95
+#: src/MainFrame_PlaylistLogic.cpp:295 src/MainFrame_PlaylistEvents.cpp:94
 #: src/MainFrame_UI.cpp:282
 msgid "Please select a playlist first."
 msgstr "Najpierw wybierz playlistę."
 
 #: src/MainFrame_PlaylistLogic.cpp:295 src/epg/ManualMappingDialog.cpp:724
 #: src/epg/ManualMappingDialog.cpp:756 src/epg/EPGPanel.cpp:386
-#: src/epg/EpgSourceManagerPanel.cpp:59 src/epg/EpgSourceManagerPanel.cpp:323
-#: src/epg/EpgSourceManagerPanel.cpp:361 src/epg/EpgSourceManagerPanel.cpp:393
-#: src/epg/EpgSourceManagerPanel.cpp:416 src/epg/EpgSourceManagerPanel.cpp:483
-#: src/epg/EpgSourceManagerPanel.cpp:635 src/epg/EpgSourceManagerPanel.cpp:637
+#: src/epg/EpgSourceManagerPanel.cpp:59 src/epg/EpgSourceManagerPanel.cpp:314
+#: src/epg/EpgSourceManagerPanel.cpp:352 src/epg/EpgSourceManagerPanel.cpp:384
+#: src/epg/EpgSourceManagerPanel.cpp:407 src/epg/EpgSourceManagerPanel.cpp:473
+#: src/epg/EpgSourceManagerPanel.cpp:624 src/epg/EpgSourceManagerPanel.cpp:626
 #: src/MainFrame_UI.cpp:283 src/iptvorg/AddIPTVPlaylistDialog.cpp:321
 msgid "Info"
 msgstr "Informacja"
@@ -490,7 +493,7 @@ msgid "Selected playlist is not available"
 msgstr "Wybrana playlista jest niedostępna"
 
 #: src/MainFrame_PlaylistLogic.cpp:327 src/MainFrame_PlaylistLogic.cpp:533
-#: src/MainFrame_PlaylistEvents.cpp:307 src/MainFrame_PlaylistUI.cpp:191
+#: src/MainFrame_PlaylistEvents.cpp:306 src/MainFrame_PlaylistUI.cpp:191
 #, c-format
 msgid "Playlist selected: %s"
 msgstr "Wybrano playlistę: %s"
@@ -520,8 +523,8 @@ msgstr ""
 msgid "Playlist exported successfully."
 msgstr "Playlista wyeksportowana pomyślnie."
 
-#: src/MainFrame_PlaylistLogic.cpp:404 src/MainFrame_PlaylistEvents.cpp:54
-#: src/MainFrame_PlaylistEvents.cpp:341 src/DialogsPL.cpp:312
+#: src/MainFrame_PlaylistLogic.cpp:404 src/MainFrame_PlaylistEvents.cpp:53
+#: src/MainFrame_PlaylistEvents.cpp:340 src/DialogsPL.cpp:312
 msgid "Playlist not found"
 msgstr "Nie znaleziono playlisty"
 
@@ -579,13 +582,13 @@ msgstr "Tak, dodaj playlistę"
 msgid "No, I'll add later"
 msgstr "Nie, dodam później"
 
-#: src/MainFrame_PlaylistLogic.cpp:602 src/MainFrame_PlaylistEvents.cpp:200
-#: src/MainFrame_PlaylistEvents.cpp:830
+#: src/MainFrame_PlaylistLogic.cpp:602 src/MainFrame_PlaylistEvents.cpp:199
+#: src/MainFrame_PlaylistEvents.cpp:829
 msgid "Failed to start playlist loading."
 msgstr "Nie udało się rozpocząć ładowania playlisty."
 
-#: src/MainFrame_PlaylistLogic.cpp:604 src/MainFrame_PlaylistEvents.cpp:202
-#: src/MainFrame_PlaylistEvents.cpp:832
+#: src/MainFrame_PlaylistLogic.cpp:604 src/MainFrame_PlaylistEvents.cpp:201
+#: src/MainFrame_PlaylistEvents.cpp:831
 #, c-format
 msgid ""
 "Failed to start playlist loading:\n"
@@ -610,39 +613,39 @@ msgstr "Usuń kanał"
 msgid "Channel '%s' removed from playlist '%s'"
 msgstr "Kanał „%s” usunięty z playlisty „%s”"
 
-#: src/MainFrame_PlaylistEvents.cpp:43 src/MainFrame_PlaylistUI.cpp:145
+#: src/MainFrame_PlaylistEvents.cpp:42 src/MainFrame_PlaylistUI.cpp:145
 msgid "Update"
 msgstr "Aktualizuj"
 
-#: src/MainFrame_PlaylistEvents.cpp:44 src/MainFrame_PlaylistUI.cpp:146
+#: src/MainFrame_PlaylistEvents.cpp:43 src/MainFrame_PlaylistUI.cpp:146
 #: src/epg/EpgSourceManagerPanel.cpp:97
 msgid "Edit"
 msgstr "Edytuj"
 
-#: src/MainFrame_PlaylistEvents.cpp:45 src/MainFrame_PlaylistUI.cpp:148
+#: src/MainFrame_PlaylistEvents.cpp:44 src/MainFrame_PlaylistUI.cpp:148
 #: src/epg/EpgSourceManagerPanel.cpp:98
 msgid "Remove"
 msgstr "Usuń"
 
-#: src/MainFrame_PlaylistEvents.cpp:70
+#: src/MainFrame_PlaylistEvents.cpp:69
 msgid "Loading channels..."
 msgstr "Ładowanie kanałów..."
 
-#: src/MainFrame_PlaylistEvents.cpp:101
+#: src/MainFrame_PlaylistEvents.cpp:100
 msgid "Selected playlist is not available."
 msgstr "Wybrana playlista jest niedostępna."
 
-#: src/MainFrame_PlaylistEvents.cpp:149
+#: src/MainFrame_PlaylistEvents.cpp:148
 #, c-format
 msgid "Playlist added: %s"
 msgstr "Dodano playlistę: %s"
 
-#: src/MainFrame_PlaylistEvents.cpp:152 src/MainFrame_PlaylistEvents.cpp:230
-#: src/MainFrame_PlaylistEvents.cpp:260
+#: src/MainFrame_PlaylistEvents.cpp:151 src/MainFrame_PlaylistEvents.cpp:229
+#: src/MainFrame_PlaylistEvents.cpp:259
 msgid "Duplicate playlist not added."
 msgstr "Zduplikowana playlista nie została dodana."
 
-#: src/MainFrame_PlaylistEvents.cpp:155
+#: src/MainFrame_PlaylistEvents.cpp:154
 #, c-format
 msgid ""
 "Failed to add playlist:\n"
@@ -651,28 +654,28 @@ msgstr ""
 "Nie udało się dodać playlisty:\n"
 "%s"
 
-#: src/MainFrame_PlaylistEvents.cpp:157
+#: src/MainFrame_PlaylistEvents.cpp:156
 msgid "Failed to add playlist from file."
 msgstr "Nie udało się dodać playlisty z pliku."
 
-#: src/MainFrame_PlaylistEvents.cpp:180
+#: src/MainFrame_PlaylistEvents.cpp:179
 msgid "Invalid URL. Please enter a valid address."
 msgstr "Nieprawidłowy URL. Wpisz poprawny adres."
 
-#: src/MainFrame_PlaylistEvents.cpp:209
+#: src/MainFrame_PlaylistEvents.cpp:208
 #, c-format
 msgid "Loading playlist from %s..."
 msgstr "Ładowanie playlisty z %s..."
 
-#: src/MainFrame_PlaylistEvents.cpp:221
+#: src/MainFrame_PlaylistEvents.cpp:220
 msgid "Playlist added from URL."
 msgstr "Playlista dodana z URL."
 
-#: src/MainFrame_PlaylistEvents.cpp:233
+#: src/MainFrame_PlaylistEvents.cpp:232
 msgid "Failed to add playlist."
 msgstr "Nie udało się dodać playlisty."
 
-#: src/MainFrame_PlaylistEvents.cpp:234
+#: src/MainFrame_PlaylistEvents.cpp:233
 #, c-format
 msgid ""
 "Failed to add playlist:\n"
@@ -683,11 +686,11 @@ msgstr ""
 "\n"
 "%s"
 
-#: src/MainFrame_PlaylistEvents.cpp:240
+#: src/MainFrame_PlaylistEvents.cpp:239
 msgid "Playlist loading timed out."
 msgstr "Przekroczono limit czasu ładowania playlisty."
 
-#: src/MainFrame_PlaylistEvents.cpp:243
+#: src/MainFrame_PlaylistEvents.cpp:242
 msgid ""
 "Playlist loading timed out.\n"
 "Do you want to retry?"
@@ -695,24 +698,24 @@ msgstr ""
 "Przekroczono limit czasu ładowania playlisty.\n"
 "Czy chcesz spróbować ponownie?"
 
-#: src/MainFrame_PlaylistEvents.cpp:244
+#: src/MainFrame_PlaylistEvents.cpp:243
 msgid "Timeout"
 msgstr "Limit czasu"
 
-#: src/MainFrame_PlaylistEvents.cpp:258
+#: src/MainFrame_PlaylistEvents.cpp:257
 #, c-format
 msgid "Duplicate playlist: %s"
 msgstr "Zduplikowana playlista: %s"
 
-#: src/MainFrame_PlaylistEvents.cpp:264
+#: src/MainFrame_PlaylistEvents.cpp:263
 msgid "Retrying playlist load..."
 msgstr "Ponowna próba ładowania playlisty..."
 
-#: src/MainFrame_PlaylistEvents.cpp:273
+#: src/MainFrame_PlaylistEvents.cpp:272
 msgid "Playlist loading canceled."
 msgstr "Ładowanie playlisty anulowane."
 
-#: src/MainFrame_PlaylistEvents.cpp:362
+#: src/MainFrame_PlaylistEvents.cpp:361
 #, c-format
 msgid ""
 "Failed to remove playlist:\n"
@@ -721,85 +724,85 @@ msgstr ""
 "Nie udało się usunąć playlisty:\n"
 "%s"
 
-#: src/MainFrame_PlaylistEvents.cpp:388
+#: src/MainFrame_PlaylistEvents.cpp:387
 #, c-format
 msgid "Playlist '%s' removed"
 msgstr "Playlista „%s” usunięta"
 
-#: src/MainFrame_PlaylistEvents.cpp:399 src/MainFrame_ChannelsViewUI.cpp:29
+#: src/MainFrame_PlaylistEvents.cpp:398 src/MainFrame_ChannelsViewUI.cpp:29
 msgid "Playlist: - / Channels: 0"
 msgstr "Playlista: - / Kanałów: 0"
 
-#: src/MainFrame_PlaylistEvents.cpp:440
+#: src/MainFrame_PlaylistEvents.cpp:439
 #, c-format
 msgid "Updating playlist: %s"
 msgstr "Aktualizacja playlisty: %s"
 
-#: src/MainFrame_PlaylistEvents.cpp:464 src/MainFrame_PlaylistEvents.cpp:521
+#: src/MainFrame_PlaylistEvents.cpp:463 src/MainFrame_PlaylistEvents.cpp:520
 msgid "Unable to start update thread."
 msgstr "Nie udało się uruchomić wątku aktualizacji."
 
-#: src/MainFrame_PlaylistEvents.cpp:474
+#: src/MainFrame_PlaylistEvents.cpp:473
 msgid "Playlist manager is not available."
 msgstr "Menedżer playlist jest niedostępny."
 
-#: src/MainFrame_PlaylistEvents.cpp:478
+#: src/MainFrame_PlaylistEvents.cpp:477
 msgid ""
 "Playlist panel is open but list is empty. Add a playlist before updating all."
 msgstr ""
 "Panel playlist jest otwarty, ale lista jest pusta. Dodaj playlistę przed "
 "aktualizacją wszystkich."
 
-#: src/MainFrame_PlaylistEvents.cpp:504
+#: src/MainFrame_PlaylistEvents.cpp:503
 msgid "Updating playlists..."
 msgstr "Aktualizacja playlist..."
 
-#: src/MainFrame_PlaylistEvents.cpp:585
+#: src/MainFrame_PlaylistEvents.cpp:584
 #, c-format
 msgid "Updated %d playlists and reloaded current."
 msgstr "Zaktualizowano %d playlist i przeładowano bieżącą."
 
-#: src/MainFrame_PlaylistEvents.cpp:589
+#: src/MainFrame_PlaylistEvents.cpp:588
 #, c-format
 msgid "Updated %d playlists."
 msgstr "Zaktualizowano %d playlist."
 
-#: src/MainFrame_PlaylistEvents.cpp:592 src/MainFrame_PlaylistEvents.cpp:663
+#: src/MainFrame_PlaylistEvents.cpp:591 src/MainFrame_PlaylistEvents.cpp:662
 msgid "Update finished."
 msgstr "Aktualizacja zakończona."
 
-#: src/MainFrame_PlaylistEvents.cpp:595
+#: src/MainFrame_PlaylistEvents.cpp:594
 msgid "No playlists updated."
 msgstr "Nie zaktualizowano żadnej playlisty."
 
-#: src/MainFrame_PlaylistEvents.cpp:596
+#: src/MainFrame_PlaylistEvents.cpp:595
 msgid "Update failed or no changes."
 msgstr "Aktualizacja nie powiodła się lub brak zmian."
 
-#: src/MainFrame_PlaylistEvents.cpp:662
+#: src/MainFrame_PlaylistEvents.cpp:661
 msgid "Update finished and reloaded."
 msgstr "Aktualizacja zakończona i przeładowano."
 
-#: src/MainFrame_PlaylistEvents.cpp:666
+#: src/MainFrame_PlaylistEvents.cpp:665
 #, c-format
 msgid "Playlist '%s' updated successfully."
 msgstr "Playlista „%s” zaktualizowana pomyślnie."
 
-#: src/MainFrame_PlaylistEvents.cpp:670
+#: src/MainFrame_PlaylistEvents.cpp:669
 msgid "Update failed."
 msgstr "Aktualizacja nie powiodła się."
 
-#: src/MainFrame_PlaylistEvents.cpp:672
+#: src/MainFrame_PlaylistEvents.cpp:671
 #, c-format
 msgid "Playlist '%s' update failed."
 msgstr "Aktualizacja playlisty „%s” nie powiodła się."
 
-#: src/MainFrame_PlaylistEvents.cpp:727
+#: src/MainFrame_PlaylistEvents.cpp:726
 #, c-format
 msgid "Updating playlist: %s — %d%% (%d/%d)"
 msgstr "Aktualizacja playlisty: %s — %d%% (%d/%d)"
 
-#: src/MainFrame_PlaylistEvents.cpp:730
+#: src/MainFrame_PlaylistEvents.cpp:729
 #, c-format
 msgid "Updating: %d%% (%d/%d)"
 msgstr "Aktualizacja: %d%% (%d/%d)"
@@ -1129,7 +1132,9 @@ msgstr "512 MB"
 
 #: src/MainFrame_Menu.cpp:439
 msgid "Network cache will apply on next stream load."
-msgstr "Pamięć podręczna sieci zostanie zastosowana przy następnym ładowaniu strumienia."
+msgstr ""
+"Pamięć podręczna sieci zostanie zastosowana przy następnym ładowaniu "
+"strumienia."
 
 #: src/MainFrame_Menu.cpp:447
 msgid "Custom…"
@@ -1150,7 +1155,9 @@ msgstr "Własna pamięć podręczna sieci"
 #: src/MainFrame_Menu.cpp:463
 #, c-format
 msgid "Network cache set to %d MB (applies on next stream)."
-msgstr "Pamięć podręczna sieci ustawiona na %d MB (zastosowane przy następnym strumieniu)."
+msgstr ""
+"Pamięć podręczna sieci ustawiona na %d MB (zastosowane przy następnym "
+"strumieniu)."
 
 #: src/MainFrame_Menu.cpp:471
 msgid "Reset to mpv default"
@@ -1158,7 +1165,8 @@ msgstr "Przywróć domyślne mpv"
 
 #: src/MainFrame_Menu.cpp:478
 msgid "Network cache reset (applies on next stream)."
-msgstr "Pamięć podręczna sieci zresetowana (zastosowane przy następnym strumieniu)."
+msgstr ""
+"Pamięć podręczna sieci zresetowana (zastosowane przy następnym strumieniu)."
 
 #: src/MainFrame_Menu.cpp:482
 msgid "Network Cache"
@@ -1539,7 +1547,7 @@ msgstr "Język"
 msgid "Country"
 msgstr "Kraj"
 
-#: src/Application.cpp:41
+#: src/Application.cpp:45
 msgid ""
 "No sound devices found.\n"
 "\n"
@@ -1553,11 +1561,11 @@ msgstr ""
 "\n"
 "  sudo alsactl init"
 
-#: src/Application.cpp:44
+#: src/Application.cpp:48
 msgid "Audio not available"
 msgstr "Dźwięk niedostępny"
 
-#: src/Application.cpp:153
+#: src/Application.cpp:162
 msgid ""
 "Failed to load settings.\n"
 "See log for details."
@@ -1652,7 +1660,7 @@ msgid "Region"
 msgstr "Region"
 
 #: src/epg/AddEpgSourceDialog.cpp:175 src/epg/EpgSourceManagerPanel.cpp:80
-#: src/epg/EpgSourceManagerPanel.cpp:669
+#: src/epg/EpgSourceManagerPanel.cpp:658
 msgid "URL"
 msgstr "URL"
 
@@ -1686,49 +1694,45 @@ msgstr "Nieprawidłowy URL: brak hosta (np. https://example.com)."
 msgid "File does not exist."
 msgstr "Plik nie istnieje."
 
-#: src/epg/EPGManager.cpp:391 src/epg/EPGManager.cpp:626
-#: src/epg/EpgSourceManagerPanel.cpp:819 src/epg/EpgSourceManagerPanel.cpp:823
+#: src/epg/EPGManager.cpp:392 src/epg/EPGManager.cpp:625
+#: src/epg/EpgSourceManagerPanel.cpp:808 src/epg/EpgSourceManagerPanel.cpp:812
 msgid "Done"
 msgstr "Gotowe"
 
-#: src/epg/EPGManager.cpp:507 src/epg/EPGManager.cpp:747
+#: src/epg/EPGManager.cpp:511 src/epg/EPGManager.cpp:761
 msgid "Downloading"
 msgstr "Pobieranie"
 
-#: src/epg/EPGManager.cpp:509 src/epg/EPGManager.cpp:777
-#: src/epg/EPGManager.cpp:1653
+#: src/epg/EPGManager.cpp:513 src/epg/EPGManager.cpp:882
+#: src/epg/EPGManager.cpp:1681
 msgid "Cancelled"
 msgstr "Anulowano"
 
-#: src/epg/EPGManager.cpp:586
+#: src/epg/EPGManager.cpp:588
 msgid "No EPG sources to update"
 msgstr "Brak źródeł EPG do aktualizacji"
 
-#: src/epg/EPGManager.cpp:783 src/epg/EPGManager.cpp:811
+#: src/epg/EPGManager.cpp:798 src/epg/EPGManager.cpp:826
 msgid "Extracting"
 msgstr "Rozpakowywanie"
 
-#: src/epg/EPGManager.cpp:818
-msgid "Error: Cannot open file"
-msgstr "Błąd: nie można otworzyć pliku"
-
-#: src/epg/EPGManager.cpp:830
-msgid "Error: Decompression failed"
-msgstr "Błąd: dekompresja nie powiodła się"
-
-#: src/epg/EPGManager.cpp:846
+#: src/epg/EPGManager.cpp:858
 msgid "Previous refresh still in progress"
 msgstr "Poprzednia aktualizacja jest wciąż w toku"
 
-#: src/epg/EPGManager.cpp:885 src/epg/EPGManager.cpp:924
+#: src/epg/EPGManager.cpp:885
+msgid "Update failed"
+msgstr "Aktualizacja nie powiodła się."
+
+#: src/epg/EPGManager.cpp:913 src/epg/EPGManager.cpp:952
 msgid "Parsing"
 msgstr "Analizowanie"
 
-#: src/epg/EPGManager.cpp:958
+#: src/epg/EPGManager.cpp:986
 msgid "Parsing complete, waiting for matching..."
 msgstr "Analiza zakończona, oczekiwanie na dopasowanie..."
 
-#: src/epg/EPGManager.cpp:1166 src/epg/EPGManager.cpp:1552
+#: src/epg/EPGManager.cpp:1194 src/epg/EPGManager.cpp:1580
 msgid "Preparing EPG index"
 msgstr "Przygotowywanie indeksu EPG"
 
@@ -1804,8 +1808,8 @@ msgstr "Ignoruj"
 msgid "Unignore"
 msgstr "Przestań ignorować"
 
-#: src/epg/ManualMappingDialog.cpp:124 src/epg/EpgSourceManagerPanel.cpp:906
-#: src/epg/EpgSourceManagerPanel.cpp:987
+#: src/epg/ManualMappingDialog.cpp:124 src/epg/EpgSourceManagerPanel.cpp:897
+#: src/epg/EpgSourceManagerPanel.cpp:981
 msgid "Close"
 msgstr "Zamknij"
 
@@ -1882,11 +1886,11 @@ msgstr "Ustawienia automatycznej aktualizacji zastosowane."
 msgid "EPG Sources"
 msgstr "Źródła EPG"
 
-#: src/epg/EpgSourceManagerPanel.cpp:82 src/epg/EpgSourceManagerPanel.cpp:669
+#: src/epg/EpgSourceManagerPanel.cpp:82 src/epg/EpgSourceManagerPanel.cpp:658
 msgid "Imported"
 msgstr "Zaimportowano"
 
-#: src/epg/EpgSourceManagerPanel.cpp:84 src/epg/EpgSourceManagerPanel.cpp:670
+#: src/epg/EpgSourceManagerPanel.cpp:84 src/epg/EpgSourceManagerPanel.cpp:659
 msgid "Availability"
 msgstr "Dostępność"
 
@@ -1904,97 +1908,98 @@ msgstr "Zarządzanie pamięcią podręczną"
 
 #: src/epg/EpgSourceManagerPanel.cpp:129
 msgid "Deletes all locally cached EPG data. Next update will re-download."
-msgstr "Usuwa wszystkie lokalne dane EPG. Następna aktualizacja pobierze je ponownie."
+msgstr ""
+"Usuwa wszystkie lokalne dane EPG. Następna aktualizacja pobierze je ponownie."
 
 #: src/epg/EpgSourceManagerPanel.cpp:133
 msgid "Delete cache / Update all"
 msgstr "Usuń pamięć podręczną / Aktualizuj wszystko"
 
-#: src/epg/EpgSourceManagerPanel.cpp:144
+#: src/epg/EpgSourceManagerPanel.cpp:143
 msgid "Auto-update settings"
 msgstr "Ustawienia automatycznej aktualizacji"
 
-#: src/epg/EpgSourceManagerPanel.cpp:150
+#: src/epg/EpgSourceManagerPanel.cpp:149
 msgid "Auto-update:"
 msgstr "Automatyczna aktualizacja:"
 
-#: src/epg/EpgSourceManagerPanel.cpp:157
+#: src/epg/EpgSourceManagerPanel.cpp:155
 msgid "Update interval (hours):"
 msgstr "Interwał aktualizacji (godziny):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:168
+#: src/epg/EpgSourceManagerPanel.cpp:165
 msgid "Days to keep in cache:"
 msgstr "Dni przechowywania w pamięci podręcznej:"
 
-#: src/epg/EpgSourceManagerPanel.cpp:194
+#: src/epg/EpgSourceManagerPanel.cpp:191
 msgid "Match settings"
 msgstr "Ustawienia dopasowania"
 
-#: src/epg/EpgSourceManagerPanel.cpp:199
+#: src/epg/EpgSourceManagerPanel.cpp:196
 msgid "About matching"
 msgstr "O dopasowaniu"
 
-#: src/epg/EpgSourceManagerPanel.cpp:201
+#: src/epg/EpgSourceManagerPanel.cpp:197
 msgid "Edit matching rules"
 msgstr "Edytuj reguły dopasowania"
 
-#: src/epg/EpgSourceManagerPanel.cpp:215
+#: src/epg/EpgSourceManagerPanel.cpp:210
 msgid "Fuzzy threshold (50-100):"
 msgstr "Próg rozmycia (50–100):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:226
+#: src/epg/EpgSourceManagerPanel.cpp:220
 msgid "Substring min length (1-20):"
 msgstr "Minimalna długość podciągu (1–20):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:237
+#: src/epg/EpgSourceManagerPanel.cpp:230
 msgid "Substring ratio (1-100%):"
 msgstr "Współczynnik podciągu (1–100%):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:248
+#: src/epg/EpgSourceManagerPanel.cpp:240
 msgid "Min match score (1-100):"
 msgstr "Minimalny wynik dopasowania (1–100):"
 
-#: src/epg/EpgSourceManagerPanel.cpp:259
+#: src/epg/EpgSourceManagerPanel.cpp:250
 msgid "Apply (Match Now)"
 msgstr "Zastosuj (dopasuj teraz)"
 
-#: src/epg/EpgSourceManagerPanel.cpp:306 src/epg/EpgSourceManagerPanel.cpp:939
+#: src/epg/EpgSourceManagerPanel.cpp:297 src/epg/EpgSourceManagerPanel.cpp:930
 msgid "EPG Manager not available."
 msgstr "Menedżer EPG niedostępny."
 
-#: src/epg/EpgSourceManagerPanel.cpp:323
+#: src/epg/EpgSourceManagerPanel.cpp:314
 msgid "This EPG source already exists."
 msgstr "To źródło EPG już istnieje."
 
-#: src/epg/EpgSourceManagerPanel.cpp:361
+#: src/epg/EpgSourceManagerPanel.cpp:352
 msgid "Please select a source to edit."
 msgstr "Wybierz źródło do edycji."
 
-#: src/epg/EpgSourceManagerPanel.cpp:371
+#: src/epg/EpgSourceManagerPanel.cpp:362
 msgid "Edit EPG Source"
 msgstr "Edytuj źródło EPG"
 
-#: src/epg/EpgSourceManagerPanel.cpp:393
+#: src/epg/EpgSourceManagerPanel.cpp:384
 msgid "Please select a source to remove."
 msgstr "Wybierz źródło do usunięcia."
 
-#: src/epg/EpgSourceManagerPanel.cpp:398
+#: src/epg/EpgSourceManagerPanel.cpp:389
 msgid "Remove selected EPG source?"
 msgstr "Usunąć wybrane źródło EPG?"
 
-#: src/epg/EpgSourceManagerPanel.cpp:398
+#: src/epg/EpgSourceManagerPanel.cpp:389
 msgid "Confirm"
 msgstr "Potwierdź"
 
-#: src/epg/EpgSourceManagerPanel.cpp:416
+#: src/epg/EpgSourceManagerPanel.cpp:407
 msgid "Please select a source to refresh."
 msgstr "Wybierz źródło do odświeżenia."
 
-#: src/epg/EpgSourceManagerPanel.cpp:429
+#: src/epg/EpgSourceManagerPanel.cpp:420
 msgid "Delete EPG Cache"
 msgstr "Usuń pamięć podręczną EPG"
 
-#: src/epg/EpgSourceManagerPanel.cpp:435
+#: src/epg/EpgSourceManagerPanel.cpp:426
 msgid ""
 "EPG cache contains all downloaded programmes and channel mappings.\n"
 "Deleting will completely clear this data. You will need to reload EPG from "
@@ -2005,66 +2010,75 @@ msgid ""
 "You can also update individual sources later using the \"Refresh Now\" "
 "button."
 msgstr ""
-"Pamięć podręczna EPG zawiera wszystkie pobrane programy i dopasowania kanałów.\n"
-"Usunięcie całkowicie wyczyści te dane. Będziesz musiał ponownie załadować EPG ze źródeł.\n"
+"Pamięć podręczna EPG zawiera wszystkie pobrane programy i dopasowania "
+"kanałów.\n"
+"Usunięcie całkowicie wyczyści te dane. Będziesz musiał ponownie załadować "
+"EPG ze źródeł.\n"
 "\n"
-"Aktualizacja wszystkich źródeł może zająć kilka minut (w zależności od ich liczby).\n"
-"Możesz także zaktualizować pojedyncze źródła później, używając przycisku «Odśwież teraz»."
+"Aktualizacja wszystkich źródeł może zająć kilka minut (w zależności od ich "
+"liczby).\n"
+"Możesz także zaktualizować pojedyncze źródła później, używając przycisku "
+"«Odśwież teraz»."
 
-#: src/epg/EpgSourceManagerPanel.cpp:447
+#: src/epg/EpgSourceManagerPanel.cpp:438
 msgid "Update all sources now"
 msgstr "Zaktualizuj wszystkie źródła teraz"
 
-#: src/epg/EpgSourceManagerPanel.cpp:456
+#: src/epg/EpgSourceManagerPanel.cpp:447
 msgid "Delete"
 msgstr "Usuń"
 
-#: src/epg/EpgSourceManagerPanel.cpp:467
+#: src/epg/EpgSourceManagerPanel.cpp:458
 msgid "Failed to delete EPG cache."
 msgstr "Nie udało się usunąć pamięci podręcznej EPG."
 
-#: src/epg/EpgSourceManagerPanel.cpp:482
+#: src/epg/EpgSourceManagerPanel.cpp:472
 msgid "EPG cache cleared. You can now refresh sources manually."
-msgstr "Pamięć podręczna EPG wyczyszczona. Możesz teraz odświeżyć źródła ręcznie."
+msgstr ""
+"Pamięć podręczna EPG wyczyszczona. Możesz teraz odświeżyć źródła ręcznie."
 
-#: src/epg/EpgSourceManagerPanel.cpp:526 src/epg/EpgSourceManagerPanel.cpp:587
+#: src/epg/EpgSourceManagerPanel.cpp:516 src/epg/EpgSourceManagerPanel.cpp:576
 msgid "online"
 msgstr "online"
 
-#: src/epg/EpgSourceManagerPanel.cpp:529 src/epg/EpgSourceManagerPanel.cpp:590
+#: src/epg/EpgSourceManagerPanel.cpp:519 src/epg/EpgSourceManagerPanel.cpp:579
 msgid "offline (permanent)"
 msgstr "offline (na stałe)"
 
-#: src/epg/EpgSourceManagerPanel.cpp:535 src/epg/EpgSourceManagerPanel.cpp:543
+#: src/epg/EpgSourceManagerPanel.cpp:525 src/epg/EpgSourceManagerPanel.cpp:533
 msgid "checking..."
 msgstr "sprawdzanie..."
 
-#: src/epg/EpgSourceManagerPanel.cpp:538 src/epg/EpgSourceManagerPanel.cpp:592
+#: src/epg/EpgSourceManagerPanel.cpp:528 src/epg/EpgSourceManagerPanel.cpp:581
 msgid "offline"
 msgstr "offline"
 
-#: src/epg/EpgSourceManagerPanel.cpp:550
+#: src/epg/EpgSourceManagerPanel.cpp:539
 msgid "(missing)"
 msgstr "(brak)"
 
-#: src/epg/EpgSourceManagerPanel.cpp:634
+#: src/epg/EpgSourceManagerPanel.cpp:623
 msgid "Match settings applied. Re-matching channels in background."
-msgstr "Ustawienia dopasowania zastosowane. Ponowne dopasowywanie kanałów w tle."
+msgstr ""
+"Ustawienia dopasowania zastosowane. Ponowne dopasowywanie kanałów w tle."
 
-#: src/epg/EpgSourceManagerPanel.cpp:637
+#: src/epg/EpgSourceManagerPanel.cpp:626
 msgid "Match settings saved."
 msgstr "Ustawienia dopasowania zapisane."
 
-#: src/epg/EpgSourceManagerPanel.cpp:826
+#: src/epg/EpgSourceManagerPanel.cpp:815
 #, c-format
-msgid "Failed to update source: %s"
-msgstr "Nie udało się zaktualizować źródła: %s"
+msgid ""
+"Failed to update source: %s\n"
+"\n"
+"The source is kept in the list. Use \"Refresh Now\" to retry."
+msgstr ""
 
-#: src/epg/EpgSourceManagerPanel.cpp:841
+#: src/epg/EpgSourceManagerPanel.cpp:832
 msgid "About EPG Matching"
 msgstr "O dopasowaniu EPG"
 
-#: src/epg/EpgSourceManagerPanel.cpp:847
+#: src/epg/EpgSourceManagerPanel.cpp:838
 msgid ""
 "EPG Matching Algorithm\n"
 "\n"
@@ -2115,8 +2129,10 @@ msgstr ""
 "Regulowane parametry (widoczne poniżej):\n"
 "  • Próg rozmycia (50–100) – wpływa na bonus Jaro-Winklera\n"
 "  • Minimalna długość podciągu – minimalna długość dla dopasowania podciągu\n"
-"  • Współczynnik podciągu – próg procentowy (nieużywany bezpośrednio, zachowany dla zgodności)\n"
-"  • Minimalny wynik dopasowania – wymagany wynik (0–100) do zaakceptowania dopasowania\n"
+"  • Współczynnik podciągu – próg procentowy (nieużywany bezpośrednio, "
+"zachowany dla zgodności)\n"
+"  • Minimalny wynik dopasowania – wymagany wynik (0–100) do zaakceptowania "
+"dopasowania\n"
 "\n"
 "Progi wyniku:\n"
 "  • 85+ : wysoka pewność\n"
@@ -2124,25 +2140,30 @@ msgstr ""
 "  • 60+ : niska pewność\n"
 "\n"
 "Zachowanie ponownego dopasowania:\n"
-"  • «Zastosuj (dopasuj teraz)» zawsze uruchamia pełne ponowne dopasowanie dla bieżącej playlisty (jeśli załadowana) i ulubionych.\n"
-"  • Automatyczne ponowne dopasowanie po aktualizacji źródeł EPG: bieżąca playlista jest zawsze dopasowywana ponownie; ulubione tylko wtedy, gdy lista kanałów EPG uległa zmianie (sprawdzenie hasha).\n"
-"  • Ręczne dopasowania i zignorowane wpisy są zachowywane podczas automatycznego ponownego dopasowania.\n"
+"  • «Zastosuj (dopasuj teraz)» zawsze uruchamia pełne ponowne dopasowanie "
+"dla bieżącej playlisty (jeśli załadowana) i ulubionych.\n"
+"  • Automatyczne ponowne dopasowanie po aktualizacji źródeł EPG: bieżąca "
+"playlista jest zawsze dopasowywana ponownie; ulubione tylko wtedy, gdy lista "
+"kanałów EPG uległa zmianie (sprawdzenie hasha).\n"
+"  • Ręczne dopasowania i zignorowane wpisy są zachowywane podczas "
+"automatycznego ponownego dopasowania.\n"
 "\n"
 "Do zaawansowanej konfiguracji możesz ręcznie edytować pliki konfiguracyjne\n"
 "„matching_rules.json” znajdujące się w katalogu konfiguracji.\n"
 "Ustawienia domyślne są już zoptymalizowane – zdecydowanie zaleca się\n"
-"używanie ręcznych dopasowań lub aliasów (w „channel_aliases.json”) do konkretnych\n"
+"używanie ręcznych dopasowań lub aliasów (w „channel_aliases.json”) do "
+"konkretnych\n"
 "poprawek zamiast modyfikowania tych plików."
 
-#: src/epg/EpgSourceManagerPanel.cpp:946
+#: src/epg/EpgSourceManagerPanel.cpp:937
 msgid "Could not determine config directory."
 msgstr "Nie udało się określić katalogu konfiguracji."
 
-#: src/epg/EpgSourceManagerPanel.cpp:961
+#: src/epg/EpgSourceManagerPanel.cpp:952
 msgid "Edit Matching Rules"
 msgstr "Edytuj reguły dopasowania"
 
-#: src/epg/EpgSourceManagerPanel.cpp:967
+#: src/epg/EpgSourceManagerPanel.cpp:958
 #, c-format
 msgid ""
 "After editing, restart the application for changes to take effect.\n"
@@ -2163,26 +2184,29 @@ msgid ""
 msgstr ""
 "Po edycji uruchom ponownie aplikację, aby zmiany zaczęły obowiązywać.\n"
 "\n"
-"Możesz dostroić dopasowanie, edytując następujące pliki JSON w katalogu konfiguracji:\n"
+"Możesz dostroić dopasowanie, edytując następujące pliki JSON w katalogu "
+"konfiguracji:\n"
 "\n"
 "  • %s\n"
 "  • %s\n"
 "\n"
-"Pliki te zawierają zaawansowane parametry (token_high, jaro_high, stopwords itp.).\n"
-"Wartości domyślne są już dobrze dostrojone. Zaleca się używanie ręcznych dopasowań lub aliasów\n"
+"Pliki te zawierają zaawansowane parametry (token_high, jaro_high, stopwords "
+"itp.).\n"
+"Wartości domyślne są już dobrze dostrojone. Zaleca się używanie ręcznych "
+"dopasowań lub aliasów\n"
 "dla konkretnych poprawek kanałów zamiast modyfikowania tych plików.\n"
 "\n"
 "Jeśli pliki są nieobecne, używane są wbudowane wartości domyślne."
 
-#: src/epg/EpgSourceManagerPanel.cpp:982
+#: src/epg/EpgSourceManagerPanel.cpp:976
 msgid "Open Config Folder"
 msgstr "Otwórz katalog konfiguracji"
 
-#: src/epg/EpgSourceManagerPanel.cpp:984
+#: src/epg/EpgSourceManagerPanel.cpp:978
 msgid "Open matching_rules.json"
 msgstr "Otwórz matching_rules.json"
 
-#: src/epg/EpgSourceManagerPanel.cpp:986
+#: src/epg/EpgSourceManagerPanel.cpp:980
 msgid "Open channel_aliases.json"
 msgstr "Otwórz channel_aliases.json"
 
@@ -2471,3 +2495,13 @@ msgstr "Wyjdź"
 #: src/VP_actions.cpp:718
 msgid "File limit exceeded (max 1000)"
 msgstr "Przekroczono limit plików (maks. 1000)"
+
+#~ msgid "Error: Cannot open file"
+#~ msgstr "Błąd: nie można otworzyć pliku"
+
+#~ msgid "Error: Decompression failed"
+#~ msgstr "Błąd: dekompresja nie powiodła się"
+
+#, c-format
+#~ msgid "Failed to update source: %s"
+#~ msgstr "Nie udało się zaktualizować źródła: %s"
