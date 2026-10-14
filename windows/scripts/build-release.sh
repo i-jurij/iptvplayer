@@ -90,7 +90,7 @@ if [[ -f "$VULKAN_DLL" ]]; then
         log "Скопирован Vulkan loader: vulkan-1.dll"
     fi
 else
-    warn "vulkan-1.dll не найден в $PREFIX/bin — установите ${PKG_PREFIX}-vulkan-loader"
+    error "vulkan-1.dll не найден в $PREFIX/bin — установите ${PKG_PREFIX}-vulkan-loader"
 fi
 
 # --- Strip отладочных символов из DLL и EXE ---
