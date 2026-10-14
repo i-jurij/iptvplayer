@@ -140,8 +140,7 @@ void EpgSourceManagerPanel::SetupUI() {
   // ---- Блок "Auto-update settings" ----
   if (m_showAutoUpdateSettings) {
     wxStaticBox *settingsBox =
-        new wxStaticBox(m_scrolledWindow, wxID_ANY,
-                        _U("Auto-update settings"));
+        new wxStaticBox(m_scrolledWindow, wxID_ANY, _U("Auto-update settings"));
     wxStaticBoxSizer *settingsSizer =
         new wxStaticBoxSizer(settingsBox, wxVERTICAL);
 
@@ -153,8 +152,7 @@ void EpgSourceManagerPanel::SetupUI() {
     grid->Add(m_autoUpdateCheck, 0, wxALIGN_LEFT);
 
     grid->Add(
-        new wxStaticText(settingsBox, wxID_ANY,
-                         _U("Update interval (hours):")),
+        new wxStaticText(settingsBox, wxID_ANY, _U("Update interval (hours):")),
         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_updateIntervalSpin =
         new wxSpinCtrl(settingsBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
@@ -164,8 +162,7 @@ void EpgSourceManagerPanel::SetupUI() {
     grid->Add(m_updateIntervalSpin, 0, wxALIGN_LEFT);
 
     grid->Add(
-        new wxStaticText(settingsBox, wxID_ANY,
-                         _U("Days to keep in cache:")),
+        new wxStaticText(settingsBox, wxID_ANY, _U("Days to keep in cache:")),
         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_daysToKeepSpin =
         new wxSpinCtrl(settingsBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
@@ -197,8 +194,7 @@ void EpgSourceManagerPanel::SetupUI() {
   // Кнопки над контролами
   wxBoxSizer *topMatchSizer = new wxBoxSizer(wxHORIZONTAL);
   m_aboutMatchBtn = new wxButton(matchBox, wxID_ANY, _U("About matching"));
-  m_editRulesBtn =
-      new wxButton(matchBox, wxID_ANY, _U("Edit matching rules"));
+  m_editRulesBtn = new wxButton(matchBox, wxID_ANY, _U("Edit matching rules"));
   topMatchSizer->Add(m_aboutMatchBtn, 0, wxRIGHT, FromDIP(10));
   topMatchSizer->Add(m_editRulesBtn, 0);
   matchSizer->Add(topMatchSizer, 0, wxEXPAND | wxALL, FromDIP(10));
@@ -211,9 +207,8 @@ void EpgSourceManagerPanel::SetupUI() {
   wxFlexGridSizer *matchGrid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
 
   matchGrid->Add(
-      new wxStaticText(matchBox, wxID_ANY,
-                       _U("Fuzzy threshold (50-100):")),
-      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+      new wxStaticText(matchBox, wxID_ANY, _U("Fuzzy threshold (50-100):")), 0,
+      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
   m_fuzzyThresholdSpin =
       new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
                      wxSize(FromDIP(120), -1));
@@ -222,8 +217,7 @@ void EpgSourceManagerPanel::SetupUI() {
   matchGrid->Add(m_fuzzyThresholdSpin, 0, wxALIGN_LEFT);
 
   matchGrid->Add(
-      new wxStaticText(matchBox, wxID_ANY,
-                       _U("Substring min length (1-20):")),
+      new wxStaticText(matchBox, wxID_ANY, _U("Substring min length (1-20):")),
       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
   m_substringMinLengthSpin =
       new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
@@ -233,9 +227,8 @@ void EpgSourceManagerPanel::SetupUI() {
   matchGrid->Add(m_substringMinLengthSpin, 0, wxALIGN_LEFT);
 
   matchGrid->Add(
-      new wxStaticText(matchBox, wxID_ANY,
-                       _U("Substring ratio (1-100%):")),
-      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+      new wxStaticText(matchBox, wxID_ANY, _U("Substring ratio (1-100%):")), 0,
+      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
   m_substringMinRatioSpin =
       new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
                      wxSize(FromDIP(120), -1));
@@ -244,9 +237,8 @@ void EpgSourceManagerPanel::SetupUI() {
   matchGrid->Add(m_substringMinRatioSpin, 0, wxALIGN_LEFT);
 
   matchGrid->Add(
-      new wxStaticText(matchBox, wxID_ANY,
-                       _U("Min match score (1-100):")),
-      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+      new wxStaticText(matchBox, wxID_ANY, _U("Min match score (1-100):")), 0,
+      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
   m_minScoreSpin = new wxSpinCtrl(matchBox, wxID_ANY, wxEmptyString,
                                   wxDefaultPosition, wxSize(FromDIP(120), -1));
   m_minScoreSpin->SetRange(1, 100);
@@ -255,8 +247,7 @@ void EpgSourceManagerPanel::SetupUI() {
 
   matchSizer->Add(matchGrid, 0, wxEXPAND | wxALL, FromDIP(5));
 
-  m_applyMatchBtn =
-      new wxButton(matchBox, wxID_ANY, _U("Apply (Match Now)"));
+  m_applyMatchBtn = new wxButton(matchBox, wxID_ANY, _U("Apply (Match Now)"));
   wxBoxSizer *applySizer = new wxBoxSizer(wxHORIZONTAL);
   applySizer->Add(m_applyMatchBtn, 0, wxLEFT, FromDIP(5));
   matchSizer->Add(applySizer, 0, wxEXPAND | wxALL, FromDIP(5));
@@ -478,9 +469,8 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
       m_epgMgr->UpdateAllSources(false);
     }
   } else {
-    wxMessageBox(
-        _U("EPG cache cleared. You can now refresh sources manually."),
-        _U("Info"), wxOK | wxICON_INFORMATION, this);
+    wxMessageBox(_U("EPG cache cleared. You can now refresh sources manually."),
+                 _U("Info"), wxOK | wxICON_INFORMATION, this);
   }
 }
 
@@ -513,7 +503,7 @@ void EpgSourceManagerPanel::UpdateSourceList() {
     if (sources[i].lastUpdate > 0) {
       m_sourceList->SetItem(idx, 2, EpgTime::FormatTime(sources[i].lastUpdate));
     } else {
-      m_sourceList->SetItem(idx, 2, "");
+      m_sourceList->SetItem(idx, 2, wxString::FromUTF8("—"));
     }
 
     wxString url = wxString::FromUTF8(sources[i].url);
@@ -545,9 +535,8 @@ void EpgSourceManagerPanel::UpdateSourceList() {
       }
     } else {
       // ✔ и ✘ — пиктограммы, вынесены за _U(); "(missing)" — текст.
-      avail = wxFileExists(url)
-                  ? wxString::FromUTF8("✔")
-                  : wxString::FromUTF8("✘ ") + _U("(missing)");
+      avail = wxFileExists(url) ? wxString::FromUTF8("✔")
+                                : wxString::FromUTF8("✘ ") + _U("(missing)");
     }
     m_sourceList->SetItem(idx, 3, avail);
     m_sourceList->SetItem(idx, 4,
@@ -823,7 +812,9 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
                 {EpgProgressStage::Done, 100, _U("Done").ToStdString()});
           }
         } else {
-          wxMessageBox(wxString::Format(_U("Failed to update source: %s"),
+          wxMessageBox(wxString::Format(_U("Failed to update source: %s\n\n"
+                                           "The source is kept in the list. "
+                                           "Use \"Refresh Now\" to retry."),
                                         wxString::FromUTF8(error)),
                        _U("Error"), wxOK | wxICON_ERROR, this);
         }
@@ -845,36 +836,36 @@ void EpgSourceManagerPanel::OnAboutMatch(wxCommandEvent &) {
 
   wxString msg =
       _U("EPG Matching Algorithm\n\n"
-        "1. Manual mappings (highest priority)\n"
-        "2. TVG-ID match (if present)\n"
-        "3. Exact name match (after normalization)\n"
-        "4. Substring match (if one name contains the other)\n"
-        "5. Token-sort (percentage of common words)\n"
-        "6. Jaro-Winkler refinement for borderline cases\n\n"
-        "Adjustable parameters (visible below):\n"
-        "  • Fuzzy threshold (50–100) – influences Jaro-Winkler bonus\n"
-        "  • Substring min length – minimum length for substring match\n"
-        "  • Substring ratio – percentage threshold (not used directly, kept "
-        "for compatibility)\n"
-        "  • Min match score – required score (0–100) to accept a match\n\n"
-        "Score thresholds:\n"
-        "  • 85+ : High confidence\n"
-        "  • 70+ : Medium confidence\n"
-        "  • 60+ : Low confidence\n\n"
-        "Rematching behavior:\n"
-        "  • Apply (Match Now) always triggers a full rematch for both the "
-        "current playlist (if loaded) and favorites.\n"
-        "  • Automatic rematch after EPG source updates: current playlist is "
-        "always rematched; favorites are rematched only if the EPG channel "
-        "list has changed (hash check).\n"
-        "  • Manual mappings and ignored entries are preserved during "
-        "automatic rematch.\n\n"
-        "For advanced tuning, you can manually edit the configuration files\n"
-        "‘matching_rules.json’ located in the config directory.\n"
-        "The default settings are already optimised – it is strongly "
-        "recommended to use\n"
-        "manual mappings or aliases (in ‘channel_aliases.json’) for specific "
-        "corrections instead of modifying these files.");
+         "1. Manual mappings (highest priority)\n"
+         "2. TVG-ID match (if present)\n"
+         "3. Exact name match (after normalization)\n"
+         "4. Substring match (if one name contains the other)\n"
+         "5. Token-sort (percentage of common words)\n"
+         "6. Jaro-Winkler refinement for borderline cases\n\n"
+         "Adjustable parameters (visible below):\n"
+         "  • Fuzzy threshold (50–100) – influences Jaro-Winkler bonus\n"
+         "  • Substring min length – minimum length for substring match\n"
+         "  • Substring ratio – percentage threshold (not used directly, kept "
+         "for compatibility)\n"
+         "  • Min match score – required score (0–100) to accept a match\n\n"
+         "Score thresholds:\n"
+         "  • 85+ : High confidence\n"
+         "  • 70+ : Medium confidence\n"
+         "  • 60+ : Low confidence\n\n"
+         "Rematching behavior:\n"
+         "  • Apply (Match Now) always triggers a full rematch for both the "
+         "current playlist (if loaded) and favorites.\n"
+         "  • Automatic rematch after EPG source updates: current playlist is "
+         "always rematched; favorites are rematched only if the EPG channel "
+         "list has changed (hash check).\n"
+         "  • Manual mappings and ignored entries are preserved during "
+         "automatic rematch.\n\n"
+         "For advanced tuning, you can manually edit the configuration files\n"
+         "‘matching_rules.json’ located in the config directory.\n"
+         "The default settings are already optimised – it is strongly "
+         "recommended to use\n"
+         "manual mappings or aliases (in ‘channel_aliases.json’) for specific "
+         "corrections instead of modifying these files.");
 
   // Базовая ширина – 700 DIP, не больше 80% экрана
   int desiredWidth = FromDIP(700);
@@ -964,17 +955,20 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
   wxString info = wxString::Format(
-      _U("After editing, restart the application for changes to take effect.\n\n"
-        "You can fine-tune matching by editing the following JSON files in the "
-        "config directory:\n\n"
-        "  • %s\n"
-        "  • %s\n\n"
-        "These files contain advanced parameters (token_high, jaro_high, "
-        "stopwords, etc.).\n"
-        "The default values are already well-tuned. It is recommended to use "
-        "manual mappings or aliases\n"
-        "for specific channel corrections instead of modifying these files.\n\n"
-        "If the files are missing, built‑in defaults are used."),
+      _U("After editing, restart the application for changes to take "
+         "effect.\n\n"
+         "You can fine-tune matching by editing the following JSON files in "
+         "the "
+         "config directory:\n\n"
+         "  • %s\n"
+         "  • %s\n\n"
+         "These files contain advanced parameters (token_high, jaro_high, "
+         "stopwords, etc.).\n"
+         "The default values are already well-tuned. It is recommended to use "
+         "manual mappings or aliases\n"
+         "for specific channel corrections instead of modifying these "
+         "files.\n\n"
+         "If the files are missing, built‑in defaults are used."),
       rulesPath, aliasesPath);
 
   // Кнопки создаём заранее, чтобы знать их ширину
@@ -1055,4 +1049,3 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
   dlg.CentreOnParent();
   dlg.ShowModal();
 }
-

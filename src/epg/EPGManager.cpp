@@ -573,65 +573,75 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
     sourcesCopy = m_sources;
   }
 
-  std::vector<std::string> urlsToUpdate;
+  auto queue = std::make_shared<
+      std::vector<std::pair<std::string, std::string>>>(); // (url, name)
   for (const auto &src : sourcesCopy) {
     if (!onlyAutoUpdate || src.autoUpdate) {
-      urlsToUpdate.push_back(src.url);
+      queue->emplace_back(src.url, src.name);
     }
   }
 
-  if (urlsToUpdate.empty()) {
+  if (queue->empty()) {
     LOG_DEBUG("EPGManager: No sources to update");
-    // Сброс флага (если был установлен)
     m_autoUpdateInProgress = false;
-    // Уведомление UI о завершении (сбрасывает busy и гейдж)
-    UpdateProgress(
-        {EpgProgressStage::Done, 100,
-         _U("No EPG sources to update").ToStdString()});
+    UpdateProgress({EpgProgressStage::Done, 100,
+                    _U("No EPG sources to update").ToStdString()});
     return;
   }
 
-  auto completed = std::make_shared<std::atomic<int>>(0);
+  auto index      = std::make_shared<size_t>(0);
   auto anySuccess = std::make_shared<std::atomic<bool>>(false);
-  int total = static_cast<int>(urlsToUpdate.size());
+  auto cancelled  = std::make_shared<std::atomic<bool>>(false);
 
-  for (const auto &url : urlsToUpdate) {
-    std::string name;
-    for (const auto &src : sourcesCopy) {
-      if (src.url == url) {
-        name = src.name;
-        break;
-      }
+  // Рекурсивная лямбда через shared_ptr<function> — стандартный приём
+  // для C++17, если нет Y-комбинатора под рукой.
+  auto next = std::make_shared<std::function<void()>>();
+  *next = [this, queue, index, anySuccess, cancelled, next]() {
+    // Пользователь нажал Cancel — обрываем цепочку.
+    // Терминальное Cancelled для текущего источника уже отправил
+    // RefreshSourceAsync, повторно не эмитим.
+    if (cancelled->load()) {
+      LOG_DEBUG("EPGManager: batch update cancelled, stopping chain");
+      m_autoUpdateInProgress = false;
+      return;
     }
+
+    size_t i = (*index)++;
+    if (i >= queue->size()) {
+      // Все источники обработаны.
+      m_autoUpdateInProgress = false;
+      bool startedMatching = false;
+      if (anySuccess->load() && !m_currentPlaylistId.empty() &&
+          m_playlistManager) {
+        Playlist *pl = m_playlistManager->findByUniqueId(m_currentPlaylistId);
+        if (pl && !pl->getChannels().empty()) {
+          MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId, nullptr);
+          MatchFavoritesAsync(false);
+          startedMatching = true;
+        }
+      }
+      if (!startedMatching) {
+        UpdateProgress({EpgProgressStage::Done, 100,
+                        _U("Done").ToStdString()});
+      }
+      return;
+    }
+
+    const auto &entry = (*queue)[i];
     RefreshSourceAsync(
-        url, name,
-        [this, completed, anySuccess, total](bool success,
-                                             const std::string &) {
+        entry.first, entry.second,
+        [this, anySuccess, cancelled, next](bool success, const std::string &) {
           if (success)
             anySuccess->store(true);
-          int done = ++(*completed);
-          if (done == total) {
-            // Все обновления завершены
-            m_autoUpdateInProgress = false; // сброс флага
-            bool startedMatching = false;
-            if (anySuccess->load() && !m_currentPlaylistId.empty() &&
-                m_playlistManager) {
-              Playlist *pl =
-                  m_playlistManager->findByUniqueId(m_currentPlaylistId);
-              if (pl && !pl->getChannels().empty()) {
-                MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId,
-                                   nullptr);
-                MatchFavoritesAsync(false);
-                startedMatching = true;
-              }
-            }
-            if (!startedMatching) {
-              UpdateProgress({EpgProgressStage::Done, 100,
-                              _U("Done").ToStdString()});
-            }
-          }
+          // abort сбрасывается в начале LoadFromUrl, поэтому читаем его
+          // сразу в колбэке — до того, как запустится следующий источник.
+          if (m_downloadProgress.abort.load())
+            cancelled->store(true);
+          (*next)();
         });
-  }
+  };
+
+  (*next)();
 }
 
 void EPGManager::OnStartupUpdateTimer(wxTimerEvent &event) {
@@ -768,18 +778,19 @@ bool EPGManager::LoadFromUrl(const std::string &url,
   ErrorCode ec = m_playlistManager->downloadUrl(url, xmlData, userAgent,
                                                 &m_downloadProgress);
   if (ec != ErrorCode::OK) {
+    StopProgressTimer();
     setLastError("Failed to download EPG from " + url + ": " +
                  m_playlistManager->getLastError());
     LOG_ERROR("EPGManager: Failed to download EPG from %s", url.c_str());
+
     return false;
   }
 
   StopProgressTimer();
 
   if (m_downloadProgress.abort.load()) {
-    UpdateProgress({EpgProgressStage::Cancelled, -1,
-                    _U("Cancelled").ToStdString()});
     setLastError("Download cancelled");
+
     return false;
   }
 
@@ -818,8 +829,7 @@ bool EPGManager::LoadFromFile(const std::string &filePath) {
   if (!file.is_open()) {
     setLastError("Cannot open file: " + filePath);
     LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
-    UpdateProgress({EpgProgressStage::Error, 0,
-                    _U("Error: Cannot open file").ToStdString()});
+    
     return false;
   }
   std::string content((std::istreambuf_iterator<char>(file)),
@@ -829,9 +839,7 @@ bool EPGManager::LoadFromFile(const std::string &filePath) {
   if (!DecompressIfNeeded(content)) {
     setLastError("Failed to decompress file: " + filePath);
     LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
-    UpdateProgress(
-        {EpgProgressStage::Error, 0,
-         _U("Error: Decompression failed").ToStdString()});
+
     return false;
   }
 
@@ -856,14 +864,30 @@ void EPGManager::RefreshSourceAsync(
       std::async(std::launch::async, [this, url, name, callback]() {
         bool success = false;
         std::string error;
+
         if (IsNetworkUrl(url)) {
           success = LoadFromUrl(url, "");
         } else {
           success = LoadFromFile(url);
         }
+
         if (!success) {
           error = getLastError();
+
+          EpgProgressInfo info;
+          info.percent = 0;
+          bool cancelled = IsNetworkUrl(url) && m_downloadProgress.abort.load();
+          if (cancelled) {
+            info.stage = EpgProgressStage::Cancelled;
+            info.stageText = _U("Cancelled").ToStdString();
+          } else {
+            info.stage = EpgProgressStage::Error;
+            info.stageText = _U("Update failed").ToStdString();
+            info.errorMessage = error;
+          }
+          UpdateProgress(info);
         }
+
         if (callback) {
           wxTheApp->CallAfter(
               [callback, success, error]() { callback(success, error); });

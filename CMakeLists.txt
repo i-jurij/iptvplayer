@@ -270,6 +270,11 @@ else()
     target_link_libraries(${PROJECT_NAME} PRIVATE ${CURL_LIBRARIES})
 endif()
 
+
+if(TARGET WebP::webp)
+    target_link_libraries(${PROJECT_NAME} PRIVATE WebP::webp)
+endif()
+
 # ------------------------
 # Макрос для установки ресурсов
 # ------------------------
