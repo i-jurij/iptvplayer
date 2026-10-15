@@ -121,17 +121,31 @@ void ApplyCurlCaBundle(CURL *handle) {
   if (!handle)
     return;
 
-#if defined(_WIN32) || defined(__APPLE__)
-  // Windows: libcurl использует Schannel → системный certificate store.
-  // macOS:   libcurl использует SecureTransport → Keychain.
-  // В обоих случаях CURLOPT_CAINFO игнорируется или не нужен.
-  (void)handle;
-  return;
-#else
-  const char *ca = std::getenv("IPTVPLAYER_CA_BUNDLE");
-  if (ca && *ca) {
+  // Явный override — работает на всех платформах.
+  if (const char *ca = std::getenv("IPTVPLAYER_CA_BUNDLE"); ca && *ca) {
     curl_easy_setopt(handle, CURLOPT_CAINFO, ca);
+    return;
   }
+
+#if defined(_WIN32)
+  // MSYS2 UCRT64 libcurl-4.dll собран с OpenSSL: CURLOPT_CAINFO обязателен.
+  // Ищем ca-bundle.crt рядом с .exe — туда его кладёт build-release.sh.
+  // ToFsPath корректно работает с не-ASCII путями (C:\Users\Иван\...):
+  // std::filesystem::path(std::string) трактует байты как CP_ACP,
+  // ToFsPath конвертирует UTF-8 → UTF-16 через WinAPI.
+  wxFileName exeFn(wxStandardPaths::Get().GetExecutablePath());
+  exeFn.MakeAbsolute();
+  std::string exeDirUtf8(exeFn.GetPath().ToUTF8().data());
+
+  std::filesystem::path candidate = ToFsPath(exeDirUtf8) / "ca-bundle.crt";
+
+  std::error_code ec;
+  if (!std::filesystem::exists(candidate, ec) || ec)
+    return;
+
+  auto u8 = candidate.u8string();
+  std::string caPath(reinterpret_cast<const char *>(u8.data()), u8.size());
+  curl_easy_setopt(handle, CURLOPT_CAINFO, caPath.c_str());
 #endif
 }
 

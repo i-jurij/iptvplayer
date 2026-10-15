@@ -93,6 +93,18 @@ else
     error "vulkan-1.dll не найден в $PREFIX/bin — установите ${PKG_PREFIX}-vulkan-loader"
 fi
 
+# --- CA bundle для libcurl (OpenSSL) ---
+# libcurl-4.dll в MSYS2 UCRT64 собран с OpenSSL и не имеет встроенного
+# пути к CA-файлу. Кладём ca-bundle.crt рядом с exe — ApplyCurlCaBundle()
+# найдёт его при запуске вне MSYS2-шелла.
+CA_BUNDLE="/etc/ssl/certs/ca-bundle.crt"
+if [[ -f "$CA_BUNDLE" ]]; then
+    cp "$CA_BUNDLE" "$INSTALL_DIR/bin/ca-bundle.crt"
+    log "Скопирован CA bundle: ca-bundle.crt"
+else
+    error "ca-bundle.crt не найден: $CA_BUNDLE. Установите: pacman -S ca-certificates"
+fi
+
 # --- Strip отладочных символов из DLL и EXE ---
 # Уменьшает размер пакета на ~20-30%. Символы в релизе не нужны:
 # бэктрейсы всё равно нечитаемы без .pdb-файлов.

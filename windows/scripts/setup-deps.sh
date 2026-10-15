@@ -53,6 +53,7 @@ MSYS_PKGS=(
     "gettext"
     "gettext-devel"
     "texinfo"
+    "ca-certificates"
 )
 
 # UCRT64-пакеты: компилятор и библиотеки, линкуются в итоговый бинарник.

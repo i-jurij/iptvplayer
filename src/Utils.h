@@ -28,13 +28,16 @@ inline wxString FromUTF8Tr(const char *s) {
 }
 #define _U(s) FromUTF8Tr(s)
 
-// Применяет путь к CA-bundle из переменной окружения IPTVPLAYER_CA_BUNDLE
-// к переданному curl-хендлу через CURLOPT_CAINFO.
+// Применяет путь к CA-bundle к переданному curl-хендлу через CURLOPT_CAINFO.
 //
-// Linux/BSD: если переменная задана — использует её; иначе no-op, libcurl
-//   берёт свой зашитый путь.
-// Windows/macOS: всегда no-op — Schannel и SecureTransport читают
-//   системный store / Keychain и в подсказке не нуждаются.
+// Порядок поиска:
+//   1. Переменная окружения IPTVPLAYER_CA_BUNDLE — все платформы.
+//   2. Windows: ca-bundle.crt рядом с .exe. MSYS2 UCRT64 libcurl-4.dll
+//      собран с OpenSSL и требует явный путь к CA-файлу; build-release.sh
+//      кладёт бандл рядом с бинарником. Путь строится через ToFsPath —
+//      корректно на не-ASCII путях (C:\Users\Иван\...).
+//   3. Иначе no-op: libcurl использует системный store
+//      (Linux/BSD — /etc/ssl/certs, macOS — Keychain).
 void ApplyCurlCaBundle(CURL *handle);
 
 int MeasureWrappedTextHeight(wxWindow *parent, const wxString &text,
