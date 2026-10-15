@@ -121,18 +121,15 @@ void ApplyCurlCaBundle(CURL *handle) {
   if (!handle)
     return;
 
-  // Явный override — работает на всех платформах.
   if (const char *ca = std::getenv("IPTVPLAYER_CA_BUNDLE"); ca && *ca) {
     curl_easy_setopt(handle, CURLOPT_CAINFO, ca);
     return;
   }
 
 #if defined(_WIN32)
-  // MSYS2 UCRT64 libcurl-4.dll собран с OpenSSL: CURLOPT_CAINFO обязателен.
-  // Ищем ca-bundle.crt рядом с .exe — туда его кладёт build-release.sh.
-  // ToFsPath корректно работает с не-ASCII путями (C:\Users\Иван\...):
-  // std::filesystem::path(std::string) трактует байты как CP_ACP,
-  // ToFsPath конвертирует UTF-8 → UTF-16 через WinAPI.
+  // ca-bundle.crt рядом с exe (если есть) — путь через ToFsPath для
+  // не-ASCII путей. CURLSSLOPT_NATIVE_CA добавляет системное хранилище
+  // Windows как второй источник доверия (libcurl >= 7.71.0).
   wxFileName exeFn(wxStandardPaths::Get().GetExecutablePath());
   exeFn.MakeAbsolute();
   std::string exeDirUtf8(exeFn.GetPath().ToUTF8().data());
@@ -140,12 +137,14 @@ void ApplyCurlCaBundle(CURL *handle) {
   std::filesystem::path candidate = ToFsPath(exeDirUtf8) / "ca-bundle.crt";
 
   std::error_code ec;
-  if (!std::filesystem::exists(candidate, ec) || ec)
-    return;
+  if (std::filesystem::exists(candidate, ec) && !ec) {
+    auto u8 = candidate.u8string();
+    std::string caPath(reinterpret_cast<const char *>(u8.data()), u8.size());
+    curl_easy_setopt(handle, CURLOPT_CAINFO, caPath.c_str());
+  }
 
-  auto u8 = candidate.u8string();
-  std::string caPath(reinterpret_cast<const char *>(u8.data()), u8.size());
-  curl_easy_setopt(handle, CURLOPT_CAINFO, caPath.c_str());
+  curl_easy_setopt(handle, CURLOPT_SSL_OPTIONS,
+                   static_cast<long>(CURLSSLOPT_NATIVE_CA));
 #endif
 }
 

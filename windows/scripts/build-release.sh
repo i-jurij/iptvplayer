@@ -94,15 +94,13 @@ else
 fi
 
 # --- CA bundle для libcurl (OpenSSL) ---
-# mingw curl ищет бандл в $PREFIX/etc/ssl/certs/ca-bundle.crt (пакет
-# ${PKG_PREFIX}-ca-certificates, транзитивная зависимость openssl).
-# Кладём рядом с exe — ApplyCurlCaBundle() найдёт его вне MSYS2.
+# Опционально: если есть — кладём рядом с exe как дополнительный источник CA.
 CA_BUNDLE="$PREFIX/etc/ssl/certs/ca-bundle.crt"
 if [[ -f "$CA_BUNDLE" ]]; then
     cp "$CA_BUNDLE" "$INSTALL_DIR/bin/ca-bundle.crt"
     log "Скопирован CA bundle: ca-bundle.crt"
 else
-    error "ca-bundle.crt не найден: $CA_BUNDLE. Установите: pacman -S ${PKG_PREFIX}-ca-certificates"
+    warn "ca-bundle.crt не найден: $CA_BUNDLE (работаем через CURLSSLOPT_NATIVE_CA)"
 fi
 
 # --- Strip отладочных символов из DLL и EXE ---
