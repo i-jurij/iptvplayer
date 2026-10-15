@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://i-jurij.github.io/iptvplayer/sitemap.xml
