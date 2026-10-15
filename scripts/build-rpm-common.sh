@@ -74,16 +74,10 @@ build_rpm_common() {
         fi
     fi
 
-    rm -rf "$RPM_SPEC_DIR"
-    mkdir -p "$RPM_SPEC_DIR"/{SOURCES,BUILD,RPMS,SRPMS,BUILDROOT}
-
-    if ! ( cd "$STAGING_DIR" \
-           && tar -czf "$RPM_SPEC_DIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
-                 --transform="flags=r;s,^,$PACKAGE_NAME-$VERSION/," . ); then
-        echo "[!] build_rpm_common: упаковка staging в tar.gz упала" >&2
-        return 1
-    fi
-
+    # Файлы считаем ДО создания _spec_dir и установки RETURN-trap:
+    # rpm_files_block — простая функция без побочек, но если она когда-то
+    # начнёт возвращать код != 0 в подоболочке, RETURN-trap уже сработает
+    # и удалит mktemp-каталог — до того как в него что-то запишут.
     local files_block
     files_block="$(rpm_files_block)"
     if [ -z "$files_block" ]; then
@@ -91,12 +85,45 @@ build_rpm_common() {
         return 1
     fi
 
+    # RPM brp-strip (шаг постобработки rpmbuild) не умеет работать с
+    # не-ASCII в RPM_BUILD_ROOT: путь с кириллицей доходит до /usr/bin/strip
+    # в octal-escape форме (\320\227\320\260...) и strip не находит файл —
+    # "No such file". Остальные шаги (%prep/%build/%install) при этом
+    # проходят, потому что bash разворачивает $'...' корректно.
+    # Обходим: если _topdir содержит не-ASCII, переносим его в
+    # ASCII-безопасный mktemp-каталог. Проверка LC_ALL=C grep '^[ -~]*$'
+    # ловит любой байт вне printable ASCII (включая UTF-8 кириллицу).
+    local _spec_dir="$RPM_SPEC_DIR"
+    if ! printf '%s' "$_spec_dir" | LC_ALL=C grep -q '^[ -~]*$'; then
+        local _ascii_topdir
+        _ascii_topdir="$(mktemp -d -t iptvplayer-rpmbuild.XXXXXX)" || {
+            echo "[!] не удалось создать ASCII-каталог для rpmbuild" >&2
+            return 1
+        }
+        _spec_dir="$_ascii_topdir"
+        echo "[i] Не-ASCII в PROJECT_ROOT — rpmbuild выполняется в $_spec_dir" >&2
+        # shellcheck disable=SC2064
+        # RETURN-trap: rm + снятие самого trap. Иначе он сработает на
+        # выходе из любой следующей функции с уже несуществующим путём.
+        trap "rm -rf -- '$_ascii_topdir'; trap - RETURN" RETURN
+    fi
+
+    rm -rf "$_spec_dir"
+    mkdir -p "$_spec_dir"/{SOURCES,BUILD,RPMS,SRPMS,BUILDROOT}
+
+    if ! ( cd "$STAGING_DIR" \
+           && tar -czf "$_spec_dir/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+                 --transform="flags=r;s,^,$PACKAGE_NAME-$VERSION/," . ); then
+        echo "[!] build_rpm_common: упаковка staging в tar.gz упала" >&2
+        return 1
+    fi
+
     local changelog_suffix=""
     [ -n "$changelog_tag" ] && changelog_suffix=" $changelog_tag"
 
-    cat > "$RPM_SPEC_DIR/${PACKAGE_NAME}.spec" << EOF
+    cat > "$_spec_dir/${PACKAGE_NAME}.spec" << EOF
 %define debug_package %{nil}
-%define _topdir $RPM_SPEC_DIR
+%define _topdir $_spec_dir
 
 Name:           $PACKAGE_NAME
 Version:        $VERSION
@@ -134,16 +161,16 @@ $post_body
 - Initial build${changelog_suffix}
 EOF
 
-    if ! rpmbuild -bb --define "_topdir $RPM_SPEC_DIR" \
-            "$RPM_SPEC_DIR/${PACKAGE_NAME}.spec"; then
+    if ! rpmbuild -bb --define "_topdir $_spec_dir" \
+            "$_spec_dir/${PACKAGE_NAME}.spec"; then
         echo "[!] build_rpm_common: rpmbuild упал" >&2
         return 1
     fi
 
     local built
-    built="$(find "$RPM_SPEC_DIR/RPMS" -name '*.rpm' -type f -print -quit 2>/dev/null)"
+    built="$(find "$_spec_dir/RPMS" -name '*.rpm' -type f -print -quit 2>/dev/null)"
     if [ -z "$built" ]; then
-        echo "[!] build_rpm_common: rpmbuild не создал .rpm в $RPM_SPEC_DIR/RPMS" >&2
+        echo "[!] build_rpm_common: rpmbuild не создал .rpm в $_spec_dir/RPMS" >&2
         return 1
     fi
     if ! mv "$built" "$rpm_file"; then

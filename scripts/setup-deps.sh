@@ -108,9 +108,54 @@ cleanup_deps() {
         rm -f "$STATE_FILE"; log "Стейт пуст — удалён."; return 0
     fi
     log "Удаление установленных нами пакетов (${#pkgs[@]} шт.)..."
-    deps_remove "${pkgs[@]}" || warn "deps_remove вернул ошибку — проверьте вручную."
-    rm -f "$STATE_FILE"
-    log "✅ Пакеты удалены, состояние очищено."
+
+    # Сначала батч: одна транзакция пакетного менеджера. При провале —
+    # per-package fallback: узнаём, что именно не удалилось, и не теряем
+    # state (иначе следующий --cleanup-deps не попробует снова).
+    if deps_remove "${pkgs[@]}" >/dev/null 2>&1; then
+        rm -f "$STATE_FILE"
+        log "✅ Пакеты удалены (${#pkgs[@]} шт.), состояние очищено."
+        return 0
+    fi
+
+    warn "Батч-удаление (${#pkgs[@]} шт.) провалилось — пробую по одному..."
+    local failed=()
+    local _p
+    for _p in "${pkgs[@]}"; do
+        deps_remove "$_p" >/dev/null 2>&1 || failed+=("$_p")
+    done
+
+    local _ok=$(( ${#pkgs[@]} - ${#failed[@]} ))
+    [ "$_ok" -gt 0 ] && log "✅ Удалено: $_ok из ${#pkgs[@]}."
+
+    if [ ${#failed[@]} -eq 0 ]; then
+        rm -f "$STATE_FILE"
+        log "Состояние очищено."
+        return 0
+    fi
+
+    # Сохраняем неудалённые: отдельный файл с готовой командой.
+    # State-файл НЕ удаляем — повторный --cleanup-deps попробует ещё раз.
+    local fail_file="$PROJECT_ROOT/.iptvplayer-deps-failed"
+    {
+        printf '# Пакеты, которые не удалось удалить автоматически.\n'
+        printf '# Удалите вручную средствами вашего пакетного менеджера, например:\n'
+        printf '#   sudo dnf remove <pkg1> <pkg2>       (Fedora/RHEL/RedOS/ROSA)\n'
+        printf '#   sudo apt-get remove <pkg1> <pkg2>   (Debian/Ubuntu/ALT)\n'
+        printf '#   sudo zypper remove <pkg1> <pkg2>    (openSUSE/SLES)\n'
+        printf '#   sudo pacman -R <pkg1> <pkg2>        (Arch/Manjaro)\n'
+        printf '#   sudo apk del <pkg1> <pkg2>          (Alpine)\n'
+        printf '# После успешного удаления — удалите этот файл.\n'
+        printf '%s\n' "${failed[@]}"
+    } > "$fail_file"
+
+    warn "Не удалось удалить ${#failed[@]} пакет(ов) из ${#pkgs[@]}:"
+    printf '  - %s\n' "${failed[@]}" >&2
+    warn "Список сохранён: $fail_file"
+    warn "Удалить вручную: sudo dnf remove $(printf '%s ' "${failed[@]}")"
+
+    printf '%s\n' "${failed[@]}" > "$STATE_FILE"
+    return 1
 }
 
 select_deps_file() {
@@ -144,7 +189,7 @@ if [ "$CLEANUP_ONLY" = true ]; then
     elif [ "$(id -u)" = "0" ]; then SUDO=""
     else error "Нужен sudo или root для удаления пакетов"; fi
     cleanup_deps
-    exit 0
+    exit $?
 fi
 
 # Переменная окружения также управляет SKIP_SYSTEM

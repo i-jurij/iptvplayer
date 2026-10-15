@@ -43,4 +43,4 @@ EOF
 deps_is_installed() { rpm -q "$1" &>/dev/null; }
 deps_update()  { $SUDO dnf makecache -q; }
 deps_install() { $SUDO dnf install -y "$@"; }
-deps_remove()  { $SUDO dnf remove -y "$@" && $SUDO dnf autoremove -y; }
+deps_remove()  { $SUDO dnf remove -y "$@"; }
