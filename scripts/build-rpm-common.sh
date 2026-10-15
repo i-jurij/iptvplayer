@@ -43,6 +43,10 @@ build_rpm_common() {
     : "${VERSION:?VERSION не задан}"
     : "${DISTRO:?DISTRO не задан}"
 
+    ensure_tools "сборки .rpm" \
+        "rpmbuild:rpm-build" \
+        "rpm:rpm"
+
     local file_release="${RPM_FILE_RELEASE:-$RPM_RELEASE}"
     local changelog_tag="${RPM_CHANGELOG_TAG:-}"
     local output_suffix="${RPM_OUTPUT_SUFFIX:-$DISTRO}"

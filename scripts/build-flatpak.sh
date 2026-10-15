@@ -39,10 +39,9 @@ build_flatpak() {
 
     echo "[+] Сборка Flatpak (runtime ${RUNTIME}//${RUNTIME_VERSION})..."
 
-    if ! command -v flatpak-builder >/dev/null 2>&1; then
-        echo "[!] flatpak-builder не найден. Установите: flatpak-builder" >&2
-        return 1
-    fi
+    ensure_tools "сборки Flatpak" \
+        "flatpak:flatpak" \
+        "flatpak-builder:flatpak-builder"
     if [ ! -x "$install_dir/bin/$PACKAGE_NAME" ]; then
         echo "[!] не найден $install_dir/bin/$PACKAGE_NAME" >&2
         return 1

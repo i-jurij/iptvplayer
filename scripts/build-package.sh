@@ -81,7 +81,13 @@ build_binary() {
     echo "[+] Бинарник собран."
 }
 
+_cleanup_done=""
 cleanup() {
+    # Защита от двойного запуска: INT/TERM приводят к exit, что
+    # вызывает ещё и EXIT. Без флага — двойная уборка в логе.
+    [ -n "$_cleanup_done" ] && return 0
+    _cleanup_done=1
+
     echo "[+] Очистка временных каталогов..."
     rm -rf "${STAGING_DIR:?}" "${APPDIR:?}"
     rm -rf "$PROJECT_ROOT"/pkg-rpm*
@@ -92,6 +98,17 @@ cleanup() {
     rm -rf "$PROJECT_ROOT/pkg-nix"
     rm -rf "$PROJECT_ROOT/AppDir"
     rm -f  "${OUTPUT_DIR:?}/appinfo"
+
+    # Уборка инструментов, поставленных ensure_tools в упаковщиках.
+    # На любом выходе — успех, error, сигнал. Иначе при отказе на ask
+    # (error → exit) или Ctrl-C state-файл зависнет, а пакеты останутся.
+    # --keep-deps отключает, как в build-release.sh.
+    if [[ "${KEEP_DEPS:-false}" != true ]] \
+       && [[ -f "$PROJECT_ROOT/.iptvplayer-deps-installed" ]]; then
+        echo "[+] Уборка инструментов, поставленных при упаковке..."
+        "$SCRIPT_DIR/setup-deps.sh" --cleanup-deps --yes \
+            || echo "[!] setup-deps.sh --cleanup-deps вернул ошибку." >&2
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -502,6 +519,16 @@ main() {
     setup_dirs
 
     build_binary || { echo "[!] Бинарник не собран — выходим." >&2; exit 1; }
+
+    # Базовые инструменты упаковки. check_deps выше только предупреждает;
+    # здесь — реальная попытка доустановки (интерактив) или отказ (CI).
+    # setup-deps в build-release уже отработал в интерактиве, так что если
+    # чего-то не хватает — оно не в стандартном списке дистрибутива.
+    # tar — создание source-архива в rpm-упаковщике, nix-выход.
+    # readelf — NEEDED-список в AppImage, косвенно dpkg-shlibdeps в .deb.
+    ensure_tools "базовых операций упаковки" \
+        "tar:tar" \
+        "readelf:binutils"
 
     if ! { read -r VERSION_DISPLAY; read -r VERSION_FILE; read -r VERSION; } \
         < <(read_versions_from_install); then

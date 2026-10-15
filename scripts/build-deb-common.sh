@@ -19,6 +19,10 @@ build_deb_common() {
     : "${PROJECT_ROOT:?}" "${STAGING_DIR:?}" "${OUTPUT_DIR:?}"
     : "${PACKAGE_NAME:?}" "${VERSION:?}" "${DEB_ARCH:?}" "${DISTRO:?}"
 
+    ensure_tools "сборки .deb" \
+        "dpkg-deb:dpkg" \
+        "dpkg-shlibdeps:dpkg-dev"
+
     local suffix="${DEB_OUTPUT_SUFFIX:-$DISTRO}"
     local deb_file="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION}_${suffix}_${DEB_ARCH}.deb"
 

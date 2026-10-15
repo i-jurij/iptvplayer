@@ -399,9 +399,13 @@ check_deps() {
     fi
 
     if [ ${#required[@]} -ne 0 ]; then
-        echo "[!] Не хватает обязательных инструментов: ${required[*]}. Установите."
-        exit 1
+        if [[ "$NON_INTERACTIVE" == true ]]; then
+            error "Не хватает обязательных инструментов: ${required[*]}. CI-образ должен ставить их заранее."
+        fi
+        warn "Не хватает инструментов: ${required[*]}"
+        warn "Установка — при сборке конкретного формата (упаковщик сам предложит)."
     fi
+
     if [ ${#optional[@]} -ne 0 ]; then
         echo "[i] Опциональные инструменты не найдены: ${optional[*]}. Установите при необходимости."
     fi
@@ -424,4 +428,87 @@ EOF
     output=$(cd "$tmp_dir" && dpkg-shlibdeps -O "$bin_path" 2>&1) || true
     rm -rf "$tmp_dir"
     echo "$output" | sed -n 's/^shlibs:Depends=//p' | tr -d '\n\r'
+}
+
+
+# =============================================================================
+#   ensure_tools — проверка и установка инструментов упаковщиков
+# =============================================================================
+# check_deps в интерактиве только предупреждает. Реальная установка — здесь:
+# упаковщик сам знает, что ему нужно, и вызывает ensure_tools со своим списком.
+#
+# В интерактиве: не хватает → спросить → поставить → записать в state
+#                (уборка — в конце build-package.sh через trap).
+# В CI: NON_INTERACTIVE=true → error (workflow обязан поставить заранее).
+#
+# Формат аргументов: "tool:package" — имя бинарника в PATH и имя пакета.
+# =============================================================================
+
+_load_deps_module() {
+    [[ -n "${_DEPS_MODULE_LOADED:-}" ]] && return 0
+    local pkgmgr; pkgmgr="$(detect_pkgmgr)"
+    local f
+    if [[ "$pkgmgr" == dnf ]] && distro_is 'rosa-*'; then
+        f="$SCRIPT_DIR/setup-deps-rosa.sh"
+    else
+        case "$pkgmgr" in
+            apt)     f="$SCRIPT_DIR/setup-deps-deb.sh"  ;;
+            dnf)     f="$SCRIPT_DIR/setup-deps-rpm.sh"  ;;
+            zypper)  f="$SCRIPT_DIR/setup-deps-suse.sh" ;;
+            apt-rpm) f="$SCRIPT_DIR/setup-deps-alt.sh"  ;;
+            pacman)  f="$SCRIPT_DIR/setup-deps-arch.sh" ;;
+            apk)     f="$SCRIPT_DIR/setup-deps-apk.sh"  ;;
+            *)       return 1 ;;
+        esac
+    fi
+    [ -f "$f" ] || return 1
+    # shellcheck disable=SC1090
+    source "$f"
+    if command -v sudo >/dev/null 2>&1; then SUDO="sudo"
+    elif [ "$(id -u)" = "0" ]; then SUDO=""
+    else return 1; fi
+    _DEPS_MODULE_LOADED=1
+    return 0
+}
+
+ensure_tools() {
+    local desc="$1"; shift
+    local -a missing_tools=() missing_pkgs=()
+    local pair tool pkg
+    for pair in "$@"; do
+        tool="${pair%%:*}"; pkg="${pair#*:}"
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            missing_tools+=("$tool"); missing_pkgs+=("$pkg")
+        fi
+    done
+    [ ${#missing_tools[@]} -eq 0 ] && return 0
+
+    if [[ "$NON_INTERACTIVE" == true ]]; then
+        error "Не хватает инструментов для $desc: ${missing_tools[*]}. CI-образ должен ставить их заранее."
+    fi
+    if ! _load_deps_module; then
+        error "Для $desc не хватает: ${missing_tools[*]}. На этой ОС автоустановка недоступна — поставьте вручную."
+    fi
+
+    warn "Для $desc не хватает: ${missing_tools[*]}"
+    if ! ask "Установить (${missing_pkgs[*]})? [Y/n]:" y; then
+        error "Без ${missing_tools[*]} продолжить нельзя."
+    fi
+
+    deps_update || true
+    if ! deps_install "${missing_pkgs[@]}"; then
+        error "Не удалось установить ${missing_pkgs[*]}."
+    fi
+    hash -r
+
+    local _state="${PROJECT_ROOT}/.iptvplayer-deps-installed"
+    touch "$_state"
+    printf '%s\n' "${missing_pkgs[@]}" >> "$_state"
+    sort -u "$_state" -o "$_state"
+
+    local t
+    for t in "${missing_tools[@]}"; do
+        command -v "$t" >/dev/null 2>&1 || error "После установки $t всё ещё не в PATH."
+    done
+    log "✅ ${missing_pkgs[*]} установлены."
 }

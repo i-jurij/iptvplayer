@@ -38,10 +38,8 @@ build_apk_common() {
 
     echo "[+] Сборка Alpine .apk (pkgrel=$pkgrel)..."
 
-    if ! command -v abuild >/dev/null 2>&1; then
-        echo "[!] abuild не найден. Установите: apk add alpine-sdk" >&2
-        return 1
-    fi
+    ensure_tools "сборки .apk" \
+        "abuild:alpine-sdk"
 
     if [ ! -f "$STAGING_DIR/usr/bin/$PACKAGE_NAME" ]; then
         if ! prepare_staging; then

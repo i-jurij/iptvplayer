@@ -88,6 +88,10 @@ build_sharun_appimage() {
             ;;
     esac
 
+    ensure_tools "сборки AppImage (sharun)" \
+        "wget:wget" \
+        "patchelf:patchelf"
+
     if [ ! -f "$bin_src" ]; then
         echo "[!] не найден бинарник $bin_src" >&2
         return 1
