@@ -94,15 +94,15 @@ else
 fi
 
 # --- CA bundle для libcurl (OpenSSL) ---
-# libcurl-4.dll в MSYS2 UCRT64 собран с OpenSSL и не имеет встроенного
-# пути к CA-файлу. Кладём ca-bundle.crt рядом с exe — ApplyCurlCaBundle()
-# найдёт его при запуске вне MSYS2-шелла.
-CA_BUNDLE="/etc/ssl/certs/ca-bundle.crt"
+# mingw curl ищет бандл в $PREFIX/etc/ssl/certs/ca-bundle.crt (пакет
+# ${PKG_PREFIX}-ca-certificates, транзитивная зависимость openssl).
+# Кладём рядом с exe — ApplyCurlCaBundle() найдёт его вне MSYS2.
+CA_BUNDLE="$PREFIX/etc/ssl/certs/ca-bundle.crt"
 if [[ -f "$CA_BUNDLE" ]]; then
     cp "$CA_BUNDLE" "$INSTALL_DIR/bin/ca-bundle.crt"
     log "Скопирован CA bundle: ca-bundle.crt"
 else
-    error "ca-bundle.crt не найден: $CA_BUNDLE. Установите: pacman -S ca-certificates"
+    error "ca-bundle.crt не найден: $CA_BUNDLE. Установите: pacman -S ${PKG_PREFIX}-ca-certificates"
 fi
 
 # --- Strip отладочных символов из DLL и EXE ---

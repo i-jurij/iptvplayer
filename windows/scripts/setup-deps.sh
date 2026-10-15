@@ -53,7 +53,6 @@ MSYS_PKGS=(
     "gettext"
     "gettext-devel"
     "texinfo"
-    "ca-certificates"
 )
 
 # UCRT64-пакеты: компилятор и библиотеки, линкуются в итоговый бинарник.
@@ -69,6 +68,7 @@ UCRT_PKGS=(
     "${PKG_PREFIX}-libwebp"
     "${PKG_PREFIX}-rapidjson"
     "${PKG_PREFIX}-gettext"
+    "${PKG_PREFIX}-ca-certificates"
     "${PKG_PREFIX}-nsis"
     "git"
 )
