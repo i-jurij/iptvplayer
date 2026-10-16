@@ -109,6 +109,12 @@ void MainFrame::createMainPanel() {
   m_mainPanel = new wxPanel(this, wxID_ANY);
   m_mainPanel->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_mainPanel->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
+  m_mainPanel->Bind(wxEVT_PAINT, [](wxPaintEvent &evt) {
+    wxPaintDC dc(static_cast<wxWindow *>(evt.GetEventObject()));
+    dc.SetBackground(wxBrush(
+        wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE)));
+    dc.Clear();
+  });
 
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -127,6 +133,12 @@ void MainFrame::createMainPanel() {
   m_notebook->SetTabCtrlHeight(0);
   m_notebook->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_notebook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
+  m_notebook->Bind(wxEVT_PAINT, [](wxPaintEvent &evt) {
+    wxPaintDC dc(static_cast<wxWindow *>(evt.GetEventObject()));
+    dc.SetBackground(wxBrush(
+        wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE)));
+    dc.Clear();
+  });
 
   // -------------------------------
   // HEADER PANEL
@@ -134,6 +146,12 @@ void MainFrame::createMainPanel() {
   wxPanel *headerPanel = new wxPanel(m_mainPanel, wxID_ANY);
   headerPanel->SetBackgroundStyle(wxBG_STYLE_PAINT);
   headerPanel->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
+  headerPanel->Bind(wxEVT_PAINT, [](wxPaintEvent &evt) {
+    wxPaintDC dc(static_cast<wxWindow *>(evt.GetEventObject()));
+    dc.SetBackground(wxBrush(
+        wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE)));
+    dc.Clear();
+  });
 
   auto *headerSizer = new wxBoxSizer(wxHORIZONTAL);
 
