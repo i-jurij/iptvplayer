@@ -741,56 +741,32 @@ jobs:
           mark() { [[ "$1" == "true" ]] && printf '✅' || printf '❌'; }
           SHR=$(mark "${{ steps.check.outputs.have_sharun }}")
 
-          wz_c="${{ steps.check.outputs.win_zip_count }}"
-          ws_c="${{ steps.check.outputs.win_setup_count }}"
-          win_zip_cell="❌ 0"
-          [[ -n "$wz_c" && "$wz_c" != "0" ]] && win_zip_cell="✅ $wz_c"
-          win_setup_cell="❌ 0"
-          [[ -n "$ws_c" && "$ws_c" != "0" ]] && win_setup_cell="✅ $ws_c"
-
-          du_c="${{ steps.check.outputs.deb_ubuntu_count }}"
-          du_d="${{ steps.check.outputs.deb_ubuntu_distros }}"
-          dd_c="${{ steps.check.outputs.deb_debian_count }}"
-          dd_d="${{ steps.check.outputs.deb_debian_distros }}"
+          wz="${{ steps.check.outputs.win_zip_count }}"
+          ws="${{ steps.check.outputs.win_setup_count }}"
+          du="${{ steps.check.outputs.deb_ubuntu_count }}"
+          dd="${{ steps.check.outputs.deb_debian_count }}"
           rc="${{ steps.check.outputs.rpm_count }}"
-          rd="${{ steps.check.outputs.rpm_distros }}"
           ac="${{ steps.check.outputs.arch_count }}"
 
-          arch_cell="❌ 0"
-          if [[ -n "$ac" && "$ac" != "0" ]]; then
-            arch_cell="✅ $ac"
-          fi
-
-          deb_ubuntu_cell="❌ 0"
-          if [[ -n "$du_c" && "$du_c" != "0" ]]; then
-            deb_ubuntu_cell="✅ $du_c"
-            [[ -n "$du_d" ]] && deb_ubuntu_cell="✅ $du_c ($du_d)"
-          fi
-
-          deb_debian_cell="❌ 0"
-          if [[ -n "$dd_c" && "$dd_c" != "0" ]]; then
-            deb_debian_cell="✅ $dd_c"
-            [[ -n "$dd_d" ]] && deb_debian_cell="✅ $dd_c ($dd_d)"
-          fi
-
-          rpm_cell="❌ 0"
-          if [[ -n "$rc" && "$rc" != "0" ]]; then
-            rpm_cell="✅ $rc"
-            [[ -n "$rd" ]] && rpm_cell="✅ $rc ($rd)"
-          fi
+          win_zip_cell=$([[ -n "$wz" && "$wz" != "0" ]] && printf '✅' || printf '❌')
+          win_setup_cell=$([[ -n "$ws" && "$ws" != "0" ]] && printf '✅' || printf '❌')
+          deb_ubuntu_cell=$([[ -n "$du" && "$du" != "0" ]] && printf '✅' || printf '❌')
+          deb_debian_cell=$([[ -n "$dd" && "$dd" != "0" ]] && printf '✅' || printf '❌')
+          rpm_cell=$([[ -n "$rc" && "$rc" != "0" ]] && printf '✅' || printf '❌')
+          arch_cell=$([[ -n "$ac" && "$ac" != "0" ]] && printf '✅' || printf '❌')
 
           BODY=$(cat <<EOF
           Release v$V (commit ${{ github.sha }})
 
           | Артефакт | Собрано | Описание |
           |:---|:---:|---|
-          | \`*-sharun.AppImage\` | $SHR | quick-sharun — свой glibc и рантайм, GPU-стек в бандле |
-          | \`.pkg.tar.zst\` | $arch_cell | Arch Linux. Установка: \`pacman -U iptvplayer-*.pkg.tar.zst\` |
-          | \`.deb\` (Ubuntu) | $deb_ubuntu_cell | Собран на Ubuntu 24.04. Проверен в CI на Ubuntu 26.04. |
-          | \`.deb\` (Debian) | $deb_debian_cell | Собран на Debian 13. Проверен в CI на Debian 13. |
-          | \`.rpm\` | $rpm_cell | Собран на Rocky 10. Проверен в CI на Rocky 10 и Fedora 44. |
-          | \`*-win64.zip\` | $win_zip_cell | Windows 10+. Portable: распаковать и запустить \`iptvplayer.exe\`. |
-          | \`*-win64-setup.exe\` | $win_setup_cell | Windows 10+. NSIS-инсталлятор. |
+          | \`*-sharun.AppImage\` | $SHR | Работает практически во всех Linux (Void, NixOS, Tinycore и т.д.) |
+          | \`*-arch-*.pkg.tar.zst\` | $arch_cell | Arch Linux. Установка: \`sudo pacman -U iptvplayer-*.pkg.tar.zst\` |
+          | \`*-ubuntu-*.deb\` | $deb_ubuntu_cell | Ubuntu 24.04+. Установка: \`sudo apt install iptvplayer-*-ubuntu-*.deb\` |
+          | \`*-debian-*.deb\` | $deb_debian_cell | Debian 13+. Установка: \`sudo apt install iptvplayer-*-debian-*.deb\` |
+          | \`*-rocky-*.rpm\` | $rpm_cell | Rocky 10+, Fedora 44+, Alt p11, Роса 13, OpenSuse Leap 16. Установка: \`sudo (dnf \\| epm \\| zypper) install iptvplayer-*-rocky-*.rpm\` |
+          | \`*-win64.zip\` | $win_zip_cell | **Test only!** Windows 10+. Portable: распаковать и запустить \`iptvplayer.exe\`. |
+          | \`*-win64-setup.exe\` | $win_setup_cell | **Test only!** Windows 10+. NSIS-инсталлятор. |
 
           <sub>Собранные пакеты могут теоретически работать и на других системах того же семейства с glibc не ниже версии сборочного контейнера.</sub>
           EOF

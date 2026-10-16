@@ -37,6 +37,25 @@ static std::string wstringToUtf8(const std::wstring &ws) {
   return std::string(tmp.ToUTF8().data());
 }
 
+#ifdef _WIN32
+// Windows: абсолютный путь → extended-length формат (\\?\...), снимает
+// ограничение MAX_PATH (260) для _wfopen / MoveFileExW / _wremove.
+// Относительный путь и UNC получают соответствующий префикс.
+static std::wstring ToExtendedLengthPath(const std::filesystem::path &p) {
+  std::wstring w = p.wstring();
+  for (auto &c : w)
+    if (c == L'/')
+      c = L'\\';
+  if (w.compare(0, 4, L"\\\\?\\") == 0)
+    return w;
+  if (w.size() >= 2 && w[1] == L':')
+    return L"\\\\?\\" + w;
+  if (w.compare(0, 2, L"\\\\") == 0)
+    return L"\\\\?\\UNC\\" + w.substr(2);
+  return w;
+}
+#endif
+
 static size_t WriteCallback(char *ptr, size_t size, size_t nmemb,
                             void *userdata) {
   std::string *out = static_cast<std::string *>(userdata);
@@ -882,22 +901,23 @@ bool PlaylistManager::atomicWrite(const std::string &path,
   }
 
 #ifdef _WIN32
-  std::string tmpName = (dir / (target.filename().string() + ".tmp." +
-                                std::to_string(::GetCurrentProcessId())))
-                            .string();
+  fs::path tmpPath = dir / (target.filename().wstring() + L".tmp." +
+                            std::to_wstring(::GetCurrentProcessId()));
+  std::wstring tmpExt = ToExtendedLengthPath(tmpPath);
+  std::wstring targetExt = ToExtendedLengthPath(target);
 
-  FILE *fp = std::fopen(tmpName.c_str(), "wb");
+  FILE *fp = _wfopen(tmpExt.c_str(), L"wb");
   if (!fp) {
     setLastError(
         std::string("atomicWrite: cannot open temp file for writing: ") +
-        tmpName);
+        tmpPath.string());
     return false;
   }
 
   size_t written = fwrite(data.data(), 1, data.size(), fp);
   if (fflush(fp) != 0) {
     std::fclose(fp);
-    std::remove(tmpName.c_str());
+    _wremove(tmpExt.c_str());
     setLastError("atomicWrite: fflush failed");
     return false;
   }
@@ -905,13 +925,13 @@ bool PlaylistManager::atomicWrite(const std::string &path,
   HANDLE h = (HANDLE)_get_osfhandle(_fileno(fp));
   if (h == INVALID_HANDLE_VALUE) {
     std::fclose(fp);
-    std::remove(tmpName.c_str());
+    _wremove(tmpExt.c_str());
     setLastError("atomicWrite: invalid file handle");
     return false;
   }
   if (!FlushFileBuffers(h)) {
     std::fclose(fp);
-    std::remove(tmpName.c_str());
+    _wremove(tmpExt.c_str());
     setLastError("atomicWrite: FlushFileBuffers failed");
     return false;
   }
@@ -919,15 +939,15 @@ bool PlaylistManager::atomicWrite(const std::string &path,
   std::fclose(fp);
 
   if (written != data.size()) {
-    std::remove(tmpName.c_str());
+    _wremove(tmpExt.c_str());
     setLastError("atomicWrite: failed to write all data to temp file");
     return false;
   }
 
-  if (!MoveFileExA(tmpName.c_str(), target.string().c_str(),
+  if (!MoveFileExW(tmpExt.c_str(), targetExt.c_str(),
                    MOVEFILE_REPLACE_EXISTING)) {
-    std::remove(tmpName.c_str());
-    setLastError(std::string("atomicWrite: MoveFileExA failed, error=") +
+    _wremove(tmpExt.c_str());
+    setLastError(std::string("atomicWrite: MoveFileExW failed, error=") +
                  std::to_string(GetLastError()));
     return false;
   }

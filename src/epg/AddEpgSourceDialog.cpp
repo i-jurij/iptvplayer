@@ -22,7 +22,7 @@
 //-----------------------------------------------------------------------------
 AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
     : wxDialog(parent, wxID_ANY, _U("Add EPG Source"), wxDefaultPosition,
-               wxSize(FromDIP(550), -1),
+               wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -82,12 +82,19 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
     mainSizer->Add(btnSizer, 0, wxEXPAND | wxALL, FromDIP(10));
 
   SetSizerAndFit(mainSizer);
+  {
+    wxSize sz = GetSize();
+    int desiredW = FromDIP(550);
+    if (sz.GetWidth() < desiredW)
+      SetSize(wxSize(desiredW, sz.GetHeight()));
+  }
   CentreOnParent();
 
   // Bind events
   m_browseBtn->Bind(wxEVT_BUTTON, &AddEpgSourceDialog::OnBrowse, this);
   m_infoBtn->Bind(wxEVT_BUTTON, &AddEpgSourceDialog::OnInfo, this);
   m_urlCtrl->Bind(wxEVT_TEXT, &AddEpgSourceDialog::AutoFillName, this);
+  Bind(wxEVT_BUTTON, &AddEpgSourceDialog::OnOk, this, wxID_OK);
 }
 
 //-----------------------------------------------------------------------------

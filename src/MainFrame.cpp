@@ -187,33 +187,8 @@ MainFrame::MainFrame(Application *app)
 
         evt.Skip();
 
-        // --- Управление VideoPanel (активность вкладки) ---
-        if (m_videoPanel && m_videoPageIdx != wxNOT_FOUND &&
-            sel != m_videoPageIdx) {
-          m_videoPanel->SetTabActive(false);
-        }
-
-        if (m_videoPanel && m_videoPageIdx != wxNOT_FOUND &&
-            sel == m_videoPageIdx) {
-          wxWindow *page = m_notebook->GetPage(sel);
-          if (page == m_videoPanel) {
-            m_videoPanel->SetTabActive(true);
-          } else {
-            LOG_DEBUG("MainFrame: selection==m_videoPageIdx but "
-                      "notebook->GetPage(sel) != m_videoPanel; sel=%d page=%p "
-                      "m_videoPanel=%p",
-                      sel, (void *)page, (void *)m_videoPanel);
-          }
-        }
-
-        if (sel == m_videoPageIdx) {
-          if (m_epgChannels)
-            m_epgChannels->SetActive(false);
-          if (m_epgFavorites)
-            m_epgFavorites->SetActive(false);
-        }
-
         // --- Вызов обработчиков страниц ---
+        HandleVideoPageChanged(sel);
         HandleChannelPageChanged(sel);
         HandleFavPageChanged(sel);
         HandlePlaylistPageChanged(sel);
@@ -221,25 +196,7 @@ MainFrame::MainFrame(Application *app)
           SetStatusText("", 0);
           SetStatusText("", 1);
         }
-
-        // --- Управление видимостью UI в полноэкранном режиме (из внутреннего
-        // обработчика) ---
-        if (m_videoPanel) {
-          bool isVideoPage =
-              (m_videoPageIdx != wxNOT_FOUND && sel == m_videoPageIdx);
-          if (!isVideoPage) {
-            // Ушли с Video: показать UI и остановить таймер
-            m_videoPanel->SetControlsVisible(true, false);
-          } else {
-            // Вернулись на Video: если UI видим, запустить таймер
-            if (m_videoPanel->IsControlsVisible()) {
-              m_videoPanel->SetControlsVisible(true, true);
-            } else {
-              // UI скрыт – таймер не запускаем, он запустится при движении мыши
-              m_videoPanel->SetControlsVisible(false, false);
-            }
-          }
-        }
+        ToggleHeaderGroup(sel);
       });
 
   Bind(wxEVT_CHAR_HOOK, &MainFrame::OnGlobalCharHook, this);

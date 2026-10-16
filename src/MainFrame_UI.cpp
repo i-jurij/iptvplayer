@@ -70,6 +70,38 @@ void MainFrame::ToggleHeaderGroup(const wxString &name) {
     ToggleHeaderGroup(m_btnEpg);
 }
 
+void MainFrame::HandleVideoPageChanged(int sel) {
+  if (!m_videoPanel || m_videoPageIdx == wxNOT_FOUND)
+    return;
+
+  if (sel != m_videoPageIdx) {
+    m_videoPanel->SetTabActive(false);
+    m_videoPanel->SetControlsVisible(true, false);
+    return;
+  }
+
+  wxWindow *page = m_notebook->GetPage(sel);
+  if (page == m_videoPanel) {
+    m_videoPanel->SetTabActive(true);
+  } else {
+    LOG_DEBUG("MainFrame: selection==m_videoPageIdx but "
+              "notebook->GetPage(sel) != m_videoPanel; sel=%d page=%p "
+              "m_videoPanel=%p",
+              sel, (void *)page, (void *)m_videoPanel);
+  }
+
+  if (m_epgChannels)
+    m_epgChannels->SetActive(false);
+  if (m_epgFavorites)
+    m_epgFavorites->SetActive(false);
+
+  if (m_videoPanel->IsControlsVisible()) {
+    m_videoPanel->SetControlsVisible(true, true);
+  } else {
+    m_videoPanel->SetControlsVisible(false, false);
+  }
+}
+
 void MainFrame::createMainPanel() {
   // -------------------------------
   // MAIN PANEL
@@ -565,6 +597,8 @@ void MainFrame::createMainPanel() {
   ToggleHeaderGroup(m_btnPlaylists);
 
   CallAfter([this]() {
+    m_notebook->ChangeSelection(0);
+    ToggleHeaderGroup(m_btnPlaylists);
     RestoreLastOpenedPlaylist();
     CheckAndSuggestPlaylist();
   });

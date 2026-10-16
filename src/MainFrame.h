@@ -277,6 +277,7 @@ private:
   void HandleChannelPageChanged(int sel);
   void HandleFavPageChanged(int sel);
   void HandlePlaylistPageChanged(int sel);
+  void HandleVideoPageChanged(int sel);
 
       // ----------------------------------------------------------------
       // Thread‑related UI callbacks
