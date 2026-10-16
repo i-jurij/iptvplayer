@@ -318,8 +318,14 @@ void VideoPanel::Stop() {
   void VideoPanel::ToggleMute() {
     if (m_btnMute->GetValue()) {
       m_playerController->SetMuted(true);
+      wxBitmapBundle icon = LoadSvgIcon("mute", this);
+      if (icon.IsOk())
+        m_btnMute->SetBitmap(icon);
     } else {
       m_playerController->SetMuted(false);
+      wxBitmapBundle icon = LoadSvgIcon("unmute", this);
+      if (icon.IsOk())
+        m_btnMute->SetBitmap(icon);
     }
   }
 
