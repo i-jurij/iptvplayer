@@ -9,6 +9,7 @@
 #include <wx/numdlg.h>
 #include <wx/textdlg.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <memory>
 
@@ -421,9 +422,27 @@ void MainFrame::ShowMainMenu(bool deferred) {
       int mb;
       wxString label;
     };
-    std::vector<CacheItem> items = {
-        {0, _U("Default (mpv)")}, {32, _U("32 MB")},   {64, _U("64 MB")},
-        {128, _U("128 MB")},      {256, _U("256 MB")}, {512, _U("512 MB")}};
+    std::vector<CacheItem> items = {{0, _U("Default (mpv)")},
+                                    {128, _U("128 MB")},
+                                    {256, _U("256 MB")},
+                                    {512, _U("512 MB")},
+                                    {1024, _U("1 GB")}};
+
+    bool matchedPreset = false;
+    for (const auto &it : items) {
+      if (currentMB == it.mb) {
+        matchedPreset = true;
+        break;
+      }
+    }
+    if (!matchedPreset) {
+      CacheItem custom{currentMB,
+                       wxString::Format(_U("%d MB (custom)"), currentMB)};
+      auto pos = std::lower_bound(
+          items.begin(), items.end(), custom,
+          [](const CacheItem &a, const CacheItem &b) { return a.mb < b.mb; });
+      items.insert(pos, custom);
+    }
 
     for (auto &it : items) {
       int id = NewMenuId();
@@ -436,8 +455,7 @@ void MainFrame::ShowMainMenu(bool deferred) {
             if (!m_videoPanel)
               return;
             m_videoPanel->SetNetworkCacheMB(mb);
-            SetStatusText(_U("Network cache will apply on next stream load."),
-                          0);
+            SetStatusText(_U("Network cache updated."), 0);
           },
           id);
     }
@@ -458,11 +476,8 @@ void MainFrame::ShowMainMenu(bool deferred) {
           if (!m_videoPanel)
             return;
           m_videoPanel->SetNetworkCacheMB(mb);
-          SetStatusText(
-              wxString::Format(
-                  _U("Network cache set to %d MB (applies on next stream)."),
-                  mb),
-              0);
+          SetStatusText(wxString::Format(_U("Network cache set to %d MB."), mb),
+                        0);
         },
         idCustom);
 
@@ -475,7 +490,7 @@ void MainFrame::ShowMainMenu(bool deferred) {
           if (!m_videoPanel)
             return;
           m_videoPanel->ResetNetworkCacheToDefault();
-          SetStatusText(_U("Network cache reset (applies on next stream)."), 0);
+          SetStatusText(_U("Network cache reset to mpv default."), 0);
         },
         idResetCache);
 
@@ -1002,9 +1017,7 @@ void MainFrame::ShowMainMenu(bool deferred) {
   menu.Append(ID_MENU_ABOUT, _U("About"));
   menu.Append(ID_MENU_EXIT, _U("Quit"));
 
-  auto doShow = [this, menuPtr]() {
-    PopupMenu(menuPtr.get());
-  };
+  auto doShow = [this, menuPtr]() { PopupMenu(menuPtr.get()); };
 
   if (deferred) {
     CallAfter(doShow);
