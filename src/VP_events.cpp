@@ -176,11 +176,9 @@ void VideoPanel::OnKey(wxKeyEvent &evt) {
   case 'M':
   case 'm':
     if (m_playerController) {
-      m_playerController->SetMuted(!m_isMuted);
-      m_isMuted = !m_isMuted;
-      m_btnMute->SetValue(m_isMuted);
+      m_btnMute->SetValue(!m_btnMute->GetValue());
+      ToggleMute();
     }
-    // evt.Skip(false);
     evt.StopPropagation();
     return;
 

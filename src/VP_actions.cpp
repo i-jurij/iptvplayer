@@ -277,44 +277,6 @@ void VideoPanel::Stop() {
   // ============================================================================
   // Mute / Unmute logic
   // ============================================================================
-
-  void VideoPanel::Mute() {
-    m_isMuted = true;
-    m_btnMute->SetValue(true);
-
-    {
-      wxBitmapBundle icon = LoadSvgIcon("mute", this);
-      if (icon.IsOk())
-        m_btnMute->SetBitmap(icon);
-      else
-        m_btnMute->SetLabel(_U("Mute"));
-    }
-
-    m_lastVolume = m_volumeSlider->GetValue();
-    m_volumeSlider->Disable();
-    m_volumeSlider->SetValue(0);
-
-    m_playerController->SetVolume(0);
-  }
-
-  void VideoPanel::Unmute() {
-    m_isMuted = false;
-    m_btnMute->SetValue(false);
-
-    {
-      wxBitmapBundle icon = LoadSvgIcon("unmute", this);
-      if (icon.IsOk())
-        m_btnMute->SetBitmap(icon);
-      else
-        m_btnMute->SetLabel(_U("Vol"));
-    }
-
-    m_volumeSlider->Enable();
-    m_volumeSlider->SetValue(m_lastVolume);
-
-    m_playerController->SetVolume(m_lastVolume);
-  }
-
   void VideoPanel::ToggleMute() {
     if (m_btnMute->GetValue()) {
       m_playerController->SetMuted(true);
@@ -334,10 +296,9 @@ void VideoPanel::Stop() {
   // ============================================================================
 
   void VideoPanel::SetVolume(int vol) {
-    if (!m_isMuted) {
-      m_lastVolume = vol;
+    m_lastVolume = vol;
+    if (m_playerController)
       m_playerController->SetVolume(vol);
-    }
   }
 
   // ============================================================================

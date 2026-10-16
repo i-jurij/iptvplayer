@@ -278,8 +278,6 @@ private:
   // Меню для кнопки Open
   wxMenu *m_openMenu = nullptr;
 
-  // State
-  bool m_isMuted = false;
   bool m_isFullscreen = false;
   int m_lastVolume = 100;
   bool m_controlsVisible = true;
@@ -323,8 +321,6 @@ private:
   void Play();
   void Pause();
   void Stop();
-  void Mute();
-  void Unmute();
   void ToggleMute();
   void SetVolume(int vol);
   void ShowControls();

@@ -156,13 +156,25 @@ void MainFrame::createMainPanel() {
   auto *headerSizer = new wxBoxSizer(wxHORIZONTAL);
 
   auto makeButton = [&](const wxString &label, const wxString &svgName) {
+    wxBitmapBundle icon = LoadSvgIcon(svgName, this);
+
+#ifdef __WXMSW__
+    wxToggleButton *btn =
+        new wxToggleButton(headerPanel, wxID_ANY, "",
+                           wxDefaultPosition, wxDefaultSize, wxBU_LEFT);
+    if (icon.IsOk()) {
+      btn->SetBitmap(icon);
+      btn->SetToolTip(label);
+    } else {
+      btn->SetLabel(" " + label);
+    }
+#else
     wxToggleButton *btn =
         new wxToggleButton(headerPanel, wxID_ANY, " " + label,
                            wxDefaultPosition, wxDefaultSize, wxBU_LEFT);
-
-    wxBitmapBundle icon = LoadSvgIcon(svgName, this);
     if (icon.IsOk())
       btn->SetBitmap(icon, wxLEFT);
+#endif
 
     return btn;
   };
@@ -172,13 +184,24 @@ void MainFrame::createMainPanel() {
   m_btnFavorites = makeButton(_U("Favorites"), "favorites");
   m_btnVideo = makeButton(_U("Video"), "video");
   m_btnEpg = makeButton(_U("Program"), "program");
+  wxBitmapBundle menuIcon = LoadSvgIcon("menu", this);
+
+#ifdef __WXMSW__
+  wxButton *btnMenu = new wxButton(headerPanel, wxID_ANY, "");
+  m_menuButton = btnMenu;
+  if (menuIcon.IsOk()) {
+    btnMenu->SetBitmap(menuIcon);
+    btnMenu->SetToolTip(_U("Menu"));
+  } else {
+    btnMenu->SetLabel(" " + _U("Menu"));
+  }
+#else
   wxButton *btnMenu = new wxButton(headerPanel, wxID_ANY,
                                    wxString::FromUTF8(" ") + _U("Menu"));
   m_menuButton = btnMenu;
-  wxBitmapBundle menuIcon = LoadSvgIcon("menu", this);
-  if (menuIcon.IsOk()) {
+  if (menuIcon.IsOk())
     btnMenu->SetBitmap(menuIcon, wxLEFT);
-  }
+#endif
 
   headerSizer->Add(m_btnPlaylists, 0, wxALL, 8);
   headerSizer->AddSpacer(12);
