@@ -34,9 +34,9 @@ bool EPGParserExpat::Parse(const std::string &xmlData) {
   bool success = true;
   if (XML_Parse(parser, xmlData.c_str(), static_cast<int>(xmlData.size()),
                 XML_TRUE) == XML_STATUS_ERROR) {
-    LOG_ERROR("EPGParserExpat: XML parse error at line %ld, column %ld: %s",
-              XML_GetCurrentLineNumber(parser),
-              XML_GetCurrentColumnNumber(parser),
+    LOG_ERROR("EPGParserExpat: XML parse error at line %lu, column %lu: %s",
+              static_cast<unsigned long>(XML_GetCurrentLineNumber(parser)),
+              static_cast<unsigned long>(XML_GetCurrentColumnNumber(parser)),
               XML_ErrorString(XML_GetErrorCode(parser)));
     success = false;
   }
@@ -150,10 +150,11 @@ void EPGParserExpat::OnEndElement(const std::string &name) {
       }
     } else {
       LOG_WARN("EPGParserExpat: Skipped programme (channel='%s', title='%s', "
-               "start=%ld, stop=%ld)",
+               "start=%lld, stop=%lld)",
                m_currentProgram.channelId.c_str(),
-               m_currentProgram.title.c_str(), m_currentProgram.startTime,
-               m_currentProgram.stopTime);
+               m_currentProgram.title.c_str(),
+               static_cast<long long>(m_currentProgram.startTime),
+               static_cast<long long>(m_currentProgram.stopTime));
     }
     m_state = STATE_NONE;
   } else if (m_state == STATE_CHANNEL && name == "display-name") {
