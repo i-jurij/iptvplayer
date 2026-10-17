@@ -306,7 +306,6 @@ ChannelCards *MainFrame::GetChannelCards() { return m_channelCards; }
 void MainFrame::ApplyFullscreen(bool fs) {
   ShowFullScreen(fs, wxFULLSCREEN_ALL);
 
-  // Обновляем отступы главного sizer’а
   int border = fs ? 0 : 6;
   if (m_mainSizerGaugeItem) {
     m_mainSizerGaugeItem->SetBorder(border);
@@ -317,9 +316,20 @@ void MainFrame::ApplyFullscreen(bool fs) {
   if (m_mainSizerNotebookItem) {
     m_mainSizerNotebookItem->SetBorder(border);
   }
+
+  // В фуллскрине заливаем «подложку» чёрным. Любая внутренняя рамка
+  // notebook'а / шов сплиттера / просвет sizer'а сольётся с видео
+  // (обычно чёрный фон canvas).
+  m_mainPanelBg = fs ? wxColour(0, 0, 0) : wxNullColour;
+
   if (m_mainPanel) {
     m_mainPanel->Layout();
     m_mainPanel->Refresh();
+    m_mainPanel->Update();
+  }
+  if (m_notebook) {
+    m_notebook->Refresh();
+    m_notebook->Update();
   }
 }
 

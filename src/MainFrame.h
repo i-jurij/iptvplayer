@@ -154,6 +154,7 @@ private:
   wxSizerItem *m_mainSizerGaugeItem = nullptr;
   wxSizerItem *m_mainSizerHeaderItem = nullptr;
   wxSizerItem *m_mainSizerNotebookItem = nullptr;
+  wxColour m_mainPanelBg = wxNullColour;   // wxNullColour → SYS_COLOUR_BTNFACE
   
   std::vector<std::future<void>> m_backgroundTasks;
   void CleanupFinishedTasks();

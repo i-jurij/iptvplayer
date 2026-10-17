@@ -42,7 +42,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   // Splitter — создаём СНАЧАЛА
   // ------------------------------------------------------------
   m_splitter = new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition,
-                                    wxDefaultSize, wxSP_LIVE_UPDATE | wxSP_3D);
+                                    wxDefaultSize, wxSP_LIVE_UPDATE);
   m_splitter->SetMinimumPaneSize(120);
 
   // ------------------------------------------------------------
