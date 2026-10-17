@@ -238,6 +238,42 @@ else()
     add_executable(${PROJECT_NAME} ${SOURCES})
 endif()
 
+if(WIN32)
+    target_sources(${PROJECT_NAME} PRIVATE windows/app.rc)
+
+    set(_wx_rc_include "")
+    foreach(_inc IN LISTS wxWidgets_INCLUDE_DIRS)
+        if(EXISTS "${_inc}/wx/msw/wx.rc")
+            set(_wx_rc_include "${_inc}")
+            break()
+        endif()
+    endforeach()
+
+    if(NOT _wx_rc_include AND wxWidgets_DIR)
+        get_filename_component(_wx_prefix "${wxWidgets_DIR}/../../.." ABSOLUTE)
+        file(GLOB _wx_rc_candidates
+            "${_wx_prefix}/include/wx/msw/wx.rc"
+            "${_wx_prefix}/include/wx-*/wx/msw/wx.rc")
+        if(_wx_rc_candidates)
+            list(GET _wx_rc_candidates 0 _wx_rc_file)
+            string(REGEX REPLACE "/wx/msw/wx\\.rc$" "" _wx_rc_include
+                   "${_wx_rc_file}")
+        endif()
+    endif()
+
+    if(_wx_rc_include)
+        set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I\"${_wx_rc_include}\"")
+        message(STATUS "wx.rc include: ${_wx_rc_include}")
+    else()
+        message(FATAL_ERROR
+            "wx/msw/wx.rc not found. Looked in:\n"
+            "  ${wxWidgets_INCLUDE_DIRS}\n"
+            "  ${wxWidgets_DIR}/../../../include/wx-*/\n"
+            "Stock cursors unavailable, fullscreen will assert in "
+            "InitFromStock().")
+    endif()
+endif()
+
 # ------------------------
 # Проверка наличия timegm (для EPG парсинга)
 # ------------------------

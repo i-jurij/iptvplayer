@@ -1,0 +1,12 @@
+// Windows-ресурсы приложения. Подключаются к exe через CMake (см.
+// windows/app.rc в CMakeLists.txt).
+//
+//   wxUSE_DPI_AWARE_MANIFEST 2 — per-monitor v2 (Windows 10 1703+).
+//     Если понадобится per-monitor v1, поменяй на 1; для system-aware — 0.
+//   wx/msw/wx.rc — стандартные ресурсы wxWidgets:
+//     - stock-курсоры (wxCURSOR_BLANK и другие) — без них SetCursor()
+//       ассертит в InitFromStock();
+//     - stock-иконки;
+//     - манифест визуальных стилей.
+#define wxUSE_DPI_AWARE_MANIFEST 2
+#include "wx/msw/wx.rc"
