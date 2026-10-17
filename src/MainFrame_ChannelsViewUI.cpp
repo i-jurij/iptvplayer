@@ -34,18 +34,26 @@ void MainFrame::createChannelsView() {
   channelHeaderSizer->Add(m_channelsHeader, 1, wxALL, 0);
 
   // Toolbar
+#if defined(__WXMSW__)
+  m_viewToolBar = new wxAuiToolBar(m_channelsPage, wxID_ANY,
+                                   wxDefaultPosition, wxDefaultSize,
+                                   wxAUI_TB_DEFAULT_STYLE);
+  const auto radioKind = wxITEM_CHECK;
+#else
   m_viewToolBar = new wxToolBar(m_channelsPage, wxID_ANY, wxDefaultPosition,
                                 wxDefaultSize, wxTB_HORIZONTAL | wxNO_BORDER);
+  const auto radioKind = wxITEM_RADIO;
+#endif
   wxBitmapBundle iconList = LoadSvgIcon("list", this);
   wxBitmapBundle iconGrid = LoadSvgIcon("grid", this);
   wxBitmapBundle iconLogo = LoadSvgIcon("showlogo", this);
 
   m_viewToolBar->AddTool(ID_VIEW_LIST, _U("List"),
                          iconList.IsOk() ? iconList : wxNullBitmap,
-                         _U("List view"), wxITEM_RADIO);
+                         _U("List view"), radioKind);
   m_viewToolBar->AddTool(ID_VIEW_GRID, _U("Cards"),
                          iconGrid.IsOk() ? iconGrid : wxNullBitmap,
-                         _U("Cards view"), wxITEM_RADIO);
+                         _U("Cards view"), radioKind);
   m_viewToolBar->AddSeparator();
   m_viewToolBar->AddTool(ID_SHOW_LOGO, _U("Logo"),
                          iconLogo.IsOk() ? iconLogo : wxNullBitmap,
@@ -168,6 +176,20 @@ void MainFrame::createChannelsView() {
   channelsSizer->Add(channelsSplitter, 1, wxEXPAND | wxALL, 4);
   m_channelsPage->SetSizer(channelsSizer);
   m_channelsPage->Layout();
+
+#if defined(__WXMSW__)
+  // wxAuiToolBar может получить фокус на первом tool, из-за чего кнопка
+  // выглядит активной. Передаём фокус рабочему виджету.
+  CallAfter([this]() {
+    if (!m_channelViewBook)
+      return;
+    if (m_channelViewBook->GetSelection() == 0 && m_channelList) {
+      m_channelList->SetFocusFromKbd();
+    } else if (m_channelCards) {
+      m_channelCards->SetFocusIgnoringChildren();
+    }
+  });
+#endif
 }
 
 void MainFrame::HandleChannelPageChanged(int sel) {

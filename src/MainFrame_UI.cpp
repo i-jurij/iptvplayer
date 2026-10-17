@@ -465,7 +465,11 @@ void MainFrame::createMainPanel() {
         if (evt.GetId() != ID_SHOW_LOGO)
           return;
 
+#if defined(__WXMSW__)
+        bool newShowState = m_viewToolBar->GetToolToggled(ID_SHOW_LOGO);
+#else
         bool newShowState = m_viewToolBar->GetToolState(ID_SHOW_LOGO);
+#endif
 
         const wxString warnTitle = _U("Channel logo warning");
         const wxString warnMsg =

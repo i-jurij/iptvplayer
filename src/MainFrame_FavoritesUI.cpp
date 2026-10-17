@@ -34,16 +34,24 @@ void MainFrame::createFavoritesUI() {
   favHeaderSizer->Add(m_favHeader, 1, wxALL, 0);
   favHeaderSizer->AddStretchSpacer(1);
 
+#if defined(__WXMSW__)
+  m_favToolBar = new wxAuiToolBar(m_favoritesPanel, wxID_ANY,
+                                  wxDefaultPosition, wxDefaultSize,
+                                  wxAUI_TB_DEFAULT_STYLE);
+  const auto favRadioKind = wxITEM_CHECK;
+#else
   m_favToolBar = new wxToolBar(m_favoritesPanel, wxID_ANY);
+  const auto favRadioKind = wxITEM_RADIO;
+#endif
   wxBitmapBundle iconFavList = LoadSvgIcon("list", this);
   wxBitmapBundle iconFavGrid = LoadSvgIcon("grid", this);
 
   m_favToolBar->AddTool(ID_FAV_VIEW_LIST, _U("List"),
                         iconFavList.IsOk() ? iconFavList : wxNullBitmap,
-                        _U("List view"), wxITEM_RADIO);
+                        _U("List view"), favRadioKind);
   m_favToolBar->AddTool(ID_FAV_VIEW_GRID, _U("Grid"),
                         iconFavGrid.IsOk() ? iconFavGrid : wxNullBitmap,
-                        _U("Grid view"), wxITEM_RADIO);
+                        _U("Grid view"), favRadioKind);
   m_favToolBar->Realize();
   favHeaderSizer->Add(m_favToolBar, 0, wxALL, 0);
 
@@ -119,6 +127,12 @@ void MainFrame::createFavoritesUI() {
   m_favViewBook->AddPage(m_favCards, "Cards");
   m_favViewBook->ChangeSelection(favStartGrid ? 1 : 0);
 
+  m_favToolBar->ToggleTool(ID_FAV_VIEW_GRID, favStartGrid);
+  m_favToolBar->ToggleTool(ID_FAV_VIEW_LIST, !favStartGrid);
+#if defined(__WXMSW__)
+  m_favToolBar->Refresh();
+#endif
+
   m_epgFavorites = new EPGPanel(favSplitter, this);
   favSplitter->SplitVertically(m_favViewBook, m_epgFavorites);
 
@@ -192,7 +206,18 @@ void MainFrame::createFavoritesUI() {
     ApplyFavoritesFiltersAndSort();
   });
 
-  CallAfter([this]() { refreshFavorites(); });
+  CallAfter([this]() {
+    refreshFavorites();
+#if defined(__WXMSW__)
+    if (!m_favViewBook)
+      return;
+    if (m_favViewBook->GetSelection() == 0 && m_favList) {
+      m_favList->SetFocusFromKbd();
+    } else if (m_favCards) {
+      m_favCards->SetFocusIgnoringChildren();
+    }
+#endif
+  });
 }
 
 void MainFrame::ApplyFavoritesFiltersAndSort() {

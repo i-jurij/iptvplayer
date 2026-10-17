@@ -217,7 +217,11 @@ private:
   int m_channelsPageIdx = wxNOT_FOUND;
   int m_favoritesPageIdx = -1;
 
+#if defined(__WXMSW__)
+  wxAuiToolBar *m_viewToolBar{nullptr};
+#else
   wxToolBar *m_viewToolBar{nullptr};
+#endif
 
   wxStaticText *m_infoText{nullptr};
 
@@ -235,7 +239,11 @@ private:
   wxSimplebook *m_favViewBook{nullptr};
   FavoritesList *m_favList{nullptr};
   FavoritesCards *m_favCards{nullptr};
+#if defined(__WXMSW__)
+  wxAuiToolBar *m_favToolBar{nullptr};
+#else
   wxToolBar *m_favToolBar{nullptr};
+#endif
   wxStaticText *m_favHeader{nullptr};
 
   // ----------------------------------------------------------------
