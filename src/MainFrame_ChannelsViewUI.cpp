@@ -221,6 +221,13 @@ void MainFrame::HandleChannelPageChanged(int sel) {
         m_channelCards->ResumeLogoLoading();
       }
     }
+    if (m_channelViewBook)
+      m_channelViewBook->ChangeSelection(m_startInGrid ? 1 : 0);
+    if (m_viewToolBar) {
+      m_viewToolBar->ToggleTool(ID_VIEW_GRID, m_startInGrid);
+      m_viewToolBar->ToggleTool(ID_VIEW_LIST, !m_startInGrid);
+    }
+
     if (m_channelViewBook->GetSelection() == 0 && m_channelList) {
       m_channelList->SetFocusFromKbd();
     } else if (m_channelViewBook->GetSelection() == 1 && m_channelCards) {
@@ -312,17 +319,10 @@ void MainFrame::SetShowLogoFromSettings(bool show) {
 }
 
 void MainFrame::ApplyInitialViewMode() {
-  auto *cfg = getConfigManager();
-  std::string mode =
-      cfg ? cfg->getSetting("channels_view_mode", "grid") : "grid";
-  bool startInGrid = (mode != "list");
+  bool startInGrid = m_startInGrid;
 
   if (m_channelViewBook)
     m_channelViewBook->ChangeSelection(startInGrid ? 1 : 0);
-
-  // Синхронизируем избранное
-  if (m_favViewBook)
-    m_favViewBook->ChangeSelection(startInGrid ? 1 : 0);
 
   if (startInGrid) {
     InitializeGridResources();
@@ -330,14 +330,9 @@ void MainFrame::ApplyInitialViewMode() {
     InitializeListResources();
   }
 
-  // Обновляем toolbar'ы
   if (m_viewToolBar) {
     m_viewToolBar->ToggleTool(ID_VIEW_GRID, startInGrid);
     m_viewToolBar->ToggleTool(ID_VIEW_LIST, !startInGrid);
-  }
-  if (m_favToolBar) {
-    m_favToolBar->ToggleTool(ID_FAV_VIEW_GRID, startInGrid);
-    m_favToolBar->ToggleTool(ID_FAV_VIEW_LIST, !startInGrid);
   }
 }
 

@@ -404,9 +404,8 @@ void MainFrame::createMainPanel() {
   Bind(
       wxEVT_TOOL,
       [this](wxCommandEvent &evt) {
-        auto *cfg = getConfigManager();
         bool isGrid = (evt.GetId() == ID_VIEW_GRID);
-        std::string mode = isGrid ? "grid" : "list";
+        m_startInGrid = isGrid;
 
         if (isGrid) {
           TeardownListResources();
@@ -420,22 +419,9 @@ void MainFrame::createMainPanel() {
             m_channelViewBook->ChangeSelection(0);
         }
 
-        cfg->setSetting("channels_view_mode", mode);
-        cfg->saveSettings();
-
-        if (m_favViewBook) {
-          int favSel = isGrid ? 1 : 0;
-          m_favViewBook->ChangeSelection(favSel);
-          cfg->setSetting("favorites_view_mode", mode);
-        }
-
         if (m_viewToolBar) {
           m_viewToolBar->ToggleTool(ID_VIEW_GRID, isGrid);
           m_viewToolBar->ToggleTool(ID_VIEW_LIST, !isGrid);
-        }
-        if (m_favToolBar) {
-          m_favToolBar->ToggleTool(ID_FAV_VIEW_GRID, isGrid);
-          m_favToolBar->ToggleTool(ID_FAV_VIEW_LIST, !isGrid);
         }
 
         CallAfter([this, isGrid]() {
@@ -586,17 +572,11 @@ void MainFrame::createMainPanel() {
   Bind(
       wxEVT_TOOL,
       [this](wxCommandEvent &evt) {
-        auto *cfg = getConfigManager();
         bool isGrid = (evt.GetId() == ID_FAV_VIEW_GRID);
-        std::string mode = isGrid ? "grid" : "list";
+        m_startInGrid = isGrid;
 
         if (m_favViewBook)
           m_favViewBook->ChangeSelection(isGrid ? 1 : 0);
-
-        if (m_channelViewBook) {
-          int channelSel = isGrid ? 1 : 0;
-          m_channelViewBook->ChangeSelection(channelSel);
-        }
 
         if (isGrid) {
           TeardownListResources();
@@ -606,17 +586,9 @@ void MainFrame::createMainPanel() {
           InitializeListResources();
         }
 
-        cfg->setSetting("favorites_view_mode", mode);
-        cfg->setSetting("channels_view_mode", mode);
-        cfg->saveSettings();
-
         if (m_favToolBar) {
           m_favToolBar->ToggleTool(ID_FAV_VIEW_GRID, isGrid);
           m_favToolBar->ToggleTool(ID_FAV_VIEW_LIST, !isGrid);
-        }
-        if (m_viewToolBar) {
-          m_viewToolBar->ToggleTool(ID_VIEW_GRID, isGrid);
-          m_viewToolBar->ToggleTool(ID_VIEW_LIST, !isGrid);
         }
 
         CallAfter([this]() { refreshFavorites(); });

@@ -119,9 +119,7 @@ void MainFrame::createFavoritesUI() {
       });
 
   auto *cfg = getConfigManager();
-  std::string favMode =
-      cfg ? cfg->getSetting("favorites_view_mode", "grid") : "grid";
-  bool favStartGrid = (favMode != "list");
+  bool favStartGrid = m_startInGrid;
 
   m_favViewBook->AddPage(m_favList, "List");
   m_favViewBook->AddPage(m_favCards, "Cards");
@@ -392,9 +390,12 @@ void MainFrame::HandleFavPageChanged(int sel) {
       }
     }
 
-    auto *cfg = getConfigManager();
-    std::string mode = cfg->getSetting("favorites_view_mode", "grid");
-    bool grid = (mode == "grid");
+    bool grid = m_startInGrid;
+
+    if (m_favToolBar) {
+      m_favToolBar->ToggleTool(ID_FAV_VIEW_GRID, grid);
+      m_favToolBar->ToggleTool(ID_FAV_VIEW_LIST, !grid);
+    }
 
     if (grid && m_favCards) {
       m_favCards->ResumeLogoLoading();
