@@ -233,7 +233,13 @@ void CardsBase::ProcessLogoQueue(wxTimerEvent &) {
             m_activeLoads--;
 
           // --- Измеряем время загрузки ---
-          int elapsed = (int)(wxGetUTCTimeMillis() - m_lastLoadStart).ToLong();
+          int elapsed = 0;
+          if (m_lastLoadStart > 0) {
+            wxLongLong delta = wxGetUTCTimeMillis() - m_lastLoadStart;
+            if (delta > 0) {
+              elapsed = static_cast<int>(delta.GetLo());
+            }
+          }
           m_lastLoadTimeMs = (m_lastLoadTimeMs * 3 + elapsed) / 4;
 
           if (m_channelsVersion.load(std::memory_order_relaxed) != ver_copy)

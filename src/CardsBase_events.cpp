@@ -159,7 +159,13 @@ void CardsBase::OnScroll(wxScrollWinEvent &evt) {
   int deltaY = newY - oldY;
 
   wxLongLong now = wxGetUTCTimeMillis();
-  int dt = (int)(now - m_lastScrollEvent).ToLong();
+  int dt = 0;
+  if (m_lastScrollEvent > 0) {
+    wxLongLong delta = now - m_lastScrollEvent;
+    if (delta > 0) {
+      dt = static_cast<int>(delta.GetLo());
+    }
+  }
   m_lastScrollEvent = now;
 
   // направление
@@ -193,7 +199,13 @@ void CardsBase::OnScroll(wxScrollWinEvent &evt) {
 void CardsBase::OnMouseWheel(wxMouseEvent &evt) {
   int rot = evt.GetWheelRotation();
   wxLongLong now = wxGetUTCTimeMillis();
-  int dt = (int)(now - m_lastScrollEvent).ToLong();
+  int dt = 0;
+  if (m_lastScrollEvent > 0) {
+    wxLongLong delta = now - m_lastScrollEvent;
+    if (delta > 0) {
+      dt = static_cast<int>(delta.GetLo());
+    }
+  }
   m_lastScrollEvent = now;
 
   if (rot < 0)

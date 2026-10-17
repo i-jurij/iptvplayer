@@ -66,7 +66,7 @@ public:
 
   ~ScopedProfile() {
     wxLongLong end = wxGetUTCTimeMillis();
-    long long dt = (end - m_start).ToLong();
+    long long dt = static_cast<long long>((end - m_start).GetValue());
 
     std::lock_guard<std::mutex> lock(g_prof_mutex);
     auto &e = g_prof[m_name];
