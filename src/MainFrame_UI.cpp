@@ -135,10 +135,12 @@ void MainFrame::createMainPanel() {
   m_notebook->SetTabCtrlHeight(0);
   m_notebook->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_notebook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
-  m_notebook->Bind(wxEVT_PAINT, [](wxPaintEvent &evt) {
+  m_notebook->Bind(wxEVT_PAINT, [this](wxPaintEvent &evt) {
     wxPaintDC dc(static_cast<wxWindow *>(evt.GetEventObject()));
-    dc.SetBackground(
-        wxBrush(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE)));
+    wxColour bg = IsFullScreen()
+                      ? wxColour(0, 0, 0)
+                      : wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE);
+    dc.SetBackground(wxBrush(bg));
     dc.Clear();
   });
 

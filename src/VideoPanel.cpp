@@ -39,19 +39,27 @@ public:
 
 VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
+  SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
+
   auto *rootSizer = new wxBoxSizer(wxHORIZONTAL);
 
   // ------------------------------------------------------------
   // Splitter — создаём СНАЧАЛА
   // ------------------------------------------------------------
   m_splitter = new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition,
-                                    wxDefaultSize, wxSP_LIVE_UPDATE);
+                                    wxDefaultSize,
+                                    wxSP_LIVE_UPDATE | wxSP_NOBORDER);
   m_splitter->SetMinimumPaneSize(120);
+  m_splitter->SetBorderSize(0);
+  m_splitter->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
 
   // ------------------------------------------------------------
   // Боковая панель временного плейлиста (родитель — splitter)
   // ------------------------------------------------------------
   m_tempPlaylistPanel = new wxPanel(m_splitter, wxID_ANY);
+  m_tempPlaylistPanel->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   wxBoxSizer *tempSizer = new wxBoxSizer(wxVERTICAL);
 
   // === Заголовок панели ===
@@ -172,6 +180,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   // Основная вертикальная часть (видео + прогресс + контролы)
   // ------------------------------------------------------------
   m_mainPanel = new wxPanel(m_splitter, wxID_ANY);
+  m_mainPanel->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
   // 1. Контроллер создаётся сразу, но без backend. Реальный MpvBackend
@@ -192,6 +202,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   // Progress bar
   auto *progressPanel = new wxPanel(m_mainPanel, wxID_ANY);
+  progressPanel->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   m_progressPanel = progressPanel;
   auto *progressSizer = new wxBoxSizer(wxVERTICAL);
   auto *progressTimeSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -243,6 +255,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
 
   // Controls panel
   m_controlsPanel = new wxPanel(m_mainPanel, wxID_ANY);
+  m_controlsPanel->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   auto *ctrlSizer = new wxBoxSizer(wxHORIZONTAL);
 
   // --- Open ---
