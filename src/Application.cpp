@@ -52,10 +52,20 @@ Application::Application() {
   wxString baseDir;
 
 #if defined(__linux__)
-  const char *home = std::getenv("HOME");
-  if (!home)
-    home = ".";
-  baseDir = wxString(home) + "/.config/iptvplayer";
+  // XDG Base Directory: уважаем $XDG_CONFIG_HOME, откат на ~/.config.
+  // ВАЖНО: НЕ заменять на wxStandardPaths::GetUserConfigDir() — на Unix
+  // он возвращает $HOME (без /.config, без /appname, без учёта XDG).
+  // На Windows GetUserConfigDir() корректен (возвращает %APPDATA%),
+  // поэтому в Windows-ветке ниже он и используется.
+  wxString xdgConfig = wxGetenv("XDG_CONFIG_HOME");
+  // Спека XDG: относительный путь в XDG_CONFIG_HOME невалиден — игнорируем.
+  if (xdgConfig.IsEmpty() || !wxFileName(xdgConfig).IsAbsolute()) {
+    const char *home = std::getenv("HOME");
+    if (!home)
+      home = ".";
+    xdgConfig = wxString::FromUTF8(home) + "/.config";
+  }
+  baseDir = xdgConfig + "/iptvplayer";
 #elif defined(__APPLE__)
   const char *home = std::getenv("HOME");
   if (!home)
