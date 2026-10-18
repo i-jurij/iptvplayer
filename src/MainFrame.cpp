@@ -317,9 +317,7 @@ void MainFrame::ApplyFullscreen(bool fs) {
     m_mainSizerNotebookItem->SetBorder(border);
   }
 
-  // В фуллскрине заливаем «подложку» чёрным. Любая внутренняя рамка
-  // notebook'а / шов сплиттера / просвет sizer'а сольётся с видео
-  // (обычно чёрный фон canvas).
+  // В фуллскрине заливаем «подложку» чёрным. 
   m_mainPanelBg = fs ? wxColour(0, 0, 0) : wxNullColour;
 
   if (m_mainPanel) {
