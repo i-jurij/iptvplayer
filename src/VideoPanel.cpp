@@ -1286,7 +1286,8 @@ wxString VideoPanel::DetermineRecordExtension(const StreamInfo &info) const {
     return ".mkv";
 
   std::string codec = info.videoCodec;
-  std::transform(codec.begin(), codec.end(), codec.begin(), ::tolower);
+  std::transform(codec.begin(), codec.end(), codec.begin(),
+               [](unsigned char c){ return std::tolower(c); });
 
   // Для MPEG-2 / MPEG-4 используем .ts (Transport Stream)
   if (codec.find("mpeg2") != std::string::npos ||

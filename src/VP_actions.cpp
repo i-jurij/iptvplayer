@@ -71,8 +71,8 @@ void VideoPanel::OpenFile() {
   ClearTempPlaylist();
 
   AddToRecent(path);
-  m_currentName =
-      NormalizeFileNameForDisk(fn.GetFullName().ToStdString(), 128, Display);
+  m_currentName = NormalizeFileNameForDisk(
+    std::string(fn.GetFullName().ToUTF8()), 128, Display);
 
   m_isChannelPlaying = false;
   m_isTempPlaylistPlaying = false;
@@ -549,10 +549,10 @@ void VideoPanel::Stop() {
 
     if (!isUrl) {
       wxFileName fn(path);
-      m_currentName = NormalizeFileNameForDisk(fn.GetFullName().ToStdString(),
-                                               128, Display);
+      m_currentName = NormalizeFileNameForDisk(
+          std::string(fn.GetFullName().ToUTF8()), 128, Display);
     }
-    
+
     // === Обновляем состояние state‑машины ===
     m_tempState = TempPlayState::Requesting;
     m_pendingTempPlay = true;
@@ -578,9 +578,9 @@ void VideoPanel::Stop() {
     // === Запуск воспроизведения ===
     bool ok = false;
     if (isUrl)
-      ok = m_playerController->PlayUrl(path.ToStdString());
+      ok = m_playerController->PlayUrl(std::string(path.ToUTF8()));
     else
-      ok = m_playerController->PlayFile(path.ToStdString());
+      ok = m_playerController->PlayFile(std::string(path.ToUTF8()));
 
     if (!ok) {
       if (canvas) {
@@ -703,8 +703,8 @@ void VideoPanel::Stop() {
       wxString first = videoFiles[0];
       ClearTempPlaylist();
       wxFileName fn(first);
-      m_currentName = NormalizeFileNameForDisk(fn.GetFullName().ToStdString(),
-                                               128, Display);
+      m_currentName = NormalizeFileNameForDisk(
+          std::string(fn.GetFullName().ToUTF8()), 128, Display);
       if (m_tempPlaylistPanel)
         m_tempPlaylistPanel->Hide();
       m_pendingTempPlay = true;

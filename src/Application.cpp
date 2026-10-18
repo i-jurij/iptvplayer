@@ -22,6 +22,11 @@
 #include <unistd.h>
 #endif
 
+#if defined(_WIN32)
+#include <cstdio>
+#include <windows.h>
+#endif
+
 // ============================================================================
 //  Audio subsystem availability
 // ============================================================================
@@ -132,6 +137,14 @@ static void IptvplayerCrashHandler(int sig) {
 #endif
 
 bool Application::OnInit() {
+#if defined(_WIN32)
+  // Присоединяемся к консоли родителя (шелла), если она есть.
+  if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+    (void)freopen("CONOUT$", "w", stderr);
+    (void)freopen("CONOUT$", "w", stdout);
+  }
+#endif
+
 #if !defined(_WIN32)
   signal(SIGSEGV, IptvplayerCrashHandler);
   signal(SIGABRT, IptvplayerCrashHandler);

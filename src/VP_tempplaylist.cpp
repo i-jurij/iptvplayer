@@ -2,6 +2,7 @@
 #include "EventIDs.h"
 #include "LogControl.h"
 #include "Utils.h"
+#include "Utils_FsPath.h"
 #include "VP_SvgIcon.h"
 #include "VideoPanel.h"
 
@@ -108,7 +109,7 @@ void VideoPanel::AddToTempPlaylist(const wxArrayString &files) {
 }
 
 bool VideoPanel::LoadPlaylistFile(const wxString &path, wxArrayString &out) {
-  std::ifstream f(path.ToStdString(), std::ios::binary);
+  std::ifstream f(ToFsPath(std::string(path.ToUTF8())), std::ios::binary);
   if (!f.is_open())
     return false;
 

@@ -734,7 +734,9 @@ ErrorCode PlaylistManager::savePlaylist(const Playlist *pl, size_t idx) const {
     return ErrorCode::Unknown;
   }
 
-  if (!atomicWrite(filePath.string(), json)) {
+  const auto u8 = filePath.u8string();
+  std::string filePathU8(u8.begin(), u8.end());
+  if (!atomicWrite(filePathU8, json)) {
     return ErrorCode::Unknown;
   }
 
