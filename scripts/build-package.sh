@@ -294,13 +294,13 @@ EOF
 # Покрывает все RPM-семейства этапа 1.
 _dispatch_native() {
     case "$DISTRO" in
-            rosa-*)                    BUILD_NATIVE_ROSA=true ;;
-            ol-*|oracle-*)             BUILD_NATIVE_RPM_ORACLE=true ;;
-            redos-*)                   BUILD_NATIVE_RPM_REDOS=true ;;
-            mageia-*)                  BUILD_NATIVE_RPM_MAGEIA=true ;;
-            openmandriva-*)            BUILD_NATIVE_RPM_OPENMANDRIVA=true ;;
+            rosa*)                     BUILD_NATIVE_ROSA=true ;;
+            ol*|oracle*)               BUILD_NATIVE_RPM_ORACLE=true ;;
+            redos*)                    BUILD_NATIVE_RPM_REDOS=true ;;
+            mageia*)                   BUILD_NATIVE_RPM_MAGEIA=true ;;
+            openmandriva*)             BUILD_NATIVE_RPM_OPENMANDRIVA=true ;;
             opensuse*|sles*)           BUILD_NATIVE_RPM_SUSE=true ;;
-            alt-*|alt|altlinux*)       BUILD_NATIVE_ALT=true ;;
+            alt*)                      BUILD_NATIVE_ALT=true ;;
             alpine*)                   BUILD_NATIVE_APK=true ;;
             slackware*)                BUILD_NATIVE_SLACKBUILD=true ;;
             void*)                     BUILD_NATIVE_XBPS=true ;;
@@ -326,24 +326,24 @@ show_menu() {
 
     # Приоритет — DISTRO. pkgmgr даёт только общий фоллбэк для семейств.
     case "$DISTRO" in
-        rosa-*)       native_label="Нативный .rpm для ROSA" ;;
-        alpine-*)     native_label="Нативный .apk" ;;
-        slackware*)   native_label="Нативный .txz" ;;
-        void*)        native_label="Нативный .xbps" ;;
-        gentoo*)      native_label="Нативный .tbz2" ;;
-        nixos*)       native_label="Нативный Nix derivation" ;;
-        ol-*|oracle-*) native_label="Нативный .rpm для Oracle Linux" ;;
-        redos-*)      native_label="Нативный .rpm для RedOS" ;;
-        mageia-*)     native_label="Нативный .rpm для Mageia" ;;
-        openmandriva-*) native_label="Нативный .rpm для OpenMandriva" ;;
-        opensuse*|sles*) native_label="Нативный .rpm для openSUSE" ;;
-        alt-*|alt|altlinux*) native_label="Нативный .rpm для ALT" ;;
+        rosa*)              native_label="Нативный .rpm для ROSA" ;;
+        alpine*)            native_label="Нативный .apk" ;;
+        slackware*)         native_label="Нативный .txz" ;;
+        void*)              native_label="Нативный .xbps" ;;
+        gentoo*)            native_label="Нативный .tbz2" ;;
+        nixos*)             native_label="Нативный Nix derivation" ;;
+        ol*|oracle*)        native_label="Нативный .rpm для Oracle Linux" ;;
+        redos*)             native_label="Нативный .rpm для RedOS" ;;
+        mageia*)            native_label="Нативный .rpm для Mageia" ;;
+        openmandriva*)      native_label="Нативный .rpm для OpenMandriva" ;;
+        opensuse*|sles*)    native_label="Нативный .rpm для openSUSE" ;;
+        alt*)               native_label="Нативный .rpm для ALT" ;;
         *)
-            case "$pkgmgr" in
-                apt)     native_label="Нативный .deb" ;;
-                dnf)     native_label="Нативный .rpm" ;;
-                pacman)  native_label="Нативный .pkg.tar.zst" ;;
-            esac ;;
+        case "$pkgmgr" in
+            apt)     native_label="Нативный .deb" ;;
+            dnf)     native_label="Нативный .rpm" ;;
+            pacman)  native_label="Нативный .pkg.tar.zst" ;;
+        esac ;;
     esac
 
     [ -n "$native_label" ] && { labels+=("$native_label (системные библиотеки)"); actions+=("native"); }
@@ -464,26 +464,26 @@ main() {
     # инструменте чужого дистрибутива.
     if [[ "$NATIVE_AUTO" == true ]]; then
         case "$DISTRO" in
-            rosa-*)                    BUILD_NATIVE_ROSA=true ;;
+            rosa*)                     BUILD_NATIVE_ROSA=true ;;
             alpine*)                   BUILD_NATIVE_APK=true ;;
             slackware*)                BUILD_NATIVE_SLACKBUILD=true ;;
             void*)                     BUILD_NATIVE_XBPS=true ;;
             gentoo*)                   BUILD_NATIVE_GENTOO=true ;;
             nixos*)                    BUILD_NATIVE_NIX=true ;;
-            ol-*|oracle-*)             BUILD_NATIVE_RPM_ORACLE=true ;;
-            redos-*)                   BUILD_NATIVE_RPM_REDOS=true ;;
-            mageia-*)                  BUILD_NATIVE_RPM_MAGEIA=true ;;
-            openmandriva-*)            BUILD_NATIVE_RPM_OPENMANDRIVA=true ;;
+            ol*|oracle*)               BUILD_NATIVE_RPM_ORACLE=true ;;
+            redos*)                    BUILD_NATIVE_RPM_REDOS=true ;;
+            mageia*)                   BUILD_NATIVE_RPM_MAGEIA=true ;;
+            openmandriva*)             BUILD_NATIVE_RPM_OPENMANDRIVA=true ;;
             opensuse*|sles*)           BUILD_NATIVE_RPM_SUSE=true ;;
-            alt-*|alt|altlinux*)       BUILD_NATIVE_ALT=true ;;
+            alt*)                      BUILD_NATIVE_ALT=true ;;
             *)
-                case "$pkgmgr" in
-                    apt)    BUILD_NATIVE_DEB=true ;;
-                    dnf)    BUILD_NATIVE_RPM=true ;;
-                    pacman) BUILD_NATIVE_ARCH=true ;;
-                    *)      echo "[!] --native: неизвестная система $DISTRO" >&2
-                            exit 1 ;;
-                esac ;;
+            case "$pkgmgr" in
+                apt)    BUILD_NATIVE_DEB=true ;;
+                dnf)    BUILD_NATIVE_RPM=true ;;
+                pacman) BUILD_NATIVE_ARCH=true ;;
+                *)      echo "[!] --native: неизвестная система $DISTRO" >&2
+                exit 1 ;;
+            esac ;;
         esac
     fi
 
@@ -545,28 +545,28 @@ main() {
     local FAILED=()
 
     if [[ "$BUILD_NATIVE_DEB" == true ]]; then
-        if distro_is 'ubuntu-*' 'debian-*' 'linuxmint-*' 'pop-*' 'astra-*'; then
+        if distro_is 'ubuntu*' 'debian*' 'linuxmint*' 'pop*' 'astra*'; then
             prepare_staging && build_deb_native || FAILED+=("native-deb")
         else
             echo "[i] --native-deb: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_RPM" == true ]]; then
-        if distro_is 'fedora-*' 'rocky-*' 'rhel-*' 'centos-*' 'almalinux-*'; then
+        if distro_is 'fedora*' 'rocky*' 'rhel*' 'centos*' 'almalinux*'; then
             prepare_staging && build_rpm_native || FAILED+=("native-rpm")
         else
             echo "[i] --native-rpm: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_RPM_ORACLE" == true ]]; then
-        if distro_is 'ol-*' 'oracle-*'; then
+        if distro_is 'ol*' 'oracle*'; then
             prepare_staging && build_rpm_oracle || FAILED+=("native-rpm-oracle")
         else
             echo "[i] --native-rpm-oracle: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_RPM_REDOS" == true ]]; then
-        if distro_is 'redos-*'; then
+        if distro_is 'redos*'; then
             prepare_staging && build_rpm_redos || FAILED+=("native-rpm-redos")
         else
             echo "[i] --native-rpm-redos: пропускаем на $DISTRO"
@@ -580,35 +580,35 @@ main() {
         fi
     fi
     if [[ "$BUILD_NATIVE_ALT" == true ]]; then
-        if distro_is 'alt-*' 'alt' 'altlinux*'; then
+        if distro_is 'alt*' 'altlinux*'; then
             prepare_staging && build_rpm_alt || FAILED+=("native-alt")
         else
             echo "[i] --native-alt: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_ROSA" == true ]]; then
-        if distro_is 'rosa-*'; then
+        if distro_is 'rosa*'; then
             prepare_staging && build_rpm_rosa || FAILED+=("native-rosa")
         else
             echo "[i] --native-rosa: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_RPM_MAGEIA" == true ]]; then
-        if distro_is 'mageia-*'; then
+        if distro_is 'mageia*'; then
             prepare_staging && build_rpm_mageia || FAILED+=("native-rpm-mageia")
         else
             echo "[i] --native-rpm-mageia: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_RPM_OPENMANDRIVA" == true ]]; then
-        if distro_is 'openmandriva-*'; then
+        if distro_is 'openmandriva*'; then
             prepare_staging && build_rpm_openmandriva || FAILED+=("native-rpm-openmandriva")
         else
             echo "[i] --native-rpm-openmandriva: пропускаем на $DISTRO"
         fi
     fi
     if [[ "$BUILD_NATIVE_ARCH" == true ]]; then
-        if distro_is 'arch' 'arch-*' 'manjaro*' 'endeavouros*' 'cachyos*'; then
+        if distro_is 'arch*' 'manjaro*' 'endeavouros*' 'cachyos*'; then
             prepare_staging && build_pkg_arch || FAILED+=("native-arch")
         else
             echo "[i] --native-arch: пропускаем на $DISTRO"

@@ -62,7 +62,7 @@ finish-args:
   - --share=ipc
   - --device=dri
   - --share=network
-  - --filesystem=xdg-download
+  - --filesystem=xdg-videos
 
 rename-desktop-file: $PACKAGE_NAME.desktop
 rename-icon: $ICON_NAME

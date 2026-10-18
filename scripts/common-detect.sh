@@ -48,7 +48,7 @@ detect_pkgmgr() {
     local id="${DISTRO%%-*}"
     case "$id" in
         ubuntu|debian|linuxmint|pop|astra)                    echo "apt"     ;;
-        fedora|rocky|rhel|centos|almalinux|ol|oracle|redos|rosa) echo "dnf"  ;;
+        fedora|rocky|rhel|centos|almalinux|ol|oracle|redos|rosa|openmandriva) echo "dnf"  ;;
         opensuse|sles)                                        echo "zypper"  ;;
         alt|altlinux)                                         echo "apt-rpm" ;;
         arch|manjaro|endeavouros|cachyos)                     echo "pacman"  ;;

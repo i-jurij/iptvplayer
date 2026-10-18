@@ -55,6 +55,15 @@ build_native_gentoo() {
     mkdir -p "$ebuild_dir/files"
     cp -a "$install_dir/." "$ebuild_dir/files/"
 
+local _kw=""
+case "${APPIMAGE_ARCH:-}" in
+    x86_64)  _kw="~amd64"  ;;
+    aarch64) _kw="~arm64"  ;;
+    armhf)   _kw="~arm"    ;;
+    i686)    _kw="~x86"    ;;
+    *)       _kw="~${APPIMAGE_ARCH:-amd64}" ;;
+esac
+
     # EAPI=8 — актуальный на момент написания. SRC_URI пуст: исходников
     # нет, всё берётся из files/. src_install копирует готовые файлы
     # из ${FILESDIR} в ${D} (DESTDIR).
@@ -74,7 +83,7 @@ SRC_URI=""
 
 LICENSE="MIT"
 SLOT="0"
-KEYWORDS="~amd64 ~arm64"
+KEYWORDS="$_kw"
 
 RDEPEND="
     x11-libs/gtk+:3

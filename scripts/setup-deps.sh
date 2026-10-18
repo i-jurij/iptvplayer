@@ -160,8 +160,10 @@ cleanup_deps() {
 
 select_deps_file() {
     PKG_MANAGER="$(detect_pkgmgr)"
-    if [[ "$PKG_MANAGER" == dnf ]] && distro_is 'rosa-*'; then
+    if [[ "$PKG_MANAGER" == dnf ]] && distro_is 'rosa*'; then
         DEPS_FILE="$SCRIPT_DIR/setup-deps-rosa.sh"
+    elif [[ "$PKG_MANAGER" == dnf ]] && distro_is 'openmandriva*'; then
+        DEPS_FILE="$SCRIPT_DIR/setup-deps-openmandriva.sh"
     else
         case "$PKG_MANAGER" in
             apt)     DEPS_FILE="$SCRIPT_DIR/setup-deps-deb.sh"  ;;
@@ -170,6 +172,9 @@ select_deps_file() {
             apt-rpm) DEPS_FILE="$SCRIPT_DIR/setup-deps-alt.sh"  ;;
             pacman)  DEPS_FILE="$SCRIPT_DIR/setup-deps-arch.sh" ;;
             apk)     DEPS_FILE="$SCRIPT_DIR/setup-deps-apk.sh"  ;;
+            xbps)    DEPS_FILE="$SCRIPT_DIR/setup-deps-xbps.sh" ;;
+            portage) DEPS_FILE="$SCRIPT_DIR/setup-deps-gentoo.sh" ;;
+            nix)     DEPS_FILE="$SCRIPT_DIR/setup-deps-nix.sh"  ;;
             *)       error "Неподдерживаемая ОС: $DISTRO (pkgmgr=$PKG_MANAGER)" ;;
         esac
     fi
@@ -218,7 +223,7 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
     # RHEL-family: EPEL/RPM Fusion. Только для чистого dnf, не для ROSA.
     # _pkgtable — локальная переменная select_deps_file и здесь недоступна;
     # проверяем по PKG_MANAGER + DISTRO.
-    if [[ "$PKG_MANAGER" == dnf ]] && ! distro_is 'rosa-*'; then
+        if [[ "$PKG_MANAGER" == dnf ]] && ! distro_is 'rosa*' 'openmandriva*'; then
         _id="${DISTRO%%-*}"; _major="$(distro_major)"
         case "$_id" in
             rhel|rocky|almalinux|centos)

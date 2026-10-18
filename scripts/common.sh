@@ -448,8 +448,10 @@ _load_deps_module() {
     [[ -n "${_DEPS_MODULE_LOADED:-}" ]] && return 0
     local pkgmgr; pkgmgr="$(detect_pkgmgr)"
     local f
-    if [[ "$pkgmgr" == dnf ]] && distro_is 'rosa-*'; then
+    if [[ "$pkgmgr" == dnf ]] && distro_is 'rosa*'; then
         f="$SCRIPT_DIR/setup-deps-rosa.sh"
+    elif [[ "$pkgmgr" == dnf ]] && distro_is 'openmandriva*'; then
+        f="$SCRIPT_DIR/setup-deps-openmandriva.sh"
     else
         case "$pkgmgr" in
             apt)     f="$SCRIPT_DIR/setup-deps-deb.sh"  ;;
@@ -458,10 +460,15 @@ _load_deps_module() {
             apt-rpm) f="$SCRIPT_DIR/setup-deps-alt.sh"  ;;
             pacman)  f="$SCRIPT_DIR/setup-deps-arch.sh" ;;
             apk)     f="$SCRIPT_DIR/setup-deps-apk.sh"  ;;
+            xbps)    f="$SCRIPT_DIR/setup-deps-xbps.sh" ;;
+            portage) f="$SCRIPT_DIR/setup-deps-gentoo.sh" ;;
+            nix)     f="$SCRIPT_DIR/setup-deps-nix.sh"  ;;
             *)       return 1 ;;
         esac
     fi
+    
     [ -f "$f" ] || return 1
+
     # shellcheck disable=SC1090
     source "$f"
     if command -v sudo >/dev/null 2>&1; then SUDO="sudo"
