@@ -133,6 +133,7 @@ void MainFrame::createMainPanel() {
   m_notebook = new wxAuiNotebook(m_mainPanel, wxID_ANY, wxDefaultPosition,
                                  wxDefaultSize, wxAUI_NB_DEFAULT_STYLE);
   m_notebook->SetTabCtrlHeight(0);
+  m_notebook->SetDoubleBuffered(true);
   m_notebook->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_notebook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
   m_notebook->Bind(wxEVT_PAINT, [this](wxPaintEvent &evt) {
