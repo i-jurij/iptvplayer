@@ -2452,9 +2452,9 @@ bool EPGManager::DeleteCache() {
     return false;
   }
 
-  // Создаём новую БД
+  // Создаём новую БД.
   m_db = std::make_unique<EPGDatabase>();
-  if (!m_db->Open(m_dbPath)) {
+  if (!m_db->Open(wxString::FromUTF8(m_dbPath.c_str()))) {
     LOG_ERROR("EPGManager: Failed to reopen database after deletion");
     m_db.reset();
     return false;

@@ -6,6 +6,7 @@
 #include "MainFrame.h"
 #include "MpvBackend.h"
 #include "Utils.h"
+#include "Utils_FsPath.h"
 #include "VP_SvgIcon.h"
 
 #include <wx/dnd.h>
@@ -1218,21 +1219,14 @@ static wxString GetDefaultRecordDirectory() {
 }
 
 bool VideoPanel::InitializeRecordDirectory() {
-  // ВАЖНО: wxFileName::DirExists() проверяет РОДИТЕЛЬСКИЙ каталог,
-  // а wxFileName::Mkdir() на Linux может искажать не-ASCII пути.
-  // Используем std::filesystem с явными UTF-8 байтами.
   auto MakeDirs = [](const wxString &path) {
     std::error_code ec;
-    std::filesystem::create_directories(
-        std::filesystem::path(path.ToUTF8().data()), ec);
-    // create_directories возвращает false, если каталог уже был — это не
-    // ошибка.
+    std::filesystem::create_directories(ToFsPath(path.ToUTF8().data()), ec);
   };
 
   auto DirExists = [](const wxString &path) {
     std::error_code ec;
-    return std::filesystem::is_directory(
-        std::filesystem::path(path.ToUTF8().data()), ec);
+    return std::filesystem::is_directory(ToFsPath(path.ToUTF8().data()), ec);
   };
 
   // 1. Каталог из конфига — уважаем.
