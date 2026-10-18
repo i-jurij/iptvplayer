@@ -5,10 +5,11 @@
 #include "epg/EPGManager.h"
 
 #include <wx/app.h>
+#include <wx/intl.h>
+#include <wx/timer.h>
 
 #include <memory>
 #include <string>
-#include <wx/timer.h>
 
 class ConfigManager;
 class PlaylistManager;
@@ -36,6 +37,8 @@ public:
     wxString m_configDir;
 
   private:
+    std::unique_ptr<wxLocale> m_locale;
+    
     std::unique_ptr<EPGManager> m_epgManager;
     
     std::unique_ptr<ConfigManager>   m_configManager;

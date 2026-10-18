@@ -1,6 +1,7 @@
 #include "IconManager.h"
 #include "Utils.h"
 #include "Utils_FsPath.h"
+#include "LogControl.h"
 
 #include <curl/curl.h>
 #include <filesystem>
@@ -57,19 +58,43 @@ std::string IconManager::GetCacheDir() {
   std::call_once(initFlag, [] {
     wxString base;
 
+    // --- Основной путь: кроссплатформенный API wx ---
+    // GetUserDir(Dir_Cache) возвращает:
+    //   Linux   -> ~/.cache
+    //   Windows -> C:\Users\username\AppData\Local
+    //   macOS   -> ~/Library/Caches
+    base = wxStandardPaths::Get().GetUserDir(wxStandardPaths::Dir_Cache);
+
+    // На Windows GetUserDir(Dir_Cache) возвращает только AppData\Local,
+    // поэтому добавляем подкаталог приложения.
 #if defined(__WXMSW__)
-    base = wxStandardPaths::Get().GetUserLocalDataDir() + "/Cache";
-#elif defined(__WXMAC__)
-        base = wxStandardPaths::Get().GetUserLocalDataDir() + "/Cache";
-#else
-        wxString home = wxGetenv("XDG_CACHE_HOME");
-        if (home.IsEmpty())
-            home = wxFileName::GetHomeDir() + "/.cache";
-        base = home + "/iptvplayer";
+    if (!base.IsEmpty())
+      base += "\\iptvplayer\\Cache";
 #endif
 
+    // --- Fallback 1: старый проверенный код (актуален для Linux) ---
+    if (base.IsEmpty()) {
+      wxString home = wxGetenv("XDG_CACHE_HOME");
+      if (home.IsEmpty() || !wxFileName(home).IsAbsolute()) {
+        home = wxFileName::GetHomeDir() + "/.cache";
+        base = home + "/iptvplayer";
+      }
+      if (!base.IsEmpty())
+        LOG_WARN("IconManager: GetUserDir(Dir_Cache) failed, using manual "
+                     "fallback: %s",
+                     base);
+    }
+
+    // --- Fallback 2: временная директория ---
+    if (base.IsEmpty()) {
+      base = wxFileName::GetTempDir() + wxFILE_SEP_PATH + "iptvplayer-cache";
+      LOG_WARN("IconManager: using temporary cache directory: %s", base);
+    }
+
     if (!wxFileName::DirExists(base)) {
-      wxFileName::Mkdir(base, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
+      if (!wxFileName::Mkdir(base, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL)) {
+        LOG_WARN("IconManager: could not create cache directory %s", base);
+      }
     }
 
     cacheDir = std::string(base.mb_str(wxConvUTF8));
@@ -87,8 +112,7 @@ std::string IconManager::GetIconPath(const std::string &playlist,
   std::string safeChannel =
       NormalizeFileNameForDisk(channel.empty() ? "channel" : channel);
 
-  fs::path base =
-      ToFsPath(GetCacheDir()) / "icons" / safePlaylist / "original";
+  fs::path base = ToFsPath(GetCacheDir()) / "icons" / safePlaylist / "original";
   std::error_code ec;
   if (!fs::exists(base)) {
     if (!fs::create_directories(base, ec)) {
@@ -112,8 +136,7 @@ std::string IconManager::GetSvgPath(const std::string &playlist,
   std::string safeChannel =
       NormalizeFileNameForDisk(channel.empty() ? "channel" : channel);
 
-  fs::path base =
-      ToFsPath(GetCacheDir()) / "icons" / safePlaylist / "original";
+  fs::path base = ToFsPath(GetCacheDir()) / "icons" / safePlaylist / "original";
   std::error_code ec;
   if (!fs::exists(base)) {
     if (!fs::create_directories(base, ec)) {
@@ -151,7 +174,8 @@ void IconManager::RenderSvgAsync(const std::string &svgText, IconCallback cb) {
       }
 
       std::string svgUtf8(wxSvg.ToUTF8().data());
-      wxBitmapBundle bundle = wxBitmapBundle::FromSVG(svgUtf8.c_str(), baseSize);
+      wxBitmapBundle bundle =
+          wxBitmapBundle::FromSVG(svgUtf8.c_str(), baseSize);
       if (!bundle.IsOk()) {
         SafeCallReady(cb, wxNullBitmap);
         return;
@@ -263,7 +287,7 @@ ErrorCode IconManager::DeletePlaylistIcons(const std::string &playlist) {
   wxString iconsBase = wxString::FromUTF8(GetCacheDir()) + "/icons";
 
   if (playlist.empty()) {
-    wxLogWarning(
+    LOG_WARN(
         "IconManager::DeletePlaylistIcons: empty playlist name, refusing to "
         "delete specific folder. Use DeleteAllIcons() to remove everything.");
     return ErrorCode::InvalidIndex;

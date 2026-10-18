@@ -134,7 +134,8 @@ bool Application::OnInit() {
 #endif
   try {
     setlocale(LC_ALL, "");
-    wxLocale *m_locale = new wxLocale();
+
+    m_locale = std::make_unique<wxLocale>();
 
     // log enable
     wxLog::SetLogLevel(wxLOG_Debug);
@@ -148,10 +149,16 @@ bool Application::OnInit() {
 
     if (!m_locale->Init(wxLANGUAGE_DEFAULT)) {
       LOG_ERROR("Failed to initialize locale");
-    } else if (!m_locale->AddCatalog("iptvplayer")) {
-      LOG_WARN("Translation catalog 'iptvplayer' not found for language '%s'; "
-               "UI will use source strings.",
-               m_locale->GetName());
+    } else {
+      // ВАЖНО: wxLocale::Init меняет LC_NUMERIC на локаль с запятой.
+      // Возвращаем LC_NUMERIC в "C", чтобы printf и strtod работали с точкой.
+      setlocale(LC_NUMERIC, "C");
+
+      if (!m_locale->AddCatalog("iptvplayer")) {
+        LOG_WARN("Translation catalog 'iptvplayer' not found for language '%s'; "
+                 "UI will use source strings.",
+                 m_locale->GetName());
+      }
     }
 
     // 1) Загружаем настройки

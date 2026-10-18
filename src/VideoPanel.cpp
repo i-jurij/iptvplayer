@@ -14,9 +14,11 @@
 #include <wx/listctrl.h>
 #include <wx/splitter.h>
 #include <wx/statbmp.h>
-
-#include <memory>
+#include <wx/stdpaths.h>
 #include <wx/tokenzr.h>
+
+#include <filesystem>
+#include <memory>
 
 wxDEFINE_EVENT(wxEVT_PLAYER_STATE, wxCommandEvent);
 wxDEFINE_EVENT(wxEVT_PLAYER_INFO, wxCommandEvent);
@@ -1195,45 +1197,72 @@ bool VideoPanel::CompareNamesWithNumbers(const wxString &a, const wxString &b) {
 // Record
 // ============================================================================
 
+// Каталог записей по умолчанию:
+//   Linux   — ~/Videos/iptvplayer       (XDG_VIDEOS_DIR, локализуется)
+//   Windows — <Videos>\iptvplayer       (Known Folder, учитывает локализацию
+//                                        и редиректы OneDrive/GPO)
+//   macOS   — ~/Movies/iptvplayer
+// wxStandardPaths::GetUserDir(Dir_Videos) внутри делает всю платформенную
+// работу: SHGetKnownFolderPath на Windows, NSSearchPathForDirectoriesInDomains
+// на macOS, парсинг ~/.config/user-dirs.dirs на Linux.
+static wxString GetDefaultRecordDirectory() {
+  wxString videos =
+      wxStandardPaths::Get().GetUserDir(wxStandardPaths::Dir_Videos);
+
+  if (videos.IsEmpty()) {
+    videos = wxGetHomeDir();
+    LOG_WARN("GetDefaultRecordDirectory: falling back to home directory");
+  }
+
+  return videos + wxFileName::GetPathSeparator() + "iptvplayer";
+}
+
 bool VideoPanel::InitializeRecordDirectory() {
-  // 1. Если каталог уже задан и существует — используем его
+  // ВАЖНО: wxFileName::DirExists() проверяет РОДИТЕЛЬСКИЙ каталог,
+  // а wxFileName::Mkdir() на Linux может искажать не-ASCII пути.
+  // Используем std::filesystem с явными UTF-8 байтами.
+  auto MakeDirs = [](const wxString &path) {
+    std::error_code ec;
+    std::filesystem::create_directories(
+        std::filesystem::path(path.ToUTF8().data()), ec);
+    // create_directories возвращает false, если каталог уже был — это не
+    // ошибка.
+  };
+
+  auto DirExists = [](const wxString &path) {
+    std::error_code ec;
+    return std::filesystem::is_directory(
+        std::filesystem::path(path.ToUTF8().data()), ec);
+  };
+
+  // 1. Каталог из конфига — уважаем.
   if (!m_recordDirectory.IsEmpty()) {
-    wxFileName dir(m_recordDirectory);
-    if (dir.DirExists()) {
+    if (!DirExists(m_recordDirectory)) {
+      MakeDirs(m_recordDirectory);
+    }
+    if (DirExists(m_recordDirectory)) {
       LOG_DEBUG("Using existing record directory: %s",
                 m_recordDirectory.ToUTF8().data());
       return true;
     }
-    // Если не существует — пытаемся создать
-    if (wxMkdir(m_recordDirectory, 0777)) {
-      LOG_DEBUG("Created record directory: %s",
-                m_recordDirectory.ToUTF8().data());
-      return true;
-    }
-    // Не удалось создать — сбрасываем и будем создавать по умолчанию
     LOG_WARN("Could not create record directory '%s', falling back to default",
              m_recordDirectory.ToUTF8().data());
     m_recordDirectory.Clear();
   }
 
-  // 2. Определяем каталог по умолчанию
-  wxString home = wxGetHomeDir();
-  if (home.IsEmpty()) {
-    LOG_ERROR("Could not get home directory");
+  // 2. Дефолт: <Videos>/iptvplayer.
+  m_recordDirectory = GetDefaultRecordDirectory();
+
+  if (!DirExists(m_recordDirectory)) {
+    MakeDirs(m_recordDirectory);
+  }
+  if (!DirExists(m_recordDirectory)) {
+    LOG_ERROR("Could not create default record directory: %s",
+              m_recordDirectory.ToUTF8().data());
     return false;
   }
-  m_recordDirectory = home + "/iptvplayer/records";
 
-  // 3. Создаём каталог
-  if (!wxDirExists(m_recordDirectory)) {
-    if (!wxMkdir(m_recordDirectory, 0777)) {
-      LOG_ERROR("Could not create default record directory: %s",
-                m_recordDirectory.ToUTF8().data());
-      return false;
-    }
-  }
-
-  // 4. Сохраняем в конфиг
+  // 3. Сохраняем в конфиг.
   Application *app = dynamic_cast<Application *>(wxTheApp);
   if (app && app->getConfigManager()) {
     app->getConfigManager()->setSetting("record_directory",
