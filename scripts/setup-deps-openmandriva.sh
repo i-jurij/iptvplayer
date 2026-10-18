@@ -47,7 +47,7 @@ deps_packages() {
     local _pfx="lib64"
     [[ "$(uname -m)" == i686 || "$(uname -m)" == i386 ]] && _pfx="lib"
     cat <<EOF
-build-essential:gcc gcc-c++ make glibc-devel
+build-essential:gcc gcc-c++ make glibc-devel llvm gettext
 cmake:cmake
 git:git
 autoconf:autoconf
@@ -59,7 +59,7 @@ wget:wget
 curl:curl
 curl-dev:${_pfx}curl-devel
 mpv-dev:${_pfx}mpv-devel
-rapidjson-dev:rapidjson-devel
+rapidjson-dev:rapidjson
 gtk3-dev:${_pfx}gtk+3.0-devel
 rsvg-common:librsvg2
 x11-dev:${_pfx}x11-devel
@@ -69,9 +69,9 @@ egl-dev:${_pfx}egl-devel
 png-dev:${_pfx}png-devel
 jpeg-dev:${_pfx}jpeg-devel
 webp-dev:${_pfx}webp-devel
-zlib-dev:${_pfx}zlib-devel
+zlib-dev:${_pfx}z-devel
 expat-dev:${_pfx}expat-devel
-freetype-dev:${_pfx}freetype-devel
+freetype-dev:${_pfx}freetype6-devel
 EOF
 }
 
@@ -79,7 +79,15 @@ deps_is_installed() { rpm -q "$1" &>/dev/null; }
 
 deps_update() {
     _ensure_restricted_repo
-    $SUDO dnf makecache -q
+
+    log "Обновление метаданных dnf (makecache)..."
+    if ! $SUDO dnf makecache; then
+        warn "dnf makecache завершился с ошибкой — продолжаем."
+        warn "dnf install попробует обновить metadata самостоятельно."
+        warn "Если проблема повторится — проверьте вручную:"
+        warn "  sudo dnf repolist"
+        warn "  sudo dnf makecache"
+    fi
 }
 
 deps_install() { $SUDO dnf install -y "$@"; }

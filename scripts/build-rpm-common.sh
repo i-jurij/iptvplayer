@@ -111,12 +111,30 @@ build_rpm_common() {
     rm -rf "$_spec_dir"
     mkdir -p "$_spec_dir"/{SOURCES,BUILD,RPMS,SRPMS,BUILDROOT}
 
-    if ! ( cd "$STAGING_DIR" \
-           && tar -czf "$_spec_dir/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
-                 --transform="flags=r;s,^,$PACKAGE_NAME-$VERSION/," . ); then
+    # Не используем --transform: на OpenMandriva tar — это bsdtar
+    # (libarchive), который --transform не поддерживает (только -s).
+    # Портативный путь: копируем staging во временный каталог с именем
+    # $PACKAGE_NAME-$VERSION и упаковываем его. Работает и с GNU tar,
+    # и с bsdtar, и с busybox tar.
+    local _tarball_tmp
+    _tarball_tmp="$(mktemp -d -t iptvplayer-rpm-src.XXXXXX)" || {
+        echo "[!] build_rpm_common: mktemp для tar-источника упал" >&2
+        return 1
+    }
+    if ! mkdir -p "$_tarball_tmp/${PACKAGE_NAME}-${VERSION}" \
+         || ! cp -a "$STAGING_DIR/." "$_tarball_tmp/${PACKAGE_NAME}-${VERSION}/"; then
+        rm -rf -- "$_tarball_tmp"
+        echo "[!] build_rpm_common: подготовка tar-источника упала" >&2
+        return 1
+    fi
+
+    if ! tar -czf "$_spec_dir/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+             -C "$_tarball_tmp" "${PACKAGE_NAME}-${VERSION}"; then
+        rm -rf -- "$_tarball_tmp"
         echo "[!] build_rpm_common: упаковка staging в tar.gz упала" >&2
         return 1
     fi
+    rm -rf -- "$_tarball_tmp"
 
     local changelog_suffix=""
     [ -n "$changelog_tag" ] && changelog_suffix=" $changelog_tag"
