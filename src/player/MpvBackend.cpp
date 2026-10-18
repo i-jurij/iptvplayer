@@ -85,6 +85,8 @@ MpvBackend::MpvBackend(wxWindow *parentWindow, const MpvInitOptions &opts)
   int st = mpv_initialize(m_mpv);
   // LOG_DEBUG("mpv_initialize returned %d", st);
 
+  mpv_request_log_messages(m_mpv, "warn");
+
   mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG);
 
   mpv_observe_property(m_mpv, 1, "playback-time", MPV_FORMAT_DOUBLE);
@@ -278,6 +280,15 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
       break;
     }
 
+    break;
+  }
+  case MPV_EVENT_LOG_MESSAGE: {
+    auto *msg = static_cast<mpv_event_log_message *>(ev->data);
+    if (!msg || !msg->text)
+      break;
+    std::string line = std::string("[mpv/") +
+                       (msg->prefix ? msg->prefix : "?") + "] " + msg->text;
+    LOG_ERROR("%s", line.c_str());
     break;
   }
   case MPV_EVENT_END_FILE: {
