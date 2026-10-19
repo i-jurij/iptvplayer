@@ -617,9 +617,6 @@ void MainFrame::createMainPanel() {
 
   CallAfter([this]() {
     m_notebook->ChangeSelection(0);
-
-    // На MSW notebook не всегда пересчитывает размеры страниц после
-    // ChangeSelection, если frame только что показан.
     if (m_playlistPanel) {
       m_playlistPanel->Layout();
       m_playlistPanel->Refresh();
