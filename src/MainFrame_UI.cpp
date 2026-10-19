@@ -131,9 +131,9 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   // NOTEBOOK
   // -------------------------------
-  m_notebook = new BorderlessAuiNotebook(m_mainPanel, wxID_ANY,
-                                         wxDefaultPosition, wxDefaultSize,
-                                         wxAUI_NB_DEFAULT_STYLE);
+  m_notebook = new BorderlessAuiNotebook(
+      m_mainPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+      wxAUI_NB_DEFAULT_STYLE | wxBORDER_NONE);
   m_notebook->SetTabCtrlHeight(0);
   // Морозим notebook на всё время построения UI. Thaw — в CallAfter.
   m_notebook->Freeze();
