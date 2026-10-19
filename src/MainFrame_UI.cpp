@@ -1,4 +1,5 @@
 // src/MainFrame_UI.cpp
+#include "BorderlessAuiNotebook.h"
 #include "ConfigManager.h"
 #include "EventIDs.h"
 #include "IconManager.h"
@@ -130,8 +131,9 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   // NOTEBOOK
   // -------------------------------
-  m_notebook = new wxAuiNotebook(m_mainPanel, wxID_ANY, wxDefaultPosition,
-                                 wxDefaultSize, wxAUI_NB_DEFAULT_STYLE);
+  m_notebook = new BorderlessAuiNotebook(m_mainPanel, wxID_ANY,
+                                         wxDefaultPosition, wxDefaultSize,
+                                         wxAUI_NB_DEFAULT_STYLE);
   m_notebook->SetTabCtrlHeight(0);
   // Морозим notebook на всё время построения UI. Thaw — в CallAfter.
   m_notebook->Freeze();
