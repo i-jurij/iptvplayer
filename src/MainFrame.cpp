@@ -176,7 +176,7 @@ MainFrame::MainFrame(Application *app)
         // Сброс отложенной загрузки EPG
         m_epgDebounceTimer.Stop();
         m_epgPendingPanel = nullptr;
-        
+
         int sel = evt.GetSelection();
         LOG_DEBUG("MainFrame: notebook page changed event: selection=%d, "
                   "pagePtr=%p, pageLabel='%s', m_videoPageIdx=%d, "
@@ -228,8 +228,7 @@ MainFrame::~MainFrame() {
       cfg->setSetting("window_y", std::to_string(rect.GetY()));
       cfg->setInt("m_lastVolume", m_videoPanel->GetLastVolume());
       cfg->setSetting("nologo", m_channelsNoLogo ? "true" : "false");
-      cfg->setSetting("channels_view_mode",
-                      m_startInGrid ? "grid" : "list");
+      cfg->setSetting("channels_view_mode", m_startInGrid ? "grid" : "list");
 
       cfg->saveSettings();
 
@@ -259,18 +258,18 @@ MainFrame::~MainFrame() {
   }
 }
 
-void MainFrame::OnFavoritesMatchDone(wxCommandEvent& evt) {
-    int matched = evt.GetInt();
-    int total = evt.GetExtraLong();
-    LOG_DEBUG("Favorites match done: %d/%d", matched, total);
+void MainFrame::OnFavoritesMatchDone(wxCommandEvent &evt) {
+  int matched = evt.GetInt();
+  int total = evt.GetExtraLong();
+  LOG_DEBUG("Favorites match done: %d/%d", matched, total);
 
-    if (m_epgFavorites && m_epgFavorites->IsActive() && m_epgFavorites->HasChannel()) {
-        // Обновляем EPG для текущего канала в избранном
-        m_epgFavorites->LoadProgramsForChannel(
-            m_epgFavorites->GetCurrentChannelId(),
-            m_epgFavorites->GetCurrentDate()
-        );
-    }
+  if (m_epgFavorites && m_epgFavorites->IsActive() &&
+      m_epgFavorites->HasChannel()) {
+    // Обновляем EPG для текущего канала в избранном
+    m_epgFavorites->LoadProgramsForChannel(
+        m_epgFavorites->GetCurrentChannelId(),
+        m_epgFavorites->GetCurrentDate());
+  }
 }
 
 std::vector<Channel> MainFrame::GetCurrentChannels() const {
@@ -318,6 +317,10 @@ void MainFrame::ApplyFullscreen(bool fs) {
   }
 
   m_mainPanelBg = fs ? wxColour(0, 0, 0) : wxNullColour;
+
+  SetBackgroundColour(fs ? wxColour(0, 0, 0) : wxNullColour);
+
+  this->Layout();
 
   if (m_mainPanel) {
     m_mainPanel->Layout();

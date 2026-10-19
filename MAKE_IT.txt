@@ -20,6 +20,9 @@ rpmbuild in common.sh - name of packet in different distro?
 which required? 
 ==================================================================
 
+ximper linux migrate to dnf5 from apt-rpm (check in next version and write build-script)
+===================================================================
+
 in linux build scripts again need rpmbuild and other tools in build-package
 make check and interactive install as in setup-deps and clean after too
 ===========================================================================
