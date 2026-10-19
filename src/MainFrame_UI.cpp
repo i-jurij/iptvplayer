@@ -342,14 +342,7 @@ void MainFrame::createMainPanel() {
   // Страница "Program" будет добавлена в m_notebook при первом
   // переключении на неё. До этого m_epgPageIdx остаётся wxNOT_FOUND.
 
-  // Страховка от «наложения страниц» на MSW: wxAuiNotebook иногда не
-  // скрывает неактивные страницы до первого ChangeSelection
-  for (size_t i = 0; i < m_notebook->GetPageCount(); ++i) {
-    wxWindow *page = m_notebook->GetPage(i);
-    if (page)
-      page->Show(i == 0);
-  }
-  m_playlistPanel->Show(true);
+  m_notebook->SetSelection(0);
 
   // -------------------------------
   // HEADER BUTTONS bindings
@@ -625,10 +618,6 @@ void MainFrame::createMainPanel() {
   ToggleHeaderGroup(m_btnPlaylists);
 
   CallAfter([this]() {
-    m_notebook->ChangeSelection(0);
-
-    // На MSW notebook не всегда пересчитывает размеры страниц после
-    // ChangeSelection, если frame только что показан.
     if (m_playlistPanel) {
       m_playlistPanel->Layout();
       m_playlistPanel->Refresh();
