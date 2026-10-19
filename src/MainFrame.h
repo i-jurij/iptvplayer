@@ -123,6 +123,10 @@ public:
   void PlayChannel(const Channel &ch);
 
   void ApplyFullscreen(bool fs);
+#if defined(__WXMSW__)
+  WXLRESULT MSWWindowProc(WXUINT nMsg, WXWPARAM wParam,
+                          WXLPARAM lParam) override;
+#endif
 
   uint64_t InvalidateShowPanelToken();
 
@@ -136,11 +140,11 @@ public:
   void OpenFiles(const wxArrayString &paths);
 
 private:
-  void OnFavoritesMatchDone(wxCommandEvent& evt);
+  void OnFavoritesMatchDone(wxCommandEvent &evt);
 
   void RestoreChannelSelection();
   void RestoreFavoriteSelection();
-  
+
   Channel m_lastSelectedChannel;
   bool m_hasLastSelectedChannel = false;
   Channel m_lastSelectedFavorite;
@@ -150,15 +154,15 @@ private:
   EPGPanel *m_epgPendingPanel = nullptr;
   Channel m_epgPendingChannel;
   void OnEpgDebounceTimer(wxTimerEvent &);
-  
+
   wxSizerItem *m_mainSizerGaugeItem = nullptr;
   wxSizerItem *m_mainSizerHeaderItem = nullptr;
   wxSizerItem *m_mainSizerNotebookItem = nullptr;
-  wxColour m_mainPanelBg = wxNullColour;   // wxNullColour → SYS_COLOUR_BTNFACE
-  
+  wxColour m_mainPanelBg = wxNullColour; // wxNullColour → SYS_COLOUR_BTNFACE
+
   std::vector<std::future<void>> m_backgroundTasks;
   void CleanupFinishedTasks();
-  
+
   wxToggleButton *m_btnEpg = nullptr;
   int m_epgPageIdx = wxNOT_FOUND;
   void OnEpgToggle(wxCommandEvent &event);
@@ -168,14 +172,14 @@ private:
   bool m_playlistSuggestionShown = false;
 
   void onAddIPTVPlaylist(wxCommandEvent &event);
-  
+
   wxButton *m_menuButton = nullptr;
 
   void OnGlobalCharHook(wxKeyEvent &evt);
   bool IsVideoPageActive() const;
 
   std::atomic<bool> m_ignoreNotebookEvents{false};
-  
+
   wxToggleButton *m_btnPlaylists = nullptr;
   wxToggleButton *m_btnChannels = nullptr;
   wxToggleButton *m_btnFavorites = nullptr;
@@ -288,9 +292,9 @@ private:
   void HandlePlaylistPageChanged(int sel);
   void HandleVideoPageChanged(int sel);
 
-      // ----------------------------------------------------------------
-      // Thread‑related UI callbacks
-      void onUpdateAllDone(wxCommandEvent &ev);
+  // ----------------------------------------------------------------
+  // Thread‑related UI callbacks
+  void onUpdateAllDone(wxCommandEvent &ev);
   void onUpdateOneDone(wxCommandEvent &ev);
   void onUpdateProgress(wxCommandEvent &ev);
 
