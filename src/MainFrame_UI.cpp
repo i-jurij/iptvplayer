@@ -133,7 +133,8 @@ void MainFrame::createMainPanel() {
   m_notebook = new wxAuiNotebook(m_mainPanel, wxID_ANY, wxDefaultPosition,
                                  wxDefaultSize, wxAUI_NB_DEFAULT_STYLE);
   m_notebook->SetTabCtrlHeight(0);
-  // m_notebook->SetDoubleBuffered(true);
+  // Морозим notebook на всё время построения UI. Thaw — в CallAfter.
+  m_notebook->Freeze();
   m_notebook->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_notebook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
   m_notebook->Bind(wxEVT_PAINT, [this](wxPaintEvent &evt) {
@@ -616,15 +617,18 @@ void MainFrame::createMainPanel() {
   ToggleHeaderGroup(m_btnPlaylists);
 
   CallAfter([this]() {
+    // Notebook всё ещё заморожен (Freeze в начале createMainPanel)
     m_notebook->ChangeSelection(0);
     if (m_playlistPanel) {
       m_playlistPanel->Layout();
-      m_playlistPanel->Refresh();
-      m_playlistPanel->Update();
     }
-
     ToggleHeaderGroup(m_btnPlaylists);
     RestoreLastOpenedPlaylist();
+
+    // Thaw сам вызывает Refresh() для notebook, дальше достаточно Layout.
+    m_notebook->Thaw();
+    Layout();
+
     CheckAndSuggestPlaylist();
   });
 
