@@ -32,6 +32,11 @@
 
 #include <ctime>
 
+#if defined(__WXMSW__)
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
+#endif
+
 wxDEFINE_EVENT(EVT_UPDATE_ALL_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_ONE_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_PROGRESS, wxCommandEvent);
@@ -305,6 +310,19 @@ ChannelCards *MainFrame::GetChannelCards() { return m_channelCards; }
 void MainFrame::ApplyFullscreen(bool fs) {
   ShowFullScreen(fs, wxFULLSCREEN_ALL);
 
+#if defined(__WXMSW__)
+  // Убираем DWM-артефакты (светлую рамку) в полноэкранном режиме
+  HWND hwnd = GetHWND();
+  if (hwnd) {
+    BOOL compositionEnabled = FALSE;
+    if (SUCCEEDED(DwmIsCompositionEnabled(&compositionEnabled)) &&
+        compositionEnabled) {
+      MARGINS margins = fs ? MARGINS{0, 0, 0, 0} : MARGINS{-1, -1, -1, -1};
+      DwmExtendFrameIntoClientArea(hwnd, &margins);
+    }
+  }
+#endif
+
   int border = fs ? 0 : 6;
   if (m_mainSizerGaugeItem) {
     m_mainSizerGaugeItem->SetBorder(border);
@@ -342,6 +360,34 @@ void MainFrame::ApplyFullscreen(bool fs) {
     m_videoPanel->Update();
   }
 }
+
+#if defined(__WXMSW__)
+WXLRESULT MainFrame::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lParam) {
+    switch (nMsg) {
+    case WM_NCCALCSIZE: {
+        if (wParam) {
+            // В полноэкранном режиме возвращаем 0, чтобы вся площадь окна
+            // стала клиентской областью (убирает системную рамку).
+            if (IsFullScreen()) {
+                return 0;
+            }
+        }
+        break;
+    }
+    case WM_NCACTIVATE: {
+        if (IsFullScreen()) {
+            // Передаем -1 в базовый класс, чтобы DefWindowProc 
+            // не перерисовывал non-client area при активации.
+            return wxFrame::MSWWindowProc(nMsg, wParam, -1);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return wxFrame::MSWWindowProc(nMsg, wParam, lParam);
+}
+#endif
 
 void MainFrame::CleanupFinishedTasks() {
   m_backgroundTasks.erase(

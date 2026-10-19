@@ -155,6 +155,13 @@ void PlayerController::Pause() {
 void PlayerController::Stop() {
   if (!m_backend)
     return;
+
+  // Останавливаем таймер сверки, иначе он через 500 мс
+  // решит, что видео играет (т.к. pause=false), и вернет статус "Playing".
+  if (m_reconcileTimer.IsRunning())
+    m_reconcileTimer.Stop();
+  m_reconcilePending.store(false);
+
   m_backend->Stop();
   NotifyState(PlayerState::Stopped);
 }

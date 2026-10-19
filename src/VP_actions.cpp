@@ -328,6 +328,20 @@ void VideoPanel::Stop() {
         m_progressPanel->Raise();
     }
 
+    // === Динамический цвет фона ===
+    // Если мы в полноэкранном режиме и контролы скрыты — фон черный (сливается
+    // с видео). Во всех остальных случаях (оконный режим или фуллскрин с
+    // контролами) — BTNFACE.
+    if (m_mainPanel) {
+      if (m_isFullscreen && !show) {
+        m_mainPanel->SetBackgroundColour(*wxBLACK);
+      } else {
+        m_mainPanel->SetBackgroundColour(
+            wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
+      }
+      m_mainPanel->Refresh(); // Принудительно применяем цвет
+    }
+
     // === Обновление Layout всей иерархии ===
     Layout();
     Refresh();

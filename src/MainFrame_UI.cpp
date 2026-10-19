@@ -19,6 +19,7 @@
 #include <wx/display.h>
 #include <wx/gauge.h>
 #include <wx/sizer.h>
+#include <wx/statline.h>
 
 static wxGauge *makeGauge(wxWindow *parent) {
   return new wxGauge(parent, wxID_ANY, 100, wxDefaultPosition, wxDefaultSize,
@@ -78,6 +79,8 @@ void MainFrame::HandleVideoPageChanged(int sel) {
   if (sel != m_videoPageIdx) {
     m_videoPanel->SetTabActive(false);
     m_videoPanel->SetControlsVisible(true, false);
+    SetStatusText("", 0);
+    SetStatusText("", 1);
     return;
   }
 
@@ -328,14 +331,14 @@ void MainFrame::createMainPanel() {
   m_videoPanel->SetRecentFiles(recentWx);
 
   m_videoPanel->m_onPlayerState = [this](const wxString &state) {
-    if (!GetStatusBar())
+    if (!GetStatusBar() || !IsVideoPageActive())
       return;
 
     SetStatusText(state, 0);
   };
 
   m_videoPanel->m_onStreamInfo = [this](const wxString &info) {
-    if (!GetStatusBar())
+    if (!GetStatusBar() || !IsVideoPageActive())
       return;
 
     SetStatusText(info, 1);
@@ -615,6 +618,12 @@ void MainFrame::createMainPanel() {
   // Добавляем панель в sizer самого фрейма
   wxBoxSizer *frameSizer = new wxBoxSizer(wxVERTICAL);
   frameSizer->Add(m_mainPanel, 1, wxEXPAND);
+
+  // Добавляем тонкую горизонтальную линию между контентом и статусбаром
+  wxStaticLine *statusLine = new wxStaticLine(this, wxID_ANY, wxDefaultPosition,
+                                              wxDefaultSize, wxLI_HORIZONTAL);
+  frameSizer->Add(statusLine, 0, wxEXPAND);
+
   SetSizer(frameSizer);
   Layout(); // Принудительно пересчитать размеры
 

@@ -123,6 +123,10 @@ public:
   void PlayChannel(const Channel &ch);
 
   void ApplyFullscreen(bool fs);
+#if defined(__WXMSW__)
+  WXLRESULT MSWWindowProc(WXUINT nMsg, WXWPARAM wParam,
+                          WXLPARAM lParam) override;
+#endif
 
   uint64_t InvalidateShowPanelToken();
 

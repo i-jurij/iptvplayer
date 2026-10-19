@@ -255,6 +255,15 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
     std::string name(prop->name);
 
     if (name == "pause") {
+      // Игнорируем изменение pause, если плеер в idle-состоянии
+      // (файл еще не загружен). Иначе mpv при инициализации пришлет
+      // pause=false, и мы ложно сообщим о состоянии Playing.
+      int idle = 0;
+      if (mpv_get_property(m_mpv, "idle-active", MPV_FORMAT_FLAG, &idle) >= 0 &&
+          idle) {
+        break;
+      }
+      
       int64_t val = 0;
       if (prop->data) {
         val = *static_cast<int64_t *>(prop->data);

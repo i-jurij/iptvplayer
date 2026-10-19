@@ -46,13 +46,12 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   // ------------------------------------------------------------
   // Splitter — создаём СНАЧАЛА
   // ------------------------------------------------------------
-  m_splitter = new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition,
-                                    wxDefaultSize,
-                                    wxSP_LIVE_UPDATE | wxSP_NOBORDER);
+  m_splitter =
+      new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                           wxSP_LIVE_UPDATE | wxSP_NOBORDER);
   m_splitter->SetMinimumPaneSize(120);
   m_splitter->SetBorderSize(0);
-  m_splitter->SetBackgroundColour(
-      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
+  m_splitter->SetBackgroundColour(*wxBLACK);
 
   // ------------------------------------------------------------
   // Боковая панель временного плейлиста (родитель — splitter)
@@ -179,7 +178,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   // ------------------------------------------------------------
   // Основная вертикальная часть (видео + прогресс + контролы)
   // ------------------------------------------------------------
-  m_mainPanel = new wxPanel(m_splitter, wxID_ANY);
+  m_mainPanel = new wxPanel(m_splitter, wxID_ANY, wxDefaultPosition,
+                            wxDefaultSize, wxBORDER_NONE);
   m_mainPanel->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
@@ -811,6 +811,9 @@ void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
 
   UpdateProgressDisplay(info);
 
+  if (!IsShownOnScreen())
+    return;
+
   wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
   if (!frame || !frame->GetStatusBar())
     return;
@@ -927,6 +930,7 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
     if (!m_wasPlayingBeforeStop)
       break;
     m_tempState = TempPlayState::Stopped;
+    m_autoPausedByTabSwitch = false;
     m_eofTimer.Stop();
     if (m_isTempPlaylistPlaying) {
       if (!m_pendingTempPlay) {
@@ -1039,34 +1043,35 @@ void VideoPanel::UpdateUiButtons() {
   }
 
   // ---- Обновляем статусбар ----
-  wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
-  if (frame && frame->GetStatusBar()) {
-    wxString statusText;
-    if (m_isLoading) {
-      statusText = _U("Loading...");
-    } else {
-      switch (effectiveState) {
-      case UiState::Idle:
-        statusText = "";
-        break;
-      case UiState::Loading:
+  if (IsShownOnScreen()) {
+    wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
+    if (frame && frame->GetStatusBar()) {
+      wxString statusText;
+      if (m_isLoading) {
         statusText = _U("Loading...");
-        break;
-      case UiState::Playing:
-        statusText = _U("Playing");
-        break;
-      case UiState::Paused:
-        statusText = _U("Paused");
-        break;
+      } else {
+        switch (effectiveState) {
+        case UiState::Idle:
+          statusText = "";
+          break;
+        case UiState::Loading:
+          statusText = _U("Loading...");
+          break;
+        case UiState::Playing:
+          statusText = _U("Playing");
+          break;
+        case UiState::Paused:
+          statusText = _U("Paused");
+          break;
+        }
+      }
+      frame->SetStatusText(statusText, 0);
+      // Если статус пустой (Idle и не загрузка) – очищаем второй слот
+      if (effectiveState == UiState::Idle && !m_isLoading) {
+        frame->SetStatusText("", 1);
       }
     }
-    frame->SetStatusText(statusText, 0);
-    // Если статус пустой (Idle и не загрузка) – очищаем второй слот
-    if (effectiveState == UiState::Idle && !m_isLoading) {
-      frame->SetStatusText("", 1);
-    }
   }
-
   UpdateRecordButtonState();
 }
 
@@ -1085,10 +1090,12 @@ void VideoPanel::SetTabActive(bool active) {
   LOG_DEBUG("VideoPanel::SetTabActive(true) called; m_autoPausedByTabSwitch=%d",
             (int)m_autoPausedByTabSwitch);
 
-  // Прогреваем backend при первом заходе на Video-вкладку. 
+  // Прогреваем backend при первом заходе на Video-вкладку.
   if (m_playerController && !m_playerController->GetBackend()) {
     wxTheApp->CallAfter([this]() { EnsurePlayerBackend(); });
   }
+
+  UpdateUiButtons();
 
   if (!m_autoPausedByTabSwitch)
     return;
@@ -1105,8 +1112,18 @@ void VideoPanel::SetTabActive(bool active) {
       return;
     }
 
-    LOG_DEBUG("VideoPanel::SetTabActive(CallAfter): calling Play()");
-    Play();
+    // Возобновляем только если видео действительно было на паузе.
+    // Если m_tempState == Idle/Stopped, значит файла нет, и Play()
+    // только ложно выставит статус "Воспроизведение".
+    if (m_tempState == TempPlayState::Paused) {
+      LOG_DEBUG("VideoPanel::SetTabActive(CallAfter): calling Play()");
+      Play();
+    } else {
+      LOG_DEBUG(
+          "VideoPanel::SetTabActive(CallAfter): not resuming, m_tempState=%d",
+          (int)m_tempState);
+      m_autoPausedByTabSwitch = false;
+    }
 
     // локальный таймер и счётчик попыток — без новых полей класса
     wxTimer *resumeTimer = new wxTimer(this);
@@ -1287,7 +1304,7 @@ wxString VideoPanel::DetermineRecordExtension(const StreamInfo &info) const {
 
   std::string codec = info.videoCodec;
   std::transform(codec.begin(), codec.end(), codec.begin(),
-               [](unsigned char c){ return std::tolower(c); });
+                 [](unsigned char c) { return std::tolower(c); });
 
   // Для MPEG-2 / MPEG-4 используем .ts (Transport Stream)
   if (codec.find("mpeg2") != std::string::npos ||
@@ -1327,14 +1344,14 @@ void VideoPanel::OnRecord(wxCommandEvent &) {
 
   PlayerState state = m_playerController->GetState();
   if (state != PlayerState::Playing && state != PlayerState::Paused) {
-    wxMessageBox(_U("Recording is only available during playback"),
-                 _U("Error"), wxOK | wxICON_WARNING);
+    wxMessageBox(_U("Recording is only available during playback"), _U("Error"),
+                 wxOK | wxICON_WARNING);
     return;
   }
 
   if (!InitializeRecordDirectory()) {
-    wxMessageBox(_U("Could not initialize record directory"),
-                 _U("Error"), wxOK | wxICON_ERROR);
+    wxMessageBox(_U("Could not initialize record directory"), _U("Error"),
+                 wxOK | wxICON_ERROR);
     return;
   }
 
