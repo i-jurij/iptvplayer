@@ -133,7 +133,7 @@ void MainFrame::createMainPanel() {
   m_notebook = new wxAuiNotebook(m_mainPanel, wxID_ANY, wxDefaultPosition,
                                  wxDefaultSize, wxAUI_NB_DEFAULT_STYLE);
   m_notebook->SetTabCtrlHeight(0);
-  m_notebook->SetDoubleBuffered(true);
+  // m_notebook->SetDoubleBuffered(true);
   m_notebook->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_notebook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
   m_notebook->Bind(wxEVT_PAINT, [this](wxPaintEvent &evt) {
@@ -143,6 +143,7 @@ void MainFrame::createMainPanel() {
                       : wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE);
     dc.SetBackground(wxBrush(bg));
     dc.Clear();
+    //evt.Skip(); // не глушим нативную перерисовку страниц notebook
   });
 
   // -------------------------------
@@ -153,8 +154,8 @@ void MainFrame::createMainPanel() {
   headerPanel->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
   headerPanel->Bind(wxEVT_PAINT, [](wxPaintEvent &evt) {
     wxPaintDC dc(static_cast<wxWindow *>(evt.GetEventObject()));
-    dc.SetBackground(wxBrush(
-        wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE)));
+    dc.SetBackground(
+        wxBrush(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE)));
     dc.Clear();
   });
 
@@ -164,9 +165,8 @@ void MainFrame::createMainPanel() {
     wxBitmapBundle icon = LoadSvgIcon(svgName, this);
 
 #ifdef __WXMSW__
-    wxToggleButton *btn =
-        new wxToggleButton(headerPanel, wxID_ANY, "",
-                           wxDefaultPosition, wxDefaultSize, wxBU_LEFT);
+    wxToggleButton *btn = new wxToggleButton(
+        headerPanel, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxBU_LEFT);
     if (icon.IsOk()) {
       btn->SetBitmap(icon);
       btn->SetToolTip(label);
@@ -201,8 +201,8 @@ void MainFrame::createMainPanel() {
     btnMenu->SetLabel(" " + _U("Menu"));
   }
 #else
-  wxButton *btnMenu = new wxButton(headerPanel, wxID_ANY,
-                                   wxString::FromUTF8(" ") + _U("Menu"));
+  wxButton *btnMenu =
+      new wxButton(headerPanel, wxID_ANY, wxString::FromUTF8(" ") + _U("Menu"));
   m_menuButton = btnMenu;
   if (menuIcon.IsOk())
     btnMenu->SetBitmap(menuIcon, wxLEFT);
@@ -342,6 +342,15 @@ void MainFrame::createMainPanel() {
   // Страница "Program" будет добавлена в m_notebook при первом
   // переключении на неё. До этого m_epgPageIdx остаётся wxNOT_FOUND.
 
+  // Страховка от «наложения страниц» на MSW: wxAuiNotebook иногда не
+  // скрывает неактивные страницы до первого ChangeSelection
+  for (size_t i = 0; i < m_notebook->GetPageCount(); ++i) {
+    wxWindow *page = m_notebook->GetPage(i);
+    if (page)
+      page->Show(i == 0);
+  }
+  m_playlistPanel->Show(true);
+
   // -------------------------------
   // HEADER BUTTONS bindings
   // -------------------------------
@@ -354,27 +363,25 @@ void MainFrame::createMainPanel() {
     HighlightLoadedPlaylistInList();
   });
 
-  m_btnChannels->Bind(wxEVT_TOGGLEBUTTON,
-                      [this](wxCommandEvent &) {
-                        if (m_loadedPlaylistIndex < 0) {
-                          wxMessageBox(_U("Please select a playlist first."),
-                                       _U("Info"), wxOK | wxICON_INFORMATION,
-                                       this);
-                          m_btnChannels->SetValue(false);
-                          return;
-                        }
+  m_btnChannels->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
+    if (m_loadedPlaylistIndex < 0) {
+      wxMessageBox(_U("Please select a playlist first."), _U("Info"),
+                   wxOK | wxICON_INFORMATION, this);
+      m_btnChannels->SetValue(false);
+      return;
+    }
 
-                        if (m_playlistUpdated) {
-                          LogoCache::ClearPlaylist(m_loadedPlaylistName);
-                          m_playlistUpdated = false;
-                        }
+    if (m_playlistUpdated) {
+      LogoCache::ClearPlaylist(m_loadedPlaylistName);
+      m_playlistUpdated = false;
+    }
 
-                        if (m_videoPanel)
-                          m_videoPanel->SetTabActive(false);
+    if (m_videoPanel)
+      m_videoPanel->SetTabActive(false);
 
-                        ToggleHeaderGroup(m_btnChannels);
-                        m_notebook->SetSelection(m_channelsPageIdx);
-                      });
+    ToggleHeaderGroup(m_btnChannels);
+    m_notebook->SetSelection(m_channelsPageIdx);
+  });
 
   m_btnFavorites->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
     if (m_videoPanel)
@@ -384,11 +391,10 @@ void MainFrame::createMainPanel() {
     m_notebook->SetSelection(2);
   });
 
-  m_btnVideo->Bind(wxEVT_TOGGLEBUTTON,
-                   [this](wxCommandEvent &) {
-                     ToggleHeaderGroup(m_btnVideo);
-                     m_notebook->SetSelection(3);
-                   });
+  m_btnVideo->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
+    ToggleHeaderGroup(m_btnVideo);
+    m_notebook->SetSelection(3);
+  });
 
   m_btnEpg->Bind(wxEVT_TOGGLEBUTTON, &MainFrame::OnEpgToggle, this);
 
@@ -489,9 +495,8 @@ void MainFrame::createMainPanel() {
                        wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
           wxBoxSizer *top = new wxBoxSizer(wxVERTICAL);
-          wxStaticText *msg =
-              new wxStaticText(&dlg, wxID_ANY,
-                               _U("You disabled channel logos."));
+          wxStaticText *msg = new wxStaticText(
+              &dlg, wxID_ANY, _U("You disabled channel logos."));
           msg->Wrap(420);
           top->Add(msg, 0, wxALL | wxEXPAND, FromDIP(12));
 
@@ -605,9 +610,10 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   // FINAL LAYOUT
   // -------------------------------
-  m_mainSizerHeaderItem = mainSizer->Add(headerPanel, 0, wxEXPAND | wxALL, 6);
+  m_mainSizerHeaderItem =
+      mainSizer->Add(headerPanel, 0, wxEXPAND | wxALL, FromDIP(6));
   m_mainSizerNotebookItem =
-      mainSizer->Add(m_notebook, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
+      mainSizer->Add(m_notebook, 1, wxEXPAND | wxALL, FromDIP(0));
   m_mainPanel->SetSizer(mainSizer);
 
   // Добавляем панель в sizer самого фрейма
@@ -615,11 +621,20 @@ void MainFrame::createMainPanel() {
   frameSizer->Add(m_mainPanel, 1, wxEXPAND);
   SetSizer(frameSizer);
   Layout(); // Принудительно пересчитать размеры
-  
+
   ToggleHeaderGroup(m_btnPlaylists);
 
   CallAfter([this]() {
     m_notebook->ChangeSelection(0);
+
+    // На MSW notebook не всегда пересчитывает размеры страниц после
+    // ChangeSelection, если frame только что показан.
+    if (m_playlistPanel) {
+      m_playlistPanel->Layout();
+      m_playlistPanel->Refresh();
+      m_playlistPanel->Update();
+    }
+
     ToggleHeaderGroup(m_btnPlaylists);
     RestoreLastOpenedPlaylist();
     CheckAndSuggestPlaylist();
@@ -628,7 +643,7 @@ void MainFrame::createMainPanel() {
   LOG_DEBUG("MainFrame: pages indices: playlist=?, channels=%d, favorites=%d, "
             "video=%d",
             m_channelsPageIdx, m_favoritesPageIdx, m_videoPageIdx);
-  
+
   int videoIdxFound = m_notebook->FindPage(m_videoPanel);
   LOG_DEBUG("MainFrame: m_videoPageIdx=%d videoIdxFound=%d m_videoPanel=%p",
             m_videoPageIdx, videoIdxFound, (void *)m_videoPanel);

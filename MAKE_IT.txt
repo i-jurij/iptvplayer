@@ -1,7 +1,5 @@
-build script openmandriva no recognized setup-deps.sh
-check depends list
+filters and toolbars (list/grid, showlogo) background to noutbook bg_color
 
-======================================================
 
 localization again
 ==============================================

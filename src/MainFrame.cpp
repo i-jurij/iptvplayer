@@ -314,10 +314,9 @@ void MainFrame::ApplyFullscreen(bool fs) {
     m_mainSizerHeaderItem->SetBorder(border);
   }
   if (m_mainSizerNotebookItem) {
-    m_mainSizerNotebookItem->SetBorder(border);
+    m_mainSizerNotebookItem->SetBorder(0);
   }
 
-  // В фуллскрине заливаем «подложку» чёрным. 
   m_mainPanelBg = fs ? wxColour(0, 0, 0) : wxNullColour;
 
   if (m_mainPanel) {
@@ -325,9 +324,19 @@ void MainFrame::ApplyFullscreen(bool fs) {
     m_mainPanel->Refresh();
     m_mainPanel->Update();
   }
+
   if (m_notebook) {
+    m_notebook->Layout();
+    m_notebook->SendSizeEvent();
     m_notebook->Refresh();
     m_notebook->Update();
+  }
+
+  if (m_videoPanel && m_videoPageIdx != wxNOT_FOUND &&
+      m_notebook->GetSelection() == m_videoPageIdx) {
+    m_videoPanel->Layout();
+    m_videoPanel->Refresh();
+    m_videoPanel->Update();
   }
 }
 
