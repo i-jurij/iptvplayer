@@ -343,37 +343,6 @@ void MainFrame::ApplyFullscreen(bool fs) {
   }
 }
 
-#if defined(__WXMSW__)
-WXLRESULT MainFrame::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam,
-                                   WXLPARAM lParam) {
-  switch (nMsg) {
-  case WM_NCACTIVATE: {
-    // Отключаем перерисовку не-клиентской области при активации окна.
-    // lParam = -1 сообщает DefWindowProc не перерисовывать non-client area.
-    lParam = -1;
-    break;
-  }
-  case WM_NCCALCSIZE: {
-    if (wParam) {
-      // wParam == TRUE означает, что приложение может управлять размером
-      // клиентской области. Если окно в полноэкранном режиме, возвращаем 0,
-      // чтобы вся площадь окна стала клиентской (рамка исчезает).
-      if (IsFullScreen()) {
-        return 0;
-      }
-      // В оконном режиме НЕ возвращаем 0, чтобы сохранить стандартное
-      // поведение (возможность изменения размера, заголовок и т.д.).
-      // Просто выходим из case и передаём сообщение в базовый класс.
-    }
-    break;
-  }
-  default:
-    break;
-  }
-  return wxFrame::MSWWindowProc(nMsg, wParam, lParam);
-}
-#endif
-
 void MainFrame::CleanupFinishedTasks() {
   m_backgroundTasks.erase(
       std::remove_if(m_backgroundTasks.begin(), m_backgroundTasks.end(),
