@@ -146,7 +146,9 @@ void MainFrame::createMainPanel() {
                       : wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE);
     dc.SetBackground(wxBrush(bg));
     dc.Clear();
-    //evt.Skip(); // не глушим нативную перерисовку страниц notebook
+    // ГЛУШИМ нативную перерисовку страниц notebook,
+    // чтобы в линукс не было рамки вокруг auinotebok
+    // evt.Skip();
   });
 
   // -------------------------------
