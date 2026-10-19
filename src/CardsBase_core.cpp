@@ -37,16 +37,7 @@ void CardsBase::InitLRULimits() {
         //    MAX_TILE_LRU);
 }
 
-wxBEGIN_EVENT_TABLE(CardsBase, wxScrolledWindow) EVT_PAINT(CardsBase::OnPaint)
-    EVT_SIZE(CardsBase::OnResize) EVT_MOTION(CardsBase::OnMouseMove)
-        EVT_LEAVE_WINDOW(CardsBase::OnMouseLeave)
-            EVT_LEFT_DOWN(CardsBase::OnMouseDown)
-                EVT_WINDOW_DESTROY(CardsBase::OnDestroy)
-                    EVT_KEY_DOWN(CardsBase::OnKeyDown)
-                        EVT_CONTEXT_MENU(CardsBase::OnContextMenu)
-    wxEND_EVENT_TABLE()
-
-                                CardsBase::CardsBase(wxWindow *parent)
+CardsBase::CardsBase(wxWindow *parent)
     : wxScrolledWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                        wxFULL_REPAINT_ON_RESIZE | wxVSCROLL),
       m_redrawTimer(this, wxID_HIGHEST + 1),
@@ -102,6 +93,15 @@ wxBEGIN_EVENT_TABLE(CardsBase, wxScrolledWindow) EVT_PAINT(CardsBase::OnPaint)
 
   m_scrollStopTimer.SetOwner(this, wxID_HIGHEST + 3);
   Bind(wxEVT_TIMER, &CardsBase::OnScrollStop, this, m_scrollStopTimer.GetId());
+
+  Bind(wxEVT_PAINT, &CardsBase::OnPaint, this);
+  Bind(wxEVT_SIZE, &CardsBase::OnResize, this);
+  Bind(wxEVT_MOTION, &CardsBase::OnMouseMove, this);
+  Bind(wxEVT_LEAVE_WINDOW, &CardsBase::OnMouseLeave, this);
+  Bind(wxEVT_LEFT_DOWN, &CardsBase::OnMouseDown, this);
+  Bind(wxEVT_DESTROY, &CardsBase::OnDestroy, this);
+  Bind(wxEVT_KEY_DOWN, &CardsBase::OnKeyDown, this);
+  Bind(wxEVT_CONTEXT_MENU, &CardsBase::OnContextMenu, this);
 }
 
 MainFrame *CardsBase::GetMainFrame() const {

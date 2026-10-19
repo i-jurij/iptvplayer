@@ -205,8 +205,6 @@ private:
 
   // --- Texture units ---
   PFNGLACTIVETEXTUREPROC p_glActiveTexture = nullptr;
-
-  wxDECLARE_EVENT_TABLE();
 };
 
 #endif // MPVGLCANVAS_H

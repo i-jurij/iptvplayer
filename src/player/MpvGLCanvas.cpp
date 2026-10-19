@@ -51,18 +51,20 @@ void *GetGLProcAddress(const char *name) {
 } // namespace
 
 // ------------------------------------------------------------
-// Таблица событий wxWidgets
+// Конструктор / Деструктор
 // ------------------------------------------------------------
-wxBEGIN_EVENT_TABLE(MpvGLCanvas, wxGLCanvas) EVT_PAINT(MpvGLCanvas::OnPaint)
-    EVT_SIZE(MpvGLCanvas::OnSize) EVT_SHOW(MpvGLCanvas::OnShow)
-        wxEND_EVENT_TABLE()
-
-    // ------------------------------------------------------------
-    // Конструктор / Деструктор
-    // ------------------------------------------------------------
-    MpvGLCanvas::MpvGLCanvas(wxWindow *parent, mpv_handle *mpv)
-    : wxGLCanvas(parent, wxID_ANY, GetGLAttributes()), m_mpv(mpv) {
+MpvGLCanvas::MpvGLCanvas(wxWindow *parent, mpv_handle *mpv)
+    : wxGLCanvas(parent, wxID_ANY, GetGLAttributes(), wxDefaultPosition,
+                 wxDefaultSize, wxBORDER_NONE),
+      m_mpv(mpv) {
   SetBackgroundStyle(wxBG_STYLE_PAINT);
+  SetBackgroundColour(*wxBLACK);
+
+  // Привязка событий (замена устаревшей таблице событий)
+  Bind(wxEVT_PAINT, &MpvGLCanvas::OnPaint, this);
+  Bind(wxEVT_SIZE, &MpvGLCanvas::OnSize, this);
+  Bind(wxEVT_SHOW, &MpvGLCanvas::OnShow, this);
+
   m_spinnerTimer.SetOwner(this);
   Bind(wxEVT_TIMER, &MpvGLCanvas::OnSpinnerTimer, this, m_spinnerTimer.GetId());
 }
@@ -73,7 +75,7 @@ MpvGLCanvas::~MpvGLCanvas() {
   DestroyGLResources();
 
   m_spinnerTimer.Stop();
-  
+
   m_glctx.reset();
 }
 
@@ -617,7 +619,7 @@ void MpvGLCanvas::DestroyRenderContext() {
 }
 
 void MpvGLCanvas::SetMpvHandle(mpv_handle *mpv) {
-  //LOG_DEBUG("MpvGLCanvas::SetMpvHandle mpv=%p", (void *)mpv);
+  // LOG_DEBUG("MpvGLCanvas::SetMpvHandle mpv=%p", (void *)mpv);
 
   // Отцепляем старый mpv
   if (!mpv) {

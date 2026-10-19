@@ -1,3 +1,6 @@
+в диалогах добавления плейлиста добавить сразу пункт 
+Автообновление (при запуске или как?)
+
 filters and toolbars (list/grid, showlogo) background to noutbook bg_color
 
 

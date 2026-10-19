@@ -129,18 +129,10 @@ static std::string ExtractHostSimple(const std::string &url) {
     end = url.size();
   return url.substr(start, end - start);
 }
-
 // ---------------------------------------------------------------------------
-// Event table
-wxBEGIN_EVENT_TABLE(BaseChannelList, wxDataViewCtrl)
-    EVT_DATAVIEW_ITEM_ACTIVATED(wxID_ANY, BaseChannelList::OnItemActivated)
-        EVT_DATAVIEW_COLUMN_SORTED(wxID_ANY, BaseChannelList::OnColumnSorted)
-            EVT_WINDOW_DESTROY(BaseChannelList::OnDestroy) wxEND_EVENT_TABLE()
-
-    // ---------------------------------------------------------------------------
-    // Constructor
-    // ---------------------------------------------------------------------------
-    BaseChannelList::BaseChannelList(wxWindow *parent, wxWindowID id)
+// Constructor
+// ---------------------------------------------------------------------------
+BaseChannelList::BaseChannelList(wxWindow *parent, wxWindowID id)
     : wxDataViewCtrl(parent, id, wxDefaultPosition, wxDefaultSize,
                      wxDV_ROW_LINES | wxDV_VERT_RULES | wxDV_MULTIPLE),
       m_closing(false), m_model(new ChannelDataModel()), m_lazyLoadTimer(this),
@@ -202,6 +194,11 @@ wxBEGIN_EVENT_TABLE(BaseChannelList, wxDataViewCtrl)
   m_processQueueTimer.SetOwner(this, wxID_HIGHEST + 6);
   Bind(wxEVT_TIMER, &BaseChannelList::OnProcessQueueTimer, this,
        m_processQueueTimer.GetId());
+
+  Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED, &BaseChannelList::OnItemActivated, this);
+  Bind(wxEVT_DATAVIEW_COLUMN_SORTED, &BaseChannelList::OnColumnSorted, this);
+  Bind(wxEVT_DESTROY, &BaseChannelList::OnDestroy, this);
+  Bind(wxEVT_SHOW, &BaseChannelList::OnShowEvent, this);
 }
 
 BaseChannelList::~BaseChannelList() {
@@ -249,12 +246,11 @@ void BaseChannelList::InitColumns() {
   AppendColumn(favCol);
   favCol->SetSortable(true);
 
-  AppendTextColumn(_U("Group"), 4, wxDATAVIEW_CELL_INERT,
-                   wxCOL_WIDTH_AUTOSIZE, wxALIGN_LEFT)
+  AppendTextColumn(_U("Group"), 4, wxDATAVIEW_CELL_INERT, wxCOL_WIDTH_AUTOSIZE,
+                   wxALIGN_LEFT)
       ->SetSortable(true);
 
-  AppendTextColumn(_U("Language"), 5, wxDATAVIEW_CELL_INERT, 100,
-                   wxALIGN_LEFT)
+  AppendTextColumn(_U("Language"), 5, wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT)
       ->SetSortable(true);
 
   AppendTextColumn(_U("Country"), 6, wxDATAVIEW_CELL_INERT, 100, wxALIGN_LEFT)
@@ -1136,7 +1132,8 @@ int BaseChannelList::GetAccurateTopRow() {
 }
 
 void BaseChannelList::OnProcessQueueTimer(wxTimerEvent &) {
-  // Проверяем, есть ли работа (на случай, если очередь опустела за время задержки)
+  // Проверяем, есть ли работа (на случай, если очередь опустела за время
+  // задержки)
   if (m_loadQueue.empty() && m_pendingLogoLoads.empty()) {
     return;
   }

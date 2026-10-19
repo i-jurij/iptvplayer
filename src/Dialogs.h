@@ -32,7 +32,6 @@ private:
         ID_BtnCancel
     };
 
-    wxDECLARE_EVENT_TABLE();
 };
 
 

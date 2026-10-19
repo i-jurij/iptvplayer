@@ -244,8 +244,6 @@ private:
 
   int FromDIP(int v) const { return wxWindow::FromDIP(v, this); }
 
-  wxDECLARE_EVENT_TABLE();
-
   std::atomic<uint64_t> m_channelsVersion{0};
 
   // Мьютекс для защиты локальных кэшей (m_scaledCache, DPI-кэши и

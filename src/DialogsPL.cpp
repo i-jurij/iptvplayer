@@ -27,11 +27,6 @@ namespace {
 // ============================================================================
 // AddPlaylistFileDialog
 // ============================================================================
-wxBEGIN_EVENT_TABLE(AddPlaylistFileDialog, wxDialog)
-    EVT_BUTTON(ID_BtnOk,     AddPlaylistFileDialog::OnOK)
-    EVT_BUTTON(ID_BtnCancel, AddPlaylistFileDialog::OnCancel)
-wxEND_EVENT_TABLE()
-
 AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow* parent)
     : wxDialog(parent, wxID_ANY, _U("Add Playlist from File"),
                wxDefaultPosition, wxDefaultSize,
@@ -77,6 +72,9 @@ AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow* parent)
 
     SetSizerAndFit(topSizer);
     Layout();
+
+    Bind(wxEVT_BUTTON, &AddPlaylistFileDialog::OnOK, this, ID_BtnOk);
+    Bind(wxEVT_BUTTON, &AddPlaylistFileDialog::OnCancel, this, ID_BtnCancel);
 }
 
 void AddPlaylistFileDialog::OnOK(wxCommandEvent&)

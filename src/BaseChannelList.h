@@ -191,6 +191,4 @@ protected:
 
   wxTimer m_processQueueTimer;
   void OnProcessQueueTimer(wxTimerEvent &event);
-
-  wxDECLARE_EVENT_TABLE();
 };
