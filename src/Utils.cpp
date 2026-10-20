@@ -1,3 +1,5 @@
+#include "config.h"
+
 #include "Utils.h"
 #include "LogControl.h"
 #include "Utils_FsPath.h"

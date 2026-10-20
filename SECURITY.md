@@ -42,7 +42,7 @@ For each release:
 
 - **`checksums.txt`** — SHA256 hashes of the artifacts.
 - **`checksums.txt.asc`** — detached signature of `checksums.txt`.
-- **`public-key.asc`** — the author's public key (also mirrored in the repo).
+- **`public-key.asc`** — the author's public key.
 - The packages you need (`.deb`, `.rpm`, `.AppImage`).
 
 You do not need to download every artifact just to verify the one you care
@@ -58,10 +58,7 @@ The author signs releases with the following GPG key:
 - **Key ID:** `F01A34CBE2DFC712`
 - **Fingerprint:** `17B1 75F4 AB16 6271 3D54 037C F01A 34CB E2DF C712`
 
-The key is available:
-
-- in each release as `public-key.asc` (recommended — it is what the CI exports);
-- in the repository root as `pubkey.asc`.
+The key is available in each release as `public-key.asc`
 
 Import the key:
 
@@ -249,7 +246,7 @@ We appreciate your contribution and guarantee:
 
 - **`checksums.txt`** — список SHA256-хешей артефактов.
 - **`checksums.txt.asc`** — отделённая подпись `checksums.txt`.
-- **`public-key.asc`** — открытый ключ автора (дублируется в репозитории).
+- **`public-key.asc`** — открытый ключ автора.
 - Пакеты, которые вам нужны (`.deb`, `.rpm`, `.AppImage`).
 
 Скачивать все артефакты только ради проверки одного не требуется — см.
@@ -265,11 +262,7 @@ We appreciate your contribution and guarantee:
 - **Key ID:** `F01A34CBE2DFC712`
 - **Fingerprint:** `17B1 75F4 AB16 6271 3D54 037C F01A 34CB E2DF C712`
 
-Ключ доступен:
-
-- в каждом релизе как `public-key.asc` (рекомендуется — именно этот файл
-  экспортирует CI);
-- в корне репозитория как `pubkey.asc`.
+Ключ доступен в каждом релизе как `public-key.asc`
 
 Импорт:
 

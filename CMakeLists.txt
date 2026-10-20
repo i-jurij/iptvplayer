@@ -444,7 +444,7 @@ install(DIRECTORY ${ICONS_DIR}/ DESTINATION share/iptvplayer/icons)
 # DATADIR для JSON-файлов
 # ------------------------
 set(DATADIR "${CMAKE_INSTALL_PREFIX}/share")
-target_compile_definitions(${PROJECT_NAME} PRIVATE "DATADIR=\"${DATADIR}\"")
+configure_file(${CMAKE_SOURCE_DIR}/config.h.in ${CMAKE_BINARY_DIR}/config.h @ONLY)
 
 
 # ------------------------
