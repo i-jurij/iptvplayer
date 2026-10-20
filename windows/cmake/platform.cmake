@@ -43,6 +43,10 @@ if(MINGW)
     )
 endif()
 
+# Системная библиотека DWM (DwmExtendFrameIntoClientArea, DwmIsCompositionEnabled).
+# link_libraries применяет библиотеку ко всем целям, созданным после этого вызова.
+link_libraries(dwmapi)
+
 function(win_deploy_runtime_dlls target)
     if(NOT MSYS2_PREFIX)
         return()

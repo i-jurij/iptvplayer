@@ -34,7 +34,6 @@
 
 #if defined(__WXMSW__)
 #include <dwmapi.h>
-#pragma comment(lib, "dwmapi.lib")
 #endif
 
 wxDEFINE_EVENT(EVT_UPDATE_ALL_DONE, wxCommandEvent);
