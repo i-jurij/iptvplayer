@@ -141,8 +141,10 @@ if [[ -n "$LOG_FILE" ]]; then
     log "Лог будет сохранён в $LOG_FILE"
 fi
 
-# Проверка cmake
-command -v cmake >/dev/null || error "cmake не установлен (требуется >= 3.16)"
+# cmake может отсутствовать до вызова setup-deps.sh
+if ! command -v cmake >/dev/null 2>&1; then
+    warn "cmake не найден в PATH. Будет установлен в составе зависимостей (setup-deps.sh)."
+fi
 
 # Автовыбор генератора
 MAKE_CMD="make"

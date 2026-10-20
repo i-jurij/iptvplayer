@@ -18,6 +18,7 @@ git:git
 autoconf:autoconf
 automake:automake
 libtool:libtool
+gettext:gettext
 gnupg:gnupg2
 pkg-config:pkg-config
 wget:wget

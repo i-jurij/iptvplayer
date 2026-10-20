@@ -7,14 +7,18 @@
 # Сорсится из build-package.sh (а в будущем — из build-release.sh и setup-deps.sh).
 #
 # Содержит:
-#   - цвета и логирование (log/warn/error/section)
 #   - автодетект NON_INTERACTIVE
 #   - ask() — интерактивный запрос y/n
-#   - detect_arch, detect_distro, detect_pkgmgr — окружение
+#   - download / download_multi — загрузчик с повторами
 #   - read_versions_from_install — читает install/VERSION*
 #   - prepare_staging — заполняет STAGING_DIR для нативных пакетов
+#   - rpm_files_block — секция %files для RPM spec
 #   - detect_deb_depends — вычисляет Depends для .deb
 #   - check_deps — проверяет наличие утилит для запрошенных сборок
+#   - ensure_tools — проверка и установка инструментов упаковщиков
+#
+# Цвета, log/warn/error/section и detect_sudo живут в common-detect.sh
+# (он сорсится первым — см. ниже).
 #
 # Требует: SCRIPT_DIR, PROJECT_ROOT (могут быть установлены снаружи;
 #          если нет — вычисляются здесь).
@@ -24,19 +28,6 @@
 : "${PROJECT_ROOT:=$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 source "$SCRIPT_DIR/common-detect.sh"
-
-# === Цвета ===
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-# === Логирование ===
-log()     { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn()    { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
-error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
-section() { echo -e "\n${BLUE}═══════════════════════════════════════${NC}\n${BLUE}$1${NC}\n${BLUE}═══════════════════════════════════════${NC}\n"; }
 
 # === Неинтерактивный режим ===
 NON_INTERACTIVE=false
@@ -53,7 +44,7 @@ ask() {
     local di="${2:-n}"
     local dni="${3:-$di}"
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        log "Неинтерактивный режим: '${prompt}' → ${dni} (авто)"
+        log "Non interactive way: '${prompt}' → ${dni} (auto)"
         [[ "$dni" == "y" ]]
         return
     fi
@@ -91,7 +82,7 @@ download() {
     log="$(mktemp -t download.XXXXXX)"
 
     if [[ -z "$DOWNLOADER" ]]; then
-        error "Нужен wget или curl для скачивания $url"
+        error "wget or curl is required to download $url"
     fi
 
     # Прогресс — только когда stderr это терминал.
@@ -122,9 +113,9 @@ download() {
                 return 0
             fi
         fi
-        warn "Скачивание не удалось (попытка $i/$tries): $url"
+        warn "Download failed (retryCount $i/$tries): $url"
         if ((i == tries)) && [[ -s "$log" ]]; then
-            echo "--- Вывод загрузчика ---" >&2
+            echo "--- Downloader log ---" >&2
             cat "$log" >&2
             echo "------------------------" >&2
         fi
@@ -155,7 +146,7 @@ download_multi() {
         if download "$url" "$out" "$ua"; then
             return 0
         fi
-        warn "URL исчерпан, переходим к следующему: $url"
+        warn "URL finished, go to next: $url"
     done
     return 1
 }
@@ -169,7 +160,7 @@ read_versions_from_install() {
     local VERSION_FILE_NAME_PATH="$INSTALL_DIR/VERSION_FILE"
 
     if [ ! -f "$VERSION_FILE_PATH" ] || [ ! -f "$VERSION_FULL_PATH" ] || [ ! -f "$VERSION_FILE_NAME_PATH" ]; then
-        echo "[ERROR] Файлы версий не найдены в $INSTALL_DIR." >&2
+        echo "[ERROR] Version files not found in $INSTALL_DIR." >&2
         return 1
     fi
     local VERSION VERSION_FULL VERSION_FILE
@@ -218,7 +209,7 @@ EOF
 prepare_staging() {
     local BIN_PATH="$PROJECT_ROOT/install/bin/$PACKAGE_NAME"
     if [ ! -d "$PROJECT_ROOT/install/bin" ] || [ ! -f "$BIN_PATH" ]; then
-        echo "[!] Бинарник не найден: $BIN_PATH" >&2
+        echo "[!] Binary not found: $BIN_PATH" >&2
         return 1
     fi
 
@@ -253,7 +244,7 @@ prepare_staging() {
         mkdir -p "$STAGING_DIR/usr/share/locale"
         if ! cp -r "$PROJECT_ROOT/install/share/locale/." \
                     "$STAGING_DIR/usr/share/locale/"; then
-            echo "[!] не удалось скопировать локали из install/" >&2
+            echo "[!] failed to copy locales from install/" >&2
             return 1
         fi
         if ! find "$STAGING_DIR/usr/share/locale" -name '*.mo' -print -quit \
@@ -400,14 +391,14 @@ check_deps() {
 
     if [ ${#required[@]} -ne 0 ]; then
         if [[ "$NON_INTERACTIVE" == true ]]; then
-            error "Не хватает обязательных инструментов: ${required[*]}. CI-образ должен ставить их заранее."
+            error "Missing required tools: ${required[*]}. CI image must install them in advance."
         fi
-        warn "Не хватает инструментов: ${required[*]}"
-        warn "Установка — при сборке конкретного формата (упаковщик сам предложит)."
+        warn "Missing required tools: ${required[*]}"
+        warn "Auto install — on build."
     fi
 
     if [ ${#optional[@]} -ne 0 ]; then
-        echo "[i] Опциональные инструменты не найдены: ${optional[*]}. Установите при необходимости."
+        echo "[i] Missing optional tools: ${optional[*]}. Install them if you need it."
     fi
 }
 
@@ -471,9 +462,7 @@ _load_deps_module() {
 
     # shellcheck disable=SC1090
     source "$f"
-    if command -v sudo >/dev/null 2>&1; then SUDO="sudo"
-    elif [ "$(id -u)" = "0" ]; then SUDO=""
-    else return 1; fi
+    detect_sudo
     _DEPS_MODULE_LOADED=1
     return 0
 }
@@ -491,20 +480,20 @@ ensure_tools() {
     [ ${#missing_tools[@]} -eq 0 ] && return 0
 
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        error "Не хватает инструментов для $desc: ${missing_tools[*]}. CI-образ должен ставить их заранее."
+        error "Missing required tools: ${required[*]}. CI image must install them in advance."
     fi
     if ! _load_deps_module; then
-        error "Для $desc не хватает: ${missing_tools[*]}. На этой ОС автоустановка недоступна — поставьте вручную."
+        error "Missing tools for $desc: ${missing_tools[*]}. Automatic installation is not available on this OS — install manually."
     fi
 
     warn "Для $desc не хватает: ${missing_tools[*]}"
     if ! ask "Установить (${missing_pkgs[*]})? [Y/n]:" y; then
-        error "Без ${missing_tools[*]} продолжить нельзя."
+        error "Cannot continue without ${missing_tools[*]}."
     fi
 
     deps_update || true
     if ! deps_install "${missing_pkgs[@]}"; then
-        error "Не удалось установить ${missing_pkgs[*]}."
+        error "Failed to install ${missing_pkgs[*]}."
     fi
     hash -r
 
@@ -515,7 +504,7 @@ ensure_tools() {
 
     local t
     for t in "${missing_tools[@]}"; do
-        command -v "$t" >/dev/null 2>&1 || error "После установки $t всё ещё не в PATH."
+        command -v "$t" >/dev/null 2>&1 || error "After installation $t is still not in PATH."
     done
-    log "✅ ${missing_pkgs[*]} установлены."
+    log "✅ ${missing_pkgs[*]} installed."
 }

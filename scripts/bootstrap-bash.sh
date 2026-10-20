@@ -30,8 +30,8 @@ fi
 # Защита от прямого запуска (не через source).
 case "${0##*/}" in
     bootstrap-bash.sh)
-        echo "bootstrap-bash.sh — библиотека, не запускается напрямую." >&2
-        echo "Он сорсится из build-package.sh / build-release.sh / setup-deps.sh." >&2
+        echo "bootstrap-bash.sh is a library, do not run directly." >&2
+        echo "It is sourced from build-package.sh / build-release.sh / setup-deps.sh." >&2
         exit 1
         ;;
 esac
@@ -70,7 +70,7 @@ if [ -z "$_iptv_bs_bash" ] && [ -n "$_iptv_bs_dir" ]; then
 
         if [ ! -x "$_static" ] && [ -z "${IPTVPLAYER_BOOTSTRAP_DISABLE:-}" ]; then
             _url="https://github.com/robxu9/bash-static/releases/download/${_iptv_bs_tag}/${_asset}"
-            printf '[*] bash не найден — скачиваю статический (%s)...\n' "$_asset" >&2
+            printf '[*] bash not found — downloading static build (%s)...\n' "$_asset" >&2
 
             _tmp="${_static}.tmp.$$"
             rm -f "$_tmp"
@@ -81,7 +81,7 @@ if [ -z "$_iptv_bs_bash" ] && [ -n "$_iptv_bs_dir" ]; then
             elif command -v wget >/dev/null 2>&1; then
                 wget -q "$_url" -O "$_tmp" 2>/dev/null && _ok=1
             else
-                echo "[!] Ни curl, ни wget не найдены — не могу скачать bash." >&2
+                echo "[!] Neither curl nor wget found — cannot download bash." >&2
             fi
 
             if [ "$_ok" = 1 ] && [ -s "$_tmp" ]; then
@@ -93,11 +93,11 @@ if [ -z "$_iptv_bs_bash" ] && [ -n "$_iptv_bs_dir" ]; then
                     mv "$_tmp" "$_static"
                     echo "[+] bash-static: $_static" >&2
                 else
-                    echo "[!] Скачанный файл не является ELF — вероятно, HTML-страница ошибки." >&2
+                    echo "[!] Downloaded file is not ELF — probably an HTML error page." >&2
                     rm -f "$_tmp"
                 fi
             else
-                echo "[!] Не удалось скачать $_url" >&2
+                echo "[!] Failed to download $_url" >&2
                 rm -f "$_tmp"
             fi
         fi
@@ -110,12 +110,12 @@ fi
 
 # 4. Ничего не нашли — внятная инструкция.
 if [ -z "$_iptv_bs_bash" ]; then
-    echo "[!] bash не найден и не удалось скачать статический." >&2
+    echo "[!] bash not found and failed to download static build." >&2
     if [ -n "${IPTVPLAYER_BOOTSTRAP_DISABLE:-}" ]; then
-        echo "    IPTVPLAYER_BOOTSTRAP_DISABLE=1 — скачивание отключено," >&2
-        echo "    искали только системный bash в PATH." >&2
+        echo "    IPTVPLAYER_BOOTSTRAP_DISABLE=1 — download disabled," >&2
+        echo "    searched only for system bash in PATH." >&2
     fi
-    echo "    Установите bash средствами вашего дистрибутива:" >&2
+    echo "    Install bash using your distribution package manager:" >&2
     echo "      apt install bash | dnf install bash | apk add bash | pacman -S bash" >&2
     exit 1
 fi
@@ -124,5 +124,5 @@ fi
 exec "$_iptv_bs_bash" "$0" "$@"
 
 # exec не возвращается при успехе; сюда попадаем только если он упал.
-echo "[!] Не удалось запустить bash: $_iptv_bs_bash" >&2
+echo "[!] Failed to start bash: $_iptv_bs_bash" >&2
 exit 1

@@ -11,9 +11,23 @@
 # =============================================================================
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    echo "common-detect.sh — библиотека, не запускается напрямую." >&2
+    echo "ommon-detect.sh is a library, do not run directly." >&2
     exit 1
 fi
+
+# =============================================================================
+# Цвета и логирование.
+# =============================================================================
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log()     { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
+error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
+section() { echo -e "\n${BLUE}═══════════════════════════════════════${NC}\n${BLUE}$1${NC}\n${BLUE}═══════════════════════════════════════${NC}\n"; }
 
 detect_arch() {
     local machine; machine="$(uname -m)"
@@ -23,15 +37,15 @@ detect_arch() {
         armv7l|armv8l|armhf)   DEB_ARCH="armhf"; RPM_ARCH="armv7hl"; APPIMAGE_ARCH="armhf"   ;;
         i686|i386)             DEB_ARCH="i386";  RPM_ARCH="i686";    APPIMAGE_ARCH="i686"    ;;
         *)
-            echo "[!] Неизвестная архитектура: $machine" >&2
+            echo "[!] Unknown architecture: $machine" >&2
             exit 1 ;;
     esac
-    echo "[i] Архитектура: $machine → deb=$DEB_ARCH, rpm=$RPM_ARCH, appimage=$APPIMAGE_ARCH"
+    echo "[i] Architecture: $machine → deb=$DEB_ARCH, rpm=$RPM_ARCH, appimage=$APPIMAGE_ARCH"
 }
 
 detect_distro() {
     if [ -n "${DISTRO:-}" ]; then
-        echo "[i] DISTRO задан извне: $DISTRO"; return 0
+        echo "[i] DISTRO setup: $DISTRO"; return 0
     fi
     if [ -r /etc/os-release ]; then
         # shellcheck disable=SC1091
@@ -41,14 +55,14 @@ detect_distro() {
     else
         DISTRO="unknown"
     fi
-    echo "[i] DISTRO определён локально: $DISTRO"
+    echo "[i] DISTRO check local: $DISTRO"
 }
 
 detect_pkgmgr() {
     local id="${DISTRO%%-*}"
     case "$id" in
         ubuntu|debian|linuxmint|pop|astra)                    echo "apt"     ;;
-        fedora|rocky|rhel|centos|almalinux|ol|oracle|redos|rosa|openmandriva) echo "dnf"  ;;
+        fedora|rocky|rhel|centos|almalinux|ol|oracle|redos|rosa|openmandriva|mageia) echo "dnf"  ;;
         opensuse|sles)                                        echo "zypper"  ;;
         alt|altlinux)                                         echo "apt-rpm" ;;
         arch|manjaro|endeavouros|cachyos)                     echo "pacman"  ;;
@@ -78,4 +92,37 @@ distro_is() {
         case "$DISTRO" in $_p) return 0 ;; esac
     done
     return 1
+}
+
+# =============================================================================
+# detect_sudo – определяет способ повышения привилегий.
+# Устанавливает глобальную переменную SUDO. Возвращает:
+#   0 — SUDO установлен (может быть пустым: мы уже root);
+#   1 — ни sudo, ни root, ни pkexec недоступны.
+# Порядок: sudo → уже root → pkexec (GUI-запрос пароля).
+# su -c сознательно НЕ используется: его синтаксис несовместим с
+# вызовами вида $SUDO apt-get install pkg (нужна одна строка в кавычках).
+# =============================================================================
+# =============================================================================
+# detect_sudo – определяет способ повышения привилегий и устанавливает SUDO.
+# Порядок: sudo → уже root → pkexec (GUI-запрос пароля).
+#
+# При отсутствии всех трёх — error() с инструкцией. Это осознанно:
+# единственная причина вызывать detect_sudo — необходимость установить
+# или удалить пакеты. Без повышения привилегий эти операции невозможны,
+# продолжать выполнение бессмысленно.
+#
+# su -c НЕ используется: его синтаксис несовместим с
+# вызовами вида $SUDO apt-get install pkg (нужна одна строка в кавычках).
+# =============================================================================
+detect_sudo() {
+    if command -v sudo >/dev/null 2>&1; then
+        SUDO="sudo"
+    elif [ "$(id -u)" = "0" ]; then
+        SUDO=""
+    elif command -v pkexec >/dev/null 2>&1; then
+        SUDO="pkexec"
+    else
+        error "No privilege escalation method found (sudo/root/pkexec). Install sudo or add the user to the wheel group: usermod -aG wheel ${USER:-<user>} (then re-login)."
+    fi
 }
