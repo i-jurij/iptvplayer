@@ -443,6 +443,8 @@ _load_deps_module() {
         f="$SCRIPT_DIR/setup-deps-rosa.sh"
     elif [[ "$pkgmgr" == dnf ]] && distro_is 'openmandriva*'; then
         f="$SCRIPT_DIR/setup-deps-openmandriva.sh"
+    elif [[ "$pkgmgr" == dnf ]] && distro_is 'mageia*'; then
+        f="$SCRIPT_DIR/setup-deps-mageia.sh"
     else
         case "$pkgmgr" in
             apt)     f="$SCRIPT_DIR/setup-deps-deb.sh"  ;;

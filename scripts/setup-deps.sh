@@ -164,6 +164,8 @@ select_deps_file() {
         DEPS_FILE="$SCRIPT_DIR/setup-deps-rosa.sh"
     elif [[ "$PKG_MANAGER" == dnf ]] && distro_is 'openmandriva*'; then
         DEPS_FILE="$SCRIPT_DIR/setup-deps-openmandriva.sh"
+    elif [[ "$PKG_MANAGER" == dnf ]] && distro_is 'mageia*'; then
+        DEPS_FILE="$SCRIPT_DIR/setup-deps-mageia.sh"
     else
         case "$PKG_MANAGER" in
             apt)     DEPS_FILE="$SCRIPT_DIR/setup-deps-deb.sh"  ;;

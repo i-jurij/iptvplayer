@@ -94,35 +94,14 @@ distro_is() {
     return 1
 }
 
-# =============================================================================
-# detect_sudo – определяет способ повышения привилегий.
-# Устанавливает глобальную переменную SUDO. Возвращает:
-#   0 — SUDO установлен (может быть пустым: мы уже root);
-#   1 — ни sudo, ни root, ни pkexec недоступны.
-# Порядок: sudo → уже root → pkexec (GUI-запрос пароля).
-# su -c сознательно НЕ используется: его синтаксис несовместим с
-# вызовами вида $SUDO apt-get install pkg (нужна одна строка в кавычках).
-# =============================================================================
-# =============================================================================
-# detect_sudo – определяет способ повышения привилегий и устанавливает SUDO.
-# Порядок: sudo → уже root → pkexec (GUI-запрос пароля).
-#
-# При отсутствии всех трёх — error() с инструкцией. Это осознанно:
-# единственная причина вызывать detect_sudo — необходимость установить
-# или удалить пакеты. Без повышения привилегий эти операции невозможны,
-# продолжать выполнение бессмысленно.
-#
-# su -c НЕ используется: его синтаксис несовместим с
-# вызовами вида $SUDO apt-get install pkg (нужна одна строка в кавычках).
-# =============================================================================
 detect_sudo() {
+    if [ "$(id -u)" = "0" ]; then
+        SUDO=""
+        return 0
+    fi
     if command -v sudo >/dev/null 2>&1; then
         SUDO="sudo"
-    elif [ "$(id -u)" = "0" ]; then
-        SUDO=""
-    elif command -v pkexec >/dev/null 2>&1; then
-        SUDO="pkexec"
-    else
-        error "No privilege escalation method found (sudo/root/pkexec). Install sudo or add the user to the wheel group: usermod -aG wheel ${USER:-<user>} (then re-login)."
+        return 0
     fi
+    error "sudo is not installed and the user is not root. Run as root, install sudo, or install packages manually and re-run."
 }
