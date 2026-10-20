@@ -19,19 +19,19 @@ wget:wget
 curl:curl
 curl-dev:${_pfx}curl-devel
 mpv-dev:${_pfx}mpv-devel
-rapidjson-dev:rapidjson-devel
+rapidjson-dev:rapidjson
 gtk3-dev:${_pfx}gtk+3.0-devel
 rsvg-common:librsvg2
 x11-dev:${_pfx}x11-devel
 x11-xcb-dev:${_pfx}xcb-devel
-gl-dev:${_pfx}mesagl1-devel
+gl-dev:${_pfx}mesagl-devel
 egl-dev:${_pfx}mesaegl-devel
 png-dev:${_pfx}png-devel
 jpeg-dev:${_pfx}jpeg-devel
 webp-dev:${_pfx}webp-devel
 zlib-dev:${_pfx}zlib-devel
 expat-dev:${_pfx}expat-devel
-freetype-dev:${_pfx}freetype6-devel
+freetype-dev:${_pfx}freetype2-devel
 EOF
 }
 
