@@ -26,6 +26,7 @@ bool EPGParserExpat::Parse(const std::string &xmlData) {
   XML_SetCharacterDataHandler(parser, TextHandler);
 
   m_channels.clear();
+  m_programmesMap.clear();
   m_currentChannel = EpgChannel();
   m_currentProgram = EpgProgram();
   m_currentText.clear();
@@ -34,21 +35,39 @@ bool EPGParserExpat::Parse(const std::string &xmlData) {
   bool success = true;
   if (XML_Parse(parser, xmlData.c_str(), static_cast<int>(xmlData.size()),
                 XML_TRUE) == XML_STATUS_ERROR) {
+#if defined(XML_MAJOR_VERSION) &&                                              \
+    (XML_MAJOR_VERSION > 2 ||                                                  \
+     (XML_MAJOR_VERSION == 2 && XML_MINOR_VERSION >= 9))
+    LOG_ERROR(
+        "EPGParserExpat: XML parse error at line %llu, column %llu: %s",
+        static_cast<unsigned long long>(XML_GetCurrentLineNumber64(parser)),
+        static_cast<unsigned long long>(XML_GetCurrentColumnNumber64(parser)),
+        XML_ErrorString(XML_GetErrorCode(parser)));
+#else
+    // Для более старых версий Expat оставляем 32-битные
     LOG_ERROR("EPGParserExpat: XML parse error at line %lu, column %lu: %s",
               static_cast<unsigned long>(XML_GetCurrentLineNumber(parser)),
               static_cast<unsigned long>(XML_GetCurrentColumnNumber(parser)),
               XML_ErrorString(XML_GetErrorCode(parser)));
+#endif
     success = false;
   }
 
   XML_ParserFree(parser);
 
+  // Прикрепляем программы к каналам (из unordered_map в вектор) и сортируем
   for (auto &ch : m_channels) {
-    std::sort(ch.programs.begin(), ch.programs.end(),
-              [](const EpgProgram &a, const EpgProgram &b) {
-                return a.startTime < b.startTime;
-              });
+    auto it = m_programmesMap.find(ch.id);
+    if (it != m_programmesMap.end()) {
+      ch.programs = std::move(it->second);
+      std::sort(ch.programs.begin(), ch.programs.end(),
+                [](const EpgProgram &a, const EpgProgram &b) {
+                  return a.startTime < b.startTime;
+                });
+    }
   }
+
+  m_programmesMap.clear();
 
   return success;
 }
@@ -87,7 +106,13 @@ void XMLCALL EPGParserExpat::TextHandler(void *userData, const char *s,
 void EPGParserExpat::OnStartElement(
     const std::string &name,
     const std::vector<std::pair<std::string, std::string>> &attrs) {
-  m_currentText.clear();
+
+  // Очищаем текст только для тех тегов, которые мы реально читаем.
+  // Это сохранит текст, если внутри <desc> окажутся вложенные теги вроде <b>.
+  if (name == "title" || name == "desc" || name == "category" ||
+      name == "display-name") {
+    m_currentText.clear();
+  }
 
   if (name == "channel") {
     m_state = STATE_CHANNEL;
@@ -123,31 +148,16 @@ void EPGParserExpat::OnStartElement(
 }
 
 void EPGParserExpat::OnEndElement(const std::string &name) {
-  std::string trimmed = m_currentText;
-  size_t start = trimmed.find_first_not_of(" \t\n\r");
-  if (start != std::string::npos)
-    trimmed = trimmed.substr(start);
-  size_t end = trimmed.find_last_not_of(" \t\n\r");
-  if (end != std::string::npos)
-    trimmed = trimmed.substr(0, end + 1);
-
   if (name == "channel") {
     if (!m_currentChannel.id.empty()) {
       m_channels.push_back(m_currentChannel);
     }
     m_state = STATE_NONE;
   } else if (name == "programme") {
-    // FIX: только одна проверка и одно добавление (без дублирования)
     if (!m_currentProgram.channelId.empty() &&
         !m_currentProgram.title.empty() && m_currentProgram.startTime > 0 &&
         m_currentProgram.stopTime > m_currentProgram.startTime) {
-      // Проверяем, что канал существует
-      for (auto &ch : m_channels) {
-        if (ch.id == m_currentProgram.channelId) {
-          ch.programs.push_back(m_currentProgram);
-          break;
-        }
-      }
+      m_programmesMap[m_currentProgram.channelId].push_back(m_currentProgram);
     } else {
       LOG_WARN("EPGParserExpat: Skipped programme (channel='%s', title='%s', "
                "start=%lld, stop=%lld)",
@@ -158,14 +168,35 @@ void EPGParserExpat::OnEndElement(const std::string &name) {
     }
     m_state = STATE_NONE;
   } else if (m_state == STATE_CHANNEL && name == "display-name") {
+    // Тримм делаем только здесь
+    std::string trimmed = m_currentText;
+    size_t start = trimmed.find_first_not_of(" \t\n\r");
+    if (start != std::string::npos)
+      trimmed = trimmed.substr(start);
+    size_t end = trimmed.find_last_not_of(" \t\n\r");
+    if (end != std::string::npos)
+      trimmed = trimmed.substr(0, end + 1);
+
     m_currentChannel.displayName = trimmed;
   } else if (m_state == STATE_PROGRAMME) {
-    if (name == "title")
-      m_currentProgram.title = trimmed;
-    else if (name == "desc")
-      m_currentProgram.description = trimmed;
-    else if (name == "category")
-      m_currentProgram.category = trimmed;
+    if (name == "title" || name == "desc" || name == "category") {
+      // Тримм делаем только для известных тегов
+      std::string trimmed = m_currentText;
+      size_t start = trimmed.find_first_not_of(" \t\n\r");
+      if (start != std::string::npos)
+        trimmed = trimmed.substr(start);
+      size_t end = trimmed.find_last_not_of(" \t\n\r");
+      if (end != std::string::npos)
+        trimmed = trimmed.substr(0, end + 1);
+
+      if (name == "title") {
+        m_currentProgram.title = trimmed;
+      } else if (name == "desc") {
+        m_currentProgram.description = trimmed;
+      } else if (name == "category") {
+        m_currentProgram.category = trimmed;
+      }
+    }
   }
 }
 

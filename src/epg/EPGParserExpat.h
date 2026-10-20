@@ -2,8 +2,10 @@
 #define EPGPARSEREXPAT_H
 
 #include "EPGData.h"
+
 #include <expat.h>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class EPGParserExpat {
@@ -13,6 +15,7 @@ public:
 
 private:
   std::vector<EpgChannel> m_channels;
+  std::unordered_map<std::string, std::vector<EpgProgram>> m_programmesMap;
   EpgChannel m_currentChannel;
   EpgProgram m_currentProgram;
   std::string m_currentText;
