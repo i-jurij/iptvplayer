@@ -138,8 +138,8 @@ void MainFrame::createMainPanel() {
       m_mainPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
       wxAUI_NB_DEFAULT_STYLE | wxBORDER_NONE);
   m_notebook->SetTabCtrlHeight(0);
-  // Морозим notebook на всё время построения UI. Thaw — в CallAfter.
-  m_notebook->Freeze();
+  // Hide notebook на всё время построения UI. Show — в CallAfter.
+  m_notebook->Hide();
   m_notebook->SetBackgroundStyle(wxBG_STYLE_PAINT);
   m_notebook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
   m_notebook->Bind(wxEVT_PAINT, [this](wxPaintEvent &evt) {
@@ -257,7 +257,6 @@ void MainFrame::createMainPanel() {
   // -------------------------------
   m_videoPanel = new VideoPanel(m_notebook);
   m_videoPanel->SetUIElementsToHide(headerPanel, m_gaugeTop);
-
   m_videoPanel->m_onRequestTabSwitch = [this](int index) {
     LOG_DEBUG("MainFrame: m_onRequestTabSwitch requested index=%d, current "
               "token=%llu",
@@ -620,7 +619,7 @@ void MainFrame::createMainPanel() {
   frameSizer->Add(m_mainPanel, 1, wxEXPAND);
 
   // Добавляем тонкую горизонтальную линию между контентом и статусбаром
-  wxStaticLine *statusLine = new wxStaticLine(this, wxID_ANY, wxDefaultPosition,
+  statusLine = new wxStaticLine(this, wxID_ANY, wxDefaultPosition,
                                               wxDefaultSize, wxLI_HORIZONTAL);
   frameSizer->Add(statusLine, 0, wxEXPAND);
 
@@ -630,17 +629,13 @@ void MainFrame::createMainPanel() {
   ToggleHeaderGroup(m_btnPlaylists);
 
   CallAfter([this]() {
-    // Notebook всё ещё заморожен (Freeze в начале createMainPanel)
     m_notebook->ChangeSelection(0);
-    if (m_playlistPanel) {
-      m_playlistPanel->Layout();
-    }
+
     ToggleHeaderGroup(m_btnPlaylists);
     RestoreLastOpenedPlaylist();
 
-    // Thaw сам вызывает Refresh() для notebook, дальше достаточно Layout.
-    m_notebook->Thaw();
-    Layout();
+    // Show after hide in constructor
+    m_notebook->Show();
 
     CheckAndSuggestPlaylist();
   });

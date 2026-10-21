@@ -10,6 +10,7 @@
 #include <wx/event.h>
 #include <wx/listctrl.h>
 #include <wx/splitter.h>
+#include <wx/statline.h>
 #include <wx/tglbtn.h>
 #include <wx/timer.h>
 #include <wx/wx.h>

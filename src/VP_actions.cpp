@@ -304,55 +304,33 @@ void VideoPanel::Stop() {
   // ============================================================================
   // Fullscreen logic
   // ============================================================================
-  void VideoPanel::SetUIElementsToHide(wxPanel * headerPanel,
-                                       wxGauge * gaugeTop) {
+  void VideoPanel::SetUIElementsToHide(wxPanel *headerPanel, wxGauge *gaugeTop) {
     m_headerPanel = headerPanel;
     m_gaugeTop = gaugeTop;
   }
 
   void VideoPanel::SetControlsVisible(bool show, bool startTimer) {
     // === Управление видимостью всех элементов UI ===
-    if (m_headerPanel) {
-      show ? m_headerPanel->Show() : m_headerPanel->Hide();
-      if (show)
-        m_headerPanel->Raise();
-    }
-    if (m_controlsPanel) {
-      show ? m_controlsPanel->Show() : m_controlsPanel->Hide();
-      if (show)
-        m_controlsPanel->Raise();
-    }
-    if (m_progressPanel) {
-      show ? m_progressPanel->Show() : m_progressPanel->Hide();
-      if (show)
-        m_progressPanel->Raise();
-    }
-
-    // === Динамический цвет фона ===
-    // Если мы в полноэкранном режиме и контролы скрыты — фон черный (сливается
-    // с видео). Во всех остальных случаях (оконный режим или фуллскрин с
-    // контролами) — BTNFACE.
-    if (m_mainPanel) {
-      if (m_isFullscreen && !show) {
-        m_mainPanel->SetBackgroundColour(*wxBLACK);
-      } else {
-        m_mainPanel->SetBackgroundColour(
-            wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
+    auto togglePanel = [show](wxWindow *panel) {
+      if (panel) {
+        show ? panel->Show() : panel->Hide();
+        if (show)
+          panel->Raise();
       }
-      m_mainPanel->Refresh(); // Принудительно применяем цвет
-    }
+    };
+
+    togglePanel(m_headerPanel);
+    togglePanel(m_controlsPanel);
+    togglePanel(m_progressPanel);
 
     // === Обновление Layout всей иерархии ===
-    Layout();
-    Refresh();
-    Update();
     wxWindow *parent = GetParent();
     while (parent) {
       parent->Layout();
       parent->Refresh();
-      parent->Update();
       parent = parent->GetParent();
     }
+    this->Update();
 
     m_controlsVisible = show;
 
@@ -403,11 +381,6 @@ void VideoPanel::Stop() {
     // Обновление фокуса
     if (m_focusManager)
       m_focusManager->EnsureFocus();
-
-    // Обновление родительских окон
-    wxWindow *parent = GetParent();
-    if (parent)
-      parent->Layout();
   }
 
   // ============================================================================

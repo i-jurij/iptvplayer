@@ -51,7 +51,8 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
                            wxSP_LIVE_UPDATE | wxSP_NOBORDER);
   m_splitter->SetMinimumPaneSize(120);
   m_splitter->SetBorderSize(0);
-  m_splitter->SetBackgroundColour(*wxBLACK);
+  m_splitter->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
 
   // ------------------------------------------------------------
   // Боковая панель временного плейлиста (родитель — splitter)

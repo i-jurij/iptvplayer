@@ -375,6 +375,8 @@ private:
   // вкладку Program (см. MainFrame::EnsureEpgPanel).
   bool m_epgPanelCreated = false;
   void EnsureEpgPanel();
+
+  wxStaticLine *statusLine = nullptr;
 };
 
 #endif // MAINFRAME_H

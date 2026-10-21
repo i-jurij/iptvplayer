@@ -307,7 +307,10 @@ ConfigManager *MainFrame::getConfigManager() const {
 ChannelCards *MainFrame::GetChannelCards() { return m_channelCards; }
 
 void MainFrame::ApplyFullscreen(bool fs) {
-  ShowFullScreen(fs, wxFULLSCREEN_ALL);
+  //ShowFullScreen(fs, wxFULLSCREEN_ALL);
+  ShowFullScreen(fs, wxFULLSCREEN_NOMENUBAR | wxFULLSCREEN_NOTOOLBAR |
+                         wxFULLSCREEN_NOSTATUSBAR | wxFULLSCREEN_NOBORDER |
+                         wxFULLSCREEN_NOCAPTION);
 
 #if defined(__WXMSW__)
   // Убираем DWM-артефакты (светлую рамку) в полноэкранном режиме
@@ -323,6 +326,10 @@ void MainFrame::ApplyFullscreen(bool fs) {
 #endif
 
   int border = fs ? 0 : 6;
+  if (statusLine) {
+    fs ? statusLine->Hide() : statusLine->Show();
+  }
+
   if (m_mainSizerGaugeItem) {
     m_mainSizerGaugeItem->SetBorder(border);
   }
@@ -333,31 +340,14 @@ void MainFrame::ApplyFullscreen(bool fs) {
     m_mainSizerNotebookItem->SetBorder(0);
   }
 
-  m_mainPanelBg = fs ? wxColour(0, 0, 0) : wxNullColour;
-
-  SetBackgroundColour(fs ? wxColour(0, 0, 0) : wxNullColour);
-
   this->Layout();
+  this->Refresh();
 
-  if (m_mainPanel) {
-    m_mainPanel->Layout();
-    m_mainPanel->Refresh();
-    m_mainPanel->Update();
-  }
+  // SendSizeEvent() on notebook to propagate size changes
+  m_notebook->SendSizeEvent();
 
-  if (m_notebook) {
-    m_notebook->Layout();
-    m_notebook->SendSizeEvent();
-    m_notebook->Refresh();
-    m_notebook->Update();
-  }
-
-  if (m_videoPanel && m_videoPageIdx != wxNOT_FOUND &&
-      m_notebook->GetSelection() == m_videoPageIdx) {
-    m_videoPanel->Layout();
-    m_videoPanel->Refresh();
-    m_videoPanel->Update();
-  }
+  // Synchronization point: single Update() at the end
+  this->Update();
 }
 
 #if defined(__WXMSW__)
