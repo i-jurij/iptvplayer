@@ -31,26 +31,6 @@ inline void ApplyDwmFullscreen(HWND hwnd, bool fs) {
     DwmSetWindowAttribute(hwnd, 34, &borderDefault, sizeof(borderDefault));
   }
 }
-
-inline bool HandleNcCalcSize(HWND hwnd, WPARAM wParam, LPARAM lParam,
-                             bool isFullscreen) {
-  if (wParam != TRUE || !isFullscreen || !hwnd)
-    return false;
-
-  NCCALCSIZE_PARAMS *params = reinterpret_cast<NCCALCSIZE_PARAMS *>(lParam);
-
-  RECT windowRect;
-  if (!::GetWindowRect(hwnd, &windowRect))
-    return false;
-
-  params->rgrc[0].right =
-      params->rgrc[0].left + (windowRect.right - windowRect.left);
-  params->rgrc[0].bottom =
-      params->rgrc[0].top + (windowRect.bottom - windowRect.top);
-
-  return true;
-}
-
 } // namespace WinFullscreen
 
 #endif // __WXMSW__

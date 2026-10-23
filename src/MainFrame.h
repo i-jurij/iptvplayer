@@ -123,6 +123,7 @@ public:
   void PlayChannel(const Channel &ch);
 
   void ApplyFullscreen(bool fs);
+  bool m_isFullscreen = false;
 #if defined(__WXMSW__)
   WXLRESULT MSWWindowProc(WXUINT nMsg, WXWPARAM wParam,
                           WXLPARAM lParam) override;
@@ -292,9 +293,9 @@ private:
   void HandlePlaylistPageChanged(int sel);
   void HandleVideoPageChanged(int sel);
 
-      // ----------------------------------------------------------------
-      // Thread‑related UI callbacks
-      void onUpdateAllDone(wxCommandEvent &ev);
+  // ----------------------------------------------------------------
+  // Thread‑related UI callbacks
+  void onUpdateAllDone(wxCommandEvent &ev);
   void onUpdateOneDone(wxCommandEvent &ev);
   void onUpdateProgress(wxCommandEvent &ev);
 

@@ -304,6 +304,8 @@ ConfigManager *MainFrame::getConfigManager() const {
 ChannelCards *MainFrame::GetChannelCards() { return m_channelCards; }
 
 void MainFrame::ApplyFullscreen(bool fs) {
+  m_isFullscreen = fs;
+
   ShowFullScreen(fs, wxFULLSCREEN_NOMENUBAR | wxFULLSCREEN_NOTOOLBAR |
                          wxFULLSCREEN_NOSTATUSBAR | wxFULLSCREEN_NOBORDER |
                          wxFULLSCREEN_NOCAPTION);
@@ -342,12 +344,11 @@ WXLRESULT MainFrame::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam,
                                    WXLPARAM lParam) {
   switch (nMsg) {
   case WM_NCCALCSIZE:
-    if (WinFullscreen::HandleNcCalcSize(GetHWND(), wParam, lParam,
-                                        IsFullScreen()))
+    if (wParam == TRUE && m_isFullscreen)
       return 0;
     break;
   case WM_NCACTIVATE:
-    if (IsFullScreen())
+    if (m_isFullscreen)
       return wxFrame::MSWWindowProc(nMsg, wParam, -1);
     break;
   default:
