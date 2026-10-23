@@ -129,6 +129,10 @@ populate_appdir() {
 
     mkdir -p "$APPDIR/usr/lib/fallback"
     local fb_count=0
+    local _needed_tmp
+    _needed_tmp="$(mktemp)"
+    printf '%s\n' "$needed" > "$_needed_tmp"
+
     while IFS= read -r lib; do
         [ -z "$lib" ] && continue
         echo "$lib" | grep -qE "$FORBIDDEN_RE" && continue
@@ -156,8 +160,10 @@ populate_appdir() {
         fi
 
         fb_count=$((fb_count + 1))
-    done <<< "$needed"
-    echo "[i] Fallback-библиотек скопировано: $fb_count"
+    done < "$_needed_tmp"
+    rm -f "$_needed_tmp"
+
+    echo "[i] Fallback-library copied: $fb_count"
 
     rm -f "$APPDIR/AppRun" "$APPDIR/AppRun.wrapped" "$APPDIR/AppRun.linuxdeploy"
 

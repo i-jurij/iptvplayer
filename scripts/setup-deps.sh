@@ -252,6 +252,8 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
     MISSING_LABELS=()
     MISSING_PACKAGES=()
 
+    _deps_tmp="$(mktemp)"
+    deps_packages > "$_deps_tmp"
     while IFS=: read -r _label _pkgs; do
         [ -z "$_label" ] && continue
         _found=false
@@ -266,7 +268,8 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
             # shellcheck disable=SC2206
             MISSING_PACKAGES+=($_pkgs)
         fi
-    done < <(deps_packages)
+    done < "$_deps_tmp"
+    rm -f "$_deps_tmp"
 
     if [[ ${#MISSING_PACKAGES[@]} -gt 0 ]]; then
         section "УСТАНОВКА НЕДОСТАЮЩИХ ПАКЕТОВ"

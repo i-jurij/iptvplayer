@@ -530,11 +530,19 @@ main() {
         "tar:tar" \
         "readelf:binutils"
 
-    if ! { read -r VERSION_DISPLAY; read -r VERSION_FILE; read -r VERSION; } \
-        < <(read_versions_from_install); then
+    _versions_tmp="$(mktemp)"
+    if ! read_versions_from_install > "$_versions_tmp"; then
+        rm -f "$_versions_tmp"
         echo "[ERROR] Не удалось прочитать версии." >&2
         exit 1
     fi
+    if ! { read -r VERSION_DISPLAY; read -r VERSION_FILE; read -r VERSION; } \
+         < "$_versions_tmp"; then
+        rm -f "$_versions_tmp"
+        echo "[ERROR] Не удалось прочитать версии." >&2
+        exit 1
+    fi
+    rm -f "$_versions_tmp"
     if [ -z "$VERSION_DISPLAY" ] || [ -z "$VERSION_FILE" ] || [ -z "$VERSION" ]; then
         echo "[ERROR] Не удалось прочитать версии." >&2
         exit 1

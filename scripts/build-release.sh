@@ -130,20 +130,33 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            error "Неизвестный аргумент: $1"
+            error "Unknown argument: $1"
             ;;
     esac
 done
 
-# Если LOG_FILE задан, перенаправляем весь вывод (stdout и stderr) через tee
+# Если LOG_FILE задан, перенаправляем весь вывод (stdout и stderr) через tee.
+# Реализация на FIFO, без process substitution (для урезанных сборок bash).
 if [[ -n "$LOG_FILE" ]]; then
-    exec > >(tee -a "$LOG_FILE") 2>&1
-    log "Лог будет сохранён в $LOG_FILE"
+    _log_fifo="$(mktemp -u -t iptvplayer-log.XXXXXX)"
+    if mkfifo "$_log_fifo" 2>/dev/null; then
+        exec 3>&2
+        tee -a "$LOG_FILE" < "$_log_fifo" >&3 &
+        _log_tee_pid=$!
+        exec > "$_log_fifo" 2>&1
+        # shellcheck disable=SC2064
+        trap 'exec 1>&- 2>&- 3>&-; { wait "$_log_tee_pid"; } 2>/dev/null || true; rm -f "$_log_fifo"' EXIT
+        log "Log will be saved to $LOG_FILE"
+    else
+        warn "Failed to make FIFO — log disabled."
+        rm -f "$_log_fifo"
+        LOG_FILE=""
+    fi
 fi
 
 # cmake может отсутствовать до вызова setup-deps.sh
 if ! command -v cmake >/dev/null 2>&1; then
-    warn "cmake не найден в PATH. Будет установлен в составе зависимостей (setup-deps.sh)."
+    warn "cmake not found in PATH. Cmake will be installed later (setup-deps.sh)."
 fi
 
 # Автовыбор генератора
@@ -151,7 +164,7 @@ MAKE_CMD="make"
 if command -v ninja >/dev/null; then
     MAKE_CMD="ninja"
 fi
-log "Используется генератор: $MAKE_CMD"
+log "Use generator: $MAKE_CMD"
 
 # Преобразуем PREFIX в абсолютный путь, если он относительный
 if [[ ! "$PREFIX" = /* ]]; then
@@ -169,7 +182,7 @@ cd "$PROJECT_ROOT"
 # В CI — не зовём: там setup-deps.sh отдельный шаг workflow'а ради кеша third_party.
 if [[ "$NON_INTERACTIVE" == false ]]; then
     if ! "$SCRIPT_DIR/setup-deps.sh"; then
-        error "setup-deps.sh завершился с ошибкой — сборка невозможна."
+        error "setup-deps.sh ended with error — build impossible."
     fi
 fi
 
@@ -177,17 +190,17 @@ fi
 REBUILD=true
 
 if [[ "$DO_CLEAN" == true ]]; then
-    log "Очистка предыдущих сборок (--clean)..."
+    log "Clean previous build (--clean)..."
     rm -rf "$BUILD_DIR" "$INSTALL_DIR"
 elif [[ -x "$EXE_PATH" ]]; then
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        log "Неинтерактивный режим: бинарник уже собран ($EXE_PATH) — используем существующий."
+        log "Noninteractive: binary isset ($EXE_PATH) — use him."
         REBUILD=false
-    elif ask "Бинарник уже собран ($EXE_PATH). Пересобрать? [y/N]:" n; then
-        log "Пересобираем бинарник."
+    elif ask "Binary already exist ($EXE_PATH). Rebuild? [y/N]:" n; then
+        log "Rebuild."
         rm -rf "$BUILD_DIR" "$INSTALL_DIR"
     else
-        log "Используем существующий бинарник."
+        log "Use already isset binary."
         REBUILD=false
     fi
 fi

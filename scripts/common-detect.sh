@@ -11,7 +11,7 @@
 # =============================================================================
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    echo "ommon-detect.sh is a library, do not run directly." >&2
+    echo "common-detect.sh is a library, do not run directly." >&2
     exit 1
 fi
 

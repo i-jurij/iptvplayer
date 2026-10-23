@@ -64,6 +64,28 @@ else
     DOWNLOADER=""
 fi
 
+# Выполняет "$@", tee-ит stderr и в $1(лог), и в терминал.
+# Замена 2> >(tee "$log" >&2) без process substitution:
+# FIFO + фоновый tee. Живой прогресс в TTY сохраняется,
+# полный лог — в файле; при провале лог читается как раньше.
+_run_tee_stderr() {
+    local log="$1"; shift
+    local _dir _fifo _tee_pid _rc
+    _dir="$(mktemp -d -t iptv-dl.XXXXXX)" || return 1
+    _fifo="$_dir/stderr.fifo"
+    if ! mkfifo "$_fifo"; then
+        rm -rf "$_dir"
+        return 1
+    fi
+    tee -a "$log" < "$_fifo" >&2 &
+    _tee_pid=$!
+    "$@" 2>"$_fifo"
+    _rc=$?
+    wait "$_tee_pid" 2>/dev/null || true
+    rm -rf "$_dir"
+    return $_rc
+}
+
 # Скачивание с повторами и таймаутом.
 # $1 — URL, $2 — путь назначения, $3 — необязательный User-Agent.
 # Скачивание с повторами и таймаутом.
@@ -101,14 +123,14 @@ download() {
             local -a args=(--tries=1 --timeout=30 --read-timeout=60 "${progress[@]}")
             [[ -n "$ua" ]] && args+=(--header="User-Agent: $ua")
             # stderr → tee: и в лог, и на экран. В TTY видно прогресс, в CI — тишина.
-            if wget "${args[@]}" "$url" -O "$out" 2> >(tee "$log" >&2); then
+            if _run_tee_stderr "$log" wget "${args[@]}" "$url" -O "$out"; then
                 rm -f "$log"
                 return 0
             fi
         else
             local -a args=(-L -f --connect-timeout 30 --retry 0 "${progress[@]}")
             [[ -n "$ua" ]] && args+=(-H "User-Agent: $ua")
-            if curl "${args[@]}" -o "$out" "$url" 2> >(tee "$log" >&2); then
+            if _run_tee_stderr "$log" curl "${args[@]}" -o "$out" "$url"; then
                 rm -f "$log"
                 return 0
             fi
