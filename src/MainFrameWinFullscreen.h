@@ -31,6 +31,31 @@ inline void ApplyDwmFullscreen(HWND hwnd, bool fs) {
     DwmSetWindowAttribute(hwnd, 34, &borderDefault, sizeof(borderDefault));
   }
 }
+
+inline bool HandleNcCalcSize(HWND hwnd, WPARAM wParam, LPARAM lParam,
+                             bool isFullscreen) {
+  if (wParam != TRUE || !isFullscreen || !hwnd)
+    return false;
+
+  NCCALCSIZE_PARAMS *params = reinterpret_cast<NCCALCSIZE_PARAMS *>(lParam);
+
+  // Получаем толщину невидимой границы изменения размера (Win10/11)
+  // SM_CXPADDEDBORDER добавлен в Win10 и дает недостающие пиксели.
+  const int frameX =
+      GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+  const int frameY =
+      GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+
+  // Расширяем клиентскую область на толщину невидимых границ.
+  // Это заставляет Windows считать, что клиентская область включает
+  // в себя эти границы, и она перестает рисовать их как светлую полосу.
+  params->rgrc[0].left -= frameX;
+  params->rgrc[0].right += frameX;
+  params->rgrc[0].top -= frameY;
+  params->rgrc[0].bottom += frameY;
+
+  return true; // MSWWindowProc вернет 0
+}
 } // namespace WinFullscreen
 
 #endif // __WXMSW__

@@ -346,7 +346,8 @@ WXLRESULT MainFrame::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam,
                                    WXLPARAM lParam) {
   switch (nMsg) {
   case WM_NCCALCSIZE:
-    if (wParam == TRUE && m_isFullscreen)
+    if (WinFullscreen::HandleNcCalcSize(GetHWND(), wParam, lParam,
+                                        m_isFullscreen))
       return 0;
     break;
   case WM_NCACTIVATE:
