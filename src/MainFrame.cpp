@@ -329,6 +329,8 @@ void MainFrame::ApplyFullscreen(bool fs) {
     m_mainSizerNotebookItem->SetBorder(0);
   }
 
+  m_mainPanelBg = fs ? wxColour(0, 0, 0) : wxNullColour;
+  
   this->Layout();
   this->Refresh();
 

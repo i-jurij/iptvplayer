@@ -323,6 +323,16 @@ void VideoPanel::Stop() {
     togglePanel(m_controlsPanel);
     togglePanel(m_progressPanel);
 
+    if (m_mainPanel && m_splitter) {
+      wxColour bg = (m_isFullscreen && !show)
+                        ? *wxBLACK
+                        : wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE);
+      m_mainPanel->SetBackgroundColour(bg);
+      m_splitter->SetBackgroundColour(bg);
+      m_mainPanel->Refresh();
+      m_splitter->Refresh();
+    }
+    
     // === Обновление Layout всей иерархии ===
     wxWindow *parent = GetParent();
     while (parent) {

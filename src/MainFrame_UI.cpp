@@ -144,7 +144,7 @@ void MainFrame::createMainPanel() {
   m_notebook->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent &) {});
   m_notebook->Bind(wxEVT_PAINT, [this](wxPaintEvent &evt) {
     wxPaintDC dc(static_cast<wxWindow *>(evt.GetEventObject()));
-    wxColour bg = IsFullScreen()
+    wxColour bg = m_isFullscreen
                       ? wxColour(0, 0, 0)
                       : wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE);
     dc.SetBackground(wxBrush(bg));
