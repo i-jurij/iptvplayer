@@ -233,6 +233,7 @@ void AddEpgSourceDialog::ShowInfoDialog() {
                      "Note: URLs may become outdated; you can search for "
                      "current XMLTV sources online."));
               hint->SetForegroundColour(wxColour(0, 180, 0));
+              hint->Refresh();
               timer->StartOnce(2000);
             }
           });
@@ -246,6 +247,7 @@ void AddEpgSourceDialog::ShowInfoDialog() {
                  "Note: URLs may become outdated; you can search for current "
                  "XMLTV sources online."));
           hint->SetForegroundColour(wxNullColour);
+          hint->Refresh();
         }
       });
 

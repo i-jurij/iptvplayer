@@ -217,6 +217,17 @@ void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
   savePlaylistsToConfig();
   RefreshPlaylistView();
 
+  // На Windows после асинхронного добавления wxListCtrl внутри
+  // wxAuiNotebook не перерисовывается до следующего WM_SIZE.
+  // Форсируем layout панели и repaint списка.
+  if (m_playlistPanel) {
+    m_playlistPanel->Layout();
+  }
+  if (m_playlistList) {
+    m_playlistList->Refresh();
+    m_playlistList->Update();
+  }
+
   SetStatusText(_U("Playlist added from URL."), 0);
 }
 

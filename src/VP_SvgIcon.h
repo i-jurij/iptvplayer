@@ -68,13 +68,11 @@ inline wxBitmapBundle LoadSvgIcon(const wxString &name, wxWindow *win) {
     return wxBitmapBundle();
   }
 
-#if !defined(__WXMSW__)
-  if (wxSystemSettings::GetAppearance().IsDark()) {
+  if (ShouldUseDarkColors()) {
     wxBitmap bmp = bundle.GetBitmap(iconSize);
     wxBitmap inverted = InvertBitmap(bmp);
     return wxBitmapBundle::FromBitmaps({inverted});
   }
-#endif
 
   return bundle;
 }

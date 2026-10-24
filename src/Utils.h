@@ -62,6 +62,16 @@ bool IsMacPlatform();
 bool IsLinuxPlatform();
 bool IsWaylandSession();
 bool IsX11Session();
+// Возвращает true, если реальный фон UI (wxSYS_COLOUR_BTNFACE) тёмный.
+// Не зависит от того, что система сообщает через реестр или настройки.
+bool IsUIDarkTheme();
+
+// Единая точка "использовать ли тёмные цвета в UI":
+//   Windows      — только IsUIDarkTheme() (IsDark() врёт для
+//   legacy-приложений). Linux/macOS  — IsDark() || IsUIDarkTheme() (покрывает
+//   тёмные GTK-темы
+//                  без системного dark mode).
+bool ShouldUseDarkColors();
 
 wxString FindExecutableInPath(const wxString &name);
 bool IsFileExecutable(const wxString &path);

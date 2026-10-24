@@ -311,6 +311,21 @@ bool IsX11Session() {
 #endif
 }
 
+bool IsUIDarkTheme() {
+  wxColour bg = wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE);
+  // Взвешенная яркость (Rec. 601)
+  int brightness = (bg.Red() * 299 + bg.Green() * 587 + bg.Blue() * 114) / 1000;
+  return brightness < 128;
+}
+
+bool ShouldUseDarkColors() {
+#if defined(__WXMSW__)
+  return IsUIDarkTheme();
+#else
+  return wxSystemSettings::GetAppearance().IsDark() || IsUIDarkTheme();
+#endif
+}
+
 // ============================================================================
 // UTF-8 безопасное усечение
 // ============================================================================

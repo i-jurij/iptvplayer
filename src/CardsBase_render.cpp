@@ -235,9 +235,8 @@ void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
     int tx = logoAreaLeft + (logoAreaW - tw) / 2;
     int ty = rect.y + L.logoDy + (m_logoH - th) / 2;
 
-    static auto fg = wxColour(32, 32, 32);
-    if (wxSystemSettings::GetAppearance().IsDark())
-      fg = wxColour(240, 240, 240);
+    wxColour fg = ShouldUseDarkColors() ? wxColour(240, 240, 240)
+                                        : wxColour(32, 32, 32);
     dc.SetTextForeground(fg);
     dc.SetFont(font);
     dc.DrawText(text, tx, ty);

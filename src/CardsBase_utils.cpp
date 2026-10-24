@@ -136,9 +136,8 @@ void CardsBase::RenderTile(size_t index) {
     int tx = logoAreaLeft + (logoAreaW - tw) / 2;
     int ty = L.logoDy + (m_logoH - th) / 2;
 
-    static auto fg = wxColour(32, 32, 32);
-    if (wxSystemSettings::GetAppearance().IsDark())
-      fg = wxColour(240, 240, 240);
+    wxColour fg = ShouldUseDarkColors() ? wxColour(240, 240, 240)
+                                        : wxColour(32, 32, 32);
     mdc.SetTextForeground(fg);
     mdc.DrawText(text, tx, ty);
   }

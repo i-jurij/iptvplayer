@@ -33,11 +33,10 @@ std::unordered_map<std::string, LogoCache::PendingOps>
     LogoCache::s_scaledPending;
 
 wxColour LogoCache::GetDefaultCardBgColor() {
-  if (wxSystemSettings::GetAppearance().IsDark()) {
+  if (ShouldUseDarkColors()) {
     return wxColour(60, 63, 65); // #3C3F41 — мягкий графит
-  } else {
-    return wxColour(200, 200, 200); // #E6E6E6 — мягкий светло‑серый
   }
+  return wxColour(200, 200, 200); // #E6E6E6 — мягкий светло‑серый
 }
 
 // --- Keys ---
