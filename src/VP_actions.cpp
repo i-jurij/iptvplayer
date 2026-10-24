@@ -323,16 +323,16 @@ void VideoPanel::Stop() {
     togglePanel(m_controlsPanel);
     togglePanel(m_progressPanel);
 
-    if (m_mainPanel && m_splitter) {
+    if (m_videoPanel && m_splitter) {
       wxColour bg = (m_isFullscreen && !show)
                         ? *wxBLACK
                         : wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE);
-      m_mainPanel->SetBackgroundColour(bg);
+      m_videoPanel->SetBackgroundColour(bg);
       m_splitter->SetBackgroundColour(bg);
-      m_mainPanel->Refresh();
+      m_videoPanel->Refresh();
       m_splitter->Refresh();
     }
-    
+
     // === Обновление Layout всей иерархии ===
     wxWindow *parent = GetParent();
     while (parent) {
@@ -392,13 +392,6 @@ void VideoPanel::Stop() {
     if (m_focusManager)
       m_focusManager->EnsureFocus();
   }
-
-  // ============================================================================
-  // Autohide controls
-  // ============================================================================
-  void VideoPanel::ShowControls() { SetControlsVisible(true, true); }
-
-  void VideoPanel::HideControls() { SetControlsVisible(false, false); }
 
   // ============================================================================
   // Helpers

@@ -270,11 +270,11 @@ void VideoPanel::OnTempPlaylistOpenFolder(wxCommandEvent &) {
 }
 
 void VideoPanel::ShowTempPlaylist() {
-  if (!m_splitter || !m_tempPlaylistPanel || !m_mainPanel)
+  if (!m_splitter || !m_tempPlaylistPanel || !m_videoPanel)
     return;
 
   if (!m_splitter->IsSplit()) {
-    m_splitter->SplitVertically(m_tempPlaylistPanel, m_mainPanel, 250);
+    m_splitter->SplitVertically(m_tempPlaylistPanel, m_videoPanel, 250);
   }
 
   m_tempPlaylistPanel->Show();

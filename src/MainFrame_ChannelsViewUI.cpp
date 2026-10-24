@@ -59,6 +59,8 @@ void MainFrame::createChannelsView() {
                          iconLogo.IsOk() ? iconLogo : wxNullBitmap,
                          _U("Show channel logo"), wxITEM_CHECK);
   m_viewToolBar->Realize();
+  m_viewToolBar->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   m_viewToolBar->ToggleTool(ID_SHOW_LOGO, !m_channelsNoLogo);
   m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, _U("Show channel logo"));
 

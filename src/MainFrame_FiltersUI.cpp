@@ -33,7 +33,7 @@ void MainFrame::createChannelsFilterPanel() {
 
   m_filterPanel = new wxPanel(m_channelsPage, wxID_ANY);
   m_filterPanel->SetBackgroundColour(
-      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   auto *filterSizer = new wxBoxSizer(wxHORIZONTAL);
 
   // Group choice
@@ -75,7 +75,6 @@ void MainFrame::createChannelsFilterPanel() {
   filterSizer->Add(m_favFirst, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                    FromDIP(12));
 
-  filterSizer->AddStretchSpacer(1);
   // Reset button
   m_resetBtn = new wxButton(m_filterPanel, wxID_ANY, _U("Reset"),
                             wxDefaultPosition, wxDefaultSize);

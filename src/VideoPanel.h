@@ -218,7 +218,7 @@ private:
   void UpdateUiButtons();
 
   wxSplitterWindow *m_splitter = nullptr;
-  wxPanel *m_mainPanel = nullptr;
+  wxPanel *m_videoPanel = nullptr;
 
   wxStaticText *m_timeCurrentLabel = nullptr;   // "1:23:45"
   wxStaticText *m_timeDurationLabel = nullptr;  // "/ 2:30:00"
@@ -324,8 +324,6 @@ private:
   void Stop();
   void ToggleMute();
   void SetVolume(int vol);
-  void ShowControls();
-  void HideControls();
   void ClearTempPlaylist();
   void OpenRecent(size_t index);
 

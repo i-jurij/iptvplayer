@@ -53,6 +53,8 @@ void MainFrame::createFavoritesUI() {
                         iconFavGrid.IsOk() ? iconFavGrid : wxNullBitmap,
                         _U("Grid view"), favRadioKind);
   m_favToolBar->Realize();
+  m_favToolBar->SetBackgroundColour(
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   favHeaderSizer->Add(m_favToolBar, 0, wxALL, 0);
 
   favSizer->Add(favHeaderSizer, 0, wxEXPAND | wxALL, 12);
@@ -60,7 +62,7 @@ void MainFrame::createFavoritesUI() {
   // Фильтры избранного
   wxPanel *favFilterPanel = new wxPanel(m_favoritesPanel, wxID_ANY);
   favFilterPanel->SetBackgroundColour(
-      wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+      wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   wxBoxSizer *favFilterSizer = new wxBoxSizer(wxHORIZONTAL);
 
   m_favGroupChoice = new wxChoice(favFilterPanel, wxID_ANY);
@@ -90,7 +92,6 @@ void MainFrame::createFavoritesUI() {
   favFilterSizer->Add(new wxStaticText(favFilterPanel, wxID_ANY, _U("Sort:")), 0,
                       wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(6));
   favFilterSizer->Add(m_favSortChoice, 0, wxRIGHT, FromDIP(8));
-  favFilterSizer->AddStretchSpacer(1);
   m_favFilterResetBtn = new wxButton(favFilterPanel, wxID_ANY, _U("Reset"));
   favFilterSizer->Add(m_favFilterResetBtn, 0, wxLEFT, FromDIP(8));
 

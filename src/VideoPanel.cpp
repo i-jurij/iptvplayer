@@ -179,9 +179,9 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   // ------------------------------------------------------------
   // Основная вертикальная часть (видео + прогресс + контролы)
   // ------------------------------------------------------------
-  m_mainPanel = new wxPanel(m_splitter, wxID_ANY, wxDefaultPosition,
+  m_videoPanel = new wxPanel(m_splitter, wxID_ANY, wxDefaultPosition,
                             wxDefaultSize, wxBORDER_NONE);
-  m_mainPanel->SetBackgroundColour(
+  m_videoPanel->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -193,7 +193,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_playerController = std::make_unique<PlayerController>(nullptr);
 
   // 2. canvas
-  MpvGLCanvas *videoCanvas = new MpvGLCanvas(m_mainPanel, nullptr);
+  MpvGLCanvas *videoCanvas = new MpvGLCanvas(m_videoPanel, nullptr);
   mainSizer->Add(videoCanvas, 1, wxEXPAND);
   m_videoArea = videoCanvas;
 
@@ -202,7 +202,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   //    MpvGLCanvas::OnShow (по факту появления на экране).
 
   // Progress bar
-  auto *progressPanel = new wxPanel(m_mainPanel, wxID_ANY);
+  auto *progressPanel = new wxPanel(m_videoPanel, wxID_ANY);
   progressPanel->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   m_progressPanel = progressPanel;
@@ -255,7 +255,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   mainSizer->Add(progressPanel, 0, wxEXPAND);
 
   // Controls panel
-  m_controlsPanel = new wxPanel(m_mainPanel, wxID_ANY);
+  m_controlsPanel = new wxPanel(m_videoPanel, wxID_ANY);
   m_controlsPanel->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   auto *ctrlSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -361,7 +361,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   m_controlsPanel->SetSizer(ctrlSizer);
   mainSizer->Add(m_controlsPanel, 0, wxEXPAND);
 
-  m_mainPanel->SetSizer(mainSizer);
+  m_videoPanel->SetSizer(mainSizer);
 
   // ------------------------------------------------------------
   // Splitter — инициализация ПОСЛЕ SetSizer и Layout
@@ -370,7 +370,7 @@ VideoPanel::VideoPanel(wxWindow *parent) : wxPanel(parent, wxID_ANY) {
   SetSizer(rootSizer);
   Layout();
 
-  m_splitter->Initialize(m_mainPanel);
+  m_splitter->Initialize(m_videoPanel);
 
   // initialize last volume and autohide time on fullscreen
   Application *app = dynamic_cast<Application *>(wxTheApp);
