@@ -764,7 +764,7 @@ jobs:
           | \`*-arch-*.pkg.tar.zst\` | $arch_cell | Arch Linux. Установка: \`sudo pacman -U iptvplayer-*.pkg.tar.zst\` |
           | \`*-ubuntu-*.deb\` | $deb_ubuntu_cell | Ubuntu 24.04+. Установка: \`sudo apt install iptvplayer-*-ubuntu-*.deb\` |
           | \`*-debian-*.deb\` | $deb_debian_cell | Debian 13+. Установка: \`sudo apt install iptvplayer-*-debian-*.deb\` |
-          | \`*-rocky-*.rpm\` | $rpm_cell | Rocky 10+, Fedora 44+, Alt p11, Роса 13, OpenSuse Leap 16. Установка: \`sudo (dnf \\| epm \\| zypper) install iptvplayer-*-rocky-*.rpm\` |
+          | \`*-rocky-*.rpm\` | $rpm_cell | Rocky 10+, Fedora 44+, Alt p11, Роса 13, OpenSuse Leap 16, OpenMandriva 6.0, Mageia 10. Установка: \`sudo (dnf \\| epm \\| zypper) install iptvplayer-*-rocky-*.rpm\` |
           | \`*-win64.zip\` | $win_zip_cell | **Test only!** Windows 10+. Portable: распаковать и запустить \`iptvplayer.exe\`. |
           | \`*-win64-setup.exe\` | $win_setup_cell | **Test only!** Windows 10+. NSIS-инсталлятор. |
 
