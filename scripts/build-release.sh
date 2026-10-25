@@ -46,6 +46,11 @@ if [ -z "${BASH_VERSION:-}" ]; then
     exit 1
 fi
 
+# ---- Cross-compilation -------------------------------------------------------
+# The script is designed for native builds: uname -m determines arch,
+# detect_arch sets -march/-mtune. For cross builds, set CC/CXX and
+# CFLAGS/CXXFLAGS in the environment — detect_arch respects pre-set values.
+# Details — ./scripts/build-release.sh --help.
 set -euo pipefail
 
 # ---- Каталог скриптов и корень проекта ----
@@ -54,6 +59,10 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---- Общие утилиты ----
 source "$SCRIPT_DIR/common.sh"
+
+# Detect architecture: ensure CFLAGS/CXXFLAGS carry -march/-mtune.
+# Pre-set user values are preserved by detect_arch.
+detect_arch
 
 # -------- Настройки (можно менять) --------
 PROJECT_NAME="iptvplayer"
@@ -67,18 +76,42 @@ LOG_FILE=""                   # если задан, вывод дублируе
 
 show_help() {
     cat << EOF
-Использование: $0 [ОПЦИИ]
+Using: $0 [OPTIONS]
 
-Сборка и установка iptvplayer.
+Buikd and install iptvplayer.
 
-Опции:
-  --clean         удалить старые папки сборки и установки перед сборкой
-  --type TYPE     тип сборки: release (по умолчанию) или debug
-  --prefix PATH   каталог установки (по умолчанию ./install)
-  --log           сохранить лог сборки в файл build_YYYYMMDD_HHMMSS.log
-  --yes, -y       неинтерактивный режим (авто-ответы, для CI)
-  --keep-deps     не удалять пакеты, поставленные setup-deps.sh, после сборки
-  -h, --help      показать эту справку
+Cross-compilation (not automated):
+
+  detect_arch sets CFLAGS/CXXFLAGS with -march/-mtune for uname -m.
+  For cross builds, set manually:
+
+    CC / CXX              cross compiler (aarch64-linux-gnu-gcc, …)
+    CFLAGS / CXXFLAGS     target-arch flags (--target=… -march=…)
+    CMAKE_TOOLCHAIN_FILE  (optional) path to a CMake toolchain file
+
+  If CFLAGS/CXXFLAGS are already set — detect_arch will NOT
+  overwrite them.
+
+  Example: x86_64 → aarch64
+    CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+    CFLAGS="--target=aarch64-linux-gnu -march=armv8-a -mtune=generic" \
+    CXXFLAGS="$CFLAGS" \
+    ./scripts/build-release.sh --yes --prefix install-arm64
+
+  Flags reach the build through two paths:
+    * the binary itself: via CMAKE_C_FLAGS_INIT / CMAKE_CXX_FLAGS_INIT
+      (CMake initializes them from env on the first configure);
+    * wxWidgets/wxSQLite3: setup-deps.sh reads CFLAGS/CXXFLAGS from
+      env (autotools / CMake initialization respectively).
+
+Options:
+  --clean         remove old build and install directory after new build
+  --type TYPE     build type: release (default) or debug
+  --prefix PATH   install directory (default ./install)
+  --log           save lof to file build_YYYYMMDD_HHMMSS.log
+  --yes, -y       noninteractive (auto answer, for CI)
+  --keep-deps     don't remove packages installed by setup-deps.sh after build
+  -h, --help      show this help
 
 Примеры:
   $0

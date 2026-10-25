@@ -53,6 +53,12 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ---- Общие утилиты ----
 source "$SCRIPT_DIR/common.sh"
 
+# Detect architecture and export CFLAGS/CXXFLAGS with -march/-mtune.
+# Without this, wxWidgets and wxSQLite3 would be built for generic
+# code without target-arch optimizations (or would break on
+# non-standard platforms).
+detect_arch
+
 if [[ ! -f "$PROJECT_ROOT/CMakeLists.txt" ]]; then
     error "The script must be run from the project root (where CMakeLists.txt is)."
 fi
@@ -416,7 +422,7 @@ if [[ "$SKIP_WX" != true ]]; then
     mkdir -p build install
     cd build
 
-    export CXXFLAGS="-std=c++20"
+    export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-std=c++20"
      cmake ../src \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_LIBDIR=lib \
@@ -522,7 +528,7 @@ if [[ "$SKIP_WXSQLITE3" != true ]]; then
     mkdir -p ../build
     cd ../build
 
-    export CXXFLAGS="-std=c++20"
+    export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-std=c++20"
     ../src/configure \
         --prefix="$WXSQLITE3_DIR/install" \
         --with-wx-config="$WX_ROOT_ABS/bin/wx-config" \

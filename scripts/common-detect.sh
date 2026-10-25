@@ -31,19 +31,83 @@ section() { echo -e "\n${BLUE}════════════════�
 
 detect_arch() {
     local machine; machine="$(uname -m)"
-    case "$machine" in
-        x86_64|amd64)          DEB_ARCH="amd64"; RPM_ARCH="x86_64";  APPIMAGE_ARCH="x86_64"  ;;
-        aarch64|arm64)         DEB_ARCH="arm64"; RPM_ARCH="aarch64"; APPIMAGE_ARCH="aarch64" ;;
-        armv7l|armv8l|armhf)   DEB_ARCH="armhf"; RPM_ARCH="armv7hl"; APPIMAGE_ARCH="armhf"   ;;
-        i686|i386)             DEB_ARCH="i386";  RPM_ARCH="i686";    APPIMAGE_ARCH="i686"    ;;
-        *)
-            echo "[!] Unknown architecture: $machine" >&2
-            exit 1 ;;
+    local _inject_flags=1
+    local _host_arch_mismatch=0
+    local _march="" _mtune="-mtune=generic"
+    local _deb="" _rpm="" _appimage=""
+
+    # macOS/Apple: Apple clang already targets the native arch.
+    case "$(uname -s)" in
+        Darwin) _inject_flags=0 ;;
     esac
+
+    case "$machine" in
+        x86_64|amd64)              _deb=amd64;   _rpm=x86_64;   _appimage=x86_64;   _march=-march=x86-64 ;;
+        aarch64|arm64)             _deb=arm64;   _rpm=aarch64;  _appimage=aarch64;  _march=-march=armv8-a ;;
+        armv7l|armv7|armv8l|armhf) _deb=armhf;   _rpm=armv7hl;  _appimage=armhf;    _march=-march=armv7-a ;;
+        i686|i386)                 _deb=i386;    _rpm=i686;     _appimage=i686;     _march=-march=i686 ;;
+        ppc64le)                   _deb=ppc64el; _rpm=ppc64le;  _appimage=ppc64le ;;
+        ppc64)                     _deb=ppc64;   _rpm=ppc64;    _appimage=ppc64 ;;
+        s390x)                     _deb=s390x;   _rpm=s390x;    _appimage=s390x ;;
+        riscv64)                   _deb=riscv64; _rpm=riscv64;  _appimage=riscv64;  _march=-march=rv64gc ;;
+        mips64|mips64el)           _deb=$machine; _rpm=$machine; _appimage=$machine; _march=-march=mips64 ;;
+        sparc64)                   _deb=sparc64; _rpm=sparc64;  _appimage=sparc64 ;;
+        *) echo "[!] Unknown architecture: $machine" >&2; exit 1 ;;
+    esac
+
+    # Cross-packaging: the user set a package arch different from the
+    # host arch. Respect it — but then CFLAGS/CXXFLAGS must also be set
+    # by the user, otherwise the binary will be built for the host.
+    [ -n "${DEB_ARCH:-}" ]       && [ "$DEB_ARCH"       != "$_deb"      ] && _host_arch_mismatch=1
+    [ -n "${RPM_ARCH:-}" ]       && [ "$RPM_ARCH"       != "$_rpm"      ] && _host_arch_mismatch=1
+    [ -n "${APPIMAGE_ARCH:-}" ]  && [ "$APPIMAGE_ARCH"  != "$_appimage" ] && _host_arch_mismatch=1
+
+    local _had_cflags="${CFLAGS:-}"
+    local _had_cxxflags="${CXXFLAGS:-}"
+
+    : "${DEB_ARCH:=$_deb}"
+    : "${RPM_ARCH:=$_rpm}"
+    : "${APPIMAGE_ARCH:=$_appimage}"
+
+    ARCH_MARCH_FLAG="$_march"
+    ARCH_MTUNE_FLAG="$_mtune"
+
+    # Don't inject host flags during cross-packaging — they would
+    # contradict the explicitly set package arch. Flags must be
+    # provided by the user.
+    if [ "$_inject_flags" = 1 ] && [ "$_host_arch_mismatch" = 0 ]; then
+        local _flags="${_march} ${_mtune}"
+        _flags="${_flags# }"
+        [ -z "$_had_cflags" ]   && [ -n "$_flags" ] && export CFLAGS="$_flags"
+        [ -z "$_had_cxxflags" ] && [ -n "$_flags" ] && export CXXFLAGS="$_flags"
+    fi
+
+    # Diagnostics. Cross-arch variables are set, but compiler flags
+    # and cross-CC are not — the binary will almost certainly be built
+    # for the host inside a package marked for a different arch.
+    if [ "$_host_arch_mismatch" = 1 ] && [ -z "$_had_cflags" ] && [ -z "$_had_cxxflags" ]; then
+        warn "════════════════════════════════════════════════════════════════"
+        warn "Cross-packaging detected: DEB/RPM/APPIMAGE_ARCH differ"
+        warn "from the host ($machine), but CFLAGS/CXXFLAGS are not set."
+        warn "The binary will be built for $machine while the package is"
+        warn "tagged for the cross-architecture. Set target-arch flags:"
+        warn "  export CFLAGS='--target=<triplet> -march=<arch> -mtune=generic'"
+        warn "  export CXXFLAGS=\"\$CFLAGS\""
+        warn "  export CC=<triplet>-gcc CXX=<triplet>-g++"
+        warn "Host-flag injection is disabled to avoid masking the problem."
+        warn "════════════════════════════════════════════════════════════════"
+    fi
+
     echo "[i] Architecture: $machine → deb=$DEB_ARCH, rpm=$RPM_ARCH, appimage=$APPIMAGE_ARCH"
+    [ -n "${CFLAGS:-}" ]   && echo "[i] CFLAGS='${CFLAGS}'"
+    [ -n "${CXXFLAGS:-}" ] && echo "[i] CXXFLAGS='${CXXFLAGS}'"
 }
 
 detect_distro() {
+    # Cross-packaging: if DISTRO is set in the environment, use it
+    # without consulting /etc/os-release. This allows building packages
+    # for another distribution (provided its tools are available on
+    # the host or inside an appropriate chroot/container).
     if [ -n "${DISTRO:-}" ]; then
         echo "[i] DISTRO setup: $DISTRO"; return 0
     fi

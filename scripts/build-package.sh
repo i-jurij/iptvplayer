@@ -3,6 +3,13 @@
 # build-package.sh – упаковка .deb, .rpm, .pkg.tar.zst, .AppImage
 # =============================================================================
 
+# ---- Cross-compilation/cross-packaging ---------------------------------------
+# The script is designed for native builds. For cross builds, set in
+# the environment:
+#   DEB_ARCH RPM_ARCH APPIMAGE_ARCH DISTRO CC CXX CFLAGS CXXFLAGS
+# Details and limitations — ./scripts/build-package.sh --help.
+# Pre-set values are respected by detect_arch/detect_distro.
+
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/bootstrap-bash.sh" || exit 1
 
 if [ -z "${BASH_VERSION:-}" ]; then
@@ -42,7 +49,16 @@ source "$SCRIPT_DIR/build-native-nix.sh"
 PACKAGE_NAME="iptvplayer"
 ICON_NAME="${PACKAGE_NAME}.svg"
 
-DEB_ARCH=""; RPM_ARCH=""; APPIMAGE_ARCH=""; DISTRO=""
+# becomes:
+# Don't overwrite values set by the user for cross-packaging:
+#   DEB_ARCH=arm64 RPM_ARCH=aarch64 DISTRO=debian-12 \
+#     CFLAGS="--target=aarch64-linux-gnu -march=armv8-a" \
+#     ./scripts/build-package.sh --native-deb
+# detect_arch/detect_distro respect pre-set values.
+: "${DEB_ARCH:=}"
+: "${RPM_ARCH:=}"
+: "${APPIMAGE_ARCH:=}"
+: "${DISTRO:=}"
 
 if [ ! -f "$PROJECT_ROOT/METAINFO_NAME" ]; then
     echo "[!] Файл $PROJECT_ROOT/METAINFO_NAME не найден."; exit 1
@@ -252,10 +268,10 @@ sign_files() {
 
 show_help() {
     cat << EOF
-Использование: ./scripts/build-package.sh [ОПЦИИ]
+Using: ./scripts/build-package.sh [OPTIONS]
 
-Нативные:
-  --native          автоопределение: соберёт пакет(ы) для текущей системы
+Native:
+  --native          autodetect: build package(s) for current system
   --native-deb      .deb (Debian/Ubuntu/Mint/Pop/Astra)
   --native-rpm      .rpm (Fedora/RHEL/Rocky/Alma/CentOS)
   --native-rpm-oracle       .rpm (Oracle Linux, .elN)
@@ -268,24 +284,59 @@ show_help() {
   --native-arch     .pkg.tar.zst (Arch/Manjaro)
   --appimage        AppImage (linuxdeploy)
   --sharun          AppImage (quick-sharun)
-  --flatpak         Flatpak-бандл (требует flatpak-builder)
-  --native-apk      .apk (Alpine Linux, только в Alpine-окружении)
+  --flatpak         Flatpak-bundle (flatpak-builder required)
+  --native-apk      .apk (Alpine Linux, only in Alpine-environment)
   --native-slackbuild  .txz (Slackware)
-  --native-xbps        .xbps (Void Linux, требует клон void-packages)
-  --native-gentoo      .tbz2 (Gentoo Linux, требует sys-apps/portage)
-  --native-nix         derivation (NixOS, требует nix в PATH)
+  --native-xbps        .xbps (Void Linux, void-packages clone required)
+  --native-gentoo      .tbz2 (Gentoo Linux, sys-apps/portage required)
+  --native-nix         derivation (NixOS, nix in PATH required)
 
-Алиасы (сохранены):
+Akiases:
   --native-alt      = --native-rpm-alt
   --native-rosa     = --native-rpm-rosa
 
-Комбинированные:
-  --native-appimage нативные + AppImage
-  --all             всё возможное
+Combine:
+  --native-appimage native + AppImage
+  --all             all 
 
-Служебные:
+Cross-compilation and cross-packaging (not automated):
+
+  Autodetection is designed for NATIVE builds: uname -m → package arch,
+  /etc/os-release → DISTRO. For cross builds, override MANUALLY:
+
+    DEB_ARCH            arch for .deb     (arm64, s390x, …)
+    RPM_ARCH            arch for .rpm     (aarch64, ppc64le, …)
+    APPIMAGE_ARCH       arch for AppImage (x86_64/aarch64 only)
+    DISTRO              target distro ID (debian-12, fedora-40, …)
+    CC / CXX            cross compiler (aarch64-linux-gnu-gcc, …)
+    CFLAGS / CXXFLAGS   --target=… -march=… -mtune=…
+
+  Pre-set values are NOT overwritten.
+  Example: x86_64 → aarch64 Debian
+    export CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++
+    export CFLAGS="--target=aarch64-linux-gnu -march=armv8-a -mtune=generic"
+    export CXXFLAGS="$CFLAGS"
+    export DEB_ARCH=arm64 RPM_ARCH=aarch64 APPIMAGE_ARCH=aarch64
+    export DISTRO=debian-12
+    ./scripts/build-package.sh --native-deb
+
+  If DEB_ARCH/RPM_ARCH is set but CFLAGS/CXXFLAGS is not,
+  detect_arch will warn that the binary will be built for the host.
+
+  Limitations:
+    * AppImage — x86_64/aarch64 only (linuxdeploy/appimagetool).
+    * --native-* invoke TARGET distro tools (dpkg-shlibdeps, rpmbuild,
+      makepkg). ensure_tools will try to install them via the package
+      manager of DISTRO — on a host of a different family this will
+      not work. Build inside a container or chroot of the target OS.
+    * --native-apk — Alpine environment only (musl, abuild).
+    * --native-xbps, --native-gentoo, --native-nix — host-native tool;
+      for a different arch, set the corresponding variables
+      (NIX_SYSTEM, XBPS_*, etc.) or use chroot/portage cross.
+
+Service:
   --rebuild --clean --clean-only --no-menu --yes|-y
-  --keep-deps       не удалять пакеты, поставленные setup-deps.sh
+  --keep-deps       dpn't remove pacckages installed by setup-deps.sh
   -h|--help
 EOF
 }
