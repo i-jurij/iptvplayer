@@ -67,8 +67,9 @@ void AddIPTVPlaylistDialog::InitializeUI() {
   btnSizer->Add(CreateButtonSizer(wxOK | wxCANCEL));
   mainSizer->Add(btnSizer, 0, wxEXPAND | wxALL, 10);
 
-  SetSizerAndFit(mainSizer);
+  SetSizer(mainSizer);
   SetMinSize(wxSize(600, 400));
+  Layout();
 
   BindEvents();
 
