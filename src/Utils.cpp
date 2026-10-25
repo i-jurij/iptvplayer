@@ -543,16 +543,13 @@ double GetContentScale(wxWindow *ctx) {
 // ============================================================================
 // Responsive layout (DIP)
 // ============================================================================
-int CardWidthForDisplay(int displayW) {
-  if (displayW >= 3200)
-    return 480;
-  if (displayW >= 2400)
-    return 420;
-  if (displayW >= 1800)
-    return 360;
-  if (displayW >= 1300)
+// displayW — ширина дисплея В DIP (см. вызов в CardsBase::UpdateLayout).
+// Возвращает ширину карточки в DIP.
+int CardWidthForDisplay(int displayW_Dip) {
+  if (displayW_Dip <= 0)
     return 320;
-  return 280;
+  int w = displayW_Dip / 5;
+  return std::clamp(w, 280, 400);
 }
 
 CardLayoutInfo ComputeCardLayoutForDisplay(int displayW) {

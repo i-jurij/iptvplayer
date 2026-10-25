@@ -18,28 +18,36 @@ void CardsBase::UpdateLayout() {
   if (clientW <= 0)
     clientW = 800;
 
-  // Размер карточки — по ширине монитора, не окна.
-  // Число колонок ниже — по ширине окна.
-  int displayW = clientW; // fallback
+  // displayW_logical — Logical Pixels (wxDoc: GetClientArea → Logical).
+  // На MSW Logical = Physical, на GTK/macOS Logical = DIP.
+  int displayW_logical = clientW;
   {
     int displayIdx = wxDisplay::GetFromWindow(this);
     if (displayIdx == wxNOT_FOUND)
       displayIdx = 0;
     wxRect area = wxDisplay(displayIdx).GetClientArea();
     if (area.GetWidth() > 0)
-      displayW = area.GetWidth();
+      displayW_logical = area.GetWidth();
   }
 
-  auto L = ComputeCardLayoutForDisplay(displayW);
+  // Приводим к DIP — единая семантика на всех платформах.
+  // GetDPIScaleFactor() = Physical/DIP (в отличие от GetContentScaleFactor,
+  // который на MSW = 1.0). Используем только на MSW: там Logical = Physical,
+  // и деление на DPIScale даёт DIP. На GTK/macOS Logical = DIP — no-op.
+  int displayW_Dip = displayW_logical;
+#if defined(__WXMSW__)
+  {
+    double dpiScale = GetDPIScaleFactor();
+    if (dpiScale > 1.0)
+      displayW_Dip = static_cast<int>(std::round(displayW_logical / dpiScale));
+  }
+#endif
+  if (displayW_Dip <= 0)
+    displayW_Dip = 1920;
 
-  m_cardW = L.cardW;
-  m_cardH = L.cardH;
-  m_pad = L.pad;
-  m_logoGap = L.logoGap;
-  m_starW = L.starSize;
-  m_logoW = L.logoW;
-  m_logoH = L.logoH;
+  auto L = ComputeCardLayoutForDisplay(displayW_Dip); // DIP
 
+  // m_layout — эталон в DIP; копируем поле за полем (разные типы)
   m_layout.cardW = L.cardW;
   m_layout.cardH = L.cardH;
   m_layout.pad = L.pad;
@@ -56,14 +64,24 @@ void CardsBase::UpdateLayout() {
   m_layout.starDx = L.starDx;
   m_layout.starDy = L.starDy;
 
-  // Гэпы — в DIP.
+  // Поля CardsBase — в Logical Pixels: их напрямую используют
+  // GetClientSize-арифметика, RefreshRect, m_cols и LRU.
+  m_cardW = FromDIP(L.cardW);
+  m_cardH = FromDIP(L.cardH);
+  m_pad = FromDIP(L.pad);
+  m_logoGap = FromDIP(L.logoGap);
+  m_starW = FromDIP(L.starSize);
+  m_logoW = FromDIP(L.logoW);
+  m_logoH = FromDIP(L.logoH);
+
+  // Гэпы: m_cardW уже Logical → гэпы тоже Logical.
   m_gapX = FromDIP(6);
   m_gapY = FromDIP(6);
 
-  m_colW = m_cardW + m_gapX;
-  m_rowH = m_cardH + m_gapY;
+  m_colW = m_cardW + m_gapX; // Logical
+  m_rowH = m_cardH + m_gapY; // Logical
 
-  m_cols = std::max(1, clientW / std::max(1, m_colW));
+  m_cols = std::max(1, clientW / std::max(1, m_colW)); // Logical / Logical
   if (!m_channels.empty())
     m_cols = std::min(m_cols, (int)m_channels.size());
 
@@ -202,8 +220,8 @@ void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
   if (!hasLogo) {
     wxString text = GetTruncatedText(ch);
 
-    int logoAreaLeft = rect.x + L.logoDx;
-    int logoAreaRight = rect.x + L.starDx - pad;
+    int logoAreaLeft = rect.x + FromDIP(L.logoDx);
+    int logoAreaRight = rect.x + FromDIP(L.starDx) - pad;
     int logoAreaW = logoAreaRight - logoAreaLeft;
 
     int fontSize = FromDIP(12);
@@ -233,7 +251,7 @@ void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
     }
 
     int tx = logoAreaLeft + (logoAreaW - tw) / 2;
-    int ty = rect.y + L.logoDy + (m_logoH - th) / 2;
+    int ty = rect.y + FromDIP(L.logoDy) + (m_logoH - th) / 2;
 
     wxColour fg = ShouldUseDarkColors() ? wxColour(240, 240, 240)
                                         : wxColour(32, 32, 32);
@@ -243,12 +261,14 @@ void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
   }
 
   if (hasLogo)
-    dc.DrawBitmap(*bmpPtr, rect.x + L.logoDx, rect.y + L.logoDy, true);
+    dc.DrawBitmap(*bmpPtr, rect.x + FromDIP(L.logoDx),
+                  rect.y + FromDIP(L.logoDy), true);
 
   wxBitmap star = GetStarBitmap(ch);
   if (star.IsOk()) {
     wxBitmap scaled = GetScaledStar(star, L.starSize);
-    dc.DrawBitmap(scaled, rect.x + L.starDx, rect.y + L.starDy, true);
+    dc.DrawBitmap(scaled, rect.x + FromDIP(L.starDx),
+                  rect.y + FromDIP(L.starDy), true);
   }
 }
 

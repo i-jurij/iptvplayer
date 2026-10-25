@@ -187,9 +187,11 @@ int CardsBase::GetStarSizeForCardH(int cardH) {
 }
 
 wxRect CardsBase::GetStarRect(int col, int row) const {
-  wxRect cardRect = GetCardRect(col, row);
-  return wxRect(cardRect.x + m_layout.starDx, cardRect.y + m_layout.starDy,
-                m_layout.starSize, m_layout.starSize);
+  wxRect cardRect = GetCardRect(col, row);           // Logical
+  const int dx = FromDIP(m_layout.starDx);
+  const int dy = FromDIP(m_layout.starDy);
+  const int sz = FromDIP(m_layout.starSize);
+  return wxRect(cardRect.x + dx, cardRect.y + dy, sz, sz);
 }
 
 wxRect CardsBase::GetCardRect(int col, int row) const {
