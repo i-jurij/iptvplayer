@@ -64,6 +64,11 @@ void CardsBase::UpdateLayout() {
   m_layout.starDx = L.starDx;
   m_layout.starDy = L.starDy;
 
+  m_layout.titleH      = L.titleH;
+  m_layout.titleDx     = L.titleDx;
+  m_layout.titleDy     = L.titleDy;
+  m_layout.titleFontPt = L.titleFontPt;
+
   // Поля CardsBase — в Logical Pixels: их напрямую используют
   // GetClientSize-арифметика, RefreshRect, m_cols и LRU.
   m_cardW = FromDIP(L.cardW);
@@ -75,8 +80,8 @@ void CardsBase::UpdateLayout() {
   m_logoH = FromDIP(L.logoH);
 
   // Гэпы: m_cardW уже Logical → гэпы тоже Logical.
-  m_gapX = FromDIP(10);
-  m_gapY = FromDIP(10);
+  m_gapX = FromDIP(14);
+  m_gapY = FromDIP(14);
 
   m_colW = m_cardW + m_gapX; // Logical
   m_rowH = m_cardH + m_gapY; // Logical
@@ -224,7 +229,7 @@ void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
     int logoAreaRight = rect.x + FromDIP(L.starDx) - pad;
     int logoAreaW = logoAreaRight - logoAreaLeft;
 
-    int fontSize = FromDIP(12);
+    int fontSize = FromDIP(L.titleFontPt);
     int minFont = FromDIP(8);
     wxFont font = wxFontInfo(fontSize).Bold();
     dc.SetFont(font);
@@ -269,6 +274,45 @@ void CardsBase::DrawCardBase(wxDC &dc, size_t index, const wxRect &rect,
     wxBitmap scaled = GetScaledStar(star, L.starSize);
     dc.DrawBitmap(scaled, rect.x + FromDIP(L.starDx),
                   rect.y + FromDIP(L.starDy), true);
+  }
+
+  // --- Title bar ---
+  {
+    const int titleH  = FromDIP(L.titleH);
+    const int titlePx = 4;
+    const int titleY  = rect.y + FromDIP(L.titleDy);
+    const int titleW  = FromDIP(L.cardW);
+
+    wxColour barBg = ShouldUseDarkColors() ? wxColour(40, 43, 45)
+                                           : wxColour(170, 170, 170);
+    dc.SetPen(*wxTRANSPARENT_PEN);
+    dc.SetBrush(wxBrush(barBg));
+    dc.DrawRectangle(rect.x, titleY, titleW, titleH);
+
+    wxString title = wxString::FromUTF8(ch.getName());
+    dc.SetFont(wxFontInfo(FromDIP(L.titleFontPt)));
+
+    wxCoord tw = 0, th = 0;
+    dc.GetTextExtent(title, &tw, &th);
+    const int availW = titleW - 2 * FromDIP(titlePx);
+    if (tw > availW) {
+      const wxString ell = "...";
+      wxCoord ew = 0;
+      dc.GetTextExtent(ell, &ew, nullptr);
+      while (!title.IsEmpty()) {
+        title.RemoveLast();
+        dc.GetTextExtent(title + ell, &tw, nullptr);
+        if (tw <= availW) { title += ell; break; }
+      }
+    }
+
+    wxColour fg = ShouldUseDarkColors() ? wxColour(230, 230, 230)
+                                        : wxColour(20, 20, 20);
+    dc.SetTextForeground(fg);
+    dc.GetTextExtent(title, &tw, &th);
+    int tx = rect.x + (titleW - tw) / 2;
+    int ty = titleY + (titleH - th) / 2;
+    dc.DrawText(title, tx, ty);
   }
 }
 

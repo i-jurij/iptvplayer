@@ -66,6 +66,10 @@ public:
     int logoW = 0, logoH = 0;   // actual logo size
     int logoDx = 0, logoDy = 0; // absolute coordinates inside card (pixels)
     int starDx = 0, starDy = 0; // absolute coordinates inside card (pixels)
+
+    int titleH = 0;
+    int titleDx = 0, titleDy = 0;
+    int titleFontPt = 9;
   };
   // layout
   int m_cardW = 0;

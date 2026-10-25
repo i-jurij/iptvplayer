@@ -11,27 +11,37 @@
 #include <mutex>
 
 wxString CardsBase::GetTruncatedText(const Channel &ch) {
-  std::string key = ch.getName() + "_" + std::to_string(m_logoW);
+  // Фолбек под логотипом: показываем категорию (group title), а не имя —
+  // имя уже видно в плашке внизу карточки. Если категории нет (или это
+  // "undefined"/"null"/"none" из M3U) — "TV".
+  wxString group = wxString::FromUTF8(ch.getGroupTitle());
+  group.Trim(true).Trim(false);
+  if (group.IsEmpty() || group.CmpNoCase("undefined") == 0 ||
+      group.CmpNoCase("null") == 0 || group.CmpNoCase("none") == 0) {
+    group = _U("TV");
+  }
+
+  std::string key =
+      std::string(group.utf8_str()) + "_" + std::to_string(m_logoW);
   auto it = m_textCache.find(key);
   if (it != m_textCache.end())
     return it->second;
 
-  wxString name = wxString::FromUTF8(ch.getName());
   wxCoord tw, th;
   wxClientDC dc(this);
-  dc.SetFont(wxFontInfo(FromDIP(12)).Bold());
-  dc.GetTextExtent(name, &tw, &th);
+  dc.SetFont(wxFontInfo(FromDIP(m_layout.titleFontPt)).Bold());
+  dc.GetTextExtent(group, &tw, &th);
 
   if (tw <= m_logoW) {
-    m_textCache[key] = name;
+    m_textCache[key] = group;
     m_textSizeCache[key] = {tw, th};
-    return name;
+    return group;
   }
 
   wxString ell = "...";
   wxCoord ew, eh;
   dc.GetTextExtent(ell, &ew, &eh);
-  wxString tmp = name;
+  wxString tmp = group;
   while (!tmp.IsEmpty()) {
     tmp.RemoveLast();
     dc.GetTextExtent(tmp, &tw, &th);
@@ -115,7 +125,7 @@ void CardsBase::RenderTile(size_t index) {
     int logoAreaRight = L.starDx - pad;
     int logoAreaW = logoAreaRight - logoAreaLeft;
 
-    wxFont font = wxFontInfo(FromDIP(12)).Bold();
+    wxFont font = wxFontInfo(FromDIP(L.titleFontPt)).Bold();
     mdc.SetFont(font);
 
     wxCoord tw, th;
@@ -146,6 +156,44 @@ void CardsBase::RenderTile(size_t index) {
   if (star.IsOk()) {
     wxBitmap scaled = GetScaledStar(star, L.starSize);
     mdc.DrawBitmap(scaled, L.starDx, L.starDy, true);
+  }
+
+  // --- Title bar ---
+  {
+    const int titleH  = L.titleH;
+    const int titlePx = 4;
+    const int titleY  = L.titleDy;
+
+    wxColour barBg = ShouldUseDarkColors() ? wxColour(40, 43, 45)
+                                           : wxColour(170, 170, 170);
+    mdc.SetPen(*wxTRANSPARENT_PEN);
+    mdc.SetBrush(wxBrush(barBg));
+    mdc.DrawRectangle(0, titleY, L.cardW, titleH);
+
+    wxString title = wxString::FromUTF8(ch.getName());
+    mdc.SetFont(wxFontInfo(FromDIP(L.titleFontPt)));
+
+    wxCoord tw = 0, th = 0;
+    mdc.GetTextExtent(title, &tw, &th);
+    const int availW = L.cardW - 2 * titlePx;
+    if (tw > availW) {
+      const wxString ell = "...";
+      wxCoord ew = 0;
+      mdc.GetTextExtent(ell, &ew, nullptr);
+      while (!title.IsEmpty()) {
+        title.RemoveLast();
+        mdc.GetTextExtent(title + ell, &tw, nullptr);
+        if (tw <= availW) { title += ell; break; }
+      }
+    }
+
+    wxColour fg = ShouldUseDarkColors() ? wxColour(230, 230, 230)
+                                        : wxColour(20, 20, 20);
+    mdc.SetTextForeground(fg);
+    mdc.GetTextExtent(title, &tw, &th);
+    int tx = (L.cardW - tw) / 2;
+    int ty = titleY + (titleH - th) / 2;
+    mdc.DrawText(title, tx, ty);
   }
 
   mdc.SelectObject(wxNullBitmap);

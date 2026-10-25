@@ -555,28 +555,41 @@ int CardWidthForDisplay(int displayW_Dip) {
 CardLayoutInfo ComputeCardLayoutForDisplay(int displayW) {
   CardLayoutInfo L;
   L.cardW = CardWidthForDisplay(displayW);
-  L.cardH =
-      (int)std::round((double)L.cardW * CARD_BASE_H_DIP / CARD_BASE_W_DIP);
-  if (L.cardH < 1)
-    L.cardH = 1;
 
-  // Пропорционально базовому дизайну 340×90.
+  // Базовая (до плашки) высота карточки — пропорционально 340×90.
   const double k = (double)L.cardW / CARD_BASE_W_DIP;
+  const int baseCardH = std::max(
+      1, (int)std::round((double)L.cardW * CARD_BASE_H_DIP / CARD_BASE_W_DIP));
+
   L.pad = std::max(2, (int)std::round(4.0 * k));
   L.logoGap = std::max(1, (int)std::round(1.0 * k));
 
-  L.favZoneSize = L.cardH;
+  // Плашка под название. Отступы сверху/снизу задаются через titleH:
+  // текст центрируется, поэтому больший titleH = большие отступы.
+  L.titleH = std::max(20, (int)std::round(24.0 * k));
+  L.titleDx = 0;
+  L.titleDy = baseCardH; // плашка начинается ПОСЛЕ контента
+  L.titleFontPt = std::max(9, (int)std::round(10.0 * k));
+
+  // Итоговая высота карточки = базовая + плашка.
+  L.cardH = baseCardH + L.titleH;
+
+  // Рабочая область (лого/звезда) = базовая высота карточки.
+  const int contentH = baseCardH;
+
+  L.favZoneSize = contentH;
   L.logoZoneLeft = L.pad;
   L.logoZoneRight = L.cardW - L.pad - L.favZoneSize;
   L.logoZoneW = std::max(1, L.logoZoneRight - L.logoZoneLeft - L.logoGap);
-  L.logoH = std::max(1, L.cardH - 2 * L.pad);
-  L.starSize = std::max(24, (int)(L.cardH * 0.6));
+
+  L.logoH = std::max(1, contentH - 2 * L.pad);
+  L.starSize = std::max(24, (int)(contentH * 0.6));
 
   L.logoW = L.logoZoneW;
   L.logoDx = L.logoZoneLeft;
-  L.logoDy = L.pad + (L.cardH - 2 * L.pad - L.logoH) / 2;
+  L.logoDy = L.pad + (contentH - 2 * L.pad - L.logoH) / 2;
   L.starDx = L.logoZoneRight + L.logoGap + (L.favZoneSize - L.starSize) / 2;
-  L.starDy = (L.cardH - L.starSize) / 2;
+  L.starDy = (L.favZoneSize - L.starSize) / 2;
 
   return L;
 }

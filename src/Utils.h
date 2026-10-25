@@ -132,6 +132,10 @@ struct CardLayoutInfo {
   int logoW = 0, logoH = 0;
   int logoDx = 0, logoDy = 0;
   int starDx = 0, starDy = 0;
+
+  int titleH = 0;                 // высота плашки, DIP
+  int titleDx = 0, titleDy = 0;   // левый верхний угол плашки, DIP
+  int titleFontPt = 9;            // размер шрифта плашки (масштабируется от cardW)
 };
 
 CardLayoutInfo ComputeCardLayoutForDisplay(int displayW);
