@@ -65,13 +65,14 @@ void MainFrame::createChannelsView() {
   m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, _U("Show channel logo"));
 
   channelHeaderSizer->Add(m_viewToolBar, 0, wxALL, 0);
-  channelsSizer->Add(channelHeaderSizer, 0, wxEXPAND | wxALL, 12);
+  channelsSizer->Add(channelHeaderSizer, 0, wxEXPAND | wxALL, FromDIP(6));
 
   // Фильтры
   createChannelsFilterPanel();
   if (m_filterPanel) {
     m_filterPanel->Reparent(m_channelsPage);
-    channelsSizer->Add(m_filterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT, 8);
+    channelsSizer->Add(m_filterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                       FromDIP(6));
     UpdateFilterPanelVisibility();
   }
 
@@ -79,7 +80,7 @@ void MainFrame::createChannelsView() {
   wxSplitterWindow *channelsSplitter =
       new wxSplitterWindow(m_channelsPage, wxID_ANY, wxDefaultPosition,
                            wxDefaultSize, wxSP_LIVE_UPDATE | wxSP_3D);
-  channelsSplitter->SetMinimumPaneSize(200);
+  channelsSplitter->SetMinimumPaneSize(FromDIP(200));
 
   m_channelViewBook = new wxSimplebook(channelsSplitter, wxID_ANY);
   m_channelViewBook->SetBackgroundStyle(wxBG_STYLE_PAINT);
@@ -175,7 +176,7 @@ void MainFrame::createChannelsView() {
         evt.Skip();
       });
 
-  channelsSizer->Add(channelsSplitter, 1, wxEXPAND | wxALL, 4);
+  channelsSizer->Add(channelsSplitter, 1, wxEXPAND | wxALL, FromDIP(4));
   m_channelsPage->SetSizer(channelsSizer);
   m_channelsPage->Layout();
 

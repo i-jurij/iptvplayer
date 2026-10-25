@@ -89,19 +89,20 @@ void MainFrame::createPlaylistPanel() {
   titleFont.SetPointSize(12);
   titleFont.SetWeight(wxFONTWEIGHT_BOLD);
   title->SetFont(titleFont);
-  panelSizer->Add(title, 0, wxALL, 12);
+  panelSizer->Add(title, 0, wxALL, FromDIP(6));
 
   // Верхние кнопки
   auto *topBtnSizer = createPlaylistTopButtons();
-  panelSizer->Add(topBtnSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
+  panelSizer->Add(topBtnSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
 
   // Список плейлистов
   createPlaylistList();
-  panelSizer->Add(m_playlistList, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
+  panelSizer->Add(m_playlistList, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                  FromDIP(6));
 
   // Нижние кнопки
   auto *bottomBtnSizer = createPlaylistButtons();
-  panelSizer->Add(bottomBtnSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
+  panelSizer->Add(bottomBtnSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
 
   m_playlistPanel->SetSizer(panelSizer);
 
@@ -117,24 +118,24 @@ wxSizer *MainFrame::createPlaylistTopButtons() {
 
   auto *addIptvBtn = new wxButton(m_playlistPanel, ID_ADD_IPTV_PLAYLIST,
                                   _U("Add from IPTV-Org..."));
-  topBtnSizer->Add(addIptvBtn, 0, wxRIGHT, 5);
+  topBtnSizer->Add(addIptvBtn, 0, wxRIGHT, FromDIP(6));
 
   auto *addFileBtn =
       new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_FILE,
                    _U("Add from File..."));
-  topBtnSizer->Add(addFileBtn, 0, wxRIGHT, 5);
+  topBtnSizer->Add(addFileBtn, 0, wxRIGHT, FromDIP(6));
 
   auto *addUrlBtn =
       new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_URL,
                    _U("Add from URL..."));
-  topBtnSizer->Add(addUrlBtn, 0, wxRIGHT, 5);
+  topBtnSizer->Add(addUrlBtn, 0, wxRIGHT, FromDIP(6));
 
   m_updateAllBtn =
       new wxButton(m_playlistPanel, ID_UPDATE_ALL_PLAYLISTS, _U("Update All"));
   topBtnSizer->Add(m_updateAllBtn, 0);
 
   auto *vbox = new wxBoxSizer(wxVERTICAL);
-  vbox->Add(topBtnSizer, 0, wxEXPAND | wxALL, 5);
+  vbox->Add(topBtnSizer, 0, wxEXPAND | wxALL, FromDIP(6));
   return vbox;
 }
 
@@ -152,13 +153,13 @@ wxSizer *MainFrame::createPlaylistButtons() {
   m_editBtn->Enable(false);
   m_removeBtn->Enable(false);
 
-  btnSizer->Add(m_openBtn, 0, wxRIGHT, 5);
-  btnSizer->Add(m_updateBtn, 0, wxRIGHT, 5);
-  btnSizer->Add(m_editBtn, 0, wxRIGHT, 5);
+  btnSizer->Add(m_openBtn, 0, wxRIGHT, FromDIP(6));
+  btnSizer->Add(m_updateBtn, 0, wxRIGHT, FromDIP(6));
+  btnSizer->Add(m_editBtn, 0, wxRIGHT, FromDIP(6));
   btnSizer->Add(m_removeBtn, 0);
 
   auto *vbox = new wxBoxSizer(wxVERTICAL);
-  vbox->Add(btnSizer, 0, wxEXPAND | wxALL, 5);
+  vbox->Add(btnSizer, 0, wxEXPAND | wxALL, FromDIP(6));
   return vbox;
 }
 

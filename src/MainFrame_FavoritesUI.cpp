@@ -57,7 +57,7 @@ void MainFrame::createFavoritesUI() {
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   favHeaderSizer->Add(m_favToolBar, 0, wxALL, 0);
 
-  favSizer->Add(favHeaderSizer, 0, wxEXPAND | wxALL, 12);
+  favSizer->Add(favHeaderSizer, 0, wxEXPAND | wxALL, FromDIP(6));
 
   // Фильтры избранного
   wxPanel *favFilterPanel = new wxPanel(m_favoritesPanel, wxID_ANY);
@@ -98,13 +98,13 @@ void MainFrame::createFavoritesUI() {
   favFilterPanel->SetSizer(favFilterSizer);
   favFilterPanel->Layout();
   favSizer->Add(favFilterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
-                FromDIP(8));
+                FromDIP(6));
 
   // Splitter
   wxSplitterWindow *favSplitter =
       new wxSplitterWindow(m_favoritesPanel, wxID_ANY, wxDefaultPosition,
                            wxDefaultSize, wxSP_LIVE_UPDATE | wxSP_3D);
-  favSplitter->SetMinimumPaneSize(200);
+  favSplitter->SetMinimumPaneSize(FromDIP(200));
 
   m_favViewBook = new wxSimplebook(favSplitter, wxID_ANY);
   m_favList = new FavoritesList(m_favViewBook, wxID_ANY);

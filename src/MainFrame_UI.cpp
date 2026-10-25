@@ -128,8 +128,8 @@ void MainFrame::createMainPanel() {
   m_gaugeTop = makeGauge(m_mainPanel);
   m_gaugeTop->Hide();
   // add gauge first so it stays above headerPanel in the layout
-  m_mainSizerGaugeItem =
-      mainSizer->Add(m_gaugeTop, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 6);
+  m_mainSizerGaugeItem = mainSizer->Add(
+      m_gaugeTop, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
 
   // -------------------------------
   // NOTEBOOK
@@ -216,17 +216,13 @@ void MainFrame::createMainPanel() {
     btnMenu->SetBitmap(menuIcon, wxLEFT);
 #endif
 
-  headerSizer->Add(m_btnPlaylists, 0, wxALL, 8);
-  headerSizer->AddSpacer(12);
-  headerSizer->Add(m_btnChannels, 0, wxALL, 8);
-  headerSizer->AddSpacer(12);
-  headerSizer->Add(m_btnFavorites, 0, wxALL, 8);
-  headerSizer->AddSpacer(12);
-  headerSizer->Add(m_btnVideo, 0, wxALL, 8);
-  headerSizer->AddSpacer(12);
-  headerSizer->Add(m_btnEpg, 0, wxALL, 8);
+  headerSizer->Add(m_btnPlaylists, 0, wxALL, FromDIP(6));
+  headerSizer->Add(m_btnChannels, 0, wxALL, FromDIP(6));
+  headerSizer->Add(m_btnFavorites, 0, wxALL, FromDIP(6));
+  headerSizer->Add(m_btnVideo, 0, wxALL, FromDIP(6));
+  headerSizer->Add(m_btnEpg, 0, wxALL, FromDIP(6));
   headerSizer->AddStretchSpacer(1);
-  headerSizer->Add(btnMenu, 0, wxALL, 8);
+  headerSizer->Add(btnMenu, 0, wxALL, FromDIP(6));
 
   headerPanel->SetSizer(headerSizer);
 
@@ -609,7 +605,7 @@ void MainFrame::createMainPanel() {
   // FINAL LAYOUT
   // -------------------------------
   m_mainSizerHeaderItem =
-      mainSizer->Add(headerPanel, 0, wxEXPAND | wxALL, FromDIP(6));
+      mainSizer->Add(headerPanel, 0, wxEXPAND | wxALL, FromDIP(0));
   m_mainSizerNotebookItem =
       mainSizer->Add(m_notebook, 1, wxEXPAND | wxALL, FromDIP(0));
   m_mainPanel->SetSizer(mainSizer);
@@ -620,7 +616,7 @@ void MainFrame::createMainPanel() {
 
   // Добавляем тонкую горизонтальную линию между контентом и статусбаром
   statusLine = new wxStaticLine(this, wxID_ANY, wxDefaultPosition,
-                                              wxDefaultSize, wxLI_HORIZONTAL);
+                                wxDefaultSize, wxLI_HORIZONTAL);
   frameSizer->Add(statusLine, 0, wxEXPAND);
 
   SetSizer(frameSizer);
