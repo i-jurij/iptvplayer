@@ -216,12 +216,12 @@ void MainFrame::createMainPanel() {
     btnMenu->SetBitmap(menuIcon, wxLEFT);
 #endif
 
-  headerSizer->Add(m_btnPlaylists, 0, wxALL, FromDIP(6));
   headerSizer->Add(m_btnChannels, 0, wxALL, FromDIP(6));
   headerSizer->Add(m_btnFavorites, 0, wxALL, FromDIP(6));
   headerSizer->Add(m_btnVideo, 0, wxALL, FromDIP(6));
-  headerSizer->Add(m_btnEpg, 0, wxALL, FromDIP(6));
   headerSizer->AddStretchSpacer(1);
+  headerSizer->Add(m_btnPlaylists, 0, wxALL, FromDIP(6));
+  headerSizer->Add(m_btnEpg, 0, wxALL, FromDIP(6));
   headerSizer->Add(btnMenu, 0, wxALL, FromDIP(6));
 
   headerPanel->SetSizer(headerSizer);
@@ -353,7 +353,7 @@ void MainFrame::createMainPanel() {
       m_videoPanel->SetTabActive(false);
 
     ToggleHeaderGroup(m_btnPlaylists);
-    m_notebook->SetSelection(0);
+    m_notebook->SetSelection(m_notebook->FindPage(m_playlistPanel));
     HighlightLoadedPlaylistInList();
   });
 
@@ -382,12 +382,12 @@ void MainFrame::createMainPanel() {
       m_videoPanel->SetTabActive(false);
 
     ToggleHeaderGroup(m_btnFavorites);
-    m_notebook->SetSelection(2);
+    m_notebook->SetSelection(m_favoritesPageIdx);
   });
 
   m_btnVideo->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &) {
     ToggleHeaderGroup(m_btnVideo);
-    m_notebook->SetSelection(3);
+    m_notebook->SetSelection(m_videoPageIdx);
   });
 
   m_btnEpg->Bind(wxEVT_TOGGLEBUTTON, &MainFrame::OnEpgToggle, this);
@@ -625,7 +625,7 @@ void MainFrame::createMainPanel() {
   ToggleHeaderGroup(m_btnPlaylists);
 
   CallAfter([this]() {
-    m_notebook->ChangeSelection(0);
+    m_notebook->ChangeSelection(m_notebook->FindPage(m_playlistPanel));
 
     ToggleHeaderGroup(m_btnPlaylists);
     RestoreLastOpenedPlaylist();
@@ -636,9 +636,10 @@ void MainFrame::createMainPanel() {
     CheckAndSuggestPlaylist();
   });
 
-  LOG_DEBUG("MainFrame: pages indices: playlist=?, channels=%d, favorites=%d, "
-            "video=%d",
-            m_channelsPageIdx, m_favoritesPageIdx, m_videoPageIdx);
+  LOG_DEBUG("MainFrame: pages indices: playlist=%d, channels=%d, "
+            "favorites=%d, video=%d",
+            m_notebook->FindPage(m_playlistPanel), m_channelsPageIdx,
+            m_favoritesPageIdx, m_videoPageIdx);
 
   int videoIdxFound = m_notebook->FindPage(m_videoPanel);
   LOG_DEBUG("MainFrame: m_videoPageIdx=%d videoIdxFound=%d m_videoPanel=%p",
