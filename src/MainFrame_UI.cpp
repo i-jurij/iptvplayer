@@ -612,7 +612,7 @@ void MainFrame::createMainPanel() {
 
   // Добавляем панель в sizer самого фрейма
   wxBoxSizer *frameSizer = new wxBoxSizer(wxVERTICAL);
-  frameSizer->Add(m_mainPanel, 1, wxEXPAND);
+  frameSizer->Add(m_mainPanel, 1, wxEXPAND | wxALL, FromDIP(0));
 
   // Добавляем тонкую горизонтальную линию между контентом и статусбаром
   statusLine = new wxStaticLine(this, wxID_ANY, wxDefaultPosition,

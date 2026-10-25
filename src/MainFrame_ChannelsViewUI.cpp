@@ -31,6 +31,7 @@ void MainFrame::createChannelsView() {
   hFont.SetPointSize(12);
   hFont.SetWeight(wxFONTWEIGHT_BOLD);
   m_channelsHeader->SetFont(hFont);
+  channelHeaderSizer->AddSpacer(FromDIP(6));
   channelHeaderSizer->Add(m_channelsHeader, 1, wxALL, 0);
 
   // Toolbar

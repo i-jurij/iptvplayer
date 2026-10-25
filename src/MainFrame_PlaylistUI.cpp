@@ -89,7 +89,11 @@ void MainFrame::createPlaylistPanel() {
   titleFont.SetPointSize(12);
   titleFont.SetWeight(wxFONTWEIGHT_BOLD);
   title->SetFont(titleFont);
-  panelSizer->Add(title, 0, wxALL, FromDIP(6));
+  // Заголовок (с дополнительным левым отступом)
+  auto *titleRow = new wxBoxSizer(wxHORIZONTAL);
+  titleRow->AddSpacer(FromDIP(6));            // доп. отступ слева
+  titleRow->Add(title, 0, wxALL, FromDIP(6)); // прежние 6 со всех сторон
+  panelSizer->Add(titleRow, 0, wxEXPAND);
 
   // Верхние кнопки
   auto *topBtnSizer = createPlaylistTopButtons();

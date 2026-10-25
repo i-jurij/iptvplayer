@@ -75,8 +75,8 @@ void CardsBase::UpdateLayout() {
   m_logoH = FromDIP(L.logoH);
 
   // Гэпы: m_cardW уже Logical → гэпы тоже Logical.
-  m_gapX = FromDIP(6);
-  m_gapY = FromDIP(6);
+  m_gapX = FromDIP(10);
+  m_gapY = FromDIP(10);
 
   m_colW = m_cardW + m_gapX; // Logical
   m_rowH = m_cardH + m_gapY; // Logical

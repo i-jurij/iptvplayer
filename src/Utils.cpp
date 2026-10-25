@@ -549,7 +549,7 @@ int CardWidthForDisplay(int displayW_Dip) {
   if (displayW_Dip <= 0)
     return 320;
   int w = displayW_Dip / 5;
-  return std::clamp(w, 280, 400);
+  return std::clamp(w, 200, 480);
 }
 
 CardLayoutInfo ComputeCardLayoutForDisplay(int displayW) {

@@ -31,6 +31,7 @@ void MainFrame::createFavoritesUI() {
   favFont.SetPointSize(12);
   favFont.SetWeight(wxFONTWEIGHT_BOLD);
   m_favHeader->SetFont(favFont);
+  favHeaderSizer->AddSpacer(FromDIP(6));
   favHeaderSizer->Add(m_favHeader, 1, wxALL, 0);
   favHeaderSizer->AddStretchSpacer(1);
 
