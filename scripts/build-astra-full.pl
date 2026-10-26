@@ -42,6 +42,7 @@ my $WXSQLITE3_DIR = "$THIRD_PARTY/wxsqlite3";
 my $BUILD_DIR    = "$PROJECT_ROOT/build-release";
 my $STAGING      = "$PROJECT_ROOT/pkg-staging-astra";
 my $OUTPUT_DIR   = "$PROJECT_ROOT/dist";
+use constant DISTRO => 'astra';
 
 # ------------------------- Аргументы -------------------------
 my ($skip_system, $rebuild_deps, $sign, $gpg_key, $keep_build);
@@ -54,9 +55,9 @@ GetOptions(
 ) or die "Использование: $0 [--skip-system] [--rebuild-deps] [--sign --gpg-key KEY] [--keep-build]\n";
 
 # ------------------------- Утилиты -------------------------
-sub info  { print "[INFO] @_\n" }
-sub warn  { print STDERR "[WARN] @_\n" }
-sub error { print STDERR "[ERROR] @_\n"; exit 1 }
+sub info     { print "[INFO] @_\n" }
+sub warn_msg { print STDERR "[WARN] @_\n" }
+sub error    { print STDERR "[ERROR] @_\n"; exit 1 }
 
 sub run {
     my (@cmd) = @_;
@@ -104,16 +105,6 @@ sub detect_deb_arch {
         i686 => 'i386', i386 => 'i386',
     );
     return $map{$machine} // error "Неподдерживаемая архитектура: $machine";
-}
-
-sub detect_distro {
-    if (open my $os, '<', '/etc/os-release') {
-        while (<$os>) {
-            if (/^ID="?([^"]*)"?/) { close $os; return $1; }
-        }
-        close $os;
-    }
-    return 'astra';
 }
 
 # ------------------------- 1. Системные зависимости -------------------------
@@ -301,7 +292,6 @@ sub build_deb {
     error "Пустой VERSION в $STAGING/usr" unless length $version;
 
     my $deb_arch = detect_deb_arch();
-    my $distro   = detect_distro();
     my $deb_name = "${PACKAGE}_${version}_${distro}_${deb_arch}.deb";
     my $deb_path = "$OUTPUT_DIR/$deb_name";
 
@@ -384,10 +374,10 @@ PRERM
                        "--local-user", $key, "--output", $asc, $deb_path) == 0) {
                 info "Отсоединённая подпись: $asc";
             } else {
-                warn "Не удалось создать .asc";
+                warn_msg "Не удалось создать .asc";
             }
         } else {
-            warn "--sign указан, но ключ не задан (--gpg-key или GPG_KEY_ID)";
+            warn_msg "--sign указан, но ключ не задан (--gpg-key или GPG_KEY_ID)";
         }
     }
 }
@@ -403,7 +393,8 @@ sub main {
     build_project();
     build_deb();
 
-    info "Готово. Артефакт: $OUTPUT_DIR/${PACKAGE}_*_${distro}_*.deb";
+
+    info "Готово. Артефакт: $OUTPUT_DIR/${PACKAGE}_*_" . DISTRO . "_*.deb";
 }
 
 main();
