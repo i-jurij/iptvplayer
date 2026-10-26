@@ -44,6 +44,13 @@ my $STAGING      = "$PROJECT_ROOT/pkg-staging-astra";
 my $OUTPUT_DIR   = "$PROJECT_ROOT/dist";
 use constant DISTRO => 'astra';
 
+my $SUDO = '';
+if ($> != 0) {
+    if (system('sh', '-c', 'command -v sudo >/dev/null 2>&1') == 0) {
+        $SUDO = 'sudo';
+    }
+}
+
 # ------------------------- Аргументы -------------------------
 my ($skip_system, $rebuild_deps, $sign, $gpg_key, $keep_build);
 GetOptions(
@@ -106,6 +113,34 @@ sub detect_deb_arch {
     );
     return $map{$machine} // error "Неподдерживаемая архитектура: $machine";
 }
+sub nproc {
+    my $n = `nproc 2>/dev/null`;
+    chomp $n;
+    $n =~ s/\D//g;
+    return $n || 1;
+}
+
+sub write_desktop_file {
+    my ($path) = @_;
+    (my $icon_base = $ICON_NAME) =~ s/\.svg$//;
+    make_path(dirname($path));
+    open my $fh, '>', $path or error "Не могу открыть $path: $!";
+    print $fh <<"DESKTOP";
+[Desktop Entry]
+Name=IPTV Player
+Exec=$PACKAGE %F
+Icon=$icon_base
+Type=Application
+Categories=AudioVideo;
+Comment=IPTV Playlist Player
+Comment[ru]=Плеер для плейлистов IPTV
+Terminal=false
+StartupNotify=true
+StartupWMClass=$PACKAGE
+MimeType=video/mp4;video/x-matroska;video/avi;application/x-mpegURL;audio/x-mpegurl;audio/x-scpls;application/xspf+xml;
+DESKTOP
+    close $fh;
+}
 
 # ------------------------- 1. Системные зависимости -------------------------
 sub install_system_deps {
@@ -127,11 +162,17 @@ sub install_system_deps {
         $has_rapidjson = 1 if -f $inc;
     }
 
+    if ($> != 0 && $SUDO eq '') {
+        error "Установка системных пакетов требует root, а sudo не найден. "
+            . "Запустите от root или с --skip-system.";
+    }
+
     my @missing = grep { system("dpkg -s $_ >/dev/null 2>&1") != 0 } @pkgs;
     if (@missing) {
         info "Устанавливаю: @missing";
-        run("apt-get", "update", "-qq");
-        run("apt-get", "install", "-y", "--no-install-recommends", @missing);
+        my @sudo = $SUDO ? ($SUDO) : ();
+        run(@sudo, "apt-get", "update", "-qq");
+        run(@sudo, "apt-get", "install", "-y", "--no-install-recommends", @missing);
     }
 
     # rapidjson: header-only fallback.
@@ -141,8 +182,9 @@ sub install_system_deps {
         my $tar = "$tmp/rapidjson.tar.gz";
         download("https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.tar.gz", $tar);
         run("tar", "xzf", $tar, "-C", $tmp);
-        make_path("/usr/local/include/rapidjson");
-        run("cp", "-r", "$tmp/rapidjson-1.1.0/include/rapidjson/.", "/usr/local/include/rapidjson/");
+        my @sudo = $SUDO ? ($SUDO) : ();
+        run(@sudo, "mkdir", "-p", "/usr/local/include/rapidjson");
+        run(@sudo, "cp", "-r", "$tmp/rapidjson-1.1.0/include/rapidjson/.", "/usr/local/include/rapidjson/");
         info "rapidjson установлен в /usr/local/include/rapidjson";
     }
 }
@@ -154,52 +196,58 @@ sub build_wxwidgets {
         return;
     }
 
-    info "Сборка wxWidgets $WX_VERSION...";
+    info "Сборка wxWidgets $WX_VERSION (cmake)...";
     remove_tree($WX_DIR) if -d $WX_DIR;
     make_path($WX_DIR);
 
     my $archive = "wxWidgets-$WX_VERSION.tar.bz2";
     my $url = "https://github.com/wxWidgets/wxWidgets/releases/download/v$WX_VERSION/$archive";
-
     download($url, "$WX_DIR/$archive");
     run("tar", "xjf", "$WX_DIR/$archive", "-C", $WX_DIR);
-    rename("$WX_DIR/wxWidgets-$WX_VERSION", "$WX_DIR/src") or error "Не могу переименовать распакованный каталог";
+    rename("$WX_DIR/wxWidgets-$WX_VERSION", "$WX_DIR/src")
+        or error "rename распакованного каталога: $!";
     unlink "$WX_DIR/$archive";
 
     make_path("$WX_DIR/build", "$WX_DIR/install");
-    chdir "$WX_DIR/build" or error $!;
+    chdir "$WX_DIR/build" or error "chdir $WX_DIR/build: $!";
 
-    # Статическая сборка GTK3-версии с минимальными компонентами.
-    my @configure = (
-        "../src/configure",
-        "--prefix=$WX_DIR/install",
-        "--disable-shared",
-        "--enable-static",
-        "--with-gtk3",
-        "--disable-debug",
-        "--disable-mediactrl",
-        "--disable-webview",
-        "--disable-richtext",
-        "--disable-xrc",
-        "--disable-stc",
-        "--disable-html",
-        "--disable-help",
-        "--disable-networking",
-        "--disable-printing",
+    my @cmake = (
+        "cmake", "../src",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_INSTALL_LIBDIR=lib",
+        "-DwxBUILD_SHARED=OFF",
+        "-DwxUSE_LIBWEBP=builtin",
+        "-DwxUSE_LIBJPEG=builtin",
+        "-DwxUSE_SVG=ON",
+        "-DwxUSE_REGEX:BOOL=OFF",
+        "-DwxUSE_MEDIACTRL:BOOL=OFF",
+        "-DwxUSE_GSTREAMER:BOOL=OFF",
+        "-DwxUSE_WEBKIT:BOOL=OFF",
+        "-DwxUSE_WEBVIEW_WEBKIT:BOOL=OFF",
+        "-DwxUSE_LIBTIFF:BOOL=OFF",
+        "-DwxUSE_GIF:BOOL=OFF",
+        "-DwxUSE_ACCESSIBILITY:BOOL=OFF",
+        "-DwxUSE_HELP:BOOL=OFF",
+        "-DwxUSE_HTML:BOOL=OFF",
+        "-DwxUSE_STC:BOOL=OFF",
+        "-DwxUSE_MS_HTML_HELP:BOOL=OFF",
+        "-DwxUSE_WXHTML_HELP:BOOL=OFF",
+        "-DwxUSE_XRC:BOOL=OFF",
+        "-DwxUSE_XML:BOOL=OFF",
+        "-DwxUSE_NET:BOOL=OFF",
+        "-DwxUSE_RICHTEXT:BOOL=OFF",
+        "-DwxUSE_LIBSDL:BOOL=OFF",
+        "-DwxUSE_PRINTING_ARCHITECTURE=OFF",
+        "-DCMAKE_INSTALL_PREFIX=../install",
     );
+    run(@cmake);
+    run("cmake", "--build", ".", "--target", "install", "-j" . nproc());
 
-    # CFLAGS/CXXFLAGS с -march для текущей архитектуры.
-    my $machine = `uname -m`;
-    chomp $machine;
-    my $march = $machine =~ /x86_64/ ? "-march=x86-64" : "";
-    $ENV{CFLAGS}   = join(" ", grep { $_ } ($ENV{CFLAGS}   // "", $march));
-    $ENV{CXXFLAGS} = join(" ", grep { $_ } ($ENV{CXXFLAGS} // "", $march, "-std=c++20"));
+    chdir $PROJECT_ROOT or error "chdir $PROJECT_ROOT: $!";
 
-    run(@configure);
-    run("make", "-j" . (`nproc` =~ /(\d+)/)[0]);
-    run("make", "install");
-
-    chdir $PROJECT_ROOT;
+    my $cfg = "$WX_DIR/install/lib/cmake/wxWidgets/wxWidgetsConfig.cmake";
+    -f $cfg or error "wxWidgetsConfig.cmake не появился: $cfg. "
+                   . "Без него find_package(wxWidgets CONFIG) из CMakeLists.txt не сработает.";
     info "wxWidgets установлен в $WX_DIR/install";
 }
 
@@ -246,7 +294,7 @@ sub build_wxsqlite3 {
     );
 
     run(@configure);
-    run("make", "-j" . (`nproc` =~ /(\d+)/)[0]);
+    run("make", "-j" . nproc());
     run("make", "install");
 
     chdir $PROJECT_ROOT;
@@ -275,7 +323,7 @@ sub build_project {
     );
     run(@cmake);
 
-    run("cmake", "--build", ".", "--target", "all", "-j" . (`nproc` =~ /(\d+)/)[0]);
+    run("cmake", "--build", ".", "--target", "all", "-j" . nproc());
     run("cmake", "--build", ".", "--target", "install");
 
     chdir $PROJECT_ROOT;
@@ -286,7 +334,27 @@ sub build_project {
 sub build_deb {
     info "Упаковка в .deb...";
 
+    # === Дополняем staging тем, что CMakeLists не ставит ===
+    # 1. .desktop-файл для меню
+    my $desktop = "$STAGING/usr/share/applications/$PACKAGE.desktop";
+    write_desktop_file($desktop);
+
+    # 2. Иконка hicolor (CMakeLists ставит её только в share/iptvplayer/icons/)
+    my $icon_src = "$STAGING/usr/share/$PACKAGE/icons/$ICON_NAME";
+    if (-f $icon_src) {
+        my $icon_dst = "$STAGING/usr/share/icons/hicolor/scalable/apps/$ICON_NAME";
+        make_path(dirname($icon_dst));
+        copy($icon_src, $icon_dst) or error "copy $icon_src → $icon_dst: $!";
+    } else {
+        warn_msg "Иконка не найдена в staging: $icon_src";
+    }
+
     my $version      = read_first_line("$STAGING/usr/VERSION");
+    # VERSION* не должны попасть в .deb — они нужны только build-package.sh,
+    # а не конечной системе.
+    unlink "$STAGING/usr/VERSION",
+           "$STAGING/usr/VERSION_FULL",
+           "$STAGING/usr/VERSION_FILE";
     my $version_file = read_first_line("$STAGING/usr/VERSION_FILE");
     my $version_full = read_first_line("$STAGING/usr/VERSION_FULL");
     error "Пустой VERSION в $STAGING/usr" unless length $version;
@@ -296,7 +364,6 @@ sub build_deb {
     my $deb_path = "$OUTPUT_DIR/$deb_name";
 
     make_path($OUTPUT_DIR);
-    remove_tree($STAGING) if -d $STAGING;
     make_path("$STAGING/DEBIAN");
 
     # Определение зависимостей через dpkg-shlibdeps.
@@ -385,6 +452,11 @@ PRERM
 # ------------------------- main -------------------------
 sub main {
     info "=== Сборка $PACKAGE для Astra Linux (база Debian 9) ===";
+    if ($> != 0 && $SUDO eq '' && !$skip_system) {
+        error "Скрипт запущен без root и без sudo, но нужны apt-get и /usr/local. "
+            . "Запустите от root, установите sudo или используйте --skip-system.";
+    }
+    info $SUDO ? "Режим: через sudo" : ($> == 0 ? "Режим: root" : "Режим: пользователь, --skip-system");
     info "Корень проекта: $PROJECT_ROOT";
 
     install_system_deps();
