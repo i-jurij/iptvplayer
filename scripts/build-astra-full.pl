@@ -316,6 +316,7 @@ sub build_project {
         "cmake", $PROJECT_ROOT,
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_INSTALL_PREFIX=$STAGING/usr",
+        "-DwxWidgets_DIR=$WX_DIR/install/lib/cmake",
         "-DwxWidgets_ROOT_DIR=$wx_root",
         "-DwxWidgets_LIB_DIR=$wx_root/lib",
         "-DwxSQLite3_ROOT_DIR=$wxsqlite3_root",
