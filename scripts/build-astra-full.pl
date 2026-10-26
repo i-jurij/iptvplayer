@@ -292,7 +292,7 @@ sub build_deb {
     error "Пустой VERSION в $STAGING/usr" unless length $version;
 
     my $deb_arch = detect_deb_arch();
-    my $deb_name = "${PACKAGE}_${version}_${distro}_${deb_arch}.deb";
+    my $deb_name = "${PACKAGE}_${version}_DISTRO_${deb_arch}.deb";
     my $deb_path = "$OUTPUT_DIR/$deb_name";
 
     make_path($OUTPUT_DIR);
