@@ -1,7 +1,8 @@
 #pragma once
 
 #include "LogControl.h"
-#include "Utils.h"
+#include "Utils_Fs.h"
+#include "Utils_Platform.h"
 
 #include <wx/filename.h>
 #include <wx/process.h>
