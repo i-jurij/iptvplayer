@@ -6,6 +6,7 @@
 #include "LogoCache.h"
 #include "MainFrame.h"
 #include "Profiler.h"
+#include "StarIcon.h"
 #include "Utils.h"
 
 #include <wx/app.h>
@@ -14,9 +15,6 @@
 #include <wx/log.h>
 #include <wx/statusbr.h>
 #include <wx/timer.h>
-
-#include "star_filled_png.h"
-#include "star_outline_png.h"
 
 #include <algorithm>
 #include <atomic>
@@ -155,10 +153,8 @@ BaseChannelList::BaseChannelList(wxWindow *parent, wxWindowID id)
     });
   });
 
-  m_favIconFilled =
-      wxBitmap::NewFromPNGData(star_filled_png, star_filled_png_len);
-  m_favIconOutline =
-      wxBitmap::NewFromPNGData(star_outline_png, star_outline_png_len);
+  m_favIconFilled  = CreateFilledStarIcon(wxSize(128, 128));
+  m_favIconOutline = CreateOutlineStarIcon(wxSize(128, 128));
 
   InitColumns();
 

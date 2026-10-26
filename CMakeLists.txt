@@ -210,10 +210,14 @@ set(SOURCES
     src/TypeAheadSearch.cpp
     src/UpdateAllThread.cpp
     src/UpdateOneThread.cpp
-    src/Utils.cpp
+    src/Utils_Platform.cpp
+    src/Utils_Fs.cpp
+    src/Utils_Net.cpp
+    src/Utils_Perf.cpp
+    src/Utils_Platform.cpp
+    src/Utils_UI.cpp
     src/SettingsDialog.cpp
-    src/star_filled_png.cpp
-    src/star_outline_png.cpp
+    src/StarIcon.cpp
     src/IconManager.cpp
     src/IconManager_Utils.cpp
     src/BackendFactory.cpp

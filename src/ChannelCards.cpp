@@ -1,14 +1,11 @@
 #include "ChannelCards.h"
 #include "Application.h"
 #include "MainFrame.h"
-
-#include "star_filled_png.h"
-#include "star_outline_png.h"
+#include "StarIcon.h"
 
 ChannelCards::ChannelCards(wxWindow *parent) : CardsBase(parent) {
-  m_favFilled = wxBitmap::NewFromPNGData(star_filled_png, star_filled_png_len);
-  m_favOutline =
-      wxBitmap::NewFromPNGData(star_outline_png, star_outline_png_len);
+  m_favFilled  = CreateFilledStarIcon(wxSize(256, 256));
+  m_favOutline = CreateOutlineStarIcon(wxSize(256, 256));
 
   m_search = std::make_unique<TypeAheadSearch>(
       this, [this]() { return (int)m_channels.size(); },
@@ -68,38 +65,7 @@ wxBitmap ChannelCards::GetStarBitmap(const Channel &ch) const {
           wxGetTopLevelParent(const_cast<ChannelCards *>(this)))) {
     isFav = mf->getApplication()->getFavoritesManager().isFavorite(ch);
   }
-
-  if (isFav)
-    return m_favFilled;
-
-  wxBitmap bmp = m_favOutline;
-  if (!bmp.IsOk())
-    return bmp;
-
-  wxImage img = bmp.ConvertToImage();
-  if (!img.IsOk())
-    return bmp;
-
-  if (!img.HasAlpha())
-    img.InitAlpha();
-
-  const unsigned char R = 150;
-  const unsigned char G = 150;
-  const unsigned char B = 150;
-
-  int w = img.GetWidth();
-  int h = img.GetHeight();
-
-  for (int y = 0; y < h; y++) {
-    for (int x = 0; x < w; x++) {
-      unsigned char a = img.GetAlpha(x, y);
-      if (a == 0)
-        continue;
-      img.SetRGB(x, y, R, G, B);
-    }
-  }
-
-  return wxBitmap(img);
+  return isFav ? m_favFilled : m_favOutline;
 }
 
 void ChannelCards::OnCardClick(size_t index, bool fav, const wxRect &rect) {

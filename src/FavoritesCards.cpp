@@ -1,15 +1,14 @@
 #include "FavoritesCards.h"
 #include "Application.h"
 #include "MainFrame.h"
+#include "StarIcon.h"
 #include "TypeAheadSearch.h"
-
-#include "star_filled_png.h"
 
 #include <memory>
 
 FavoritesCards::FavoritesCards(wxWindow *parent) : CardsBase(parent) {
   m_isFavoritesCards = true;
-  m_favFilled = wxBitmap::NewFromPNGData(star_filled_png, star_filled_png_len);
+  m_favFilled = CreateFilledStarIcon(wxSize(256, 256));
 
   m_search = std::make_unique<TypeAheadSearch>(
       this, [this]() { return (int)m_channels.size(); },

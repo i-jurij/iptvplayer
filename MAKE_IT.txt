@@ -2,6 +2,93 @@
 Автообновление (при запуске или как?)
 и поле для ввода ссылки на программу?
 И логин, пароль для авторизации (или как там это делают сейчас?)
+
+# Пошаговый план (кратко)
+
+## Stage 1 — Инфраструктура EPG
+
+1. Создать `src/epg/EPGRefreshQueue.h` — header-only класс с `Enqueue` / `OnTaskFinished` / `Clear` / `IsEmpty` / `Size`.
+2. `EventIDs.h` — добавить `ID_ADD_XTREAM_PLAYLIST`.
+3. `EPGManager` — новый `EnqueueRefreshSource` (с `wait()` на `m_singleRefreshFuture`) и `ClearRefreshQueue`.
+4. `EPGManager::UpdateAllSources` — перевести на очередь; матчинг отдельной задачей в хвост.
+5. `EPGManager::AbortDownload` — `+ClearRefreshQueue()`.
+6. Деструкторы `~EPGManager`, `~MainFrame`, `~EpgSourceManagerPanel` — `ClearRefreshQueue()`.
+7. `MainFrame::RegisterEpgSourceForPlaylist(epgUrl, title)` — дедуп, `EpgSource{...}`, `SaveSourcesToConfig`, колбэк по образцу `RefreshSourceInternal`, запуск через `EnqueueRefreshSource`.
+8. `EpgSourceManagerPanel::RefreshSourceInternal` — перевести на `EnqueueRefreshSource`.
+
+**Проверка:** компиляция; ручной Refresh в панели по-прежнему работает; `UpdateAllSources` в одиночку обновляет всё; два быстрых добавления через `RegisterEpgSourceForPlaylist` — обе загрузки идут.
+
+---
+
+## Stage 2 — Диалоги File и URL
+
+1. `AddPlaylistFileDialog` — `+EPG URL`, `+Auto-update on startup` (с tooltip), авто-title из имени файла при пустом; заменить `SetSizerAndFit` на `SetSizer + SetSize + SetMinSize + Layout`.
+2. `AddPlaylistUrlDialog` — то же, авто-title из URL (`derivePlaylistTitleFromUrl`); поднять высоту диалога.
+
+**Проверка:** оба диалога открываются, поля видны, не схлопываются, Title автозаполняется.
+
+---
+
+## Stage 3 — Диалог Xtream
+
+1. Новый `AddXtreamPlaylistDialog` — server / user / pass / title / format / auto-gen EPG / EPG URL / auto-update.
+2. `onOK` — валидация, нормализация server, URL-encode credentials, сборка `get.php?...` и `xmltv.php?...`, авто-title из host, `IsNetworkUrl` проверка.
+3. Геттеры `GetUrl` / `GetTitle` / `GetEpgUrl` / `GetAutoUpdate`.
+
+**Проверка:** диалог заполняется, EPG-поле автогенерируется и блокируется при auto-gen, URL корректен (лог/временный вывод), компиляция остального не задета.
+
+---
+
+## Stage 4 — Перестановка кнопок
+
+1. `createPlaylistTopButtons` — `[IPTV-Org] [URL] [Xtream] [File]`.
+2. `createPlaylistButtons` — `[Update All] <spacer> [Update] [Open] [Edit] [Remove]`.
+3. Проверить по grep все ссылки на `m_updateAllBtn`.
+
+**Проверка:** UI как на эскизе, `Update All` работает, `Open/Edit/Remove` дизейблятся без выделения.
+
+---
+
+## Stage 5 — Обработчики
+
+1. `Bind` для `ID_ADD_XTREAM_PLAYLIST`.
+2. `onAddXtreamPlaylist` — `ShowModal` → `RegisterEpgSourceForPlaylist` → pending autoUpdate → `BeginPlaylistLoading` → `addPlaylistFromUrl`.
+3. `onAddPlaylistUrl` — то же + pending.
+4. `onAddPlaylistFile` — синхронный: `addPlaylistFromFile` → `setAutoUpdate` через `findByTitle` → `RegisterEpgSourceForPlaylist`.
+5. `onAddFromUrlSuccess` — применить pending autoUpdate по `findByTitle(m_pendingTitle)`, очистить pending.
+6. `onAddFromUrlError` — очистить pending.
+7. Статусбар: «EPG source added, updating in background».
+
+**Проверка (руками):**
+- Add File с EPG → источник в панели, грузится.
+- Add URL с EPG → то же.
+- Add Xtream → плейлист + EPG-источник + программа появляется после загрузки.
+- Повторное добавление того же EPG URL → дедуп.
+- Auto-update после перезапуска — true/false по чекбоксу.
+- Открытие плейлиста до окончания EPG-загрузки — по завершении матчинг подхватывает.
+
+---
+
+## Stage 6 — Регрессия
+
+1. `bash -n` на всех `.sh` (если есть).
+2. `UpdateAllSources` (кнопка «Delete cache / Update all») — все источники обновляются, матчинг один раз.
+3. Ручной Refresh в панели — работает, не отказывает при параллельной загрузке.
+4. Cancel — останавливает текущую загрузку **и очередь**.
+5. Auto-update при старте — все autoUpdate-плейлисты обновляются.
+6. Два быстрых добавления Xtream с EPG — обе загрузки последовательно, оба `lastUpdate`.
+7. Закрытие приложения при активной очереди — без падений.
+8. `AddIPTVPlaylistDialog`, `EditPlaylistDialog`, `AddEpgSourceDialog`, `ManualMappingDialog` — не затронуты.
+9. Проверка на Windows и Linux (если Linux — целевая).
+
+**Результат:** всё работает, старые сценарии не сломаны.
+
+---
+
+Скажите «начать Stage 1» — выдам код.
+==========================================================
+
+скрипт сборки в астра на питоне сделать?
 ==========================================================
 
 фильтры переписать, чтобы меньше места занимали в ЮИ?
