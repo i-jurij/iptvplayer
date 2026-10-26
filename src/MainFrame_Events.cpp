@@ -1,4 +1,6 @@
+#include "ConfigManager.h"
 #include "IconManager.h"
+#include "LogControl.h"
 #include "MainFrame.h"
 #include "SettingsDialog.h"
 #include "UpdateAllThread.h"

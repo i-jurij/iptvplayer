@@ -10,8 +10,6 @@
 //   Utils_Perf.h     — RAM/CPU/perf tuning
 // ============================================================================
 
-#include "ConfigManager.h" // транзитивная зависимость 18 файлов; уйдёт в Phase 3
-
 #include "Utils_Fs.h"
 #include "Utils_Net.h"
 #include "Utils_Perf.h"

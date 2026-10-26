@@ -1,3 +1,4 @@
+#include "ConfigManager.h"
 #include "EventIDs.h"
 #include "FavoritesCards.h"
 #include "FavoritesList.h"

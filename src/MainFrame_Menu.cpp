@@ -1,3 +1,4 @@
+#include "ConfigManager.h"
 #include "EventIDs.h"
 #include "IPlayerBackend.h"
 #include "MainFrame.h"

@@ -2,10 +2,10 @@
 
 #include "Application.h"
 #include "Channel.h"
+#include "MpvBackend.h"
+#include "MpvGLCanvas.h"
 #include "PlayerController.h"
 #include "VP_progressSlider.h"
-#include "MpvGLCanvas.h"
-#include "MpvBackend.h"
 
 #include <wx/event.h>
 #include <wx/listctrl.h>
