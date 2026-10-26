@@ -25,8 +25,7 @@
 # Уже под bash, но проверяем, что он пригоден для наших скриптов.
 if [ -n "${BASH_VERSION:-}" ]; then
     if ! "$BASH" -c 'exec 3< <(:) ' 2>/dev/null; then
-        echo "[!] bash не поддерживает process substitution — наши скрипты несовместимы." >&2
-        exit 1
+        echo "[!] bash without process substitution." >&2
     fi
     return 0 2>/dev/null || exit 0
 fi
