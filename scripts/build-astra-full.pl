@@ -206,7 +206,7 @@ sub install_system_deps {
         wget curl libcurl4-openssl-dev libmpv-dev libgtk-3-dev
         librsvg2-common libx11-dev libx11-xcb-dev libgl1-mesa-dev
         libegl1-mesa-dev libpng-dev libjpeg-dev libwebp-dev zlib1g-dev
-        libexpat1-dev libfreetype6-dev dpkg-dev
+        libexpat1-dev libfreetype6-dev dpkg-dev gettext
     );
 
     # rapidjson в Astra 2.12 может отсутствовать — ставим отдельно.

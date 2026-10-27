@@ -15,6 +15,7 @@ debsigs:debsigs
 pkg-config:pkg-config
 wget:wget
 curl:curl
+gettext:gettext
 curl-dev:libcurl4-openssl-dev
 mpv-dev:libmpv-dev
 rapidjson-dev:rapidjson-dev

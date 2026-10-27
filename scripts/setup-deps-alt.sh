@@ -14,6 +14,7 @@ gnupg:gnupg
 pkg-config:pkg-config
 wget:wget
 curl:curl
+gettext:gettext
 curl-dev:libcurl-devel
 mpv-dev:libmpv-devel
 rapidjson-dev:rapidjson-devel

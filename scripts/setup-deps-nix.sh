@@ -16,7 +16,7 @@ deps_packages() {
 [i] NixOS: системные зависимости не ставятся автоматически.
 [i] Запустите сборку внутри nix-shell с нужными пакетами:
 [i]   nix-shell -p gcc cmake gnumake pkg-config autoconf automake \
-[i]     libtool git curl gtk3 mpv rapidjson libGL libX11 libxcb \
+[i]     libtool git gettext curl gtk3 mpv rapidjson libGL libX11 libxcb \
 [i]     wayland freetype fontconfig expat zlib libpng libjpeg libwebp \
 [i]     --run ./scripts/build-release.sh --yes
 [i] Или используйте --native-nix: он собирает derivation без setup-deps.

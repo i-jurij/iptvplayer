@@ -14,6 +14,7 @@ gnupg:gnupg
 pkg-config:pkg-config
 wget:wget
 curl:curl
+gettext:gettext
 rapidjson-dev:rapidjson
 gtk3-dev:gtk3
 rsvg-common:librsvg
