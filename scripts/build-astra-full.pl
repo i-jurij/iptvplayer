@@ -250,7 +250,6 @@ sub build_wxwidgets {
     }
 
     info "Сборка wxWidgets $WX_VERSION (cmake)...";
-    remove_tree($WX_DIR) if -d $WX_DIR;
     make_path($WX_DIR);
 
     my $archive = "wxWidgets-$WX_VERSION.tar.bz2";
@@ -334,28 +333,42 @@ sub build_wxsqlite3 {
     remove_tree($WXSQLITE3_DIR) if -d $WXSQLITE3_DIR;
     make_path($WXSQLITE3_DIR);
 
-    my $archive = "wxsqlite3-$WXSQLITE3_VERSION.tar.gz";
-    my $url = "https://github.com/utelle/wxsqlite3/archive/refs/tags/v$WXSQLITE3_VERSION.tar.gz";
+    my $archive = "v$WXSQLITE3_VERSION.tar.gz";
 
-    download($url, "$WXSQLITE3_DIR/$archive");
+    # Два URL, как в bash: codeload первым (минует прокси github.com,
+    # который часто отдаёт 504), github-archive вторым.
+    my @urls = (
+        "https://codeload.github.com/utelle/wxsqlite3/tar.gz/refs/tags/v$WXSQLITE3_VERSION",
+        "https://github.com/utelle/wxsqlite3/archive/refs/tags/v$WXSQLITE3_VERSION.tar.gz",
+    );
+    my $downloaded = 0;
+    for my $u (@urls) {
+        if (eval { download($u, "$WXSQLITE3_DIR/$archive"); 1 }) {
+            $downloaded = 1; last;
+        }
+        warn_msg "Не удалось скачать $u, пробую следующий";
+    }
+    $downloaded or error "Не удалось скачать wxSQLite3 ни с одного URL";
+
     run("tar", "xzf", "$WXSQLITE3_DIR/$archive", "-C", $WXSQLITE3_DIR);
-    # Имя каталога может быть с "v" или без.
     my $src = "$WXSQLITE3_DIR/wxsqlite3-$WXSQLITE3_VERSION";
     $src = "$WXSQLITE3_DIR/wxsqlite3-v$WXSQLITE3_VERSION" unless -d $src;
-    rename($src, "$WXSQLITE3_DIR/src") or error "Не могу переименовать распакованный каталог";
+    rename($src, "$WXSQLITE3_DIR/src") or error "Не могу переименовать распакованный каталог: $!";
     unlink "$WXSQLITE3_DIR/$archive";
 
-    # autoreconf для генерации configure.
     run_in_dir("$WXSQLITE3_DIR/src", "autoreconf", "-fi");
 
     make_path("$WXSQLITE3_DIR/build", "$WXSQLITE3_DIR/install");
-    chdir "$WXSQLITE3_DIR/build" or error $!;
+    chdir "$WXSQLITE3_DIR/build" or error "chdir $WXSQLITE3_DIR/build: $!";
 
     my $wx_config = "$WX_DIR/install/bin/wx-config";
     -x $wx_config or error "wx-config не найден: $wx_config";
 
     $ENV{CXXFLAGS} = join(" ", grep { $_ } ($ENV{CXXFLAGS} // "", "-std=c++17"));
 
+    # Все 4 флага --without-* обязательны, как в bash. Без aes128cbc/
+    # ascon128/aegis make падает на сборке модулей шифрования — их
+    # исходников в архиве нет.
     my @configure = (
         "../src/configure",
         "--prefix=$WXSQLITE3_DIR/install",
@@ -363,13 +376,43 @@ sub build_wxsqlite3 {
         "--disable-shared",
         "--enable-static",
         "--without-sqlcipher",
+        "--without-aes128cbc",
+        "--without-ascon128",
+        "--without-aegis",
     );
-
     run(@configure);
-    run("make", "-j" . nproc());
-    run("make", "install");
 
-    chdir $PROJECT_ROOT;
+    # Определяем цель сборки ТОЛЬКО библиотеки. `make` без цели
+    # собирает и samples/treeview, а treeview требует libwx_gtk3u_xml,
+    # которой нет (wxUSE_XML=OFF). Берём LIB_TARGET из Makefile —
+    # это ровно то, что делает setup-deps.sh.
+    my $makefile = "$WXSQLITE3_DIR/build/Makefile";
+    -f $makefile or error "Makefile не найден: $makefile";
+
+    my ($lib_target) = `grep -E '^[[:space:]]*lib.*_LTLIBRARIES' '$makefile' 2>/dev/null`
+                        =~ /=\s*(\S+)/;
+    chomp $lib_target if defined $lib_target;
+
+    if (!defined $lib_target || $lib_target eq '') {
+        # Fallback: имя .la-файла без суффикса (как в bash).
+        my @la = glob("$WXSQLITE3_DIR/build/*.la");
+        ($lib_target) = map { s{^.*/}{}; s/\.la$//r } @la;
+    }
+    $lib_target
+        or error "Не удалось определить LIB_TARGET в $makefile — make соберёт samples и упадёт";
+
+    info "wxSQLite3 LIB_TARGET: $lib_target";
+    run("make", "-j" . nproc(), $lib_target);
+    run("make", "install-exec");
+
+    # install-exec не ставит заголовки — копируем вручную, как в bash.
+    if (!-d "$WXSQLITE3_DIR/install/include/wx") {
+        info "Копирую заголовки wxSQLite3 вручную (install-exec их не ставит)...";
+        make_path("$WXSQLITE3_DIR/install/include/wx");
+        run("cp", "-r", "$WXSQLITE3_DIR/src/include/wx/.", "$WXSQLITE3_DIR/install/include/wx/");
+    }
+
+    chdir $PROJECT_ROOT or error "chdir $PROJECT_ROOT: $!";
     info "wxSQLite3 установлен в $WXSQLITE3_DIR/install";
 }
 
