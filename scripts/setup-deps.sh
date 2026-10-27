@@ -427,6 +427,7 @@ if [[ "$SKIP_WX" != true ]]; then
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_LIBDIR=lib \
         -DwxBUILD_SHARED=OFF \
+        -DwxUSE_GLCANVAS=ON \
         -DwxUSE_LIBWEBP=builtin \
         -DwxUSE_LIBJPEG=builtin \
         -DwxUSE_SVG=ON \
@@ -449,6 +450,10 @@ if [[ "$SKIP_WX" != true ]]; then
         -DwxUSE_RICHTEXT:BOOL=OFF \
         -DwxUSE_LIBSDL:BOOL=OFF \
         -DwxUSE_PRINTING_ARCHITECTURE=OFF \
+        -DwxBUILD_SAMPLES=OFF \
+        -DwxBUILD_DEMOS=OFF \
+        -DwxBUILD_TESTS=OFF \
+        -DwxBUILD_BENCHMARKS=OFF \
         -DCMAKE_INSTALL_PREFIX=../install
 
     cmake --build . --target install -j$(nproc)

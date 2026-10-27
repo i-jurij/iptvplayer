@@ -123,19 +123,36 @@ foreach(_comp IN LISTS _wx_components)
 endforeach()
 
 if(NOT WIN32)
-    # wxGLCanvas static lib (только для локальной Linux-сборки).
-    file(GLOB WX_GL_LIBS "${LOCAL_WX_INSTALL}/lib/libwx_gtk3u_gl-*.a")
-    list(LENGTH WX_GL_LIBS _gl_count)
-    if(NOT _gl_count EQUAL 1)
-        message(FATAL_ERROR ...)
+    # wxGLCanvas static lib — fallback для старых wxWidgets (< 3.3),
+    # где нет CMake-таргета wx::gl. В wxWidgets 3.3+ target уже создан
+    # (при wxUSE_GLCANVAS=ON), и raw-glob привёл бы к двойной линковке
+    # одного и того же .a — на старых ld с -Wl,--start-group это даёт
+    # multiple definition, на новых — тихо дублирует инициализацию
+    # статических состояний wxGLCanvas.
+    if(NOT TARGET wx::gl)
+        file(GLOB WX_GL_LIBS "${LOCAL_WX_INSTALL}/lib/libwx_gtk3u_gl-*.a")
+        list(LENGTH WX_GL_LIBS _gl_count)
+        if(NOT _gl_count EQUAL 1)
+            message(FATAL_ERROR
+                "Ожидается ровно один файл libwx_gtk3u_gl-*.a, но найдено ${_gl_count}:\n"
+                "  ${WX_GL_LIBS}\n"
+                "Удалите лишние из ${LOCAL_WX_INSTALL}/lib или пересоберите wxWidgets.")
+        endif()
+        set(WX_GL_LIB "${WX_GL_LIBS}")
+        target_link_libraries(wx_all INTERFACE "${WX_GL_LIB}")
+    else()
+        message(STATUS "wx::gl target найден — raw-glob libwx_gtk3u_gl-*.a не требуется")
     endif()
-    set(WX_GL_LIB "${WX_GL_LIBS}")
-    target_link_libraries(wx_all INTERFACE "${WX_GL_LIB}")
 
-    # Wayland EGL
-    find_library(WAYLAND_EGL_LIB ...)
+    # Wayland EGL (опционально). Ищем по имени — CMake сам подставит
+    # архитектурно-зависимые пути (/usr/lib/x86_64-linux-gnu,
+    # /usr/lib/i386-linux-gnu, /usr/lib64 и т.п.) через CMAKE_LIBRARY_PATH.
+    find_library(WAYLAND_EGL_LIB NAMES wayland-egl)
     if(WAYLAND_EGL_LIB)
+        message(STATUS "wayland-egl: ${WAYLAND_EGL_LIB}")
         target_link_libraries(wx_all INTERFACE ${WAYLAND_EGL_LIB})
+    else()
+        message(STATUS "wayland-egl не найден — сборка без него (Wayland-EGL выключен)")
     endif()
 endif()
 

@@ -20,6 +20,11 @@
 #   ./build-astra-full.pl --keep-build         # не удалять build-каталоги
 
 use strict;
+
+# Автофлаш STDOUT: без этого [INFO]-строки видны только после
+# заполнения буфера (при редиректе/пайпе — вообще в конце).
+$| = 1;
+
 use warnings;
 use File::Basename qw(basename dirname);
 use File::Copy qw(copy);
@@ -83,13 +88,56 @@ sub run_in_dir {
 
 sub download {
     my ($url, $out) = @_;
+
+    # Прогресс нужен только когда пользователь смотрит в терминал.
+    # В CI/редиректе — тихий режим, чтобы не засорять логи.
+    my $is_tty = -t STDERR;  # wget/curl пишут прогресс на stderr
+
+    my $have_wget = (system("sh", "-c", "command -v wget >/dev/null 2>&1") == 0);
+    my $have_curl = (system("sh", "-c", "command -v curl >/dev/null 2>&1") == 0);
+    ($have_wget || $have_curl)
+        or error "Ни wget, ни curl не найдены в PATH";
+
     info "Скачивание: $url";
-    if (system("wget", "-q", "-O", $out, $url) != 0) {
-        if (system("curl", "-fsSL", "-o", $out, $url) != 0) {
-            error "Не удалось скачать $url (ни wget, ни curl)";
-        }
+    my $ok = 0;
+
+    if ($have_wget) {
+        my @args = (
+            "wget",
+            "--tries=1",           # ретраи делает сам sub download (внешний цикл), а не wget
+            "--timeout=30",        # таймаут на установку соединения
+            "--read-timeout=60",   # таймаут на паузы при чтении
+            "-O", $out,
+        );
+        # --show-progress есть в wget 1.16+ (Debian 9: 1.18, Astra 2.12: 1.19).
+        # В TTY — прогресс-бар, иначе -q (тихо).
+        push @args, ($is_tty ? "--show-progress" : "-q");
+        push @args, $url;
+        $ok = (system(@args) == 0);
     }
+
+    if (!$ok && $have_curl) {
+        my @args = (
+            "curl", "-L", "-f",
+            "--connect-timeout", "30",
+            "-o", $out,
+        );
+        # --progress-bar = короткая однострочная полоса с процентами
+        # и скоростью. В TTY — она, иначе -sS (silent, но ошибки видны).
+        push @args, ($is_tty ? "--progress-bar" : "-sS");
+        push @args, $url;
+        $ok = (system(@args) == 0);
+    }
+
+    $ok or error "Не удалось скачать $url";
+
     -s $out or error "Скачанный файл пуст: $out";
+
+    my $size = -s $out;
+    my $size_h = $size >= 1048576
+        ? sprintf("%.1f MB", $size / 1048576)
+        : sprintf("%.0f KB", $size / 1024);
+    info "Скачано: $out ($size_h)";
 }
 
 sub read_first_line {
@@ -222,6 +270,7 @@ sub build_wxwidgets {
         "-DCMAKE_CXX_STANDARD=17",
         "-DCMAKE_INSTALL_LIBDIR=lib",
         "-DwxBUILD_SHARED=OFF",
+        "-DwxUSE_GLCANVAS=ON",
         "-DwxUSE_LIBWEBP=builtin",
         "-DwxUSE_LIBJPEG=builtin",
         "-DwxUSE_SVG=ON",
@@ -240,10 +289,15 @@ sub build_wxwidgets {
         "-DwxUSE_WXHTML_HELP:BOOL=OFF",
         "-DwxUSE_XRC:BOOL=OFF",
         "-DwxUSE_XML:BOOL=OFF",
+        "-DwxUSE_EXPAT:BOOL=OFF",
         "-DwxUSE_NET:BOOL=OFF",
         "-DwxUSE_RICHTEXT:BOOL=OFF",
         "-DwxUSE_LIBSDL:BOOL=OFF",
         "-DwxUSE_PRINTING_ARCHITECTURE=OFF",
+        "-DwxBUILD_SAMPLES=OFF",
+        "-DwxBUILD_DEMOS=OFF",
+        "-DwxBUILD_TESTS=OFF",
+        "-DwxBUILD_BENCHMARKS=OFF",
         "-DCMAKE_INSTALL_PREFIX=../install",
     );
     run(@cmake);
@@ -350,10 +404,12 @@ sub build_project {
     # чтобы не создавать иллюзию настройки.
     my @cmake = (
         "cmake", $PROJECT_ROOT,
+        "-DCMAKE_CXX_FLAGS=-std=c++17",
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_INSTALL_PREFIX=$STAGING/usr",
         "-DwxWidgets_DIR=$wx_cfg_dir",
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+        "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF",
     );
     run(@cmake);
 
