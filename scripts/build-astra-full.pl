@@ -245,10 +245,17 @@ sub build_wxwidgets {
 
     chdir $PROJECT_ROOT or error "chdir $PROJECT_ROOT: $!";
 
-    my $cfg = "$WX_DIR/install/lib/cmake/wxWidgets/wxWidgetsConfig.cmake";
-    -f $cfg or error "wxWidgetsConfig.cmake не появился: $cfg. "
-                   . "Без него find_package(wxWidgets CONFIG) из CMakeLists.txt не сработает.";
-    info "wxWidgets установлен в $WX_DIR/install";
+    # wxWidgets кладёт CMake-конфиг по-разному в зависимости от версии:
+    #   3.2.x → lib/cmake/wxWidgets/wxWidgetsConfig.cmake
+    #   3.3.x → lib/cmake/wxWidgets-3.3/wxWidgetsConfig.cmake
+    # В некоторых сборках — lib/cmake/wxWidgetsConfig.cmake без подкаталога.
+    my $cfg_dir = "$WX_DIR/install/lib/cmake";
+    my @cfg = glob("$cfg_dir/wxWidgets*/wxWidgetsConfig.cmake");
+    push @cfg, "$cfg_dir/wxWidgetsConfig.cmake" if -f "$cfg_dir/wxWidgetsConfig.cmake";
+
+    @cfg or error "wxWidgetsConfig.cmake не найден в $cfg_dir. "
+                . "Без него find_package(wxWidgets CONFIG) из CMakeLists.txt не сработает.";
+    info "wxWidgets установлен в $WX_DIR/install (config: $cfg[0])";
 }
 
 # ------------------------- 3. wxSQLite3 -------------------------
@@ -307,19 +314,34 @@ sub build_project {
     remove_tree($BUILD_DIR) if -d $BUILD_DIR;
     make_path($BUILD_DIR);
 
-    chdir $BUILD_DIR or error $!;
+    chdir $BUILD_DIR or error "chdir $BUILD_DIR: $!";
 
-    my $wx_root = "$WX_DIR/install";
-    my $wxsqlite3_root = "$WXSQLITE3_DIR/install";
+    # Ищем реальный путь к wxWidgetsConfig.cmake. Версии wxWidgets
+    # кладут конфиг в разные подкаталоги (wxWidgets/, wxWidgets-3.3/,
+    # или прямо в lib/cmake/). Перебираем все варианты и берём первый
+    # найденный — иначе -DwxWidgets_DIR указывает в пустоту и
+    # find_package(wxWidgets CONFIG) падает.
+    my $cmake_cfg_root = "$WX_DIR/install/lib/cmake";
+    my ($wx_cfg) = glob("$cmake_cfg_root/wxWidgets*/wxWidgetsConfig.cmake");
+    $wx_cfg //= -f "$cmake_cfg_root/wxWidgetsConfig.cmake"
+              ? "$cmake_cfg_root/wxWidgetsConfig.cmake"
+              : undef;
+    $wx_cfg
+        or error "wxWidgetsConfig.cmake не найден в $cmake_cfg_root. "
+               . "Пересоберите wxWidgets (--rebuild-deps).";
+    (my $wx_cfg_dir = $wx_cfg) =~ s{/wxWidgetsConfig\.cmake$}{};
+    info "wxWidgets CMake config: $wx_cfg";
 
+    # CMakeLists.txt проекта использует find_package(wxWidgets CONFIG)
+    # и жёстко зашитый путь к wxSQLite3 (${CMAKE_SOURCE_DIR}/third_party/
+    # wxsqlite3/install), поэтому -DwxSQLite3_ROOT_DIR и
+    # -DwxWidgets_ROOT_DIR/_LIB_DIR игнорируются — не передаём их,
+    # чтобы не создавать иллюзию настройки.
     my @cmake = (
         "cmake", $PROJECT_ROOT,
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_INSTALL_PREFIX=$STAGING/usr",
-        "-DwxWidgets_DIR=$WX_DIR/install/lib/cmake",
-        "-DwxWidgets_ROOT_DIR=$wx_root",
-        "-DwxWidgets_LIB_DIR=$wx_root/lib",
-        "-DwxSQLite3_ROOT_DIR=$wxsqlite3_root",
+        "-DwxWidgets_DIR=$wx_cfg_dir",
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
     );
     run(@cmake);
@@ -327,7 +349,7 @@ sub build_project {
     run("cmake", "--build", ".", "--target", "all", "-j" . nproc());
     run("cmake", "--build", ".", "--target", "install");
 
-    chdir $PROJECT_ROOT;
+    chdir $PROJECT_ROOT or error "chdir $PROJECT_ROOT: $!";
     info "Проект установлен в $STAGING/usr";
 }
 
