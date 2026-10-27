@@ -249,9 +249,15 @@ cd "$BUILD_DIR"
 
 # Конфигурация CMake
 log "Конфигурация CMake (${BUILD_TYPE})..."
+# Стандарт C++: 20 по умолчанию
+# Переопределяется через окружение: CMAKE_CXX_STANDARD=17 ./build-release.sh
+: "${CMAKE_CXX_STANDARD:=20}"
+log "C++ standard: $CMAKE_CXX_STANDARD"
+
 cmake "$PROJECT_ROOT" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+    -DCMAKE_CXX_STANDARD="$CMAKE_CXX_STANDARD" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 # Сборка

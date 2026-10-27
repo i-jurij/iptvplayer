@@ -47,6 +47,7 @@ section "1/3. CMake configure"
 cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" \
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_STANDARD=20 \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 

@@ -70,6 +70,7 @@ UCRT_PKGS=(
     "${PKG_PREFIX}-gettext"
     "${PKG_PREFIX}-ca-certificates"
     "${PKG_PREFIX}-nsis"
+    "${PKG_PREFIX}-vulkan-loader"
     "git"
 )
 

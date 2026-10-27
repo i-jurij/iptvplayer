@@ -458,12 +458,14 @@ sub build_project {
     # чтобы не создавать иллюзию настройки.
     my @cmake = (
         "cmake", $PROJECT_ROOT,
-        "-DCMAKE_CXX_FLAGS=-std=c++17",
+        "-DCMAKE_CXX_STANDARD=17",
+        "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_INSTALL_PREFIX=$STAGING/usr",
         "-DwxWidgets_DIR=$wx_cfg_dir",
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
         "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF",
+        "-DIPTVPLAYER_ENABLE_LTO=OFF",
     );
     run(@cmake);
 

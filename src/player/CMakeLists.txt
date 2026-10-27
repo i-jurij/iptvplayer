@@ -96,7 +96,11 @@ if(NOT WIN32)
             ${WAYLAND_EGL_LIB}
             ${PLACEBO_LIB}
         )
-        list(FILTER _MPV_SYS_LIBS EXCLUDE REGEX "^$")
+        # Фильтр должен убирать не только пустые строки, но и значения
+        # вида PLACEBO_LIB-NOTFOUND. Иначе они попадают в
+        # target_link_libraries как -lPLACEBO_LIB-NOTFOUND и линковка
+        # падает с «cannot find -lPLACEBO_LIB-NOTFOUND».
+        list(FILTER _MPV_SYS_LIBS EXCLUDE REGEX "(^$|-NOTFOUND$)")
     endif()
 endif()
 
@@ -149,16 +153,20 @@ target_link_libraries(player_backend_mpv
 # ------------------------
 # LTO для целей плеера (опционально)
 # ------------------------
+option(IPTVPLAYER_ENABLE_LTO "Enable LTO for player targets" ON)
+
 include(CheckIPOSupported)
 check_ipo_supported(RESULT IPO_OK OUTPUT IPO_MSG)
 
-if(IPO_OK)
+if(IPO_OK AND IPTVPLAYER_ENABLE_LTO)
     foreach(_tgt player_core player_backend_mpv)
         if(TARGET ${_tgt})
             set_property(TARGET ${_tgt} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
             message(STATUS "LTO включён для ${_tgt}")
         endif()
     endforeach()
+elseif(NOT IPTVPLAYER_ENABLE_LTO)
+    message(STATUS "LTO отключён (IPTVPLAYER_ENABLE_LTO=OFF)")
 else()
     message(WARNING "LTO не поддерживается: ${IPO_MSG}")
 endif()

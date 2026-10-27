@@ -62,7 +62,7 @@ cp -r "$INSTALL_DIR/bin/." "$TMP_DIR/iptvplayer/"
 [[ -f "$PROJECT_ROOT/README.md" ]] && cp "$PROJECT_ROOT/README.md" "$TMP_DIR/iptvplayer/"
 
 if command -v 7z >/dev/null 2>&1; then
-    7z a -tzip "$ZIP_PATH" "$TMP_DIR/iptvplayer/" >/dev/null
+    ( cd "$TMP_DIR" && 7z a -tzip "$ZIP_PATH" iptvplayer/ >/dev/null )
 elif command -v zip >/dev/null 2>&1; then
     ( cd "$TMP_DIR" && zip -qr "$ZIP_PATH" iptvplayer )
 else

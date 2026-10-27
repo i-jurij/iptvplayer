@@ -41,7 +41,14 @@ project(iptvplayer VERSION ${PROJECT_VERSION})
 configure_file(${CMAKE_SOURCE_DIR}/version.h.in ${CMAKE_BINARY_DIR}/version.h @ONLY)
 
 
-set(CMAKE_CXX_STANDARD 20)
+# C++ стандарт задаётся извне, скриптом сборки:
+#   build-release.sh (обычные системы)        → -DCMAKE_CXX_STANDARD=20
+#   build-astra-full.pl (Astra 2.12, GCC 7.5) → -DCMAKE_CXX_STANDARD=17
+# Если не задан — 17 как минимум для inline-переменных (C++17).
+if(NOT DEFINED CMAKE_CXX_STANDARD)
+    set(CMAKE_CXX_STANDARD 17)
+    message(STATUS "CMAKE_CXX_STANDARD не задан извне, использую 17")
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
