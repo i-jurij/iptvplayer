@@ -191,9 +191,14 @@ sub install_system_deps {
 
 # ------------------------- 2. wxWidgets -------------------------
 sub build_wxwidgets {
-    if (-d $WX_DIR && !$rebuild_deps) {
+    my @wx_cfg = glob("$WX_DIR/install/lib/cmake/wxWidgets*/wxWidgetsConfig.cmake");
+    if (@wx_cfg && !$rebuild_deps) {
         info "wxWidgets уже собран, пропускаю (--rebuild-deps для пересборки)";
         return;
+    }
+    if (-d $WX_DIR) {
+        info "wxWidgets: каталог есть, CMake-конфига нет — пересобираю.";
+        remove_tree($WX_DIR);
     }
 
     info "Сборка wxWidgets $WX_VERSION (cmake)...";
@@ -214,6 +219,7 @@ sub build_wxwidgets {
     my @cmake = (
         "cmake", "../src",
         "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_CXX_STANDARD=17",
         "-DCMAKE_INSTALL_LIBDIR=lib",
         "-DwxBUILD_SHARED=OFF",
         "-DwxUSE_LIBWEBP=builtin",
@@ -260,9 +266,14 @@ sub build_wxwidgets {
 
 # ------------------------- 3. wxSQLite3 -------------------------
 sub build_wxsqlite3 {
-    if (-d $WXSQLITE3_DIR && !$rebuild_deps) {
-        info "wxSQLite3 уже собран, пропускаю (--rebuild-deps для пересборки)";
+    my @existing = glob("$WXSQLITE3_DIR/install/lib/libwxcode*.a");
+    if (@existing && !$rebuild_deps) {
+        info "wxSQLite3 уже собран ($existing[0]), пропускаю (--rebuild-deps для пересборки)";
         return;
+    }
+    if (-d $WXSQLITE3_DIR) {
+        info "wxSQLite3: каталог есть, библиотеки нет — пересобираю.";
+        remove_tree($WXSQLITE3_DIR);
     }
 
     info "Сборка wxSQLite3 $WXSQLITE3_VERSION...";
@@ -289,7 +300,7 @@ sub build_wxsqlite3 {
     my $wx_config = "$WX_DIR/install/bin/wx-config";
     -x $wx_config or error "wx-config не найден: $wx_config";
 
-    $ENV{CXXFLAGS} = join(" ", grep { $_ } ($ENV{CXXFLAGS} // "", "-std=c++20"));
+    $ENV{CXXFLAGS} = join(" ", grep { $_ } ($ENV{CXXFLAGS} // "", "-std=c++17"));
 
     my @configure = (
         "../src/configure",
