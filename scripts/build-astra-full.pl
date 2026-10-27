@@ -16,6 +16,8 @@
 #   ./build-astra-full.pl
 #   ./build-astra-full.pl --skip-system        # не ставить системные пакеты
 #   ./build-astra-full.pl --rebuild-deps       # пересобрать wx/wxSQLite3
+#   ./build-astra-full.pl --rebuild-wxsqlite3   # пересобрать wxSQLite3, продолжить полную сборку
+#   ./build-astra-full.pl --only-wxsqlite3      # пересобрать ТОЛЬКО wxSQLite3 и выйти
 #   ./build-astra-full.pl --sign --gpg-key 0xABCDEF
 #   ./build-astra-full.pl --keep-build         # не удалять build-каталоги
 
@@ -57,14 +59,17 @@ if ($> != 0) {
 }
 
 # ------------------------- Аргументы -------------------------
-my ($skip_system, $rebuild_deps, $sign, $gpg_key, $keep_build);
+my ($skip_system, $rebuild_deps, $rebuild_wxsqlite3, $only_wxsqlite3,
+    $sign, $gpg_key, $keep_build);
 GetOptions(
-    "skip-system"  => \$skip_system,
-    "rebuild-deps" => \$rebuild_deps,
-    "sign"         => \$sign,
-    "gpg-key=s"    => \$gpg_key,
-    "keep-build"   => \$keep_build,
-) or die "Использование: $0 [--skip-system] [--rebuild-deps] [--sign --gpg-key KEY] [--keep-build]\n";
+    "skip-system"       => \$skip_system,
+    "rebuild-deps"      => \$rebuild_deps,
+    "rebuild-wxsqlite3" => \$rebuild_wxsqlite3,
+    "only-wxsqlite3"    => \$only_wxsqlite3,
+    "sign"              => \$sign,
+    "gpg-key=s"         => \$gpg_key,
+    "keep-build"        => \$keep_build,
+) or die "Использование: $0 [--skip-system] [--rebuild-deps] [--rebuild-wxsqlite3] [--only-wxsqlite3] [--sign --gpg-key KEY] [--keep-build]\n";
 
 # ------------------------- Утилиты -------------------------
 sub info     { print "[INFO] @_\n" }
@@ -320,12 +325,18 @@ sub build_wxwidgets {
 # ------------------------- 3. wxSQLite3 -------------------------
 sub build_wxsqlite3 {
     my @existing = glob("$WXSQLITE3_DIR/install/lib/libwxcode*.a");
-    if (@existing && !$rebuild_deps) {
-        info "wxSQLite3 уже собран ($existing[0]), пропускаю (--rebuild-deps для пересборки)";
+    if (@existing && !$rebuild_deps && !$rebuild_wxsqlite3) {
+        info "wxSQLite3 уже собран ($existing[0]), пропускаю "
+           . "(--rebuild-deps / --rebuild-wxsqlite3 для пересборки)";
         return;
     }
     if (-d $WXSQLITE3_DIR) {
-        info "wxSQLite3: каталог есть, библиотеки нет — пересобираю.";
+        if ($rebuild_wxsqlite3 || $rebuild_deps) {
+            info "wxSQLite3: принудительная пересборка "
+               . "(--rebuild-wxsqlite3 / --rebuild-deps)";
+        } else {
+            info "wxSQLite3: каталог есть, библиотеки нет — пересобираю.";
+        }
         remove_tree($WXSQLITE3_DIR);
     }
 
@@ -585,6 +596,34 @@ PRERM
 # ------------------------- main -------------------------
 sub main {
     info "=== Сборка $PACKAGE для Astra Linux (база Debian 9) ===";
+
+    # --only-wxsqlite3: пересобрать ТОЛЬКО wxSQLite3 и выйти.
+    # wxWidgets не трогаем, проект не собираем, .deb не пакуем.
+    # Подразумевает --rebuild-wxsqlite3 (принудительно).
+    if ($only_wxsqlite3) {
+        my $wx_config = "$WX_DIR/install/bin/wx-config";
+        -x $wx_config
+            or error "wxWidgets не собран ($wx_config не найден). "
+                   . "Сначала запустите скрипт без --only-wxsqlite3, "
+                   . "чтобы собрать wxWidgets.";
+        info "Режим: только wxSQLite3 (wxWidgets уже собран: $wx_config)";
+
+        # Минимальный набор инструментов, без которого wxSQLite3 не соберётся.
+        # Системные пакеты здесь не ставим: у пользователя уже есть
+        # wxWidgets, значит deps установлены. Если чего-то не хватает —
+        # внятная ошибка, а не падение в недрах make.
+        for my $tool (qw(autoreconf make gcc g++)) {
+            system("sh", "-c", "command -v $tool >/dev/null 2>&1") == 0
+                or error "Не найден $tool. Установите: "
+                       . "sudo apt install build-essential autoconf automake libtool";
+        }
+
+        $rebuild_wxsqlite3 = 1;   # принудительная пересборка
+        build_wxsqlite3();
+        info "Готово. wxSQLite3 пересобран в $WXSQLITE3_DIR/install";
+        return;
+    }
+
     if ($> != 0 && $SUDO eq '' && !$skip_system) {
         error "Скрипт запущен без root и без sudo, но нужны apt-get и /usr/local. "
             . "Запустите от root, установите sudo или используйте --skip-system.";
@@ -597,7 +636,6 @@ sub main {
     build_wxsqlite3();
     build_project();
     build_deb();
-
 
     info "Готово. Артефакт: $OUTPUT_DIR/${PACKAGE}_*_" . DISTRO . "_*.deb";
 }
