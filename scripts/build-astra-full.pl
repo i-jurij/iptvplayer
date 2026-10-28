@@ -375,7 +375,7 @@ sub install_system_deps {
         libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
         libswresample-dev libavfilter-dev libavdevice-dev
         libass-dev libarchive-dev libasound2-dev libpulse-dev
-        libuchardet-dev libluajit-5.1-dev
+        libluajit-5.1-dev
         libxext-dev libxinerama-dev libxrandr-dev libxss-dev libxcursor-dev
         libgbm-dev libdrm-dev
     );
