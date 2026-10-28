@@ -20,6 +20,13 @@
 #   ./build-astra-full.pl --only-wxsqlite3      # пересобрать ТОЛЬКО wxSQLite3 и выйти
 #   ./build-astra-full.pl --sign --gpg-key 0xABCDEF
 #   ./build-astra-full.pl --keep-build         # не удалять build-каталоги
+#   ./build-astra-full.pl --keep-deps          # не удалять пакеты, установленные скриптом
+#
+# Уборка пакетов:
+#   По умолчанию после УСПЕШНОЙ сборки скрипт удаляет пакеты, которые сам
+#   установил через apt. При ОШИБКЕ — спрашивает, убирать или оставить
+#   (в неинтерактивном режиме оставляет и печатает команду для ручного
+#   удаления). --keep-deps отключает и автоуборку, и запись state.
 
 use strict;
 
@@ -60,7 +67,7 @@ if ($> != 0) {
 
 # ------------------------- Аргументы -------------------------
 my ($skip_system, $rebuild_deps, $rebuild_wxsqlite3, $only_wxsqlite3,
-    $sign, $gpg_key, $keep_build);
+    $sign, $gpg_key, $keep_build, $keep_deps);
 GetOptions(
     "skip-system"       => \$skip_system,
     "rebuild-deps"      => \$rebuild_deps,
@@ -69,12 +76,139 @@ GetOptions(
     "sign"              => \$sign,
     "gpg-key=s"         => \$gpg_key,
     "keep-build"        => \$keep_build,
-) or die "Использование: $0 [--skip-system] [--rebuild-deps] [--rebuild-wxsqlite3] [--only-wxsqlite3] [--sign --gpg-key KEY] [--keep-build]\n";
+    "keep-deps"         => \$keep_deps,
+) or die "Использование: $0 [--skip-system] [--rebuild-deps] [--rebuild-wxsqlite3] [--only-wxsqlite3] [--sign --gpg-key KEY] [--keep-build] [--keep-deps]\n";
+
+# --- Уборка установленных в систему пакетов ---
+# $BUILD_SUCCESS выставляется в 1 только при полном успехе в main().
+# $CLEANUP_DONE — защита от двойного запуска END (exit + SIGINT).
+my $BUILD_SUCCESS  = 0;
+my $CLEANUP_DONE   = 0;
+my $IS_INTERACTIVE = (-t STDIN) && !$ENV{CI} && !$ENV{GITHUB_ACTIONS};
+
+$SIG{INT}  = sub { warn_msg "Прервано (Ctrl+C)"; exit 130 };
+$SIG{TERM} = sub { warn_msg "Завершено (SIGTERM)"; exit 143 };
 
 # ------------------------- Утилиты -------------------------
 sub info     { print "[INFO] @_\n" }
 sub warn_msg { print STDERR "[WARN] @_\n" }
 sub error    { print STDERR "[ERROR] @_\n"; exit 1 }
+
+# === Уборка установленных в систему пакетов ===
+# State-файл заполняется install_system_deps после успешной установки.
+# Если --keep-deps, state не пишется — END-блок ничего не сделает.
+my $DEPS_STATE = "$PROJECT_ROOT/.iptvplayer-deps-installed";
+
+sub _save_installed_pkgs {
+    my @pkgs = @_;
+    return if $keep_deps;
+    return unless @pkgs;
+
+    # Append + dedupe (как в bash write_deps_state).
+    my %seen;
+    my @all;
+    if (-f $DEPS_STATE) {
+        open my $r, '<', $DEPS_STATE or return;
+        while (my $l = <$r>) { chomp $l; push @all, $l if length $l; }
+        close $r;
+    }
+    push @all, @pkgs;
+    @all = grep { !$seen{$_}++ } sort @all;
+
+    open my $w, '>', $DEPS_STATE or do {
+        warn_msg "Не могу записать $DEPS_STATE: $!";
+        return;
+    };
+    print $w map { "$_\n" } @all;
+    close $w;
+    info "State-файл уборки: $DEPS_STATE (" . scalar(@all) . " пакетов)";
+}
+
+sub ask_yn {
+    my ($prompt, $default) = @_;
+    $default //= 'n';
+    return ($default eq 'y' ? 1 : 0) unless -t STDIN;
+    print $prompt;
+    my $ans = <STDIN>;
+    $ans //= '';
+    chomp $ans;
+    $ans = $default unless length $ans;
+    return $ans =~ /^[Yy]/ ? 1 : 0;
+}
+
+sub cleanup_installed_packages {
+    return if $keep_deps;
+    return unless -f $DEPS_STATE;
+
+    open my $fh, '<', $DEPS_STATE or return;
+    my @pkgs = grep { chomp; length } <$fh>;
+    close $fh;
+    return unless @pkgs;
+
+    my $do_cleanup = 0;
+
+    if ($BUILD_SUCCESS) {
+        info "Сборка успешна, убираю пакеты, установленные скриптом ("
+           . scalar(@pkgs) . " шт)...";
+        $do_cleanup = 1;
+    } elsif ($IS_INTERACTIVE) {
+        print "\n";
+        if (ask_yn("Сборка прервана. Убрать установленные пакеты ("
+                  . scalar(@pkgs) . " шт)? [y/N]: ", "n")) {
+            $do_cleanup = 1;
+        } else {
+            info "Пакеты оставлены. Удалить вручную:";
+            info "  " . ($SUDO ? "$SUDO " : "") . "apt-get remove -y --auto-remove "
+                . join(" ", @pkgs);
+        }
+    } else {
+        info "Неинтерактивный режим — пакеты оставлены. Удалить вручную:";
+        info "  " . ($SUDO ? "$SUDO " : "") . "apt-get remove -y --auto-remove "
+            . join(" ", @pkgs);
+        return;
+    }
+
+    return unless $do_cleanup;
+
+    my @sudo = $SUDO ? ($SUDO) : ();
+    info "Удаляю: " . join(" ", @pkgs);
+    if (system(@sudo, "apt-get", "remove", "-y", "--auto-remove", @pkgs) == 0) {
+        unlink $DEPS_STATE;
+        info "Пакеты удалены, state-файл убран.";
+        return;
+    }
+
+    # Батч не прошёл — по одному. Так же, как в bash cleanup_deps.
+    warn_msg "Батч-удаление не прошло, пробую по одному...";
+    my @failed;
+    for my $p (@pkgs) {
+        system(@sudo, "apt-get", "remove", "-y", "--auto-remove", $p) == 0
+            or push @failed, $p;
+    }
+
+    if (@failed) {
+        warn_msg "Не удалось удалить: " . join(" ", @failed);
+        warn_msg "Оставлены в $DEPS_STATE для повторной попытки.";
+        open my $w, '>', $DEPS_STATE or return;
+        print $w map { "$_\n" } @failed;
+        close $w;
+    } else {
+        unlink $DEPS_STATE;
+        info "Пакеты удалены.";
+    }
+
+    if (-d "/usr/local/include/rapidjson") {
+        info "Примечание: заголовки rapidjson в /usr/local/include/rapidjson";
+        info "  не управляются dpkg. Убрать вручную: "
+           . ($SUDO ? "$SUDO " : "") . "rm -rf /usr/local/include/rapidjson";
+    }
+}
+
+END {
+    return if $CLEANUP_DONE;
+    $CLEANUP_DONE = 1;
+    cleanup_installed_packages();
+}
 
 sub run {
     my (@cmd) = @_;
@@ -226,6 +360,9 @@ sub install_system_deps {
         my @sudo = $SUDO ? ($SUDO) : ();
         run(@sudo, "apt-get", "update", "-qq");
         run(@sudo, "apt-get", "install", "-y", "--no-install-recommends", @missing);
+        # Запоминаем — по окончании скрипта END-блок предложит убрать
+        # (или уберёт сам, если сборка прошла успешно).
+        _save_installed_pkgs(@missing);
     }
 
     # rapidjson: header-only fallback.
@@ -651,6 +788,7 @@ sub main {
     build_project();
     build_deb();
 
+    $BUILD_SUCCESS = 1;
     info "Готово. Артефакт: $OUTPUT_DIR/${PACKAGE}_*_" . DISTRO . "_*.deb";
 }
 
