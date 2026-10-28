@@ -556,17 +556,20 @@ sub build_wxsqlite3 {
     # Все 4 флага --without-* обязательны, как в bash. Без aes128cbc/
     # ascon128/aegis make падает на сборке модулей шифрования — их
     # исходников в архиве нет.
-    my @configure = (
-        "../src/configure",
-        "--prefix=$WXSQLITE3_DIR/install",
-        "--with-wx-config=$wx_config",
-        "--disable-shared",
-        "--enable-static",
-        "--without-sqlcipher",
-        "--without-aes128cbc",
-        "--without-ascon128",
-        "--without-aegis",
-    );
+ my @configure = (
+    "./waf", "configure",
+    "--prefix=$mpv_install",
+    "--enable-libmpv-shared",   # собрать shared libmpv (нужен render_gl.h)
+    "--disable-cplayer",        # не собирать CLI-плеер
+    "--disable-uchardet",       # отключить uchardet (нет пакета в Astra)
+    "--disable-vulkan",         # не нужен для render_gl
+    "--disable-cuda",           # не нужен
+    "--enable-gl",              # OpenGL (для render_gl)
+    "--enable-egl",             # EGL (опционально)
+    "--enable-gbm",             # GBM (опционально)
+    "--enable-x11",             # X11 (для Linux)
+    "--disable-wayland",        # Wayland не нужен
+);
     run(@configure);
 
     # Определяем цель сборки ТОЛЬКО библиотеки. `make` без цели
