@@ -5,9 +5,10 @@
 #   1. Установка системных зависимостей через apt (кроме --skip-system).
 #   2. Скачивание и сборка wxWidgets (статически) в third_party/wx.
 #   3. Скачивание и сборка wxSQLite3 (статически) в third_party/wxsqlite3.
-#   4. Сборка проекта через CMake в build-release.
-#   5. Установка в staging-каталог.
-#   6. Упаковка в .deb (опционально — подпись detached .asc).
+#   4. Скачивание и сборка libmpv 0.29.1 (waf) в third_party/mpv.
+#   5. Сборка проекта через CMake в build-release.
+#   6. Установка в staging-каталог + бандлинг libmpv в пакет.
+#   7. Упаковка в .deb (опционально — подпись detached .asc).
 #
 # Требования: perl (есть в Astra), build-essential, cmake, git,
 # autoconf, automake, libtool, dpkg-dev, wget или curl.
@@ -17,6 +18,7 @@
 #   ./build-astra-full.pl --skip-system        # не ставить системные пакеты
 #   ./build-astra-full.pl --rebuild-deps       # пересобрать wx/wxSQLite3
 #   ./build-astra-full.pl --rebuild-wxsqlite3   # пересобрать wxSQLite3, продолжить полную сборку
+#   ./build-astra-full.pl --rebuild-mpv        # пересобрать libmpv, продолжить сборку
 #   ./build-astra-full.pl --only-wxsqlite3      # пересобрать ТОЛЬКО wxSQLite3 и выйти
 #   ./build-astra-full.pl --sign --gpg-key 0xABCDEF
 #   ./build-astra-full.pl --keep-build         # не удалять build-каталоги
@@ -48,11 +50,15 @@ my $METAINFO    = "iptvplayer.metainfo.xml";
 my $ICON_NAME   = "iptvplayer.svg";
 my $WX_VERSION  = $ENV{WX_VERSION}      // "3.3.2";
 my $WXSQLITE3_VERSION = $ENV{WXSQLITE3_VERSION} // "5.0.1";
+# 0.29.1 — последняя версия mpv, совместимая с ffmpeg 3.2.x
+# (в Astra 2.12 — ffmpeg 3.2.15). 0.30+ требует ffmpeg 4.0.
+my $MPV_VERSION = $ENV{MPV_VERSION} // "0.29.1";
 
 my $PROJECT_ROOT = abs_path(dirname(__FILE__) . "/..") // die "Не могу определить корень проекта";
 my $THIRD_PARTY  = "$PROJECT_ROOT/third_party";
 my $WX_DIR       = "$THIRD_PARTY/wx";
 my $WXSQLITE3_DIR = "$THIRD_PARTY/wxsqlite3";
+my $MPV_DIR      = "$THIRD_PARTY/mpv";
 my $BUILD_DIR    = "$PROJECT_ROOT/build-release";
 my $STAGING      = "$PROJECT_ROOT/pkg-staging-astra";
 my $OUTPUT_DIR   = "$PROJECT_ROOT/dist";
@@ -66,18 +72,19 @@ if ($> != 0) {
 }
 
 # ------------------------- Аргументы -------------------------
-my ($skip_system, $rebuild_deps, $rebuild_wxsqlite3, $only_wxsqlite3,
-    $sign, $gpg_key, $keep_build, $keep_deps);
+my ($skip_system, $rebuild_deps, $rebuild_wxsqlite3, $rebuild_mpv,
+    $only_wxsqlite3, $sign, $gpg_key, $keep_build, $keep_deps);
 GetOptions(
     "skip-system"       => \$skip_system,
     "rebuild-deps"      => \$rebuild_deps,
     "rebuild-wxsqlite3" => \$rebuild_wxsqlite3,
+    "rebuild-mpv"       => \$rebuild_mpv,
     "only-wxsqlite3"    => \$only_wxsqlite3,
     "sign"              => \$sign,
     "gpg-key=s"         => \$gpg_key,
     "keep-build"        => \$keep_build,
     "keep-deps"         => \$keep_deps,
-) or die "Использование: $0 [--skip-system] [--rebuild-deps] [--rebuild-wxsqlite3] [--only-wxsqlite3] [--sign --gpg-key KEY] [--keep-build] [--keep-deps]\n";
+) or die "Использование: $0 [--skip-system] [--rebuild-deps] [--rebuild-wxsqlite3] [--rebuild-mpv] [--only-wxsqlite3] [--sign --gpg-key KEY] [--keep-build] [--keep-deps]\n";
 
 # --- Уборка установленных в систему пакетов ---
 # $BUILD_SUCCESS выставляется в 1 только при полном успехе в main().
@@ -296,31 +303,6 @@ sub download {
     return 1;
 }
 
-sub _try_download {
-    my ($url, $out) = @_;
-    my $is_tty = -t STDERR;
-    my $have_wget = (system("sh", "-c", "command -v wget >/dev/null 2>&1") == 0);
-    my $have_curl = (system("sh", "-c", "command -v curl >/dev/null 2>&1") == 0);
-    return 0 unless $have_wget || $have_curl;
-
-    info "Скачивание: $url";
-    my $ok = 0;
-    if ($have_wget) {
-        my @args = ("wget", "--tries=1", "--timeout=30", "--read-timeout=60",
-                    "-O", $out);
-        push @args, ($is_tty ? "--show-progress" : "-q");
-        push @args, $url;
-        $ok = (system(@args) == 0);
-    }
-    if (!$ok && $have_curl) {
-        my @args = ("curl", "-L", "-f", "--connect-timeout", "30", "-o", $out);
-        push @args, ($is_tty ? "--progress-bar" : "-sS");
-        push @args, $url;
-        $ok = (system(@args) == 0);
-    }
-    return ($ok && -s $out) ? 1 : 0;
-}
-
 sub read_first_line {
     my ($path) = @_;
     open my $fh, '<', $path or return '';
@@ -329,6 +311,12 @@ sub read_first_line {
     $line //= '';
     $line =~ s/^\s+|\s+$//g;
     return $line;
+}
+
+sub host_multiarch {
+    my $m = `dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null`;
+    chomp $m;
+    return $m || "x86_64-linux-gnu";
 }
 
 sub detect_deb_arch {
@@ -379,10 +367,17 @@ sub install_system_deps {
     # Список пакетов для Astra 2.12 (Debian 9): libfreetype6-dev, а не libfreetype-dev.
     my @pkgs = qw(
         build-essential gcc-mozilla cmake git autoconf automake libtool pkg-config
-        wget curl libcurl4-openssl-dev libmpv-dev libgtk-3-dev
+        wget curl libcurl4-openssl-dev libgtk-3-dev
         librsvg2-common libx11-dev libx11-xcb-dev libgl1-mesa-dev
         libegl1-mesa-dev libpng-dev libjpeg-dev libwebp-dev zlib1g-dev
         libexpat1-dev libfreetype6-dev dpkg-dev gettext
+        python3
+        libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+        libswresample-dev libavfilter-dev libavdevice-dev
+        libass-dev libarchive-dev libasound2-dev libpulse-dev
+        libuchardet-dev libluajit-5.1-dev
+        libxext-dev libxinerama-dev libxrandr-dev libxss-dev libxcursor-dev
+        libgbm-dev libdrm-dev
     );
 
     # rapidjson в Astra 2.12 может отсутствовать — ставим отдельно.
@@ -608,7 +603,75 @@ sub build_wxsqlite3 {
     info "wxSQLite3 установлен в $WXSQLITE3_DIR/install";
 }
 
-# ------------------------- 4. Сборка проекта -------------------------
+# ------------------------- 4. libmpv -------------------------
+sub build_libmpv {
+    my $mpv_install = "$MPV_DIR/install";
+
+    my @existing = glob("$mpv_install/lib/libmpv.so*");
+    if (@existing && !$rebuild_deps && !$rebuild_mpv) {
+        info "libmpv уже собран ($existing[0]), пропускаю "
+           . "(--rebuild-mpv / --rebuild-deps для пересборки)";
+        return;
+    }
+    if (-d $MPV_DIR) {
+        if ($rebuild_mpv || $rebuild_deps) {
+            info "libmpv: принудительная пересборка "
+               . "(--rebuild-mpv / --rebuild-deps)";
+        } else {
+            info "libmpv: каталог есть, библиотеки нет — пересобираю.";
+        }
+        remove_tree($MPV_DIR);
+    }
+
+    info "Сборка libmpv $MPV_VERSION (waf)...";
+    make_path($MPV_DIR);
+
+    my $archive = "mpv-$MPV_VERSION.tar.gz";
+    my $url = "https://github.com/mpv-player/mpv/archive/refs/tags/v$MPV_VERSION.tar.gz";
+    download($url, "$MPV_DIR/$archive")
+        or error "Не удалось скачать mpv: $url";
+    run("tar", "xzf", "$MPV_DIR/$archive", "-C", $MPV_DIR);
+    rename("$MPV_DIR/mpv-$MPV_VERSION", "$MPV_DIR/src")
+        or error "rename mpv src: $!";
+    unlink "$MPV_DIR/$archive";
+
+    chdir "$MPV_DIR/src" or error "chdir $MPV_DIR/src: $!";
+
+    # В mpv 0.29.x используется waf, а не meson. bootstrap.py скачивает
+    # подходящую версию waf из сети.
+    run("python3", "./bootstrap.py");
+
+    # --enable-libmpv-shared: собрать shared libmpv (нужен render_gl.h).
+    # --disable-cplayer: не собирать CLI-плеер (экономит время и размер).
+    # --disable-vulkan/cuda: не нужны для render_gl, отключаем лишние зависимости.
+    # --enable-gl/egl/gbm/x11, --disable-wayland: минимум для render_gl на X11.
+    my @configure = (
+        "./waf", "configure",
+        "--prefix=$mpv_install",
+        "--enable-libmpv-shared",
+        "--disable-cplayer",
+        "--disable-vulkan",
+        "--disable-cuda",
+        "--enable-gl",
+        "--enable-egl",
+        "--enable-gbm",
+        "--enable-x11",
+        "--disable-wayland",
+    );
+    run(@configure);
+    run("./waf", "build", "-j" . nproc());
+    run("./waf", "install");
+
+    chdir $PROJECT_ROOT or error "chdir $PROJECT_ROOT: $!";
+
+    -f "$mpv_install/include/mpv/render_gl.h"
+        or error "render_gl.h не найден после сборки mpv в $mpv_install";
+    -e "$mpv_install/lib/libmpv.so"
+        or error "libmpv.so не найден после сборки mpv в $mpv_install";
+    info "libmpv установлен в $mpv_install";
+}
+
+# ------------------------- 5. Сборка проекта -------------------------
 sub build_project {
     info "Сборка $PACKAGE...";
     # Используем компиляторы из gcc-mozilla (GCC 7.5) — системный GCC 6.3
@@ -659,6 +722,14 @@ sub build_project {
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
         "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF",
         "-DIPTVPLAYER_ENABLE_LTO=OFF",
+        # Локальная libmpv 0.29.1 вместо системной 0.23.0 из Astra 2.12.
+        # MPV_STATIC_LIB — cache-переменная, find_library её не перезапишет.
+        "-DMPV_STATIC_LIB=$MPV_DIR/install/lib/libmpv.so",
+        "-DMPV_INCLUDE_DIRS=$MPV_DIR/install/include",
+        # RPATH: при установке в /usr/bin/iptvplayer найдёт
+        # /usr/lib/x86_64-linux-gnu/iptvplayer/libmpv.so.1.
+        "-DCMAKE_INSTALL_RPATH=\$ORIGIN/../lib/" . host_multiarch() . "/iptvplayer",
+        "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON",
     );
     run(@cmake);
 
@@ -669,7 +740,7 @@ sub build_project {
     info "Проект установлен в $STAGING/usr";
 }
 
-# ------------------------- 5. Упаковка в .deb -------------------------
+# ------------------------- 6. Упаковка в .deb -------------------------
 sub build_deb {
     info "Упаковка в .deb...";
 
@@ -687,6 +758,24 @@ sub build_deb {
     } else {
         warn_msg "Иконка не найдена в staging: $icon_src";
     }
+
+    # === Бандлинг libmpv 0.29.1 ===
+    # В Astra 2.12 системный libmpv — 0.23.0, без render_gl.h. Наш
+    # бинарник линкуется с локальной 0.29.1. Кладём её в пакет, чтобы
+    # установка на чистую Astra не подтянула системную 0.23.0 через
+    # Depends (и не сломала приложение).
+    my $multiarch = host_multiarch();
+    my $mpv_lib_src = "$MPV_DIR/install/lib";
+    my $mpv_lib_dst = "$STAGING/usr/lib/$multiarch/iptvplayer";
+    make_path($mpv_lib_dst);
+    # cp -a, а не File::Copy::copy: copy() разыменовывает симлинки
+    # (libmpv.so → libmpv.so.1.0.0), и в пакет уедут 3 полных копии
+    # по 8 МБ вместо 1 файла + 2 симлинков.
+    run("cp", "-a", glob("$mpv_lib_src/libmpv.so*"), "$mpv_lib_dst/");
+    # libmpv.so — симлинк для линковки, в рантайме не нужен.
+    unlink "$mpv_lib_dst/libmpv.so" if -e "$mpv_lib_dst/libmpv.so";
+    info "libmpv забандлен в $mpv_lib_dst";
+    info "  файлы: " . join(", ", map { basename($_) } glob("$mpv_lib_dst/libmpv.so*"));
 
     my $version      = read_first_line("$STAGING/usr/VERSION");
     # VERSION* не должны попасть в .deb — они нужны только build-package.sh,
@@ -713,7 +802,16 @@ sub build_deb {
     print $cf "Source: $PACKAGE\nPackage: $PACKAGE\nArchitecture: any\n";
     close $cf;
 
-    my $out = `cd '$tmp_deps' && dpkg-shlibdeps -O '$bin' 2>&1`;
+    # -e libmpv.so.1: не искать пакет-поставщик libmpv в системе.
+    # Библиотека забандлена в наш пакет (см. выше), Depends на libmpv1
+    # (системная 0.23.0) поставил бы старую версию поверх нашей.
+    #
+    # Второй аргумент — забандленная libmpv.so.1 — заставляет dpkg-shlibdeps
+    # пройти по ЕЁ NEEDED-списку (libavcodec, libass, libpulse, libX11, …)
+    # и добавить пакеты-поставщики в Depends. Без этого на чистой Astra
+    # iptvplayer упадёт при старте с "error while loading shared libraries:
+    # libavcodec.so.57: cannot open shared object file".
+    my $out = `cd '$tmp_deps' && dpkg-shlibdeps -O -e libmpv.so.1 '$bin' '$mpv_lib_dst/libmpv.so.1' 2>&1`;
     my ($depends) = $out =~ /shlibs:Depends=(.+)/;
     error "dpkg-shlibdeps не вернул Depends" unless $depends;
     info "Depends: $depends";
@@ -830,6 +928,7 @@ sub main {
     install_system_deps();
     build_wxwidgets();
     build_wxsqlite3();
+    build_libmpv();
     build_project();
     build_deb();
 
