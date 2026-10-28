@@ -202,7 +202,7 @@ sub install_system_deps {
 
     # Список пакетов для Astra 2.12 (Debian 9): libfreetype6-dev, а не libfreetype-dev.
     my @pkgs = qw(
-        build-essential cmake git autoconf automake libtool pkg-config
+        build-essential gcc-mozilla cmake git autoconf automake libtool pkg-config
         wget curl libcurl4-openssl-dev libmpv-dev libgtk-3-dev
         librsvg2-common libx11-dev libx11-xcb-dev libgl1-mesa-dev
         libegl1-mesa-dev libpng-dev libjpeg-dev libwebp-dev zlib1g-dev
@@ -430,6 +430,18 @@ sub build_wxsqlite3 {
 # ------------------------- 4. Сборка проекта -------------------------
 sub build_project {
     info "Сборка $PACKAGE...";
+    # Используем компиляторы из gcc-mozilla (GCC 7.5) — системный GCC 6.3
+    # не поддерживает C++17 inline-переменные.
+    my $moz_bin = "/usr/lib/gcc-mozilla/bin";
+    if (-x "$moz_bin/gcc" && -x "$moz_bin/g++") {
+        $ENV{CC}  = "$moz_bin/gcc";
+        $ENV{CXX} = "$moz_bin/g++";
+        info "Использую компиляторы gcc-mozilla: CC=$ENV{CC}, CXX=$ENV{CXX}";
+    } else {
+        warn_msg "gcc-mozilla не найден в $moz_bin — используется системный компилятор. "
+               . "Если это GCC 6.3, сборка упадёт на C++17.";
+    }
+
     remove_tree($BUILD_DIR) if -d $BUILD_DIR;
     make_path($BUILD_DIR);
 
