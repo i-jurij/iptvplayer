@@ -82,17 +82,20 @@ GetOptions(
 # --- Уборка установленных в систему пакетов ---
 # $BUILD_SUCCESS выставляется в 1 только при полном успехе в main().
 # $CLEANUP_DONE — защита от двойного запуска END (exit + SIGINT).
+# ------------------------- Утилиты -------------------------
+# Объявлены ДО $SIG{...} и любых других вызовов — иначе парсер Perl
+# под use strict падает на "Bareword \"warn_msg\" not allowed while
+# \"strict subs\" in use".
+sub info     { print "[INFO] @_\n" }
+sub warn_msg { print STDERR "[WARN] @_\n" }
+sub error    { print STDERR "[ERROR] @_\n"; exit 1 }
+
 my $BUILD_SUCCESS  = 0;
 my $CLEANUP_DONE   = 0;
 my $IS_INTERACTIVE = (-t STDIN) && !$ENV{CI} && !$ENV{GITHUB_ACTIONS};
 
 $SIG{INT}  = sub { warn_msg "Прервано (Ctrl+C)"; exit 130 };
 $SIG{TERM} = sub { warn_msg "Завершено (SIGTERM)"; exit 143 };
-
-# ------------------------- Утилиты -------------------------
-sub info     { print "[INFO] @_\n" }
-sub warn_msg { print STDERR "[WARN] @_\n" }
-sub error    { print STDERR "[ERROR] @_\n"; exit 1 }
 
 # === Уборка установленных в систему пакетов ===
 # State-файл заполняется install_system_deps после успешной установки.
@@ -205,9 +208,10 @@ sub cleanup_installed_packages {
 }
 
 END {
-    return if $CLEANUP_DONE;
-    $CLEANUP_DONE = 1;
-    cleanup_installed_packages();
+    if (!$CLEANUP_DONE) {
+        $CLEANUP_DONE = 1;
+        cleanup_installed_packages();
+    }
 }
 
 sub run {
@@ -225,11 +229,16 @@ sub run_in_dir {
     $rc == 0 or error "Команда завершилась с ошибкой в $dir: @cmd";
 }
 
+# Скачивание с одним повтором (wget → curl). Возвращает 1 при успехе,
+# 0 при любой URL-специфичной ошибке (сеть, 404, пустой файл).
+# Решение «fatal или пробовать другой URL» — за вызывающим:
+#   download(...) or error "..."           — fatal
+#   if (download(...)) { ... }             — перебрать список URL
+# error() внутри — только инфраструктурная ошибка (нет ни wget, ни curl):
+# без загрузчика перебирать URL бессмысленно.
 sub download {
     my ($url, $out) = @_;
 
-    # Прогресс нужен только когда пользователь смотрит в терминал.
-    # В CI/редиректе — тихий режим, чтобы не засорять логи.
     my $is_tty = -t STDERR;  # wget/curl пишут прогресс на stderr
 
     my $have_wget = (system("sh", "-c", "command -v wget >/dev/null 2>&1") == 0);
@@ -238,18 +247,21 @@ sub download {
         or error "Ни wget, ни curl не найдены в PATH";
 
     info "Скачивание: $url";
+
+    # Убираем возможный мусор от предыдущей неудачной попытки —
+    # иначе -s $out может ложно сработать на старом файле.
+    unlink $out if -f $out;
+
     my $ok = 0;
 
     if ($have_wget) {
         my @args = (
             "wget",
-            "--tries=1",           # ретраи делает сам sub download (внешний цикл), а не wget
-            "--timeout=30",        # таймаут на установку соединения
-            "--read-timeout=60",   # таймаут на паузы при чтении
+            "--tries=1",
+            "--timeout=30",
+            "--read-timeout=60",
             "-O", $out,
         );
-        # --show-progress есть в wget 1.16+ (Debian 9: 1.18, Astra 2.12: 1.19).
-        # В TTY — прогресс-бар, иначе -q (тихо).
         push @args, ($is_tty ? "--show-progress" : "-q");
         push @args, $url;
         $ok = (system(@args) == 0);
@@ -261,22 +273,52 @@ sub download {
             "--connect-timeout", "30",
             "-o", $out,
         );
-        # --progress-bar = короткая однострочная полоса с процентами
-        # и скоростью. В TTY — она, иначе -sS (silent, но ошибки видны).
         push @args, ($is_tty ? "--progress-bar" : "-sS");
         push @args, $url;
         $ok = (system(@args) == 0);
     }
 
-    $ok or error "Не удалось скачать $url";
+    if (!$ok) {
+        warn_msg "Не удалось скачать $url";
+        return 0;
+    }
 
-    -s $out or error "Скачанный файл пуст: $out";
+    if (!-s $out) {
+        warn_msg "Скачанный файл пуст: $out";
+        return 0;
+    }
 
     my $size = -s $out;
     my $size_h = $size >= 1048576
         ? sprintf("%.1f MB", $size / 1048576)
         : sprintf("%.0f KB", $size / 1024);
     info "Скачано: $out ($size_h)";
+    return 1;
+}
+
+sub _try_download {
+    my ($url, $out) = @_;
+    my $is_tty = -t STDERR;
+    my $have_wget = (system("sh", "-c", "command -v wget >/dev/null 2>&1") == 0);
+    my $have_curl = (system("sh", "-c", "command -v curl >/dev/null 2>&1") == 0);
+    return 0 unless $have_wget || $have_curl;
+
+    info "Скачивание: $url";
+    my $ok = 0;
+    if ($have_wget) {
+        my @args = ("wget", "--tries=1", "--timeout=30", "--read-timeout=60",
+                    "-O", $out);
+        push @args, ($is_tty ? "--show-progress" : "-q");
+        push @args, $url;
+        $ok = (system(@args) == 0);
+    }
+    if (!$ok && $have_curl) {
+        my @args = ("curl", "-L", "-f", "--connect-timeout", "30", "-o", $out);
+        push @args, ($is_tty ? "--progress-bar" : "-sS");
+        push @args, $url;
+        $ok = (system(@args) == 0);
+    }
+    return ($ok && -s $out) ? 1 : 0;
 }
 
 sub read_first_line {
@@ -370,7 +412,8 @@ sub install_system_deps {
         info "rapidjson не найден, устанавливаю заголовки вручную...";
         my $tmp = tempdir(CLEANUP => 1);
         my $tar = "$tmp/rapidjson.tar.gz";
-        download("https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.tar.gz", $tar);
+        download("https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.tar.gz", $tar)
+            or error "Не удалось скачать rapidjson";
         run("tar", "xzf", $tar, "-C", $tmp);
         my @sudo = $SUDO ? ($SUDO) : ();
         run(@sudo, "mkdir", "-p", "/usr/local/include/rapidjson");
@@ -396,7 +439,8 @@ sub build_wxwidgets {
 
     my $archive = "wxWidgets-$WX_VERSION.tar.bz2";
     my $url = "https://github.com/wxWidgets/wxWidgets/releases/download/v$WX_VERSION/$archive";
-    download($url, "$WX_DIR/$archive");
+    download($url, "$WX_DIR/$archive")
+        or error "Не удалось скачать wxWidgets: $url";
     run("tar", "xjf", "$WX_DIR/$archive", "-C", $WX_DIR);
     rename("$WX_DIR/wxWidgets-$WX_VERSION", "$WX_DIR/src")
         or error "rename распакованного каталога: $!";
@@ -491,10 +535,10 @@ sub build_wxsqlite3 {
     );
     my $downloaded = 0;
     for my $u (@urls) {
-        if (eval { download($u, "$WXSQLITE3_DIR/$archive"); 1 }) {
+        if (download($u, "$WXSQLITE3_DIR/$archive")) {
             $downloaded = 1; last;
         }
-        warn_msg "Не удалось скачать $u, пробую следующий";
+        warn_msg "Не удалось скачать $u, пробую следующий URL";
     }
     $downloaded or error "Не удалось скачать wxSQLite3 ни с одного URL";
 
@@ -650,12 +694,10 @@ sub build_deb {
     unlink "$STAGING/usr/VERSION",
            "$STAGING/usr/VERSION_FULL",
            "$STAGING/usr/VERSION_FILE";
-    my $version_file = read_first_line("$STAGING/usr/VERSION_FILE");
-    my $version_full = read_first_line("$STAGING/usr/VERSION_FULL");
     error "Пустой VERSION в $STAGING/usr" unless length $version;
 
     my $deb_arch = detect_deb_arch();
-    my $deb_name = "${PACKAGE}_${version}_DISTRO_${deb_arch}.deb";
+    my $deb_name = "${PACKAGE}_${version}_" . DISTRO() . "_${deb_arch}.deb";
     my $deb_path = "$OUTPUT_DIR/$deb_name";
 
     make_path($OUTPUT_DIR);
@@ -779,7 +821,10 @@ sub main {
         error "Скрипт запущен без root и без sudo, но нужны apt-get и /usr/local. "
             . "Запустите от root, установите sudo или используйте --skip-system.";
     }
-    info $SUDO ? "Режим: через sudo" : ($> == 0 ? "Режим: root" : "Режим: пользователь, --skip-system");
+    my $mode = $SUDO ? "Режим: через sudo"
+             : $> == 0 ? "Режим: root"
+             :           "Режим: пользователь, --skip-system";
+    info $mode;
     info "Корень проекта: $PROJECT_ROOT";
 
     install_system_deps();
