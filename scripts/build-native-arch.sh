@@ -90,11 +90,11 @@ build_pkg_arch() {
     # (при выходе из build_pkg_arch) выполнит очистку и снимет trap.
     trap 'rm -f "$libs_tmp" "$pkgs_tmp"; [ "$keep_workdir" = 1 ] || rm -rf "$workdir"; trap - RETURN' RETURN
 
-    ldd "$BIN" 2>/dev/null \
-      | awk '
-          /=>/ && $3 ~ /^\//  { print $3 }
-          /^\t\//              { print $1 }
-        ' \
+    # Только прямые NEEDED-записи самого бинарника — никакого
+    # транзитивного замыкания (ldd тянет ffmpeg/flac/etc через mpv).
+    # readelf -d читает .dynamic-секцию: ровно то, что линкер записал.
+    readelf -d "$BIN" 2>/dev/null \
+      | awk '/NEEDED/ {gsub(/[][]/, ""); print $NF}' \
       | sort -u > "$libs_tmp"
 
     : > "$pkgs_tmp"
@@ -114,7 +114,8 @@ build_pkg_arch() {
     # виртуального имени нет — оставляем имя пакета.
     #
     # mesa-amber — legacy-пакет, конфликтует с mesa на уровне файлов.
-    # Виртуального имени у него нет, поэтому фильтруем отдельно.
+    #фильтруем mesa-amber явно: mesa резолвится через свой
+    # unversioned 'libgl', который mesa-amber тоже предоставляет
     local raw_deps
     raw_deps=$(sort -u "$pkgs_tmp" \
                 | grep -vxE 'glibc|gcc-libs|mesa-amber' \
@@ -122,19 +123,38 @@ build_pkg_arch() {
 
     local auto_deps=""
     local _owner _virtual _seen=" "
+    local _provides
     while IFS= read -r _owner; do
         [ -z "$_owner" ] && continue
-        # Берём только soname-style provides (содержит ".so")
-        _virtual=$(pacman -Si "$_owner" 2>/dev/null \
+        _provides=$(pacman -Si "$_owner" 2>/dev/null \
                     | awk -F': ' '/^Provides/{print $2}' \
                     | tr ' ' '\n' \
-                    | grep -vx "$_owner" \
-                    | grep -vx 'None' \
-                    | grep '\.so' \
+                    | grep -Fvx "$_owner" \
+                    | grep -Fvx 'None')
+
+        # Шаг 1: безверсионное виртуальное имя (jack, pulseaudio, sh).
+        # Не зависит от порядка provides — канонический depends.
+        _virtual=$(printf '%s\n' "$_provides" \
+                    | grep -v '=' \
+                    | grep -v '^$' \
                     | head -n1)
+
+        # Шаг 2: soname-style provides со срезанным '=ver'
+        # (libmpv.so=2-64 → libmpv.so). pacman матчит unversioned
+        # depend против versioned provides, поэтому резолвится на
+        # любой текущей версии пакета-владельца.
+        if [ -z "$_virtual" ]; then
+            _virtual=$(printf '%s\n' "$_provides" \
+                        | grep '=' \
+                        | head -n1)
+            _virtual="${_virtual%%=*}"
+        fi
+
+        # Шаг 3: provides нет вовсе — берём имя пакета.
         if [ -z "$_virtual" ]; then
             _virtual="$_owner"
         fi
+
         case "$_seen" in
             *" $_virtual "*) continue ;;
         esac
@@ -152,16 +172,17 @@ EOF
         return 1
     fi
 
-    # extra_deps не нужен: mesa и gdk-pixbuf2 приходят из ldd,
-    # librsvg в Arch не предоставляет .so-загрузчик для gdk-pixbuf
-    # (SVG идёт через glycin, который тянется с gtk3).
     local all_deps
-    all_deps=$(printf '%s\n' $auto_deps | sort -u | tr '\n' ' ')
+    all_deps="$auto_deps"
 
     echo "[i] auto-detected: $auto_deps"
     echo "[i] final:         $all_deps"
 
-    cp -a "$STAGING_DIR/usr" "$workdir/staging_usr"
+  local PKG_ARCH
+    if ! PKG_ARCH="$(makepkg --print-arch 2>/dev/null)" || [ -z "$PKG_ARCH" ]; then
+        echo "[!] makepkg --print-arch не вернул архитектуру — проверьте /etc/makepkg.conf (CARCH)" >&2
+        return 1
+    fi
 
     # depends=('a' 'b' 'c') — через printf, чтобы не собирать строку руками.
     local -a deps_array=()
@@ -176,7 +197,7 @@ pkgname=$PACKAGE_NAME
 pkgver=$VERSION
 pkgrel=1
 pkgdesc="IPTV Playlist Player"
-arch=('$APPIMAGE_ARCH')
+arch=('$PKG_ARCH')
 url="https://github.com/i-jurij/$PACKAGE_NAME"
 license=('MIT')
 # !debug: без отдельного -debug пакета с символами — он не нужен
@@ -184,8 +205,11 @@ license=('MIT')
 options=('!debug')
 EOF
         printf "depends=("
-        printf "'%s' " "${deps_array[@]}"
-        printf ")\n"
+        local _depstr="" _d
+        for _d in "${deps_array[@]}"; do
+            _depstr="${_depstr:+$_depstr }'$_d'"
+        done
+        printf "%s)\n" "$_depstr"
         cat <<EOF
 
 package() {
