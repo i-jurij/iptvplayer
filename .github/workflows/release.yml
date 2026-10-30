@@ -591,6 +591,8 @@ jobs:
             --pattern '*.deb.asc' \
             --pattern '*.rpm' \
             --pattern '*.rpm.asc' \
+            --pattern '*-win64.zip' \
+            --pattern '*-win64-setup.exe' \
             || true
           ls -la dist/ || true
 
