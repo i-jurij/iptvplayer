@@ -343,87 +343,6 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # 3.1. Совместимая сборка бинарника в замороженном срезе Arch 2025-10-05
-  # (glibc 2.42). Даёт .pkg для Manjaro/Garuda/UBLinux.
-  # Актуальная arch-build не трогается.
-  # =========================================================================
-  arch-build-compat:
-    needs: [version]
-    if: |
-      always() &&
-      needs.version.result == 'success' &&
-      needs.version.outputs.version_changed == 'true' &&
-      inputs.skip_arch_compat != true
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    container:
-      # Образ Arch от 2025-10-05: glibc 2.42 (28.07.2025), до 2.43 (~нач. 2026).
-      image: archlinux:base-20251005.0.430597
-      options: --user root
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Freeze repos to snapshot date
-        run: |
-          set -euo pipefail
-          # Без mirrorlist на ALA pacman -Syu утянет текущий Arch (glibc 2.44).
-          echo 'Server=https://archive.archlinux.org/repos/2025/10/05/$repo/os/$arch' \
-            > /etc/pacman.d/mirrorlist
-
-      - name: Install build toolchain
-        run: |
-          set -euo pipefail
-          pacman -Syu --noconfirm --needed
-          pacman -S --noconfirm --needed \
-            base-devel cmake git patchelf wget curl
-
-      - name: Verify glibc baseline
-        run: |
-          set -euo pipefail
-          GLIBC=$(/usr/lib/ld-linux-x86-64.so.2 --version | head -1)
-          echo "[i] glibc: $GLIBC"
-          echo "$GLIBC" | grep -q "2\.42" \
-            || { echo "::error::glibc is not 2.42 — wrong snapshot"; exit 1; }
-
-      - uses: actions/cache@v5
-        with:
-          path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-arch-compat-third_party-${{ hashFiles('scripts/setup-deps.sh', 'scripts/setup-deps-*.sh') }}
-
-      - name: Build third_party
-        run: |
-          set -euo pipefail
-          chmod +x scripts/setup-deps.sh
-          ./scripts/setup-deps.sh --yes --skip-system
-
-      - name: Build binary
-        run: |
-          set -euo pipefail
-          chmod +x scripts/build-release.sh
-          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
-
-      - name: Verify binary glibc requirement
-        run: |
-          set -euo pipefail
-          REQ=$(readelf -V install/bin/iptvplayer 2>/dev/null \
-                | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -V | tail -1)
-          echo "[i] binary max GLIBC: $REQ (baseline 2.42)"
-          HIGHER=$(printf '%s\n%s\n' "2.42" "$REQ" | sort -V | tail -1)
-          [ "$HIGHER" = "2.42" ] \
-            || { echo "::error::binary requires GLIBC_$REQ > 2.42"; exit 1; }
-
-      - name: Upload install tree (compat)
-        uses: actions/upload-artifact@v5
-        with:
-          name: arch-install-compat
-          path: install/
-          retention-days: 3
-          if-no-files-found: error
-
-  # =========================================================================
   # 4. AppImage (quick-sharun) на подготовленном Arch-образе.
   # =========================================================================
   appimage:
@@ -602,11 +521,13 @@ jobs:
         uses: ./.github/actions/cleanup-gpg
 
   # =========================================================================
-  # 5.1. Совместимый .pkg.tar.zst из замороженного среза (glibc 2.42).
-  # Имя файла получает суффикс "-compat" до .pkg.tar.zst.
+  # 5.1. Совместимый .pkg.tar.zst из замороженного среза Arch 2025-10-05
+  # (glibc 2.42). Сборка и упаковка — в одном контейнере: один
+  # pacman-key --init, одна установка toolchain, один pacman -Syu.
+  # Даёт пакет для Manjaro/Garuda/UBLinux. Основной arch-pkg не трогается.
   # =========================================================================
-  arch-pkg-compat:
-    needs: [version, arch-build-compat]
+  arch-compat:
+    needs: [version]
     if: |
       always() &&
       needs.version.result == 'success' &&
@@ -615,30 +536,73 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: read
     container:
+      # Образ Arch от 2025-10-05: glibc 2.42 (28.07.2025), до 2.43 (~нач. 2026).
       image: archlinux:base-20251005.0.430597
       options: --user root
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Freeze repos to snapshot date
         run: |
           set -euo pipefail
+          # Без mirrorlist на ALA pacman -Syu утянет текущий Arch (glibc 2.44).
           echo 'Server=https://archive.archlinux.org/repos/2025/10/05/$repo/os/$arch' \
             > /etc/pacman.d/mirrorlist
 
-      - name: Install toolchain
+      - name: Init and refresh pacman keyring
+        run: |
+          set -euo pipefail
+          pacman-key --init
+          pacman-key --populate archlinux
+          # Свежий archlinux-keyring из снапшота: иначе пакеты из 2025-10-05
+          # подписаны ключами, которых нет в базовом образе.
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman-key --updatedb 2>/dev/null || true
+
+      - name: Install build toolchain
         run: |
           set -euo pipefail
           pacman -Syu --noconfirm --needed
-          pacman -S --noconfirm --needed base-devel patchelf
+          pacman -S --noconfirm --needed \
+            base-devel cmake git patchelf wget curl
 
-      - name: Download install tree (compat)
-        uses: actions/download-artifact@v5
+      - name: Verify glibc baseline
+        run: |
+          set -euo pipefail
+          GLIBC=$(/usr/lib/ld-linux-x86-64.so.2 --version | head -1)
+          echo "[i] glibc: $GLIBC"
+          echo "$GLIBC" | grep -q "2\.42" \
+            || { echo "::error::glibc is not 2.42 — wrong snapshot"; exit 1; }
+
+      - uses: actions/cache@v5
         with:
-          name: arch-install-compat
-          path: install
+          path: third_party
+          key: ${{ runner.os }}-${{ runner.arch }}-arch-compat-third_party-${{ hashFiles('scripts/setup-deps.sh', 'scripts/setup-deps-*.sh') }}
+
+      - name: Build third_party
+        run: |
+          set -euo pipefail
+          chmod +x scripts/setup-deps.sh
+          ./scripts/setup-deps.sh --yes --skip-system
+
+      - name: Build binary
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-release.sh
+          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
+
+      - name: Verify binary glibc requirement
+        run: |
+          set -euo pipefail
+          REQ=$(readelf -V install/bin/iptvplayer 2>/dev/null \
+                | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -V | tail -1)
+          echo "[i] binary max GLIBC: $REQ (baseline 2.42)"
+          HIGHER=$(printf '%s\n%s\n' "2.42" "$REQ" | sort -V | tail -1)
+          [ "$HIGHER" = "2.42" ] \
+            || { echo "::error::binary requires GLIBC_$REQ > 2.42"; exit 1; }
 
       - name: Build Arch compat package
         run: |
@@ -671,7 +635,6 @@ jobs:
 
       - name: Upload compat Arch package
         uses: actions/upload-artifact@v5
-        if: always()
         with:
           name: native-arch-compat
           path: |
@@ -728,7 +691,7 @@ jobs:
   # нет в этом run'е, сохраняются — action-gh-release их не удаляет.
   # =========================================================================
   release:
-    needs: [version, resolve, appimage, arch-pkg, arch-pkg-compat, native-packages, windows-build]
+    needs: [version, resolve, appimage, arch-pkg, arch-compat, native-packages, windows-build]
     if: |
       always() &&
       needs.version.result == 'success' &&
