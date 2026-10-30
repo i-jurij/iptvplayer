@@ -555,6 +555,13 @@ jobs:
       - name: Init and refresh pacman keyring
         run: |
           set -euo pipefail
+          # Мастер-ключи в снапшоте 2025-10-05 подписаны SHA1. GnuPG >= 2.4
+          # по умолчанию такие подписи отклоняет, из-за чего цепочка доверия
+          # до пакетов (flex/make/sudo) не выстраивается — "unknown trust".
+          # Разрешаем weak-подписи ТОЛЬКО для pacman-key в этом контейнере.
+          mkdir -p /etc/pacman.d/gnupg
+          echo 'allow-weak-key-signatures' > /etc/pacman.d/gnupg/gpg.conf
+
           pacman-key --init
           pacman-key --populate archlinux
           # Свежий archlinux-keyring из снапшота: иначе пакеты из 2025-10-05
