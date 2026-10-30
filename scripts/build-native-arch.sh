@@ -79,46 +79,62 @@ build_pkg_arch() {
     # Временные файлы и workdir. trap RETURN срабатывает на любом
     # выходе из функции, включая ранние return 1. workdir остаётся
     # только если keep_workdir=1 — это для отладки упавшего makepkg.
-    local libs_tmp pkgs_tmp workdir keep_workdir=0
+    local libs_tmp pkgs_tmp ldd_tmp workdir keep_workdir=0
     libs_tmp=$(mktemp) || { echo "[!] mktemp для libs_tmp упал" >&2; return 1; }
     pkgs_tmp=$(mktemp) || { echo "[!] mktemp для pkgs_tmp упал" >&2; return 1; }
+    ldd_tmp=$(mktemp)  || { echo "[!] mktemp для ldd_tmp упал" >&2; return 1; }
     workdir=$(mktemp -d) || { echo "[!] mktemp для workdir упал" >&2; return 1; }
     # shellcheck disable=SC2064
     # trap с RETURN не снимается автоматически после выхода из функции —
     # он сработает на выходе из ЛЮБОЙ следующей функции в скрипте.
     # Добавляем `trap - RETURN` внутрь самого trap: первое же срабатывание
     # (при выходе из build_pkg_arch) выполнит очистку и снимет trap.
-    trap 'rm -f "$libs_tmp" "$pkgs_tmp"; [ "$keep_workdir" = 1 ] || rm -rf "$workdir"; trap - RETURN' RETURN
+    trap 'rm -f "$libs_tmp" "$pkgs_tmp" "$ldd_tmp"; [ "$keep_workdir" = 1 ] || rm -rf "$workdir"; trap - RETURN' RETURN
 
-    # Только прямые NEEDED-записи самого бинарника — никакого
-    # транзитивного замыкания (ldd тянет ffmpeg/flac/etc через mpv).
-    # readelf -d читает .dynamic-секцию: ровно то, что линкер записал.
+    # Прямые NEEDED-записи самого бинарника: readelf -d читает
+    # .dynamic-секцию и даёт только то, что записал линкер.
+    # Транзитивные (ffmpeg/flac через mpv) сюда не попадают.
     readelf -d "$BIN" 2>/dev/null \
       | awk '/NEEDED/ {gsub(/[][]/, ""); print $NF}' \
       | sort -u > "$libs_tmp"
 
+    # Полные пути через ldd: для КАЖДОГО NEEDED ldd даёт резолвнутый
+    # путь именно для этого бинарника. Пересечение NEEDED с ldd отсекает
+    # ложных владельцев — julia, smolvm, кросс-тулчейны и прочие
+    # пакеты, бандлящие копии системных .so в своих подкаталогах:
+    # pacman -Fq по basename вернул бы их всех, а pacman -F по полному
+    # пути /usr/lib/libXXX.so.N — только настоящего владельца.
+    ldd "$BIN" 2>/dev/null > "$ldd_tmp" || true
+
     : > "$pkgs_tmp"
     while IFS= read -r lib; do
         [ -z "$lib" ] && continue
-        # pacman -Fq не находит владельца для библиотек вне пакетов
-        # (собрано вручную, /usr/local/lib). Это норма, не ошибка.
-        pacman -Fq "$lib" 2>/dev/null \
-          | awk -F/ '{print $2}' >> "$pkgs_tmp" || true
+        # Полный путь резолва этой NEEDED-библиотеки
+        libpath=$(awk -v L="$lib" '
+            $1 == L && $2 == "=>" { print $3; exit }
+        ' "$ldd_tmp")
+        [ -z "$libpath" ] && continue
+        [ ! -e "$libpath" ] && continue
+
+        # Владелец ровно этого файла (а не всех одноимённых в системе).
+        # Формат pacman -F: "/path is owned by REPO/PKG VERSION"
+        pacman -F "$libpath" 2>/dev/null \
+          | awk '/ is owned by / {
+                     pkg = $(NF-1)
+                     sub(/^[^\/]+\//, "", pkg)
+                     print pkg
+                 }' >> "$pkgs_tmp" || true
     done < "$libs_tmp"
 
-    # Конфликтующие пары: несколько пакетов предоставляют один soname
-    # (jack2/pipewire-jack для libjack.so.0). Их нельзя ставить
-    # одновременно, но оба попадают в вывод pacman -Fq. Решение:
-    # для каждого пакета находим виртуальное имя, которое он
-    # предоставляет через Provides, и пишем его в depends. Если
-    # виртуального имени нет — оставляем имя пакета.
-    #
-    # mesa-amber — legacy-пакет, конфликтует с mesa на уровне файлов.
-    #фильтруем mesa-amber явно: mesa резолвится через свой
-    # unversioned 'libgl', который mesa-amber тоже предоставляет
+    # glibc и gcc-libs входят в group base — есть на любой Arch-системе,
+    # в depends не нужны. gcc15-libs — gcc 15 runtime из некоторых
+    # custom-образов, владеет libstdc++.so.6/libgcc_s.so.1 как и gcc-libs,
+    # тоже base-эквивалент. mesa-amber — legacy-замена mesa,
+    # конфликтует с mesa на уровне файлов; mesa резолвится через
+    # свой unversioned 'libgl', который mesa-amber тоже предоставляет.
     local raw_deps
     raw_deps=$(sort -u "$pkgs_tmp" \
-                | grep -vxE 'glibc|gcc-libs|mesa-amber' \
+                | grep -vxE 'glibc|gcc-libs|gcc15-libs|mesa-amber' \
                 | grep -v '^$')
 
     local auto_deps=""
@@ -126,31 +142,29 @@ build_pkg_arch() {
     local _provides
     while IFS= read -r _owner; do
         [ -z "$_owner" ] && continue
+
+        # Страховка от конфликтов Provides (jack2 ↔ pipewire-jack).
+        # Оба предоставляют unversioned 'jack' и конфликтуют между
+        # собой: если pacman -F по libjack.so.0 вернул обоих и в
+        # depends попали оба, пакет не установится — pacman откажется
+        # из-за конфликта. Заменяем имя пакета на его unversioned
+        # виртуальное provides — pacman выберет уже установленный
+        # вариант (или предпочтённый пользователем).
+        #
+        # Versioned soname-Provides (libmpv.so=2-64, libFLAC.so=14-64)
+        # НЕ трогаем: soname в глобальном depends — anti-pattern Arch,
+        # ломается при любом soname-bump в репозитории. Для таких
+        # пакетов остаётся имя пакета (mpv, flac) — это резолвится
+        # на любой версии.
         _provides=$(pacman -Si "$_owner" 2>/dev/null \
                     | awk -F': ' '/^Provides/{print $2}' \
                     | tr ' ' '\n' \
                     | grep -Fvx "$_owner" \
                     | grep -Fvx 'None')
-
-        # Шаг 1: безверсионное виртуальное имя (jack, pulseaudio, sh).
-        # Не зависит от порядка provides — канонический depends.
         _virtual=$(printf '%s\n' "$_provides" \
                     | grep -v '=' \
                     | grep -v '^$' \
                     | head -n1)
-
-        # Шаг 2: soname-style provides со срезанным '=ver'
-        # (libmpv.so=2-64 → libmpv.so). pacman матчит unversioned
-        # depend против versioned provides, поэтому резолвится на
-        # любой текущей версии пакета-владельца.
-        if [ -z "$_virtual" ]; then
-            _virtual=$(printf '%s\n' "$_provides" \
-                        | grep '=' \
-                        | head -n1)
-            _virtual="${_virtual%%=*}"
-        fi
-
-        # Шаг 3: provides нет вовсе — берём имя пакета.
         if [ -z "$_virtual" ]; then
             _virtual="$_owner"
         fi
@@ -178,11 +192,10 @@ EOF
     echo "[i] auto-detected: $auto_deps"
     echo "[i] final:         $all_deps"
 
-  local PKG_ARCH
-    if ! PKG_ARCH="$(makepkg --print-arch 2>/dev/null)" || [ -z "$PKG_ARCH" ]; then
-        echo "[!] makepkg --print-arch не вернул архитектуру — проверьте /etc/makepkg.conf (CARCH)" >&2
-        return 1
-    fi
+    local PKG_ARCH="$APPIMAGE_ARCH"
+    case "$PKG_ARCH" in
+        armhf) PKG_ARCH=armv7h ;;
+    esac
 
     # depends=('a' 'b' 'c') — через printf, чтобы не собирать строку руками.
     local -a deps_array=()
