@@ -126,15 +126,17 @@ build_pkg_arch() {
                  }' >> "$pkgs_tmp" || true
     done < "$libs_tmp"
 
-    # glibc и gcc-libs входят в group base — есть на любой Arch-системе,
-    # в depends не нужны. gcc15-libs — gcc 15 runtime из некоторых
-    # custom-образов, владеет libstdc++.so.6/libgcc_s.so.1 как и gcc-libs,
-    # тоже base-эквивалент. mesa-amber — legacy-замена mesa,
-    # конфликтует с mesa на уровне файлов; mesa резолвится через
-    # свой unversioned 'libgl', который mesa-amber тоже предоставляет.
+    # glibc, gcc-libs, libgcc, libstdc++ — runtime-библиотеки,
+    # гарантированно присутствующие в любой системе, где работает
+    # pacman (он сам на C++ и линкуется с libstdc++/libgcc_s)
+    #
+    # gcc15-libs — артефакт кастомных CI-образов, владеет теми же
+    # файлами; в обычных системах отсутствует. mesa-amber —
+    # legacy-замена mesa, конфликтует с mesa; mesa резолвится
+    # через unversioned 'libgl'.
     local raw_deps
     raw_deps=$(sort -u "$pkgs_tmp" \
-                | grep -vxE 'glibc|gcc-libs|gcc15-libs|mesa-amber' \
+                | grep -vxE 'glibc|gcc-libs|gcc15-libs|libgcc|libstdc\+\+|mesa-amber' \
                 | grep -v '^$')
 
     local auto_deps=""
