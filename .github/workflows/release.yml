@@ -24,8 +24,12 @@ on:
         description: 'Не собирать AppImage'
         type: boolean
         default: false
-      skip_arch_pkg:
-        description: 'Не собирать .pkg.tar.zst'
+      skip_arch_main:
+        description: 'Не собирать основной .pkg (Arch/CachyOS, glibc 2.44)'
+        type: boolean
+        default: false
+      skip_arch_compat:
+        description: 'Не собирать compat .pkg (Manjaro/Garuda/UBLinux, glibc 2.42)'
         type: boolean
         default: false
       skip_native:
@@ -290,7 +294,8 @@ jobs:
     needs: [version, resolve, arch-image]
     if: |
       needs.version.outputs.version_changed == 'true' &&
-      needs.resolve.outputs.run_id == ''
+      needs.resolve.outputs.run_id == '' &&
+      inputs.skip_arch_main != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -338,6 +343,87 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
+  # 3.1. Совместимая сборка бинарника в замороженном срезе Arch 2025-10-05
+  # (glibc 2.42). Даёт .pkg для Manjaro/Garuda/UBLinux.
+  # Актуальная arch-build не трогается.
+  # =========================================================================
+  arch-build-compat:
+    needs: [version]
+    if: |
+      always() &&
+      needs.version.result == 'success' &&
+      needs.version.outputs.version_changed == 'true' &&
+      inputs.skip_arch_compat != true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    container:
+      # Образ Arch от 2025-10-05: glibc 2.42 (28.07.2025), до 2.43 (~нач. 2026).
+      image: archlinux:base-20251005.0.430597
+      options: --user root
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Freeze repos to snapshot date
+        run: |
+          set -euo pipefail
+          # Без mirrorlist на ALA pacman -Syu утянет текущий Arch (glibc 2.44).
+          echo 'Server=https://archive.archlinux.org/repos/2025/10/05/$repo/os/$arch' \
+            > /etc/pacman.d/mirrorlist
+
+      - name: Install build toolchain
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed
+          pacman -S --noconfirm --needed \
+            base-devel cmake git patchelf wget curl
+
+      - name: Verify glibc baseline
+        run: |
+          set -euo pipefail
+          GLIBC=$(/usr/lib/ld-linux-x86-64.so.2 --version | head -1)
+          echo "[i] glibc: $GLIBC"
+          echo "$GLIBC" | grep -q "2\.42" \
+            || { echo "::error::glibc is not 2.42 — wrong snapshot"; exit 1; }
+
+      - uses: actions/cache@v5
+        with:
+          path: third_party
+          key: ${{ runner.os }}-${{ runner.arch }}-arch-compat-third_party-${{ hashFiles('scripts/setup-deps.sh', 'scripts/setup-deps-*.sh') }}
+
+      - name: Build third_party
+        run: |
+          set -euo pipefail
+          chmod +x scripts/setup-deps.sh
+          ./scripts/setup-deps.sh --yes --skip-system
+
+      - name: Build binary
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-release.sh
+          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
+
+      - name: Verify binary glibc requirement
+        run: |
+          set -euo pipefail
+          REQ=$(readelf -V install/bin/iptvplayer 2>/dev/null \
+                | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -V | tail -1)
+          echo "[i] binary max GLIBC: $REQ (baseline 2.42)"
+          HIGHER=$(printf '%s\n%s\n' "2.42" "$REQ" | sort -V | tail -1)
+          [ "$HIGHER" = "2.42" ] \
+            || { echo "::error::binary requires GLIBC_$REQ > 2.42"; exit 1; }
+
+      - name: Upload install tree (compat)
+        uses: actions/upload-artifact@v5
+        with:
+          name: arch-install-compat
+          path: install/
+          retention-days: 3
+          if-no-files-found: error
+
+  # =========================================================================
   # 4. AppImage (quick-sharun) на подготовленном Arch-образе.
   # =========================================================================
   appimage:
@@ -346,7 +432,8 @@ jobs:
       always() &&
       needs.version.result == 'success' &&
       needs.version.outputs.version_changed == 'true' &&
-      inputs.skip_appimage != true
+      inputs.skip_appimage != true &&
+      inputs.skip_arch_main != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -438,7 +525,7 @@ jobs:
       always() &&
       needs.version.result == 'success' &&
       needs.version.outputs.version_changed == 'true' &&
-      inputs.skip_arch_pkg != true
+      inputs.skip_arch_main != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -515,6 +602,89 @@ jobs:
         uses: ./.github/actions/cleanup-gpg
 
   # =========================================================================
+  # 5.1. Совместимый .pkg.tar.zst из замороженного среза (glibc 2.42).
+  # Имя файла получает суффикс "-compat" до .pkg.tar.zst.
+  # =========================================================================
+  arch-pkg-compat:
+    needs: [version, arch-build-compat]
+    if: |
+      always() &&
+      needs.version.result == 'success' &&
+      needs.version.outputs.version_changed == 'true' &&
+      inputs.skip_arch_compat != true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    container:
+      image: archlinux:base-20251005.0.430597
+      options: --user root
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Freeze repos to snapshot date
+        run: |
+          set -euo pipefail
+          echo 'Server=https://archive.archlinux.org/repos/2025/10/05/$repo/os/$arch' \
+            > /etc/pacman.d/mirrorlist
+
+      - name: Install toolchain
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed
+          pacman -S --noconfirm --needed base-devel patchelf
+
+      - name: Download install tree (compat)
+        uses: actions/download-artifact@v5
+        with:
+          name: arch-install-compat
+          path: install
+
+      - name: Build Arch compat package
+        run: |
+          set -euo pipefail
+          chmod +x install/bin/iptvplayer scripts/*.sh
+          ls -la install/bin/
+          ./scripts/build-package.sh --native-arch --yes
+          # Суффикс -compat до расширения, чтобы отличать от основного.
+          shopt -s nullglob
+          for f in dist/*.pkg.tar.zst; do
+            mv "$f" "${f%.pkg.tar.zst}-compat.pkg.tar.zst"
+          done
+          ls -la dist/
+
+      - name: Import GPG key
+        id: gpg
+        uses: ./.github/actions/import-gpg
+        with:
+          private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase:  ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Sign compat Arch package
+        if: steps.gpg.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in dist/*-compat.pkg.tar.zst; do
+            gpg --yes --detach-sign --armor -u "$GPG_KEY_ID" -o "$f.asc" "$f"
+          done
+
+      - name: Upload compat Arch package
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: native-arch-compat
+          path: |
+            dist/*-compat.pkg.tar.zst
+            dist/*-compat.pkg.tar.zst.asc
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Cleanup GPG
+        if: always()
+        uses: ./.github/actions/cleanup-gpg
+
+  # =========================================================================
   # 6. Нативные .deb / .rpm — каждый в своём контейнере
   # =========================================================================
   native-packages:
@@ -558,7 +728,7 @@ jobs:
   # нет в этом run'е, сохраняются — action-gh-release их не удаляет.
   # =========================================================================
   release:
-    needs: [version, resolve, appimage, arch-pkg, native-packages, windows-build]
+    needs: [version, resolve, appimage, arch-pkg, arch-pkg-compat, native-packages, windows-build]
     if: |
       always() &&
       needs.version.result == 'success' &&
@@ -587,6 +757,8 @@ jobs:
             --pattern '*-sharun.AppImage.zsync' \
             --pattern '*.pkg.tar.zst' \
             --pattern '*.pkg.tar.zst.asc' \
+            --pattern '*-compat.pkg.tar.zst' \
+            --pattern '*-compat.pkg.tar.zst.asc' \
             --pattern '*.deb' \
             --pattern '*.deb.asc' \
             --pattern '*.rpm' \
@@ -669,6 +841,7 @@ jobs:
           deb=(dist/*.deb)
           rpm=(dist/*.rpm)
           arch_pkg=(dist/*.pkg.tar.zst)
+          arch_pkg_compat=(dist/*-compat.pkg.tar.zst)
           # >>> Windows
           win_zip=(dist/*-win64.zip)
           win_setup=(dist/*-win64-setup.exe)
@@ -702,6 +875,7 @@ jobs:
           rpm_distros="${rpm_distros%, }"
 
           echo "Arch package:          ${#arch_pkg[@]}"
+          echo "Arch compat package:   ${#arch_pkg_compat[@]}"
           echo "AppImage(sharun):      ${#sharun[@]}"
           echo ".deb (Ubuntu):         ${deb_ubuntu_count}  [${deb_ubuntu_distros}]"
           echo ".deb (Debian):         ${deb_debian_count}  [${deb_debian_distros}]"
@@ -716,6 +890,7 @@ jobs:
           {
             echo "have_sharun=$have_shr"
             echo "arch_count=${#arch_pkg[@]}"
+            echo "arch_compat_count=${#arch_pkg_compat[@]}"
             echo "deb_ubuntu_count=$deb_ubuntu_count"
             echo "deb_ubuntu_distros=$deb_ubuntu_distros"
             echo "deb_debian_count=$deb_debian_count"
@@ -754,6 +929,7 @@ jobs:
           dd="${{ steps.check.outputs.deb_debian_count }}"
           rc="${{ steps.check.outputs.rpm_count }}"
           ac="${{ steps.check.outputs.arch_count }}"
+          acc="${{ steps.check.outputs.arch_compat_count }}"
 
           win_zip_cell=$([[ -n "$wz" && "$wz" != "0" ]] && printf '✅' || printf '❌')
           win_setup_cell=$([[ -n "$ws" && "$ws" != "0" ]] && printf '✅' || printf '❌')
@@ -761,6 +937,7 @@ jobs:
           deb_debian_cell=$([[ -n "$dd" && "$dd" != "0" ]] && printf '✅' || printf '❌')
           rpm_cell=$([[ -n "$rc" && "$rc" != "0" ]] && printf '✅' || printf '❌')
           arch_cell=$([[ -n "$ac" && "$ac" != "0" ]] && printf '✅' || printf '❌')
+          arch_compat_cell=$([[ -n "$acc" && "$acc" != "0" ]] && printf '✅' || printf '❌')
 
           BODY=$(cat <<EOF
           Release v$V (commit ${{ github.sha }})
@@ -768,7 +945,8 @@ jobs:
           | Артефакт | Собрано | Описание |
           |:---|:---:|---|
           | \`*-sharun.AppImage\` | $SHR | Работает практически во всех Linux (Void, NixOS, Tinycore и т.д.) |
-          | \`*-arch-*.pkg.tar.zst\` | $arch_cell | Arch Linux. Установка: \`sudo pacman -U iptvplayer-*.pkg.tar.zst\` |
+          | \`*-arch-*.pkg.tar.zst\` | $arch_cell | Arch Linux, CachyOS, EndeavourOS (glibc ≥ 2.44). Установка: \`sudo pacman -U iptvplayer-*.pkg.tar.zst\` |
+          | \`*-arch-*-compat.pkg.tar.zst\` | $arch_compat_cell | Manjaro, Garuda, UBLinux (glibc 2.42+). Установка: \`sudo pacman -U iptvplayer-*-compat.pkg.tar.zst\` |
           | \`*-ubuntu-*.deb\` | $deb_ubuntu_cell | Ubuntu 24.04+. Установка: \`sudo apt install iptvplayer-*-ubuntu-*.deb\` |
           | \`*-debian-*.deb\` | $deb_debian_cell | Debian 13+. Установка: \`sudo apt install iptvplayer-*-debian-*.deb\` |
           | \`*-rocky-*.rpm\` | $rpm_cell | Rocky 10+, Fedora 44+, Alt p11, Роса 13, OpenSuse Leap 16, OpenMandriva 6.0, Mageia 10. Установка: \`sudo (dnf \\| epm \\| zypper) install iptvplayer-*-rocky-*.rpm\` |

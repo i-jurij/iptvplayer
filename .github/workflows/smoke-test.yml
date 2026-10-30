@@ -668,7 +668,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { family: arch, target: arch, container: 'archlinux:latest', pkg_distro: arch }
+          - { family: arch, target: arch,        container: 'archlinux:latest',                pkg_distro: arch, pkg_compat: 'false' }
+          - { family: arch, target: arch-compat, container: 'archlinux:base-20251005.0.430597', pkg_distro: arch, pkg_compat: 'true'  }
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -699,7 +700,18 @@ jobs:
       - name: Install package
         run: |
           set -euo pipefail
-          pacman -U --noconfirm --assume-installed jack ./dist/*.pkg.tar.zst
+          shopt -s nullglob
+          if [[ "${{ matrix.pkg_compat }}" == "true" ]]; then
+            pkgs=(dist/*-compat.pkg.tar.zst)
+          else
+            pkgs=()
+            for f in dist/*.pkg.tar.zst; do
+              [[ "$f" == *-compat.pkg.tar.zst ]] && continue
+              pkgs+=("$f")
+            done
+          fi
+          (( ${#pkgs[@]} > 0 )) || { echo "::error::no matching .pkg.tar.zst"; exit 1; }
+          pacman -U --noconfirm --assume-installed jack "${pkgs[@]}"
 
       - name: Verify --version
         run: |
