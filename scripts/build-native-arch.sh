@@ -192,6 +192,11 @@ EOF
     echo "[i] auto-detected: $auto_deps"
     echo "[i] final:         $all_deps"
 
+  # Готовое дерево /usr копируем в workdir — makepkg упакует его
+    # в package() через $startdir/staging_usr. Имя каталога (staging_usr)
+    # обязано совпадать с тем, что прописано в package() PKGBUILD.
+    cp -a "$STAGING_DIR/usr" "$workdir/staging_usr"
+    
     local PKG_ARCH="$APPIMAGE_ARCH"
     case "$PKG_ARCH" in
         armhf) PKG_ARCH=armv7h ;;
