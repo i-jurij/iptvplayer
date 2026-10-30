@@ -32,6 +32,10 @@ on:
         description: 'Не собирать .deb/.rpm'
         type: boolean
         default: false
+      skip_windows:
+        description: 'Не собирать Windows'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -538,7 +542,8 @@ jobs:
     if: |
       always() &&
       needs.version.result == 'success' &&
-      needs.version.outputs.version_changed == 'true'
+      needs.version.outputs.version_changed == 'true'&&
+      inputs.skip_windows != true
     uses: ./.github/workflows/windows-packages.yml
     with:
       version: ${{ needs.version.outputs.version }}
