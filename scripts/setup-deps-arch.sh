@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-deps-arch.sh – pacman: Arch/Manjaro/EndeavourOS/CachyOS
+# setup-deps-arch.sh – pacman: Arch/Manjaro/EndeavourOS/CachyOS/Garuda/UBLinux
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then echo "setup-deps-arch.sh — библиотека." >&2; exit 1; fi
 
 deps_packages() {

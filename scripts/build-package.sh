@@ -281,7 +281,7 @@ Native:
   --native-rpm-rosa         .rpm (ROSA Linux, 1.rosaN)
   --native-rpm-mageia       .rpm (Mageia, 1.mgaN)
   --native-rpm-openmandriva .rpm (OpenMandriva, omvN)
-  --native-arch     .pkg.tar.zst (Arch/Manjaro)
+  --native-arch     .pkg.tar.zst (Arch/CachyOS/Manjaro)
   --appimage        AppImage (linuxdeploy)
   --sharun          AppImage (quick-sharun)
   --flatpak         Flatpak-bundle (flatpak-builder required)
@@ -667,7 +667,7 @@ main() {
         fi
     fi
     if [[ "$BUILD_NATIVE_ARCH" == true ]]; then
-        if distro_is 'arch*' 'manjaro*' 'endeavouros*' 'cachyos*'; then
+        if distro_is 'arch*' 'manjaro*' 'endeavouros*' 'cachyos*' 'garuda*' 'ublinux*'; then
             prepare_staging && build_pkg_arch || FAILED+=("native-arch")
         else
             echo "[i] --native-arch: пропускаем на $DISTRO"

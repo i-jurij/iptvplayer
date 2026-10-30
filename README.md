@@ -49,7 +49,7 @@ Pick the artifact that matches your system:
 | `iptvplayer-linux-<arch>-<version>-sharun.AppImage` | Any Linux, including old glibc, musl systems (Alpine, Void-musl), NixOS without FHS |
 | `iptvplayer_<version>_<distro>_<deb-arch>.deb` | Ubuntu 24.04+, Debian 13+ (native: depends on system libraries) |
 | `iptvplayer-<version>-1.<distro>.<rpm-arch>.rpm` | Fedora 44+, Rocky 10+, RHEL 10 (with EPEL), Alt p11, Rosa 13, OpenSuse Leap 16, OpenMandriva 6.0, Mageia 10 |
-| `iptvplayer-<version>-1-<distro>-<arch>.pkg.tar.zst` | Arch Linux, Manjaro |
+| `iptvplayer-<version>-1-<distro>-<arch>.pkg.tar.zst` | Arch Linux, CachyOS |
 
 All artifacts come with `checksums.txt` and a detached GPG signature.
 See [SECURITY.md](SECURITY.md) for verification instructions.
@@ -73,7 +73,7 @@ playback fails with a black screen or `Unable to create decoder for h264`.
 - **Debian / Ubuntu:** `sudo apt install libopenh264-<N>` — the exact version
   number changes between releases; run `apt-cache search libopenh264` if
   unsure. If no such package exists, try `sudo apt install libavcodec-extra`.
-- **Arch / Manjaro:** `sudo pacman -S ffmpeg` (H.264 decoding is included). Optionally also
+- **Arch / CachyOS:** `sudo pacman -S ffmpeg` (H.264 decoding is included). Optionally also
   `sudo pacman -S openh264`.
 
 Then restart the application.
@@ -93,7 +93,7 @@ Everything is driven by one script:
     ./scripts/build-package.sh
 
 Run it without arguments and you get an interactive menu tailored to your
-distribution (Debian/Ubuntu, Fedora/Rocky/RHEL/openSUSE, Arch/Manjaro).
+distribution (Debian/Ubuntu, Fedora/Rocky/RHEL/openSUSE, Arch/CachyOS).
 Pick a number — the script takes care of the rest: it builds the binary if
 needed, prepares a staging tree, and produces the package in `dist/`.
 
@@ -108,7 +108,7 @@ Typical flows:
     # .rpm from system libraries (Fedora/Rocky/RHEL/openSUSE)
     ./scripts/build-package.sh --native-rpm
 
-    # .pkg.tar.zst (Arch/Manjaro)
+    # .pkg.tar.zst (Arch/CachyOS)
     ./scripts/build-package.sh --native-arch
 
     # AppImage through linuxdeploy (classic pipeline)
@@ -270,7 +270,7 @@ Or use the wrapper script, which does all of the above in one shot:
 | :----- | :---------- |
 | `--native-deb` | Native `.deb` from system libraries (Debian/Ubuntu) |
 | `--native-rpm` | Native `.rpm` from system libraries (Fedora/Rocky/RHEL/openSUSE) |
-| `--native-arch` | Native `.pkg.tar.zst` (Arch/Manjaro) |
+| `--native-arch` | Native `.pkg.tar.zst` (Arch/CachyOS) |
 | `--native-alt` | Native `.rpm` for ALT Linux |
 | `--native-rosa` | Native `.rpm` for ROSA Linux |
 | `--appimage` | AppImage (linuxdeploy + appimagetool) |

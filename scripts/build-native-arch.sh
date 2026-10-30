@@ -12,7 +12,7 @@ build_pkg_arch() {
     # На не-Arch системах makepkg нет. Явный вызов --native-arch
     # на Ubuntu/Debian — ошибка пользователя.
     if ! command -v makepkg >/dev/null 2>&1; then
-        echo "[!] makepkg не найден. Сборка .pkg.tar.zst возможна только на Arch/Manjaro."
+        echo "[!] makepkg не найден. Сборка .pkg.tar.zst возможна только на Arch/CachyOS/Manjaro."
         return 1
     fi
 

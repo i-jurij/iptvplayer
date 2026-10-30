@@ -149,7 +149,7 @@ cleanup_deps() {
         printf '#   sudo dnf remove <pkg1> <pkg2>       (Fedora/RHEL/RedOS/ROSA)\n'
         printf '#   sudo apt-get remove <pkg1> <pkg2>   (Debian/Ubuntu/ALT)\n'
         printf '#   sudo zypper remove <pkg1> <pkg2>    (openSUSE/SLES)\n'
-        printf '#   sudo pacman -R <pkg1> <pkg2>        (Arch/Manjaro)\n'
+        printf '#   sudo pacman -R <pkg1> <pkg2>        (Arch/CachyOS/Manjaro/Garuda/UBLinux)\n'
         printf '#   sudo apk del <pkg1> <pkg2>          (Alpine)\n'
         printf '# After successfully removing — delete this file.\n'
         printf '%s\n' "${failed[@]}"
