@@ -54,9 +54,11 @@ public:
   ~PlaylistManager();
 
   ErrorCode addPlaylistFromFile(const std::wstring &filePathW,
-                                const std::wstring &titleW);
+                                const std::wstring &titleW,
+                                bool autoUpdate = true);
   ErrorCode addPlaylistFromUrl(const std::string &url, std::string &title,
-                               const std::string &userAgent);
+                               const std::string &userAgent,
+                               bool autoUpdate = true);
   ErrorCode downloadUrl(const std::string &url, std::string &content,
                         const std::string &userAgent,
                         DownloadProgress *progress = nullptr);
@@ -67,8 +69,12 @@ public:
   std::string normalizePlaylistTitle(const std::string &rawTitle) const;
 
   ErrorCode updatePlaylist(size_t index);
-  int updateUrlPlaylists();
-  int updateAutoUpdatePlaylists();
+
+  // Возвращает индексы плейлистов, подлежащих автообновлению.
+  // includeAll = true  → все плейлисты (per-playlist флаг игнорируется).
+  // includeAll = false → только плейлисты с getAutoUpdate() == true.
+  // Потокобезопасно (под m_playlistsMutex).
+  std::vector<size_t> getAutoUpdateIndices(bool includeAll) const;
 
   ErrorCode removePlaylist(size_t index);
   ErrorCode removePlaylist(size_t index, bool removeSource);

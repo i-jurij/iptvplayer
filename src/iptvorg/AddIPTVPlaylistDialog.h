@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <wx/button.h>
+#include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/dataview.h>
 #include <wx/dialog.h>
@@ -21,6 +22,9 @@ public:
 
   wxString GetSelectedUrl() const { return m_selectedUrl; }
   wxString GetSelectedTitle() const { return m_selectedTitle; }
+  bool     GetAutoUpdate() const {
+    return m_autoUpdateCheck ? m_autoUpdateCheck->GetValue() : true;
+  }
 
 private:
   PlaylistManager *m_playlistMgr;
@@ -31,6 +35,7 @@ private:
   wxTextCtrl *m_searchCtrl;
   wxDataViewListCtrl *m_dataViewList; // используем ListCtrl
   wxButton *m_refreshBtn;
+  wxCheckBox *m_autoUpdateCheck = nullptr;
   FilterType m_filterType = FilterType::Country;
 
   wxString m_selectedUrl;

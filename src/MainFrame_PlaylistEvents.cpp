@@ -21,6 +21,27 @@
 
 #include <cstdio>
 
+void MainFrame::BeginPlaylistGauge(int total) {
+  if (m_gaugeOwner == GaugeOwner::Epg)
+    return;
+  m_gaugeOwner = GaugeOwner::Playlist;
+  if (m_gaugeTop) {
+    m_gaugeTop->SetRange(total);
+    m_gaugeTop->SetValue(0);
+    m_gaugeTop->Show();
+  }
+}
+
+void MainFrame::EndPlaylistGauge() {
+  if (m_gaugeOwner != GaugeOwner::Playlist)
+    return;
+  m_gaugeOwner = GaugeOwner::None;
+  if (m_gaugeTop) {
+    m_gaugeTop->SetValue(0);
+    m_gaugeTop->Hide();
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Event handler implementations
 // ─────────────────────────────────────────────────────────────
@@ -491,13 +512,7 @@ void MainFrame::onUpdateAllPlaylists(wxCommandEvent &WXUNUSED(event)) {
     totalInt = static_cast<int>(pls.size() > 0 ? pls.size() : 1);
   }
 
-  // initialize top gauge with real total
-  if (m_gaugeTop) {
-    m_gaugeTop->SetRange(totalInt);
-    m_gaugeTop->SetValue(0);
-    m_gaugeTop->Show();
-  }
-
+  BeginPlaylistGauge(totalInt);
   LOG_DEBUG("onUpdateAllPlaylists: initialized gauge range=%d", totalInt);
 
   SetStatusText(_U("Updating playlists..."), 0);
@@ -688,7 +703,18 @@ void MainFrame::onUpdateProgress(wxCommandEvent &ev) {
   if (total <= 0)
     return;
 
-  // --- безопасное обновление top gauge с форсированной перерисовкой и логом
+  if (m_gaugeOwner == GaugeOwner::Epg)
+    return;
+
+  // EPG освободил gauge во время playlist update — забираем обратно.
+  if (m_gaugeOwner != GaugeOwner::Playlist) {
+    m_gaugeOwner = GaugeOwner::Playlist;
+    if (m_gaugeTop) {
+      m_gaugeTop->SetRange(total);
+      m_gaugeTop->Show();
+    }
+  }
+
   if (m_gaugeTop && m_gaugeTop->IsShown()) {
     int effectiveTotal =
         (total > 0) ? total
@@ -801,7 +827,7 @@ void MainFrame::onAddIPTVPlaylist(wxCommandEvent &WXUNUSED(event)) {
     fprintf(stderr, "[MARK] A10: before addPlaylistFromUrl\n");
     fflush(stderr);
 
-    ec = mgr->addPlaylistFromUrl(urlStr, titleStr, "");
+    ec = mgr->addPlaylistFromUrl(urlStr, titleStr, "", dlg.GetAutoUpdate());
 
     fprintf(stderr, "[MARK] A11: after addPlaylistFromUrl, ec=%d\n", (int)ec);
     fflush(stderr);

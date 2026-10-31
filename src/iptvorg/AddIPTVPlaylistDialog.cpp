@@ -59,6 +59,12 @@ void AddIPTVPlaylistDialog::InitializeUI() {
                                    wxALIGN_LEFT);
   mainSizer->Add(m_dataViewList, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
 
+  // ------ Auto-update ------
+  m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY,
+                                     _U("Auto-update on startup"));
+  m_autoUpdateCheck->SetValue(true);
+  mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+
   // ------ Кнопки ------
   auto *btnSizer = new wxBoxSizer(wxHORIZONTAL);
   m_refreshBtn = new wxButton(this, wxID_ANY, _U("Refresh List"));

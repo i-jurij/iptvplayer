@@ -205,9 +205,16 @@ void MainFrame::HandleChannelPageChanged(int sel) {
         if (epg) {
           std::string playlistId = pl->getUniqueId();
           if (!playlistId.empty()) {
-            epg->LoadMappingForPlaylist(playlistId, pl->getChannels());
-            LOG_DEBUG("HandleChannelPageChanged: Loaded mapping for %s",
-                      playlistId.c_str());
+            if (playlistId == m_lastMappingLoadedPlaylistId) {
+              LOG_DEBUG("HandleChannelPageChanged: mapping for %s already "
+                        "loaded, skipping",
+                        playlistId.c_str());
+            } else {
+              epg->LoadMappingForPlaylist(playlistId, pl->getChannels());
+              m_lastMappingLoadedPlaylistId = playlistId;
+              LOG_DEBUG("HandleChannelPageChanged: Loaded mapping for %s",
+                        playlistId.c_str());
+            }
           }
         }
       }

@@ -1284,15 +1284,12 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   MatchResult result;
 
   const std::string channelName = playlistChannel.getName();
-  LOG_DEBUG("FindBestMatch: START for channel '%s'", channelName.c_str());
 
   // ========================================================================
   // ЭТАП 0: Алиас
   // ========================================================================
   MatchResult aliasResult = MatchByAlias(channelName);
   if (!aliasResult.channelId.empty()) {
-    LOG_DEBUG("FindBestMatch: ALIAS MATCH -> epgId='%s'",
-              aliasResult.channelId.c_str());
     return aliasResult;
   }
 
@@ -1301,11 +1298,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   // ========================================================================
   NormalizedChannel playlistNorm;
   NormalizeWithAttributes(channelName, playlistNorm);
-  LOG_DEBUG("FindBestMatch: normalized: baseName='%s', region='%s', "
-            "quality='%s'",
-            playlistNorm.baseName.c_str(), playlistNorm.region.c_str(),
-            playlistNorm.quality.c_str());
-
   std::string tvgId = playlistChannel.getTvgId();
   if (!tvgId.empty()) {
     // Прямой матч: playlist.tvg-id точно равен XMLTV <channel id>.
@@ -1316,12 +1308,8 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       result.method = "tvg-id-direct";
       result.score = 100;
       result.confidence = "high";
-      LOG_DEBUG("FindBestMatch: TVG-ID DIRECT '%s' -> epgId='%s'",
-                tvgId.c_str(), result.channelId.c_str());
       return result;
     }
-  } else {
-    LOG_DEBUG("FindBestMatch: no tvg-id present");
   }
 
   // ========================================================================
@@ -1329,8 +1317,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
   // ========================================================================
   {
     std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
-    LOG_DEBUG("FindBestMatch: checking exact match for baseName='%s'",
-              playlistNorm.baseName.c_str());
     for (const auto &epg : m_normalizedCache) {
       if (epg.baseName == playlistNorm.baseName) {
         bool regionOk = true;
@@ -1343,13 +1329,10 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
           result.method = "exact_name";
           result.score = 100;
           result.confidence = "high";
-          LOG_DEBUG("FindBestMatch: EXACT NAME MATCH -> epgId='%s'",
-                    result.channelId.c_str());
           return result;
         }
       }
     }
-    LOG_DEBUG("FindBestMatch: exact match not found");
   }
 
   // ========================================================================
@@ -1379,11 +1362,8 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       result.method = "name_to_id";
       result.score = 95;
       result.confidence = "high";
-      LOG_DEBUG("FindBestMatch: NAME-TO-ID MATCH -> epgId='%s'",
-                result.channelId.c_str());
       return result;
     }
-    LOG_DEBUG("FindBestMatch: name-to-id exact matches = %d", matchCount);
     // matchCount == 0 — просто идём дальше.
     // matchCount > 1 — кандидаты попадут в пул на ЭТАПЕ 3 и будут
     // соревноваться через substring/tokens/Jaro.
@@ -1426,11 +1406,8 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       }
     }
   }
-  LOG_DEBUG("FindBestMatch: candidates after filtering = %zu",
-            candidates.size());
 
   if (candidates.empty()) {
-    LOG_DEBUG("FindBestMatch: no candidates, returning empty result");
     return result;
   }
 
@@ -1465,8 +1442,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     if (nameSub || idSub) {
       cand.score = 75;
       cand.fromId = idSub && !nameSub;
-      LOG_DEBUG("FindBestMatch: substring candidate '%s' (score=75, id=%d)",
-                cand.baseName.c_str(), static_cast<int>(cand.fromId));
     }
   }
 
@@ -1504,13 +1479,9 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
     if (cand.ratio >= m_tokenHigh) {
       cand.score = 85;
       cand.fromId = fromId;
-      LOG_DEBUG("FindBestMatch: token-high candidate '%s' (ratio=%.2f, id=%d)",
-                cand.baseName.c_str(), cand.ratio, static_cast<int>(fromId));
     } else if (cand.ratio >= m_tokenLow) {
       cand.score = 65;
       cand.fromId = fromId;
-      LOG_DEBUG("FindBestMatch: token-low candidate '%s' (ratio=%.2f, id=%d)",
-                cand.baseName.c_str(), cand.ratio, static_cast<int>(fromId));
     } else {
       cand.score = 0;
     }
@@ -1539,8 +1510,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       else if (jaro1 > jaro2)
         cand.fromId = false;
 
-      LOG_DEBUG("FindBestMatch: Jaro-Winkler for '%s' = %.4f (id=%.4f)",
-                cand.baseName.c_str(), jaro1, jaro2);
       if (jaro >= m_jaroHigh)
         cand.score += 5;
       else if (jaro >= m_jaroMedium)
@@ -1563,8 +1532,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
         cand.score += 2;
       if (cand.score > 100)
         cand.score = 100;
-      LOG_DEBUG("FindBestMatch: final score for '%s' = %d",
-                cand.baseName.c_str(), cand.score);
     }
   }
 
@@ -1579,9 +1546,6 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       best = &cand;
     }
   }
-
-  LOG_DEBUG("FindBestMatch: best score=%d, threshold=%d", bestScore,
-            m_minMatchScore);
 
   if (best && bestScore >= m_minMatchScore) {
     result.channelId = best->id;
@@ -1990,73 +1954,70 @@ void EPGManager::RemoveManualMapping(const std::string &playlistId,
 // --------------------------------------------------------------------------
 bool EPGManager::LoadMappingForPlaylist(const std::string &playlistId,
                                         const std::vector<Channel> &channels) {
-  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-  if (!m_db || !m_db->IsOpen())
-    return false;
+  // выйти из-под m_dbMutex до вызова IncrementalRemap
+  bool needRemap = false;
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (!m_db || !m_db->IsOpen())
+      return false;
 
-  std::unordered_map<std::string, std::string> mapping;
-  std::unordered_map<std::string, std::string> manualMapping;
-  size_t channelCount = 0;
-  std::string channelHash, epgHashAtMatch;
+    std::unordered_map<std::string, std::string> mapping;
+    std::unordered_map<std::string, std::string> manualMapping;
+    size_t channelCount = 0;
+    std::string channelHash, epgHashAtMatch;
 
-  bool metaOk =
-      m_db->LoadPlaylistMapping(playlistId, mapping, manualMapping,
-                                channelCount, channelHash, epgHashAtMatch);
-  bool hasData = !mapping.empty() || !manualMapping.empty();
-  const bool isFavorites = (playlistId == FAVORITES_PLAYLIST_ID);
+    bool metaOk =
+        m_db->LoadPlaylistMapping(playlistId, mapping, manualMapping,
+                                  channelCount, channelHash, epgHashAtMatch);
+    bool hasData = !mapping.empty() || !manualMapping.empty();
+    const bool isFavorites = (playlistId == FAVORITES_PLAYLIST_ID);
 
-  if (!metaOk && !hasData) {
-    // Нет ни метаданных, ни записей. Чистим соответствующие карты,
-    // чтобы не остались чужие ключи от предыдущего плейлиста.
-    std::unique_lock lock(m_mappingMutex);
-    if (isFavorites) {
-      m_favoritesMapping.clear();
-      m_favoritesManualMapping.clear();
-    } else {
-      m_channelMapping.clear();
-      m_manualMapping.clear();
-      m_mappingStale = true;
+    if (!metaOk && !hasData) {
+      std::unique_lock lock(m_mappingMutex);
+      if (isFavorites) {
+        m_favoritesMapping.clear();
+        m_favoritesManualMapping.clear();
+      } else {
+        m_channelMapping.clear();
+        m_manualMapping.clear();
+        m_mappingStale = true;
+      }
+      return false;
     }
-    return false;
-  }
 
-  if (isFavorites) {
-    // Favorites: хэш/счётчик не проверяем (список избранного меняется
-    // независимо). Решение о рематче — по m_lastFavoritesEpgHash внутри
-    // MatchFavoritesAsync. m_currentPlaylistId НЕ трогаем: иначе
-    // ReMatchCurrentPlaylist не найдёт реальный плейлист.
-    std::unique_lock lock(m_mappingMutex);
-    m_favoritesMapping = mapping;
-    m_favoritesManualMapping = manualMapping;
-    return true;
-  }
+    if (isFavorites) {
+      std::unique_lock lock(m_mappingMutex);
+      m_favoritesMapping = mapping;
+      m_favoritesManualMapping = manualMapping;
+      return true;
+    }
 
-  // Далее — обычный плейлист (без изменений).
-  std::string currentHash = ComputePlaylistHash(channels);
-  bool hashMatch = (currentHash == channelHash);
-  bool countMatch = (channelCount == channels.size());
+    std::string currentHash = ComputePlaylistHash(channels);
+    bool hashMatch = (currentHash == channelHash);
+    bool countMatch = (channelCount == channels.size());
 
-  if (!hashMatch || !countMatch) {
-    {
+    if (!hashMatch || !countMatch) {
       std::unique_lock lock(m_mappingMutex);
       m_channelMapping = mapping;
       m_manualMapping = manualMapping;
       m_mappingStale = true;
+      needRemap = true;
+    } else {
+      std::unique_lock lock(m_mappingMutex);
+      m_channelMapping = mapping;
+      m_manualMapping = manualMapping;
+      m_mappingStale = false;
+      m_currentPlaylistId = playlistId;
     }
-    IncrementalRemap(channels, playlistId);
-    return true;
-  }
+  } // dbLock отпущен
 
-  {
-    std::unique_lock lock(m_mappingMutex);
-    m_channelMapping = mapping;
-    m_manualMapping = manualMapping;
-    m_mappingStale = false;
+  if (needRemap) {
+    // IncrementalRemap.wait() безопасен: m_dbMutex НЕ удерживается,
+    // фоновый MatchChannels может взять его и завершиться.
+    IncrementalRemap(channels, playlistId);
   }
-  m_currentPlaylistId = playlistId;
   return true;
 }
-
 void EPGManager::SaveMappingForPlaylist(const std::string &playlistId,
                                         const std::vector<Channel> &channels) {
   MatchChannels(channels, playlistId);

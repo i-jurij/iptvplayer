@@ -48,7 +48,6 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
   wxStaticText *thumbHint = nullptr;
   wxStaticText *cacheNote = nullptr;
   wxStaticText *logoNote = nullptr;
-  wxStaticText *plNote = nullptr;
 
   // -------------------------
   // Block 1: User interface — Logo Options
@@ -126,28 +125,6 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
     contentSizer->Add(actionsSizer, 0, wxEXPAND | wxALL, PAD);
   }
 
-  // -------------------------
-  // Block 3: Playlists
-  // -------------------------
-  {
-    wxStaticBox *plBox = new wxStaticBox(scrolled, wxID_ANY, _U("Playlists"));
-    wxStaticBoxSizer *plBoxSizer = new wxStaticBoxSizer(plBox, wxVERTICAL);
-
-    plNote = new wxStaticText(plBox, wxID_ANY,
-                              _U("Playlist auto-update and related settings."));
-    plNote->SetForegroundColour(*wxLIGHT_GREY);
-    plBoxSizer->Add(plNote, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, INNER_PAD);
-
-    bool autoUpdate = (m_config->getSetting("auto_update", "false") == "true");
-    m_autoUpdateCheck =
-        new wxCheckBox(plBox, wxID_ANY, _U("Enable playlists auto update"));
-    m_autoUpdateCheck->SetValue(autoUpdate);
-    plBoxSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM,
-                    INNER_PAD / 2);
-
-    contentSizer->Add(plBoxSizer, 0, wxEXPAND | wxALL, PAD);
-  }
-
   contentSizer->AddStretchSpacer(1);
 
   scrolled->SetSizer(contentSizer);
@@ -206,8 +183,6 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
     cacheNote->Wrap(availW);
   if (logoNote)
     logoNote->Wrap(availW);
-  if (plNote)
-    plNote->Wrap(availW);
 
   contentSizer->Layout();
   scrolled->FitInside();
@@ -271,16 +246,9 @@ void SettingsDialog::OnCancel(wxCommandEvent &WXUNUSED(event)) {
 
 void SettingsDialog::RestoreDefaults() {
   const bool default_show_logos = false; // nologo = true
-  const bool default_auto_update = false;
 
   if (m_noLogoCheck)
     m_noLogoCheck->SetValue(default_show_logos);
-
-  if (m_autoUpdateCheck)
-    m_autoUpdateCheck->SetValue(default_auto_update);
-
-  // Для EPG сброс не реализован — оставляем текущие настройки,
-  // пользователь может изменить их вручную.
 }
 
 void SettingsDialog::OnRestoreDefaults(wxCommandEvent &WXUNUSED(event)) {
@@ -319,9 +287,6 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
 
   if (saveConfig && m_config) {
     m_config->setSetting("nologo", show ? "false" : "true");
-    m_config->setSetting(
-        "auto_update",
-        m_autoUpdateCheck && m_autoUpdateCheck->GetValue() ? "true" : "false");
     m_config->saveSettings();
     m_mainFrame->SetStatusText(_U("Settings saved."), 0);
   }

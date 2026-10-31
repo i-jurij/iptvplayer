@@ -1,11 +1,14 @@
+#include "ConfigManager.h"
 #include "EventIDs.h"
 #include "MainFrame.h"
 #include "Utils.h"
 
 #include <wx/button.h>
+#include <wx/checkbox.h>
 #include <wx/gauge.h>
 #include <wx/listctrl.h>
 #include <wx/sizer.h>
+#include <wx/statline.h>
 
 void MainFrame::adjustTitleColumnWidth() {
   if (!m_playlistList)
@@ -132,15 +135,24 @@ wxSizer *MainFrame::createPlaylistTopButtons() {
   auto *addUrlBtn =
       new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_URL,
                    _U("Add from URL..."));
-  topBtnSizer->Add(addUrlBtn, 0, wxRIGHT, FromDIP(6));
-
-  m_updateAllBtn =
-      new wxButton(m_playlistPanel, ID_UPDATE_ALL_PLAYLISTS, _U("Update All"));
-  topBtnSizer->Add(m_updateAllBtn, 0);
+  topBtnSizer->Add(addUrlBtn, 0);
 
   auto *vbox = new wxBoxSizer(wxVERTICAL);
   vbox->Add(topBtnSizer, 0, wxEXPAND | wxALL, FromDIP(6));
   return vbox;
+}
+
+void MainFrame::onPlaylistsAutoUpdateAll(wxCommandEvent &) {
+  auto *cfg = getConfigManager();
+  if (!cfg || !m_playlistsAutoUpdateAllCheck)
+    return;
+  bool checked = m_playlistsAutoUpdateAllCheck->GetValue();
+  cfg->setSetting("auto_update", checked ? "true" : "false");
+  cfg->saveSettings();
+  SetStatusText(checked ? _U("All playlists will be auto-updated at startup.")
+                        : _U("Only playlists with their own auto-update flag "
+                             "will be updated."),
+                0);
 }
 
 wxSizer *MainFrame::createPlaylistButtons() {
@@ -149,8 +161,7 @@ wxSizer *MainFrame::createPlaylistButtons() {
   m_openBtn = new wxButton(m_playlistPanel, ID_OPEN_PLAYLIST, _U("Open"));
   m_updateBtn = new wxButton(m_playlistPanel, ID_UPDATE_PLAYLIST, _U("Update"));
   m_editBtn = new wxButton(m_playlistPanel, ID_EDIT_PLAYLIST, _U("Edit"));
-  m_removeBtn =
-      new wxButton(m_playlistPanel, ID_REMOVE_PLAYLIST, _U("Remove"));
+  m_removeBtn = new wxButton(m_playlistPanel, ID_REMOVE_PLAYLIST, _U("Remove"));
 
   m_openBtn->Enable(false);
   m_updateBtn->Enable(false);
@@ -160,7 +171,29 @@ wxSizer *MainFrame::createPlaylistButtons() {
   btnSizer->Add(m_openBtn, 0, wxRIGHT, FromDIP(6));
   btnSizer->Add(m_updateBtn, 0, wxRIGHT, FromDIP(6));
   btnSizer->Add(m_editBtn, 0, wxRIGHT, FromDIP(6));
-  btnSizer->Add(m_removeBtn, 0);
+  btnSizer->Add(m_removeBtn, 0, wxRIGHT, FromDIP(10));
+
+  auto *separator =
+      new wxStaticLine(m_playlistPanel, wxID_ANY, wxDefaultPosition,
+                       wxDefaultSize, wxLI_VERTICAL);
+  separator->SetMinSize(wxSize(-1, FromDIP(24)));
+  btnSizer->Add(separator, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(10));
+
+  m_updateAllBtn =
+      new wxButton(m_playlistPanel, ID_UPDATE_ALL_PLAYLISTS, _U("Update All"));
+  btnSizer->Add(m_updateAllBtn, 0, wxRIGHT, FromDIP(10));
+
+  m_playlistsAutoUpdateAllCheck =
+      new wxCheckBox(m_playlistPanel, wxID_ANY, _U("Auto-update all on startup"));
+  m_playlistsAutoUpdateAllCheck->SetToolTip(
+      _U("Update all playlists at startup, ignoring individual flags."));
+  if (auto *cfg = getConfigManager()) {
+    bool v = (cfg->getSetting("auto_update", "false") == "true");
+    m_playlistsAutoUpdateAllCheck->SetValue(v);
+  }
+  m_playlistsAutoUpdateAllCheck->Bind(
+      wxEVT_CHECKBOX, &MainFrame::onPlaylistsAutoUpdateAll, this);
+  btnSizer->Add(m_playlistsAutoUpdateAllCheck, 0, wxALIGN_CENTER_VERTICAL);
 
   auto *vbox = new wxBoxSizer(wxVERTICAL);
   vbox->Add(btnSizer, 0, wxEXPAND | wxALL, FromDIP(6));

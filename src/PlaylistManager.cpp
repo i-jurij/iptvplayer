@@ -285,7 +285,8 @@ bool PlaylistManager::isDuplicate(const std::string & /*title*/,
 }
 
 ErrorCode PlaylistManager::addPlaylistFromFile(const std::wstring &filePathW,
-                                               const std::wstring &titleW) {
+                                               const std::wstring &titleW,
+                                               bool autoUpdate) {
   std::string srcPath = wstringToUtf8(filePathW);
   std::string title = wstringToUtf8(titleW);
 
@@ -302,6 +303,7 @@ ErrorCode PlaylistManager::addPlaylistFromFile(const std::wstring &filePathW,
   playlistTitle = normalizePlaylistTitle(playlistTitle);
 
   auto playlist = std::make_unique<Playlist>(playlistTitle, srcPath, false);
+  playlist->setAutoUpdate(autoUpdate);
   ErrorCode ec = loadPlaylistContent(playlist.get());
   if (ec != ErrorCode::OK)
     return ec;
@@ -388,7 +390,8 @@ void PostAddFromUrlEvent(int eventId, const std::string &errorMsg = "") {
 
 ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
                                               std::string &title,
-                                              const std::string &userAgent) {
+                                              const std::string &userAgent,
+                                              bool autoUpdate) {
   fprintf(stderr, "[MARK] B0: enter addPlaylistFromUrl url='%s'\n",
           url.c_str());
   fflush(stderr);
@@ -399,6 +402,7 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
 
   auto playlist = std::make_unique<Playlist>(title, url, true);
   playlist->setUserAgent(userAgent);
+  playlist->setAutoUpdate(autoUpdate);
 
   if (m_addFromUrlFuture.valid()) {
     m_addFromUrlFuture.wait();
@@ -502,42 +506,18 @@ ErrorCode PlaylistManager::updatePlaylist(size_t index) {
   return savePlaylist(nullptr, index);
 }
 
-int PlaylistManager::updateUrlPlaylists() {
+std::vector<size_t>
+PlaylistManager::getAutoUpdateIndices(bool includeAll) const {
   std::vector<size_t> indices;
-  {
-    std::lock_guard<std::mutex> lock(m_playlistsMutex);
-    for (size_t i = 0; i < m_playlists.size(); ++i) {
-      if (m_playlists[i] && m_playlists[i]->isUrl())
-        indices.push_back(i);
-    }
+  std::lock_guard<std::mutex> lock(m_playlistsMutex);
+  for (size_t i = 0; i < m_playlists.size(); ++i) {
+    const Playlist *p = m_playlists[i].get();
+    if (!p)
+      continue;
+    if (includeAll || p->getAutoUpdate())
+      indices.push_back(i);
   }
-
-  int updated = 0;
-  for (size_t idx : indices) {
-    if (updatePlaylist(idx) == ErrorCode::OK)
-      ++updated;
-  }
-
-  return updated;
-}
-
-int PlaylistManager::updateAutoUpdatePlaylists() {
-  std::vector<size_t> indices;
-  {
-    std::lock_guard<std::mutex> lock(m_playlistsMutex);
-    for (size_t i = 0; i < m_playlists.size(); ++i) {
-      if (m_playlists[i] && m_playlists[i]->getAutoUpdate())
-        indices.push_back(i);
-    }
-  }
-
-  int updated = 0;
-  for (size_t idx : indices) {
-    if (updatePlaylist(idx) == ErrorCode::OK)
-      ++updated;
-  }
-
-  return updated;
+  return indices;
 }
 
 ErrorCode PlaylistManager::removePlaylist(size_t index) {

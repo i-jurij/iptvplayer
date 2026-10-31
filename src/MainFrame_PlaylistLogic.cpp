@@ -185,6 +185,7 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
         epg->SetCurrentPlaylistId(playlistId);
         // Пытаемся загрузить существующий маппинг
         bool loaded = epg->LoadMappingForPlaylist(playlistId, channels);
+        m_lastMappingLoadedPlaylistId = playlistId;
         if (!loaded) {
           // Маппинг не загружен – проверим, есть ли EPG-данные
           if (epg->IsLoaded()) {
@@ -441,6 +442,7 @@ void MainFrame::updatePlaylistFromDialog(int index,
   Playlist *pl = mgr->getPlaylist(static_cast<size_t>(index));
   if (app && app->GetEPGManager() && pl) {
     app->GetEPGManager()->InvalidatePlaylistMapping(pl->getUniqueId());
+    m_lastMappingLoadedPlaylistId.clear();
   }
 
   savePlaylistsToConfig();
@@ -467,26 +469,31 @@ void MainFrame::startAutoUpdateFromSavedPlaylists() {
   auto *mgr = getPlaylistManager();
   const auto &pls = mgr->getPlaylists();
 
-  // Собираем индексы URL-плейлистов с автообновлением
+  // Глобальный мастер-флаг: если ON — обновляем ВСЕ плейлисты,
+  // per-playlist флаг игнорируется. Если OFF (по умолчанию) — только
+  // те, у кого per-playlist autoUpdate == true.
+  const bool globalAutoUpdate =
+      (getConfigManager() != nullptr &&
+       getConfigManager()->getSetting("auto_update", "false") == "true");
+
+  LOG_DEBUG("startAutoUpdateFromSavedPlaylists: globalAutoUpdate=%d, "
+            "playlists=%zu",
+            static_cast<int>(globalAutoUpdate), pls.size());
+
   std::vector<std::size_t> autoIndices;
   for (std::size_t i = 0; i < pls.size(); ++i) {
     const Playlist *p = pls[i].get();
     if (!p)
       continue;
-    // if (p->isUrl() && p->getAutoUpdate())
-    if (p->getAutoUpdate())
+    if (globalAutoUpdate || p->getAutoUpdate())
       autoIndices.push_back(i);
   }
 
   if (autoIndices.empty())
     return; // нечего обновлять
 
-  // UI: показать верхний гейдж и заблокировать кнопки
-  if (m_gaugeTop) {
-    m_gaugeTop->SetRange(static_cast<int>(autoIndices.size()));
-    m_gaugeTop->SetValue(0);
-    m_gaugeTop->Show();
-  }
+  BeginPlaylistGauge(static_cast<int>(autoIndices.size()));
+
   if (m_updateBtn)
     m_updateBtn->Enable(false);
   if (m_updateAllBtn)
@@ -587,7 +594,8 @@ void MainFrame::CheckAndSuggestPlaylist() {
 
     ErrorCode ec = ErrorCode::OK;
     try {
-      ec = mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "");
+      ec = mgr->addPlaylistFromUrl(url.ToStdString(), titleStr, "",
+                                   addDlg.GetAutoUpdate());
     } catch (const std::exception &e) {
       LOG_ERROR("CheckAndSuggestPlaylist: addPlaylistFromUrl threw: %s",
                 e.what());
@@ -612,17 +620,12 @@ void MainFrame::CheckAndSuggestPlaylist() {
 // --------------------------------------------------------------------------
 
 void MainFrame::ResetUIAfterUpdate() {
-  // Восстанавливаем кнопки
   if (m_updateBtn)
     m_updateBtn->Enable(true);
   if (m_updateAllBtn)
     m_updateAllBtn->Enable(true);
 
-  // Скрываем гейдж
-  if (m_gaugeTop) {
-    m_gaugeTop->SetValue(0);
-    m_gaugeTop->Hide();
-  }
+  EndPlaylistGauge();
   if (GetSizer())
     GetSizer()->Layout();
 

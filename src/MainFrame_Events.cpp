@@ -99,24 +99,28 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
                    info.stage != EpgProgressStage::Error);
 
   if (isActive) {
-    // Показываем гейдж
     if (!m_gaugeTop->IsShown()) {
       m_gaugeTop->Show();
       m_gaugeTop->SetMinSize(wxSize(-1, FromDIP(20)));
-      m_gaugeTop->SetRange(100);
       if (m_gaugeTop->GetParent()) {
         m_gaugeTop->GetParent()->Layout();
       }
       m_gaugeTop->Refresh();
     }
 
-    // Обновляем гейдж
+    m_gaugeOwner = GaugeOwner::Epg;
+    m_gaugeTop->SetRange(100);
+
     if (info.percent >= 0) {
       int percent = info.percent;
       if (info.stage == EpgProgressStage::Downloading && info.totalBytes > 0) {
         percent =
             static_cast<int>((info.downloadedBytes / info.totalBytes) * 100);
       }
+      if (percent < 0)
+        percent = 0;
+      if (percent > 100)
+        percent = 100;
       m_gaugeTop->SetValue(percent);
     } else {
       m_gaugeTop->Pulse();
@@ -174,12 +178,14 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
     }
     SetStatusText(details, 1);
   } else {
-    // Скрываем гейдж
-    if (m_gaugeTop->IsShown()) {
-      m_gaugeTop->Hide();
-      m_gaugeTop->SetValue(0);
-      if (m_gaugeTop->GetParent()) {
-        m_gaugeTop->GetParent()->Layout();
+    if (m_gaugeOwner == GaugeOwner::Epg) {
+      m_gaugeOwner = GaugeOwner::None;
+      if (m_gaugeTop->IsShown()) {
+        m_gaugeTop->Hide();
+        m_gaugeTop->SetValue(0);
+        if (m_gaugeTop->GetParent()) {
+          m_gaugeTop->GetParent()->Layout();
+        }
       }
     }
 

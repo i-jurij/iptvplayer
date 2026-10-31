@@ -307,7 +307,13 @@ private:
 
   // Progress gauges
   wxGauge *m_gaugeTop{nullptr};
-  wxGauge *m_progressGauge{nullptr};
+  wxGauge *m_gaugeProgress{nullptr};
+
+  enum class GaugeOwner { None, Playlist, Epg };
+  GaugeOwner m_gaugeOwner = GaugeOwner::None;
+
+  void BeginPlaylistGauge(int total);
+  void EndPlaylistGauge();
 
   // Thread‑related UI callbacks
   void onAddFromUrlSuccess(wxCommandEvent &event);
@@ -372,6 +378,8 @@ private:
   EPGPanel *m_epgFavorites = nullptr;
   EpgSourceManagerPanel *m_epgAdminPanel = nullptr;
 
+  std::string m_lastMappingLoadedPlaylistId;
+
   // EpgSourceManagerPanel создаётся лениво при первом переключении на
   // вкладку Program (см. MainFrame::EnsureEpgSourcesPanel).
   bool m_epgSourcesPanelCreated = false;
@@ -380,6 +388,12 @@ private:
   // Токен подписки на прогресс EPG. Отписываемся в ~MainFrame —
   // иначе колбэк с висячим this остаётся в EPGManager и даёт UAF.
   size_t m_epgProgressToken = 0;
+
+  // Глобальный мастер-флаг автообновления плейлистов. Если OFF (по умолчанию) —
+  // обновляются только плейлисты с per-playlist autoUpdate == true;
+  // если ON — обновляются все, per-playlist игнорируется.
+  wxCheckBox *m_playlistsAutoUpdateAllCheck = nullptr;
+  void onPlaylistsAutoUpdateAll(wxCommandEvent &event);
 
   wxStaticLine *statusLine = nullptr;
 };
