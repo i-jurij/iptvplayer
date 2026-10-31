@@ -556,17 +556,23 @@ jobs:
         run: |
           set -euo pipefail
           # Мастер-ключи в снапшоте 2025-10-05 подписаны SHA1. GnuPG >= 2.4
-          # по умолчанию такие подписи отклоняет, из-за чего цепочка доверия
-          # до пакетов (flex/make/sudo) не выстраивается — "unknown trust".
-          # Разрешаем weak-подписи ТОЛЬКО для pacman-key в этом контейнере.
+          # отклоняет такие подписи при построении цепочки доверия, из-за
+          # чего пакеты (flex/make/sudo) получают "unknown trust".
           mkdir -p /etc/pacman.d/gnupg
           echo 'allow-weak-key-signatures' > /etc/pacman.d/gnupg/gpg.conf
 
           pacman-key --init
           pacman-key --populate archlinux
-          # Свежий archlinux-keyring из снапшота: иначе пакеты из 2025-10-05
-          # подписаны ключами, которых нет в базовом образе.
           pacman -Sy --noconfirm archlinux-keyring
+
+          # Ключевой шаг: pacman-key может игнорировать gpg.conf при вызове
+          # gpg, поэтому принудительно пересобираем trustdb с явным флагом.
+          # Это заставляет GnuPG принять SHA1-подписи и отметить ключи как
+          # доверенные, после чего pacman -S перестаёт ругаться на unknown trust.
+          gpg --homedir /etc/pacman.d/gnupg \
+              --allow-weak-key-signatures \
+              --update-trustdb
+
           pacman-key --updatedb 2>/dev/null || true
 
       - name: Install build toolchain
