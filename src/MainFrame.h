@@ -373,9 +373,13 @@ private:
   EpgSourceManagerPanel *m_epgAdminPanel = nullptr;
 
   // EpgSourceManagerPanel создаётся лениво при первом переключении на
-  // вкладку Program (см. MainFrame::EnsureEpgPanel).
-  bool m_epgPanelCreated = false;
-  void EnsureEpgPanel();
+  // вкладку Program (см. MainFrame::EnsureEpgSourcesPanel).
+  bool m_epgSourcesPanelCreated = false;
+  void EnsureEpgSourcesPanel();
+
+  // Токен подписки на прогресс EPG. Отписываемся в ~MainFrame —
+  // иначе колбэк с висячим this остаётся в EPGManager и даёт UAF.
+  size_t m_epgProgressToken = 0;
 
   wxStaticLine *statusLine = nullptr;
 };

@@ -24,11 +24,15 @@ EpgSourceManagerPanel::EpgSourceManagerPanel(wxWindow *parent,
       m_showAutoUpdateSettings(showAutoUpdateSettings), m_dirty(false) {
   SetupUI();
 
-  // Подписка на прогресс
+  // Подписка на прогресс. Токен нужен для отписки в деструкторе
+  // (см. ~EpgSourceManagerPanel) — без неё колбэк с висячим this
+  // остаётся в EPGManager и даёт UAF.
   if (m_epgMgr) {
-    m_epgMgr->AddOnProgress([this](const EpgProgressInfo &info) {
-      wxTheApp->CallAfter([this, info]() { OnProgressUpdate(info); });
-    });
+    m_progressToken = m_epgMgr->AddOnProgress(
+        [this](const EpgProgressInfo &info) {
+          EPGManager::SafeCallAfter(
+              [this, info]() { OnProgressUpdate(info); });
+        });
   }
 
   // Привязки событий через Bind (без таблицы)
@@ -52,7 +56,12 @@ EpgSourceManagerPanel::EpgSourceManagerPanel(wxWindow *parent,
   m_autoApplyBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnAutoApply, this);
 }
 
-EpgSourceManagerPanel::~EpgSourceManagerPanel() {}
+EpgSourceManagerPanel::~EpgSourceManagerPanel() {
+  if (m_epgMgr && m_progressToken != 0) {
+    m_epgMgr->RemoveOnProgress(m_progressToken);
+    m_progressToken = 0;
+  }
+}
 
 void EpgSourceManagerPanel::OnAutoApply(wxCommandEvent &) {
   SaveSettings();
@@ -146,8 +155,10 @@ void EpgSourceManagerPanel::SetupUI() {
 
     wxFlexGridSizer *grid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
 
-    grid->Add(new wxStaticText(settingsBox, wxID_ANY, _U("Auto-update:")), 0,
-              wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+    grid->Add(
+        new wxStaticText(settingsBox, wxID_ANY,
+                         _U("Auto-update all sources:")),
+        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
     m_autoUpdateCheck = new wxCheckBox(settingsBox, wxID_ANY, "");
     grid->Add(m_autoUpdateCheck, 0, wxALIGN_LEFT);
 
@@ -471,7 +482,7 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
     auto sources = m_epgMgr->GetSources();
     if (!sources.empty()) {
       SetBusy(true);
-      m_epgMgr->UpdateAllSources(false);
+      m_epgMgr->UpdateSourcesDue(true); // force: обновить всё после очистки
     }
   } else {
     wxMessageBox(_U("EPG cache cleared. You can now refresh sources manually."),
@@ -553,12 +564,15 @@ void EpgSourceManagerPanel::UpdateSourceList() {
 }
 
 void EpgSourceManagerPanel::CheckAvailabilityAsync(const std::string &url) {
-  (void)std::async(std::launch::async, [this, url]() {
+  wxWeakRef<EpgSourceManagerPanel> weakThis(this);
+  std::thread([weakThis, url]() {
     auto result = CheckUrlAvailability(url, "", 5, 100 * 1024 * 1024);
-    wxTheApp->CallAfter([this, url, available = result.available]() {
-      OnAvailabilityChecked(url, available);
+    EPGManager::SafeCallAfter([weakThis, url, available = result.available]() {
+      if (auto *self = weakThis.get()) {
+        self->OnAvailabilityChecked(url, available);
+      }
     });
-  });
+  }).detach();
 }
 
 void EpgSourceManagerPanel::OnAvailabilityChecked(const std::string &url,
@@ -596,7 +610,7 @@ void EpgSourceManagerPanel::LoadSettings() {
   if (!m_epgMgr || !m_showAutoUpdateSettings)
     return;
 
-  m_autoUpdateCheck->SetValue(m_epgMgr->IsAutoUpdateEnabled());
+  m_autoUpdateCheck->SetValue(m_epgMgr->IsAutoUpdateAllSources());
   m_updateIntervalSpin->SetValue(m_epgMgr->GetUpdateIntervalHours());
   m_daysToKeepSpin->SetValue(m_epgMgr->GetDaysToKeep());
 
@@ -636,7 +650,7 @@ void EpgSourceManagerPanel::OnApplyMatch(wxCommandEvent &) {
 void EpgSourceManagerPanel::SaveSettings() {
   if (!m_epgMgr || !m_showAutoUpdateSettings)
     return;
-  m_epgMgr->SetAutoUpdateEnabled(m_autoUpdateCheck->GetValue());
+  m_epgMgr->SetAutoUpdateAllSources(m_autoUpdateCheck->GetValue());
   m_epgMgr->SetUpdateIntervalHours(m_updateIntervalSpin->GetValue());
   m_epgMgr->SetDaysToKeep(m_daysToKeepSpin->GetValue());
   m_epgMgr->RestartAutoUpdate();
@@ -780,44 +794,43 @@ void EpgSourceManagerPanel::SetBusy(bool busy) {
   Layout();
 }
 
-void EpgSourceManagerPanel::RefreshSourceInternal(
-    const std::string &url, const std::string &name,
-    std::function<void(bool)> onComplete) {
-  if (!m_epgMgr) {
-    if (onComplete)
-      onComplete(false);
+void EpgSourceManagerPanel::RefreshSourceInternal(const std::string &url,
+                                                  const std::string &name) {
+  if (!m_epgMgr)
     return;
-  }
 
+  wxWeakRef<EpgSourceManagerPanel> weakThis(this);
   m_epgMgr->RefreshSourceAsync(
       url, name,
-      [this, url, name, onComplete](bool success, const std::string &error) {
-        // Обновляем список в любом случае: и при успехе (lastUpdate),
-        // и при ошибке (источник уже в конфиге, но UI о нём не знал).
-        UpdateSourceList();
+      [weakThis, url](bool success, const std::string &error) {
+        auto *self = weakThis.get();
+        if (!self)
+          return;
+
+        self->UpdateSourceList();
 
         if (success) {
-          auto sources = m_epgMgr->GetSources();
+          auto sources = self->m_epgMgr->GetSources();
           for (auto &src : sources) {
             if (src.url == url) {
               src.lastUpdate = EpgTime::GetCurrentUtcEpoch();
               break;
             }
           }
-          m_epgMgr->SetSources(sources);
-          m_epgMgr->SaveSourcesToConfig();
-          UpdateSourceList(); // второй раз — чтобы отобразить lastUpdate
+          self->m_epgMgr->SetSources(sources);
+          self->m_epgMgr->SaveSourcesToConfig();
+          self->UpdateSourceList();
 
-          if (m_mainFrame) {
-            std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
+          if (self->m_mainFrame) {
+            std::string playlistId = self->m_mainFrame->GetCurrentPlaylistId();
             if (!playlistId.empty()) {
-              m_epgMgr->ReMatchCurrentPlaylist();
+              self->m_epgMgr->ReMatchCurrentPlaylist();
             } else {
-              m_epgMgr->UpdateProgress(
+              self->m_epgMgr->UpdateProgress(
                   {EpgProgressStage::Done, 100, _U("Done").ToStdString()});
             }
           } else {
-            m_epgMgr->UpdateProgress(
+            self->m_epgMgr->UpdateProgress(
                 {EpgProgressStage::Done, 100, _U("Done").ToStdString()});
           }
         } else {
@@ -825,10 +838,8 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
                                            "The source is kept in the list. "
                                            "Use \"Refresh Now\" to retry."),
                                         wxString::FromUTF8(error)),
-                       _U("Error"), wxOK | wxICON_ERROR, this);
+                       _U("Error"), wxOK | wxICON_ERROR, self);
         }
-        if (onComplete)
-          onComplete(success);
       });
 }
 

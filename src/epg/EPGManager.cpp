@@ -15,6 +15,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <wx/app.h>
 #include <wx/event.h>
 #include <wx/filename.h>
 #include <wx/mstream.h>
@@ -22,6 +23,7 @@
 #include <wx/stream.h>
 #include <wx/string.h>
 #include <wx/timer.h>
+#include <wx/weakref.h>
 #include <wx/window.h>
 #include <wx/zipstrm.h>
 
@@ -34,6 +36,7 @@
 #include <fstream>
 #include <future>
 #include <memory>
+#include <thread>
 #include <unordered_set>
 
 namespace {
@@ -300,10 +303,6 @@ EPGManager::EPGManager(ConfigManager *configManager,
   m_progressTimer = new wxTimer(this);
   m_progressTimer->Bind(wxEVT_TIMER, &EPGManager::OnProgressTimer, this);
 
-  m_startupUpdateTimer = new wxTimer(this);
-  m_startupUpdateTimer->Bind(wxEVT_TIMER, &EPGManager::OnStartupUpdateTimer,
-                             this);
-
   unsigned cores = std::max(1u, std::thread::hardware_concurrency());
   size_t availMB = GetAvailableRAM_MB();
   auto tuning = GetPerformanceTuning(availMB, cores, 0);
@@ -315,49 +314,60 @@ EPGManager::EPGManager(ConfigManager *configManager,
 }
 
 EPGManager::~EPGManager() {
-  CancelMatching();
-  if (m_matchFuture.valid()) {
-    auto status = m_matchFuture.wait_for(std::chrono::seconds(2));
-    if (status == std::future_status::timeout) {
-      LOG_WARN(
-          "MatchChannelsAsync did not finish in 2 seconds, proceeding anyway");
-    }
+  // -----------------------------------------------------------------
+  // 1) Сигналим всем фоновым задачам "остановись".
+  // -----------------------------------------------------------------
+  m_downloadProgress.abort = true;
+  m_cancelMatching = true;
+  m_cancelFavoritesMatching = true;
+
+  // -----------------------------------------------------------------
+  // 2) Снимаем всех подписчиков прогресса ДО ожидания задач.
+  //    Если фон всё-таки вызовет UpdateProgress в процессе ожидания,
+  //    он возьмёт mutex (mutex'ы ещё живы на этом этапе) и увидит
+  //    пустой реестр — no-op. Никаких вызовов в мёртвый UI.
+  // -----------------------------------------------------------------
+  {
+    std::lock_guard<std::mutex> lock(m_progressCallbacksMutex);
+    m_progressCallbacks.clear();
   }
 
-  // Ожидаем завершения фоновой задачи обновления одного источника
-  if (m_singleRefreshFuture.valid()) {
-    auto status = m_singleRefreshFuture.wait_for(std::chrono::seconds(5));
-    if (status == std::future_status::timeout) {
-      LOG_WARN(
-          "Single refresh task did not finish in 5 seconds, proceeding anyway");
-    }
-  }
-
-  if (m_incrementalRemapFuture.valid()) {
-    m_incrementalRemapFuture.wait();
-  }
-
-  if (m_startupUpdateTimer) {
-    m_startupUpdateTimer->Stop();
-    delete m_startupUpdateTimer;
-  }
+  // -----------------------------------------------------------------
+  // 3) Дожидаемся всех futures полностью (без таймаута).
+  //    Порядок важен: сначала останавливаем таймеры, потом ждём —
+  //    иначе Stop() на разрушенном таймере.
+  // -----------------------------------------------------------------
   if (m_progressTimer) {
     m_progressTimer->Stop();
     delete m_progressTimer;
+    m_progressTimer = nullptr;
   }
   if (m_autoUpdateTimer) {
     m_autoUpdateTimer->Stop();
     delete m_autoUpdateTimer;
+    m_autoUpdateTimer = nullptr;
   }
 
   auto start = std::chrono::steady_clock::now();
+
+  // Ждём все futures. Деструкторы std::future от launch::async и так
+  // блокирующие, но мы ждём ЯВНО в теле — до разрушения mutex'ов,
+  // к которым обращаются задачи.
+  if (m_matchFuture.valid())
+    m_matchFuture.wait();
+  if (m_favoritesMatchFuture.valid())
+    m_favoritesMatchFuture.wait();
+  if (m_incrementalRemapFuture.valid())
+    m_incrementalRemapFuture.wait();
+  if (m_singleRefreshFuture.valid())
+    m_singleRefreshFuture.wait();
+
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                      std::chrono::steady_clock::now() - start)
                      .count();
   if (elapsed >= 5000) {
-    LOG_WARN(
-        "EPGManager::~EPGManager: WaitForRefresh exceeded 5 seconds (%lld ms)",
-        elapsed);
+    LOG_WARN("EPGManager::~EPGManager: waited %lld ms for async tasks",
+             static_cast<long long>(elapsed));
   }
 }
 
@@ -391,7 +401,7 @@ EPGManager::MatchingSession::~MatchingSession() {
   info.percent = 100;
   info.stageText = _U("Done").ToStdString();
 
-  wxTheApp->CallAfter([owner = owner, info]() { owner->UpdateProgress(info); });
+  SafeCallAfter([owner = owner, info]() { owner->UpdateProgress(info); });
 }
 
 wxString EPGManager::GetConfigDirectory() const {
@@ -420,19 +430,46 @@ void EPGManager::EnsureConfigFile(const wxString &filename) {
   wxCopyFile(resourcePath, configPath, false);
 }
 
-void EPGManager::SetOnProgress(ProgressCallback callback) {
-  m_progressCallbacks.clear();
-  m_progressCallbacks.push_back(callback);
+bool EPGManager::SafeCallAfter(std::function<void()> fn) {
+  if (!fn)
+    return false;
+  // wxWeakRef проверяет, что wxTheApp не разрушен. Это защищает от
+  // CallAfter на мёртвом wxEvtHandler'е — типичный сценарий при выходе
+  // из приложения, пока фоновые задачи ещё работают.
+  wxWeakRef<wxAppConsole> weakApp(wxTheApp);
+  wxAppConsole *app = weakApp.get();
+  if (!app)
+    return false;
+  app->CallAfter(std::move(fn));
+  return true;
 }
 
-void EPGManager::AddOnProgress(ProgressCallback callback) {
-  m_progressCallbacks.push_back(callback);
+size_t EPGManager::AddOnProgress(ProgressCallback callback) {
+  std::lock_guard<std::mutex> lock(m_progressCallbacksMutex);
+  size_t token = m_nextProgressToken++;
+  m_progressCallbacks.emplace(token, std::move(callback));
+  return token;
+}
+
+void EPGManager::RemoveOnProgress(size_t token) {
+  if (token == 0)
+    return;
+  std::lock_guard<std::mutex> lock(m_progressCallbacksMutex);
+  m_progressCallbacks.erase(token);
 }
 
 void EPGManager::UpdateProgress(const EpgProgressInfo &info) {
-  if (m_progressCallbacks.empty())
-    return;
-  for (auto &cb : m_progressCallbacks) {
+  // Копия под lock — итерируемся по ней. Позволяет колбэкам вызывать
+  // AddOnProgress/RemoveOnProgress (в т.ч. из другого потока), не
+  // провоцируя deadlock/UB.
+  std::unordered_map<size_t, ProgressCallback> snapshot;
+  {
+    std::lock_guard<std::mutex> lock(m_progressCallbacksMutex);
+    if (m_progressCallbacks.empty())
+      return;
+    snapshot = m_progressCallbacks;
+  }
+  for (auto &[token, cb] : snapshot) {
     if (cb)
       cb(info);
   }
@@ -477,7 +514,7 @@ void EPGManager::StartProgressTimer() {
   m_lastDownloadedBytes = 0;
   m_lastProgressTime = std::chrono::steady_clock::now();
 
-  wxTheApp->CallAfter([this]() {
+  SafeCallAfter([this]() {
     if (m_progressTimer && !m_progressTimer->IsRunning()) {
       m_progressTimer->Start(200); // 200 мс
     }
@@ -485,7 +522,7 @@ void EPGManager::StartProgressTimer() {
 }
 
 void EPGManager::StopProgressTimer() {
-  wxTheApp->CallAfter([this]() {
+  SafeCallAfter([this]() {
     if (m_progressTimer && m_progressTimer->IsRunning()) {
       m_progressTimer->Stop();
     }
@@ -560,13 +597,22 @@ void EPGManager::LoadMatchSettings() {
   m_substringMinLength = m_configManager->getInt("epg_substring_min_length", 6);
   m_substringMinRatio = m_configManager->getInt("epg_substring_min_ratio", 30);
   m_minMatchScore = m_configManager->getInt("epg_min_match_score", 50);
-  LOG_DEBUG("EPGManager: Loaded match thresholds: fuzzy=%d, subLen=%d, "
-            "subRatio=%d, minScore=%d",
+
+  // Автообновление EPG.
+  m_autoUpdateAllSources =
+      m_configManager->getSetting("epg_auto_update_all", "true") == "true";
+  m_updateIntervalHours =
+      m_configManager->getInt("epg_update_interval_hours", 24);
+  m_daysToKeep = m_configManager->getInt("epg_days_to_keep", 3);
+
+  LOG_DEBUG("EPGManager: Loaded settings: fuzzy=%d, subLen=%d, subRatio=%d, "
+            "minScore=%d, autoUpdateAll=%d, interval=%d h, daysKeep=%d",
             m_fuzzyThreshold, m_substringMinLength, m_substringMinRatio,
-            m_minMatchScore);
+            m_minMatchScore, static_cast<int>(m_autoUpdateAllSources),
+            m_updateIntervalHours, m_daysToKeep);
 }
 
-void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
+void EPGManager::UpdateSourcesDue(bool force) {
   std::vector<EpgSource> sourcesCopy;
   {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -575,19 +621,37 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
 
   auto queue = std::make_shared<
       std::vector<std::pair<std::string, std::string>>>(); // (url, name)
+
+  const time_t now = EpgTime::GetCurrentUtcEpoch();
+  const time_t thresholdSecs =
+      static_cast<time_t>(m_updateIntervalHours) * 3600;
+  const bool allSources = m_autoUpdateAllSources;
+
   for (const auto &src : sourcesCopy) {
-    if (!onlyAutoUpdate || src.autoUpdate) {
-      queue->emplace_back(src.url, src.name);
+    if (!force) {
+      // Фильтр по флагу: либо глобальный оверрайд, либо per-source.
+      if (!allSources && !src.autoUpdate)
+        continue;
+      // Фильтр по времени: обновляем только «просроченные».
+      if (src.lastUpdate > 0 && (now - src.lastUpdate) < thresholdSecs)
+        continue;
     }
+    queue->emplace_back(src.url, src.name);
   }
 
   if (queue->empty()) {
-    LOG_DEBUG("EPGManager: No sources to update");
+    LOG_DEBUG("EPGManager: No sources due for update (force=%d)",
+              static_cast<int>(force));
     m_autoUpdateInProgress = false;
-    UpdateProgress({EpgProgressStage::Done, 100,
-                    _U("No EPG sources to update").ToStdString()});
+    if (force) {
+      UpdateProgress({EpgProgressStage::Done, 100,
+                      _U("No EPG sources to update").ToStdString()});
+    }
     return;
   }
+
+  LOG_DEBUG("EPGManager: updating %zu source(s) (force=%d)",
+            queue->size(), static_cast<int>(force));
 
   auto index      = std::make_shared<size_t>(0);
   auto anySuccess = std::make_shared<std::atomic<bool>>(false);
@@ -597,9 +661,6 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
   // для C++17, если нет Y-комбинатора под рукой.
   auto next = std::make_shared<std::function<void()>>();
   *next = [this, queue, index, anySuccess, cancelled, next]() {
-    // Пользователь нажал Cancel — обрываем цепочку.
-    // Терминальное Cancelled для текущего источника уже отправил
-    // RefreshSourceAsync, повторно не эмитим.
     if (cancelled->load()) {
       LOG_DEBUG("EPGManager: batch update cancelled, stopping chain");
       m_autoUpdateInProgress = false;
@@ -610,6 +671,13 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
     if (i >= queue->size()) {
       // Все источники обработаны.
       m_autoUpdateInProgress = false;
+
+      // Сохраняем per-source lastUpdate в config одним разом после всей
+      // цепочки (а не после каждого источника — меньше дисковой нагрузки).
+      if (anySuccess->load()) {
+        SaveSourcesToConfig();
+      }
+
       bool startedMatching = false;
       if (anySuccess->load() && !m_currentPlaylistId.empty() &&
           m_playlistManager) {
@@ -630,9 +698,21 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
     const auto &entry = (*queue)[i];
     RefreshSourceAsync(
         entry.first, entry.second,
-        [this, anySuccess, cancelled, next](bool success, const std::string &) {
-          if (success)
+        [this, entry, anySuccess, cancelled, next](bool success,
+                                                   const std::string &) {
+          if (success) {
             anySuccess->store(true);
+            // Обновляем per-source lastUpdate в памяти. В config сохраним
+            // один раз после завершения всей цепочки.
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
+            const time_t ts = EpgTime::GetCurrentUtcEpoch();
+            for (auto &src : m_sources) {
+              if (src.url == entry.first) {
+                src.lastUpdate = ts;
+                break;
+              }
+            }
+          }
           // abort сбрасывается в начале LoadFromUrl, поэтому читаем его
           // сразу в колбэке — до того, как запустится следующий источник.
           if (m_downloadProgress.abort.load())
@@ -642,16 +722,6 @@ void EPGManager::UpdateAllSources(bool onlyAutoUpdate) {
   };
 
   (*next)();
-}
-
-void EPGManager::OnStartupUpdateTimer(wxTimerEvent &event) {
-  if (m_autoUpdateInProgress) {
-    LOG_DEBUG("Startup update skipped – auto-update already in progress");
-    return;
-  }
-  LOG_DEBUG("Startup auto-update timer triggered");
-  // Вызываем тот же обработчик, что и для периодического обновления
-  OnAutoUpdateTimer(event);
 }
 
 bool EPGManager::GetMappingEntry(const std::string &playlistId,
@@ -691,7 +761,7 @@ bool EPGManager::OpenDatabase() {
     return false;
   }
 
-  m_epgChannelsHash = m_db->GetEpgChannelsHash();
+  SetEpgChannelsHash(m_db->GetEpgChannelsHash());
   auto channels = m_db->GetAllChannels();
   m_loaded = !channels.empty();
   if (!m_loaded) {
@@ -715,16 +785,6 @@ bool EPGManager::OpenDatabase() {
   UpdateEpgNameCache();
 
   LoadFavoritesEpgHashFromDB();
-
-  // Проверка необходимости автообновления
-  time_t now = EpgTime::GetCurrentUtcEpoch();
-  bool needUpdate = (m_lastUpdate == 0) ||
-                    (now < m_lastUpdate) || // время переведено назад
-                    ((now - m_lastUpdate) >= m_updateIntervalHours * 3600);
-  if (needUpdate && !m_startupUpdateTimer->IsRunning()) {
-    m_startupUpdateTimer->StartOnce(30000); // 30 секунд
-    LOG_DEBUG("Startup auto-update scheduled in 30 seconds");
-  }
 
   return true;
 }
@@ -889,7 +949,7 @@ void EPGManager::RefreshSourceAsync(
         }
 
         if (callback) {
-          wxTheApp->CallAfter(
+          SafeCallAfter(
               [callback, success, error]() { callback(success, error); });
         }
       });
@@ -973,7 +1033,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     }
 
     m_db->CommitTransaction();
-    m_epgChannelsHash = m_db->GetEpgChannelsHash();
+    SetEpgChannelsHash(m_db->GetEpgChannelsHash());
     m_loaded = true;
     CleanExpiredPrograms();
     UpdateEpgNameCache();
@@ -1585,7 +1645,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   if (m_sources.empty()) {
     LOG_WARN("MatchChannels: no EPG sources, skipping");
     if (callback) {
-      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, false); });
+      SafeCallAfter([callback]() { callback(0, 0, 0, false); });
     }
     UpdateMatchProgress(false, 0, 0, 0, true);
     return;
@@ -1602,7 +1662,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   if (m_normalizedCache.empty()) {
     LOG_DEBUG("MatchChannels: normalized cache is empty, finishing early");
     if (callback) {
-      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
+      SafeCallAfter([callback]() { callback(0, 0, 0, true); });
     }
     UpdateMatchProgress(false, 0, 0, 0, true);
     return;
@@ -1612,7 +1672,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   if (total == 0) {
     LOG_DEBUG("MatchChannels: no channels to match");
     if (callback) {
-      wxTheApp->CallAfter([callback]() { callback(0, 0, 0, true); });
+      SafeCallAfter([callback]() { callback(0, 0, 0, true); });
     }
     UpdateMatchProgress(false, 0, 0, 0, true);
     return;
@@ -1676,7 +1736,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
 
           for (const auto &ch : batch) {
             if (m_cancelMatching) {
-              wxTheApp->CallAfter([this]() {
+              SafeCallAfter([this]() {
                 UpdateProgress({EpgProgressStage::Cancelled, 0,
                                 _U("Cancelled").ToStdString()});
               });
@@ -1703,12 +1763,12 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
             int current = processed.fetch_add(1) + 1;
             if (current % reportInterval == 0 || current == total) {
               int matchedSnapshot = totalMatched.load();
-              wxTheApp->CallAfter([this, current, matchedSnapshot, total]() {
+              SafeCallAfter([this, current, matchedSnapshot, total]() {
                 UpdateMatchProgress(false, current, matchedSnapshot, total,
                                     false);
               });
               if (callback) {
-                wxTheApp->CallAfter([callback, current, total]() {
+                SafeCallAfter([callback, current, total]() {
                   callback(0, total, current, true);
                 });
               }
@@ -1734,11 +1794,12 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
   }
 
   std::string channelHash = ComputePlaylistHash(playlistChannels);
+  const std::string epgHashSnapshot = GetEpgChannelsHash();
   {
     std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
     if (!m_db->SavePlaylistMapping(playlistId, newMapping, manualMapping,
                                    playlistChannels.size(), channelHash,
-                                   m_epgChannelsHash)) {
+                                   epgHashSnapshot)) {
       LOG_ERROR("Failed to save playlist mapping to DB");
       return;
     }
@@ -1753,7 +1814,7 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
            total);
 
   if (callback) {
-    wxTheApp->CallAfter([callback, matchedCount, total]() {
+    SafeCallAfter([callback, matchedCount, total]() {
       callback(static_cast<int>(matchedCount), total, total, true);
     });
   }
@@ -1789,7 +1850,7 @@ void EPGManager::MatchChannelsAsync(
             matched = static_cast<int>(m_channelMapping.size());
           }
           total = static_cast<int>(playlistChannels.size());
-          wxTheApp->CallAfter([callback, matched, total, success]() {
+          SafeCallAfter([callback, matched, total, success]() {
             callback(matched, total, total,
                      success); // progress = total means finished
           });
@@ -1848,28 +1909,42 @@ EPGManager::ProcessChannelBatch(const std::vector<Channel> &batch) const {
   return localMapping;
 }
 
+std::string EPGManager::GetEpgName(const std::string &epgId) const {
+  std::lock_guard<std::mutex> lock(m_epgNameCacheMutex);
+  auto it = m_epgNameCache.find(epgId);
+  if (it != m_epgNameCache.end())
+    return it->second;
+
+  return "";
+}
+
+void EPGManager::SetEpgChannelsHash(const std::string &hash) {
+  std::lock_guard<std::mutex> lock(m_epgHashMutex);
+  m_epgChannelsHash = hash;
+}
+
+std::string EPGManager::GetEpgChannelsHash() const {
+  std::lock_guard<std::mutex> lock(m_epgHashMutex);
+  return m_epgChannelsHash;
+}
+
 // Обновляет кэш имён EPG-каналов из БД
 void EPGManager::UpdateEpgNameCache() {
   std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
   if (!m_db || !m_db->IsOpen())
     return;
 
-  // Получаем все пары (id, display_name) из таблицы channels
+  // Сначала забираем каналы из БД (долгая операция), потом под коротким
+  // lock заполняем кэш. Mutex держим минимальное время.
   auto channels = m_db->GetAllChannels();
+
+  std::lock_guard<std::mutex> lock(m_epgNameCacheMutex);
   m_epgNameCache.clear();
   for (const auto &pair : channels) {
     m_epgNameCache[pair.first] = pair.second;
   }
   LOG_DEBUG("EPGManager: Updated EPG name cache with %zu channels",
             m_epgNameCache.size());
-}
-
-std::string EPGManager::GetEpgName(const std::string &epgId) const {
-  auto it = m_epgNameCache.find(epgId);
-  if (it != m_epgNameCache.end())
-    return it->second;
-
-  return "";
 }
 
 void EPGManager::RemoveManualMapping(const std::string &playlistId,
@@ -2334,9 +2409,10 @@ double EPGManager::ComputeJaroWinkler(const std::string &s1,
       transpositions++;
     k++;
   }
+  const int halfTranspositions = transpositions / 2;
   double jaro = (static_cast<double>(matches) / len1 +
                  static_cast<double>(matches) / len2 +
-                 static_cast<double>(matches - transpositions / 2) / matches) /
+                 static_cast<double>(matches - halfTranspositions) / matches) /
                 3.0;
 
   int prefix = 0;
@@ -2383,13 +2459,16 @@ void EPGManager::LoadSourcesFromConfig() {
     if (item.HasMember("autoUpdate") && item["autoUpdate"].IsBool()) {
       src.autoUpdate = item["autoUpdate"].GetBool();
     } else {
-      src.autoUpdate = false; // значение по умолчанию
+      src.autoUpdate = true; // значение по умолчанию
     }
     m_sources.push_back(src);
   }
 }
 
 void EPGManager::SaveSourcesToConfig() const {
+  // m_mutex защищает m_sources от гонки с SetSources / GetSources.
+  // Рекурсивный — безопасно, если вызывается из SetSources (уже под lock).
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   if (!m_configManager) {
     LOG_ERROR("EPGManager: ConfigManager is null");
     return;
@@ -2468,7 +2547,7 @@ bool EPGManager::DeleteCache() {
   }
 
   // Восстанавливаем состояние
-  m_epgChannelsHash = m_db->GetEpgChannelsHash();
+  SetEpgChannelsHash(m_db->GetEpgChannelsHash());
   m_loaded = false;
   m_lastUpdate = 0;
   UpdateEpgNameCache();
@@ -2481,17 +2560,23 @@ bool EPGManager::DeleteCache() {
 // Автообновление (таймер)
 // --------------------------------------------------------------------------
 void EPGManager::StartAutoUpdate() {
-  if (!m_autoUpdateTimer || !m_autoUpdateEnabled)
+  if (!m_autoUpdateTimer)
     return;
   if (m_autoUpdateTimer->IsRunning())
     return;
-  int intervalHours = m_updateIntervalHours;
-  if (intervalHours < 1)
-    intervalHours = 1;
-  long intervalMs = intervalHours * 3600 * 1000;
-  m_autoUpdateTimer->Start(intervalMs, wxTIMER_CONTINUOUS);
-  LOG_DEBUG("EPGManager: Auto-update started (interval %d hours)",
-            intervalHours);
+
+  // Immediate check при старте — важно после долгого перерыва.
+  // CallAfter гарантирует, что UI уже показан (Application::OnInit →
+  // mf->Show(true) → start() → StartAutoUpdate).
+  SafeCallAfter([this]() { TriggerAutoUpdateNow(); });
+
+  // Periodic tick: 30 минут. Реальное решение «пора ли» принимает
+  // OnAutoUpdateTimer по EpgSource::lastUpdate.
+  const int tickMs = 30 * 60 * 1000;
+  m_autoUpdateTimer->Start(tickMs, wxTIMER_CONTINUOUS);
+  LOG_DEBUG("EPGManager: Auto-update timer started (interval=%d h, "
+            "tick=30 min)",
+            m_updateIntervalHours);
 }
 
 void EPGManager::StopAutoUpdate() {
@@ -2506,14 +2591,16 @@ void EPGManager::RestartAutoUpdate() {
   StartAutoUpdate();
 }
 
-void EPGManager::OnAutoUpdateTimer(wxTimerEvent &) {
+void EPGManager::TriggerAutoUpdateNow() {
   if (m_autoUpdateInProgress.exchange(true)) {
     LOG_DEBUG("Auto-update already in progress, skipping");
     return;
   }
-  LOG_DEBUG("Auto-update timer triggered");
-  UpdateAllSources(true); // обновить только источники с autoUpdate == true
+  LOG_DEBUG("Auto-update tick: checking due sources");
+  UpdateSourcesDue(false);
 }
+
+void EPGManager::OnAutoUpdateTimer(wxTimerEvent &) { TriggerAutoUpdateNow(); }
 
 // --------------------------------------------------------------------------
 // Обработчики колбэков и статус
@@ -2550,15 +2637,32 @@ const DownloadProgress &EPGManager::GetDownloadProgress() const {
 // --------------------------------------------------------------------------
 // Настройки
 // --------------------------------------------------------------------------
-void EPGManager::SetAutoUpdateEnabled(bool enabled) {
-  m_autoUpdateEnabled = enabled;
+void EPGManager::SetAutoUpdateAllSources(bool enabled) {
+  m_autoUpdateAllSources = enabled;
+  if (m_configManager) {
+    m_configManager->setSetting("epg_auto_update_all",
+                                enabled ? "true" : "false");
+    m_configManager->saveSettings();
+  }
 }
-bool EPGManager::IsAutoUpdateEnabled() const { return m_autoUpdateEnabled; }
+bool EPGManager::IsAutoUpdateAllSources() const {
+  return m_autoUpdateAllSources;
+}
 void EPGManager::SetUpdateIntervalHours(int hours) {
   m_updateIntervalHours = hours;
+  if (m_configManager) {
+    m_configManager->setInt("epg_update_interval_hours", hours);
+    m_configManager->saveSettings();
+  }
 }
 int EPGManager::GetUpdateIntervalHours() const { return m_updateIntervalHours; }
-void EPGManager::SetDaysToKeep(int days) { m_daysToKeep = days; }
+void EPGManager::SetDaysToKeep(int days) {
+  m_daysToKeep = days;
+  if (m_configManager) {
+    m_configManager->setInt("epg_days_to_keep", days);
+    m_configManager->saveSettings();
+  }
+}
 int EPGManager::GetDaysToKeep() const { return m_daysToKeep; }
 
 void EPGManager::RemoveMappingEntry(const std::string &playlistId,
@@ -2859,13 +2963,13 @@ void EPGManager::MatchFavoritesAsync(bool force) {
           EPGDatabase::PlaylistMetadata meta;
           meta.channelCount = 0;
           meta.channelHash = ComputePlaylistHash(favChannels);
-          meta.epgHashAtMatch = m_epgChannelsHash;
+          meta.epgHashAtMatch = GetEpgChannelsHash();
           meta.lastMatchTime = EpgTime::GetCurrentUtcEpoch();
           m_db->SavePlaylistMetadata(FAVORITES_PLAYLIST_ID, meta);
         }
       }
       std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
-      m_lastFavoritesEpgHash = m_epgChannelsHash;
+      m_lastFavoritesEpgHash = GetEpgChannelsHash();
       SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
       return;
     }
@@ -2933,7 +3037,7 @@ void EPGManager::MatchFavoritesAsync(bool force) {
       if (processed % 5 == 0 || processed % step == 0 ||
           processed == totalFav) {
         int matchedSnapshot = matched;
-        wxTheApp->CallAfter([this, processed, matchedSnapshot, totalFav]() {
+        SafeCallAfter([this, processed, matchedSnapshot, totalFav]() {
           UpdateMatchProgress(true, processed, matchedSnapshot, totalFav,
                               false);
         });
@@ -3002,7 +3106,7 @@ void EPGManager::MatchFavoritesAsync(bool force) {
           EPGDatabase::PlaylistMetadata meta;
           meta.channelCount = favChannels.size();
           meta.channelHash = ComputePlaylistHash(favChannels);
-          meta.epgHashAtMatch = m_epgChannelsHash;
+          meta.epgHashAtMatch = GetEpgChannelsHash();
           meta.lastMatchTime = EpgTime::GetCurrentUtcEpoch();
           if (!m_db->SavePlaylistMetadata(FAVORITES_PLAYLIST_ID, meta)) {
             LOG_ERROR("MatchFavoritesAsync: failed to save favorites metadata");
@@ -3011,7 +3115,7 @@ void EPGManager::MatchFavoritesAsync(bool force) {
       }
 
       std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
-      m_lastFavoritesEpgHash = m_epgChannelsHash;
+      m_lastFavoritesEpgHash = GetEpgChannelsHash();
       SaveFavoritesEpgHashToDB(m_lastFavoritesEpgHash);
       LOG_DEBUG("MatchFavoritesAsync: completed, matched %d favorites",
                 matched);
@@ -3022,10 +3126,16 @@ void EPGManager::MatchFavoritesAsync(bool force) {
     UpdateMatchProgress(true, processed, matched, totalFav, true);
 
     if (wxTheApp && wxTheApp->GetTopWindow()) {
-      wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
-      evt.SetInt(matched);
-      evt.SetExtraLong(static_cast<int>(favChannels.size()));
-      wxQueueEvent(wxTheApp->GetTopWindow(), evt.Clone());
+      wxWeakRef<wxAppConsole> weakApp(wxTheApp);
+      wxWindow *top = wxTheApp->GetTopWindow();
+      SafeCallAfter([weakApp, top, matched, totalFav = favChannels.size()]() {
+        if (!weakApp.get() || !top)
+          return;
+        wxCommandEvent evt(EVT_FAVORITES_MATCH_DONE);
+        evt.SetInt(matched);
+        evt.SetExtraLong(static_cast<int>(totalFav));
+        wxQueueEvent(top, evt.Clone());
+      });
     }
   });
 }
@@ -3053,7 +3163,7 @@ void EPGManager::SaveFavoritesEpgHashToDB(const std::string &hash) {
 
 bool EPGManager::IsFavoritesEpgHashChanged() const {
   std::lock_guard<std::mutex> hashLock(m_favoritesHashMutex);
-  return m_epgChannelsHash != m_lastFavoritesEpgHash;
+  return GetEpgChannelsHash() != m_lastFavoritesEpgHash;
 }
 
 void EPGManager::IncrementalRemap(const std::vector<Channel> &channels,

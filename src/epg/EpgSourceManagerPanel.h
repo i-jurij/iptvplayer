@@ -9,6 +9,7 @@
 #include <wx/scrolwin.h>
 #include <wx/spinctrl.h>
 #include <wx/stattext.h>
+#include <wx/weakref.h>
 
 #include <chrono>
 #include <future>
@@ -78,6 +79,11 @@ private:
   bool m_showAutoUpdateSettings;
   bool m_dirty;
 
+  // Токен подписки на прогресс EPG (EPGManager::AddOnProgress).
+  // Отписываемся в деструкторе — иначе колбэк с висячим this остаётся
+  // в реестре EPGManager и даёт UAF в UpdateProgress.
+  size_t m_progressToken = 0;
+
   // Кэш доступности
   struct AvailabilityCacheEntry {
     bool available;
@@ -92,8 +98,7 @@ private:
   void CheckAvailabilityAsync(const std::string &url);
   void OnAvailabilityChecked(const std::string &url, bool available);
   void SaveMatchSettings();
-  void RefreshSourceInternal(const std::string &url, const std::string &name,
-                               std::function<void(bool)> onComplete = nullptr);
+  void RefreshSourceInternal(const std::string &url, const std::string &name);
   void OnApplyMatch(wxCommandEvent &event);
   void OnProgressUpdate(const EpgProgressInfo &info);
 

@@ -238,7 +238,7 @@ void MainFrame::OnEpgDebounceTimer(wxTimerEvent &) {
 
 void MainFrame::OnEpgToggle(wxCommandEvent &) {
   // Ленивое создание панели источников EPG при первом входе на вкладку.
-  EnsureEpgPanel();
+  EnsureEpgSourcesPanel();
 
   if (m_videoPanel)
     m_videoPanel->SetTabActive(false);

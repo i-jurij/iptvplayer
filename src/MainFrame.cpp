@@ -210,15 +210,29 @@ MainFrame::MainFrame(Application *app)
 
   auto *epg = m_application->GetEPGManager();
   if (epg) {
-    epg->AddOnProgress([this](const EpgProgressInfo &info) {
-      wxTheApp->CallAfter([this, info]() { OnEpgProgress(info); });
-    });
+    m_epgProgressToken = epg->AddOnProgress(
+        [this](const EpgProgressInfo &info) {
+          EPGManager::SafeCallAfter(
+              [this, info]() { OnEpgProgress(info); });
+        });
   }
 
   Bind(EVT_FAVORITES_MATCH_DONE, &MainFrame::OnFavoritesMatchDone, this);
 }
 
 MainFrame::~MainFrame() {
+  // Отписка от прогресса EPG до разрушения GUI. Иначе колбэк с висячим
+  // this остаётся в EPGManager и UAF'нет при следующем UpdateProgress
+  // (в т.ч. в окне между ~MainFrame и ~EPGManager).
+  if (m_application) {
+    if (auto *epg = m_application->GetEPGManager()) {
+      if (m_epgProgressToken != 0) {
+        epg->RemoveOnProgress(m_epgProgressToken);
+        m_epgProgressToken = 0;
+      }
+    }
+  }
+
   try {
     auto *cfg = getConfigManager();
     if (cfg) {

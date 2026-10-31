@@ -70,7 +70,7 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
   // ---- Чекбокс "Auto-update" ----
   grid->Add(new wxStaticText(this, wxID_ANY, ""), 0, wxALIGN_CENTER_VERTICAL);
   m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, _U("Auto-update"));
-  m_autoUpdateCheck->SetValue(false);
+  m_autoUpdateCheck->SetValue(true);
   grid->Add(m_autoUpdateCheck, 0, wxALL, FromDIP(14));
 
   mainSizer->Add(grid, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));

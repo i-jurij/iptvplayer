@@ -63,8 +63,17 @@ class EPGManager : public wxEvtHandler {
 public:
   EPGManager(ConfigManager *configManager, PlaylistManager *playlistManager);
   ~EPGManager();
-  
+
   wxString GetConfigDirectory() const;
+
+  // Безопасная доставка задачи в UI-поток из фонового потока.
+  // В отличие от прямого wxTheApp->CallAfter(...), не падает при
+  // уничтоженном wxTheApp (типичная ситуация при выходе из приложения,
+  // пока фоновые задачи ещё работают). Если wxTheApp мёртв — задача
+  // молча отбрасывается и возвращается false.
+  // Колбэк fn должен быть самодостаточен: если захватывает объекты
+  // с ограниченным временем жизни, оборачивайте их в wxWeakRef.
+  static bool SafeCallAfter(std::function<void()> fn);
 
   bool LoadFromFile(const std::string &filePath);
   void SetDbPath(const std::string &path);
@@ -117,8 +126,10 @@ public:
   bool IsLoaded() const { return m_loaded; }
   time_t GetLastUpdate() const { return m_lastUpdate; }
 
-  void SetAutoUpdateEnabled(bool enabled);
-  bool IsAutoUpdateEnabled() const;
+  // Глобальный оверрайд: true — обновлять все источники (игнорируя per-source
+  // флаг autoUpdate); false — только источники с autoUpdate == true.
+  void SetAutoUpdateAllSources(bool enabled);
+  bool IsAutoUpdateAllSources() const;
   void SetUpdateIntervalHours(int hours);
   int GetUpdateIntervalHours() const;
   void SetDaysToKeep(int days);
@@ -173,17 +184,20 @@ public:
                        std::string &channelId, bool &isManual);
   std::unordered_map<std::string, MappingEntry>
   GetAllMappingsForPlaylist(const std::string &playlistId);
-  
-  // Колбэк прогресса
+
+  // Колбэк прогресса.
+  // Multi-subscriber: подписчиков может быть несколько (MainFrame,
+  // EpgSourceManagerPanel и др.). AddOnProgress возвращает токен,
+  // который нужно передать в RemoveOnProgress при разрушении подписчика —
+  // иначе колбэк останется в реестре с висячим this (UAF).
   using ProgressCallback = std::function<void(const EpgProgressInfo &)>;
-  void SetOnProgress(ProgressCallback callback);
+  size_t AddOnProgress(ProgressCallback callback);
+  void RemoveOnProgress(size_t token);
   // Методы для управления прогрессом (будут использоваться внутри)
   void UpdateProgress(const EpgProgressInfo &info);
   void RefreshSourceAsync(
       const std::string &url, const std::string &name,
       std::function<void(bool, const std::string &)> callback = nullptr);
-
-  void AddOnProgress(ProgressCallback callback);
 
   void RemoveMappingEntry(const std::string &playlistId,
                           const std::string &key);
@@ -194,9 +208,12 @@ public:
 
   std::string NormalizeName(const std::string &name) const;
 
-  void UpdateAllSources(bool onlyAutoUpdate);
+  // force=true — принудительно обновить все источники (кнопка «Update all»).
+  // force=false — только те, у которых (now - lastUpdate) >= interval,
+  //                и которые попадают под фильтр (глобальный флаг / per-source).
+  void UpdateSourcesDue(bool force);
 
-  static constexpr const char* FAVORITES_PLAYLIST_ID = "favorites";
+  static constexpr const char *FAVORITES_PLAYLIST_ID = "favorites";
   void MatchFavoritesAsync(bool force = false);
 
 private:
@@ -214,7 +231,6 @@ private:
   };
   // Управление матчингом избранного
   std::atomic<bool> m_cancelFavoritesMatching{false};
-  std::future<void> m_favoritesMatchFuture;
   std::string m_lastFavoritesEpgHash;
   mutable std::mutex m_favoritesHashMutex;
 
@@ -222,7 +238,6 @@ private:
   void SaveFavoritesEpgHashToDB(const std::string &hash);
   bool IsFavoritesEpgHashChanged() const;
 
-  std::future<void> m_incrementalRemapFuture; // для инкрементального ремаппинга
   void AddAutoMapping(const std::string &playlistId, const std::string &key,
                       const std::string &epgId);
   // Пишет auto-mapping в favorites-карты (не в общие) + БД.
@@ -250,10 +265,14 @@ private:
   std::unordered_map<std::string, std::string>
   ProcessChannelBatch(const std::vector<Channel> &batch) const;
 
-  std::future<void> m_singleRefreshFuture;
-
   // Прогресс
-  std::vector<ProgressCallback> m_progressCallbacks;
+  // Реестр подписчиков: token → callback. Доступ — только под
+  // m_progressCallbacksMutex. Итерируется по КОПИИ в UpdateProgress,
+  // чтобы RemoveOnProgress из колбэка не приводил к deadlock/UB.
+  std::unordered_map<size_t, ProgressCallback> m_progressCallbacks;
+  mutable std::mutex m_progressCallbacksMutex;
+  size_t m_nextProgressToken = 1;
+
   wxTimer *m_progressTimer;
   DownloadProgress m_downloadProgress;
   std::chrono::steady_clock::time_point m_lastProgressTime;
@@ -263,7 +282,14 @@ private:
   void StartProgressTimer();
   void StopProgressTimer();
 
+  // Потокобезопасный доступ к кэшу m_epgChannelsHash.
+  // Не путать с EPGDatabase::GetEpgChannelsHash() — это запрос к БД,
+  // а здесь — снапшот кэша в EPGManager.
+  void SetEpgChannelsHash(const std::string &hash);
+  std::string GetEpgChannelsHash() const;
+
   mutable std::unordered_map<std::string, std::string> m_epgNameCache;
+  mutable std::mutex m_epgNameCacheMutex;
   void UpdateEpgNameCache();
 
   // Пороги матчинга
@@ -287,9 +313,6 @@ private:
   std::unordered_map<std::string, std::string> m_epgIdIndex;
   mutable std::shared_mutex m_epgIdIndexMutex;
 
-  wxTimer *m_startupUpdateTimer = nullptr;
-  void OnStartupUpdateTimer(wxTimerEvent &event);
-
   std::atomic<bool> m_cancelMatching{false};
   // --- Трекинг параллельных матчингов (каналы + избранное) ---
   std::atomic<int> m_activeMatchings{0};
@@ -304,17 +327,24 @@ private:
   void UpdateMatchProgress(bool isFavorites, int processed, int matched,
                            int total, bool finished);
 
-  std::future<void> m_matchFuture; // для MatchChannelsAsync
-
   wxTimer *m_autoUpdateTimer = nullptr;
   void OnAutoUpdateTimer(wxTimerEvent &event);
+  // Единая точка входа «проверить, не пора ли обновить». Не требует
+  // wxTimerEvent — вызывается и из таймера, и напрямую (immediate check
+  // при старте в StartAutoUpdate).
+  void TriggerAutoUpdateNow();
 
   std::function<void(int, const std::string &)> m_onUpdateFinished;
   RefreshStartedCallback m_onRefreshStarted;
 
   mutable std::unique_ptr<EPGDatabase> m_db;
   std::string m_dbPath;
+  // Кэш хеша списка каналов EPG. Запись — из ParseAndMerge (фон) и
+  // OpenDatabase/DeleteCache (UI), чтение — из MatchChannels /
+  // MatchFavoritesAsync (фон). Доступ только через
+  // SetEpgChannelsHash / GetEpgChannelsHash под m_epgHashMutex.
   std::string m_epgChannelsHash;
+  mutable std::mutex m_epgHashMutex;
   std::string m_currentPlaylistId;
 
   mutable std::shared_mutex m_mappingMutex;
@@ -325,11 +355,16 @@ private:
   std::unordered_map<std::string, std::string> m_favoritesManualMapping;
 
   std::vector<EpgSource> m_sources;
-  bool m_loaded = false;
-  time_t m_lastUpdate = 0;
+  // atomic: пишутся из фонового ParseAndMerge, читаются из UI и
+  // MatchFavoritesAsync. Без atomic — data race + возможный «залипший»
+  // регистр у читателя.
+  std::atomic<bool> m_loaded{false};
+  std::atomic<time_t> m_lastUpdate{0};
 
-  bool m_autoUpdateEnabled = false;
-  int m_updateIntervalHours = 24;
+  // true — глобальный оверрайд «обновлять все источники» (default ON).
+  // false — обновляются только источники с EpgSource::autoUpdate == true.
+  bool m_autoUpdateAllSources = true;
+  int m_updateIntervalHours = 24;   // 1..168, default — сутки
   int m_daysToKeep = 3;
 
   ConfigManager *m_configManager;
@@ -363,7 +398,8 @@ private:
   void InitializeDefaultRegionalSuffixes();
   std::vector<std::string> m_regionalSuffixes;
 
-  std::unordered_map<std::string, std::string> m_aliasIndex; // очищенное имя EPG → epgId
+  std::unordered_map<std::string, std::string>
+      m_aliasIndex; // очищенное имя EPG → epgId
   void RebuildAliasIndex();
 
   mutable std::mutex m_normalizedCacheMutex;
@@ -399,6 +435,13 @@ private:
 
   std::string NormalizeAliasKey(const std::string &name) const;
   MatchResult MatchByAlias(const std::string &playlistName) const;
+
+  // Объявление futures последними гарантирует, что их деструкторы
+  // выполнятся ПЕРВЫМИ и дождутся задач до разрушения остального.
+  std::future<void> m_matchFuture;
+  std::future<void> m_favoritesMatchFuture;
+  std::future<void> m_incrementalRemapFuture;
+  std::future<void> m_singleRefreshFuture;
 };
 
 #endif
