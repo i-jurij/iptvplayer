@@ -12,19 +12,37 @@ endif()
 # ---- Получение Git-идентификатора (если доступен) ----
 find_package(Git QUIET)
 if(GIT_FOUND)
-    execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
-                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-                    OUTPUT_VARIABLE GIT_COMMIT
-                    OUTPUT_STRIP_TRAILING_WHITESPACE
-                    ERROR_QUIET)
-    execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
-                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-                    OUTPUT_VARIABLE GIT_DESCRIBE
-                    OUTPUT_STRIP_TRAILING_WHITESPACE
-                    ERROR_QUIET)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} config --global --add safe.directory "${CMAKE_SOURCE_DIR}"
+        ERROR_QUIET)
+
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _git_commit_rc
+        ERROR_VARIABLE  _git_commit_err)
+    if(NOT _git_commit_rc EQUAL 0)
+        message(WARNING
+            "git rev-parse failed (rc=${_git_commit_rc}): ${_git_commit_err}")
+    endif()
+
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_DESCRIBE
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _git_describe_rc
+        ERROR_VARIABLE  _git_describe_err)
+    if(NOT _git_describe_rc EQUAL 0)
+        message(WARNING
+            "git describe failed (rc=${_git_describe_rc}): ${_git_describe_err}")
+    endif()
 else()
     set(GIT_COMMIT "")
     set(GIT_DESCRIBE "")
+    message(WARNING "git not found — empty IPTVPLAYER_GIT_COMMIT, build executing")
 endif()
 
 # ---- Формируем полную версию для отображения и для имён файлов ----
