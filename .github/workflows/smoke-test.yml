@@ -685,6 +685,11 @@ jobs:
         run: |
           set -euo pipefail
           if command -v pacman >/dev/null; then
+            if [[ "${{ matrix.pkg_compat }}" == "true" ]]; then
+              echo 'Server=https://archive.archlinux.org/repos/2025/10/05/$repo/os/$arch' \
+                > /etc/pacman.d/mirrorlist
+              echo 'SigLevel = Never' >> /etc/pacman.conf
+            fi
             pacman -Syu --noconfirm --needed \
               ca-certificates file xz zstd \
               xorg-server-xvfb xfce4 desktop-file-utils
