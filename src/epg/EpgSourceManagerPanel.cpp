@@ -341,6 +341,11 @@ void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
   m_epgMgr->SaveSourcesToConfig();
   m_dirty = true;
 
+  // Показываем источник в списке сразу после сохранения в конфиг —
+  // до асинхронной проверки/загрузки. Иначе при ошибке проверки
+  // пользователь видит сообщение «kept in the list», но строки нет.
+  UpdateSourceList();
+
   // Запускаем асинхронную загрузку нового источника
   RefreshSourceInternal(urlUtf8, name.ToUTF8().data());
 }
@@ -787,6 +792,10 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
   m_epgMgr->RefreshSourceAsync(
       url, name,
       [this, url, name, onComplete](bool success, const std::string &error) {
+        // Обновляем список в любом случае: и при успехе (lastUpdate),
+        // и при ошибке (источник уже в конфиге, но UI о нём не знал).
+        UpdateSourceList();
+
         if (success) {
           auto sources = m_epgMgr->GetSources();
           for (auto &src : sources) {
@@ -797,7 +806,7 @@ void EpgSourceManagerPanel::RefreshSourceInternal(
           }
           m_epgMgr->SetSources(sources);
           m_epgMgr->SaveSourcesToConfig();
-          UpdateSourceList();
+          UpdateSourceList(); // второй раз — чтобы отобразить lastUpdate
 
           if (m_mainFrame) {
             std::string playlistId = m_mainFrame->GetCurrentPlaylistId();
