@@ -12,11 +12,11 @@
 #include <wx/filename.h>
 #include <wx/listctrl.h>
 #include <wx/log.h>
+#include <wx/menu.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/stdpaths.h>
-#include <wx/timer.h>
 #include <wx/uri.h>
 
 //-----------------------------------------------------------------------------
@@ -50,8 +50,8 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
   grid->Add(new wxStaticText(this, wxID_ANY, _U("URL / Path:")), 0,
             wxALIGN_CENTER_VERTICAL);
   wxBoxSizer *rowSizer = new wxBoxSizer(wxHORIZONTAL);
-  // "https://" — технический префикс по умолчанию, не UI-текст.
-  m_urlCtrl = new wxTextCtrl(this, wxID_ANY, "https://");
+  m_urlCtrl = new wxTextCtrl(this, wxID_ANY, "");
+  m_urlCtrl->SetHint("https://epg.com/epg.xml");
   m_browseBtn = new wxButton(this, wxID_ANY, _U("Browse..."));
   rowSizer->Add(m_urlCtrl, 1, wxEXPAND | wxRIGHT, FromDIP(5));
   rowSizer->Add(m_browseBtn, 0);
@@ -199,57 +199,99 @@ void AddEpgSourceDialog::ShowInfoDialog() {
 
       mainSizer->Add(list, 1, wxEXPAND | wxALL, infoDlg.FromDIP(10));
 
-      // ---- Обработка двойного клика ----
-      wxTimer *timer = new wxTimer(&infoDlg);
-      timer->SetOwner(&infoDlg, wxID_HIGHEST + 1000);
-      infoDlg.Bind(wxEVT_CLOSE_WINDOW, [timer](wxCloseEvent &evt) {
-        timer->Stop();
+      // Тултип: подсказывает про горячие клавиши и двойной клик.
+      // Разделитель " · " вынесен за _U() — он не для перевода.
+      list->SetToolTip(_U("Ctrl+C — copy URL") + wxString::FromUTF8(" · ") +
+                       _U("Double-click — fill into form"));
+
+      // Локальные хелперы: используются в трёх обработчиках ниже.
+      auto copyUrl = [list](long idx) {
+        if (idx == -1)
+          return;
+        wxString url = list->GetItemText(idx, 2);
+        if (url.IsEmpty())
+          return;
+        if (wxTheClipboard->Open()) {
+          wxTheClipboard->SetData(new wxTextDataObject(url));
+          wxTheClipboard->Close();
+        }
+      };
+
+      // Заполняет поле URL в родительском диалоге и закрывает info-окно.
+      // EndModal через CallAfter — безопасно для вызова из вложенного
+      // event-loop'а контекстного меню (PopupMenu).
+      auto useUrl = [this, list, &infoDlg](long idx) {
+        if (idx == -1)
+          return;
+        wxString url = list->GetItemText(idx, 2);
+        if (url.IsEmpty())
+          return;
+        m_urlCtrl->SetValue(url);
+        wxCommandEvent textEvt(wxEVT_TEXT, m_urlCtrl->GetId());
+        AutoFillName(textEvt);
+        infoDlg.CallAfter([&infoDlg]() { infoDlg.EndModal(wxID_OK); });
+      };
+
+      // Двойной клик — подставить URL в форму и закрыть окно.
+      list->Bind(wxEVT_LIST_ITEM_ACTIVATED,
+                 [useUrl](wxListEvent &evt) { useUrl(evt.GetIndex()); });
+
+      // Ctrl+C / Cmd+C — копировать URL текущей выделенной строки.
+      // CHAR_HOOK ловит на уровне диалога, независимо от фокуса.
+      infoDlg.Bind(wxEVT_CHAR_HOOK, [list, copyUrl](wxKeyEvent &evt) {
+        if (!evt.ControlDown() && !evt.CmdDown()) {
+          evt.Skip();
+          return;
+        }
+        int uk = evt.GetUnicodeKey();
+        if (uk == WXK_NONE)
+          uk = evt.GetKeyCode();
+        if (uk != 'c' && uk != 'C') {
+          evt.Skip();
+          return;
+        }
+        long idx =
+            list->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+        if (idx != -1) {
+          copyUrl(idx);
+          return; // событие съедено
+        }
         evt.Skip();
       });
-      infoDlg.Bind(
-          wxEVT_BUTTON,
-          [timer](wxCommandEvent &evt) {
-            if (evt.GetId() == wxID_OK) {
-              timer->Stop();
-            }
-            evt.Skip();
-          },
-          wxID_OK);
 
-      list->Bind(
-          wxEVT_LIST_ITEM_ACTIVATED, [hint, timer, list](wxListEvent &evt) {
-            long idx = evt.GetIndex();
-            if (idx == -1)
-              return;
-            wxString url = list->GetItemText(idx, 2);
-            if (!url.IsEmpty() && wxTheClipboard->Open()) {
-              wxTheClipboard->SetData(new wxTextDataObject(url));
-              wxTheClipboard->Close();
+      // ПКМ — контекстное меню: Copy URL / Use this URL.
+      // Используем wxEVT_RIGHT_DOWN, а не wxEVT_CONTEXT_MENU:
+      // у wxMouseEvent координаты всегда клиентские и корректные,
+      // а wxContextMenuEvent на wxGTK для wxListCtrl отдаёт их
+      // со смещением (баг с заголовком колонок).
+      list->Bind(wxEVT_RIGHT_DOWN, [list, copyUrl, useUrl](wxMouseEvent &evt) {
+        int flags = 0;
+        long idx = list->HitTest(evt.GetPosition(), flags);
+        if (idx == -1)
+          return; // клик мимо строки — меню не показываем
 
-              // Эмодзи ✓ вынесен за _U().
-              hint->SetLabel(
-                  wxString::FromUTF8("✓ ") +
-                  _U("URL copied to clipboard!\n"
-                     "Note: URLs may become outdated; you can search for "
-                     "current XMLTV sources online."));
-              hint->SetForegroundColour(wxColour(0, 180, 0));
-              hint->Refresh();
-              timer->StartOnce(2000);
-            }
-          });
+        list->SetItemState(idx, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
 
-      infoDlg.Bind(wxEVT_TIMER, [hint, timer](wxTimerEvent &evt) {
-        if (evt.GetId() == timer->GetId()) {
-          // Симметрично верхней подсказке: эмодзи ℹ вне _U().
-          hint->SetLabel(
-              wxString::FromUTF8("ℹ ") +
-              _U("Double‑click on any row to copy the URL to clipboard.\n"
-                 "Note: URLs may become outdated; you can search for current "
-                 "XMLTV sources online."));
-          hint->SetForegroundColour(wxNullColour);
-          hint->Refresh();
-        }
+        const int idCopy = wxNewId();
+        const int idUse = wxNewId();
+        wxMenu menu;
+        menu.Append(idCopy, _U("Copy URL"));
+        menu.Append(idUse, _U("Use this URL"));
+
+        menu.Bind(
+            wxEVT_MENU, [copyUrl, idx](wxCommandEvent &) { copyUrl(idx); },
+            idCopy);
+        menu.Bind(
+            wxEVT_MENU, [useUrl, idx](wxCommandEvent &) { useUrl(idx); },
+            idUse);
+
+        list->PopupMenu(&menu, evt.GetPosition());
       });
+
+      // Съедаем CONTEXT_MENU, чтобы GTK не показал второй экземпляр
+      // меню поверх нашего (на некоторых сборках RIGHT_DOWN
+      // автоматически порождает CONTEXT_MENU).
+      list->Bind(wxEVT_CONTEXT_MENU, [](wxContextMenuEvent &) {});
 
     } else {
       wxStaticText *err = new wxStaticText(
