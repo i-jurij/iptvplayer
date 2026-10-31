@@ -613,6 +613,12 @@ void EPGManager::LoadMatchSettings() {
 }
 
 void EPGManager::UpdateSourcesDue(bool force) {
+  if (m_autoUpdateInProgress.exchange(true)) {
+    LOG_DEBUG("UpdateSourcesDue: already in progress (force=%d), skipping",
+              static_cast<int>(force));
+    return;
+  }
+
   std::vector<EpgSource> sourcesCopy;
   {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -925,14 +931,25 @@ void EPGManager::RefreshSourceAsync(
         bool success = false;
         std::string error;
 
-        if (IsNetworkUrl(url)) {
-          success = LoadFromUrl(url, "");
-        } else {
-          success = LoadFromFile(url);
+        try {
+          if (IsNetworkUrl(url)) {
+            success = LoadFromUrl(url, "");
+          } else {
+            success = LoadFromFile(url);
+          }
+        } catch (const std::exception &e) {
+          success = false;
+          error = std::string("Exception: ") + e.what();
+          LOG_ERROR("RefreshSourceAsync: %s", error.c_str());
+        } catch (...) {
+          success = false;
+          error = "Unknown exception";
+          LOG_ERROR("RefreshSourceAsync: unknown exception");
         }
 
         if (!success) {
-          error = getLastError();
+          if (error.empty())
+            error = getLastError();
 
           EpgProgressInfo info;
           info.percent = 0;
@@ -955,7 +972,18 @@ void EPGManager::RefreshSourceAsync(
       });
 }
 
-void EPGManager::AbortDownload() { m_downloadProgress.abort = true; }
+void EPGManager::AbortDownload() {
+  m_downloadProgress.abort = true;
+  // Если задача не запущена — сбрасываем флаг сразу. Иначе его сбросит
+  // колбэк цепочки, когда текущая загрузка завершится.
+  bool taskRunning =
+      m_singleRefreshFuture.valid() &&
+      m_singleRefreshFuture.wait_for(std::chrono::seconds(0)) !=
+          std::future_status::ready;
+  if (!taskRunning) {
+    m_autoUpdateInProgress = false;
+  }
+}
 
 // --------------------------------------------------------------------------
 // Парсинг и сохранение в БД
@@ -2553,10 +2581,6 @@ void EPGManager::RestartAutoUpdate() {
 }
 
 void EPGManager::TriggerAutoUpdateNow() {
-  if (m_autoUpdateInProgress.exchange(true)) {
-    LOG_DEBUG("Auto-update already in progress, skipping");
-    return;
-  }
   LOG_DEBUG("Auto-update tick: checking due sources");
   UpdateSourcesDue(false);
 }

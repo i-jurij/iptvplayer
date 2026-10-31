@@ -467,30 +467,17 @@ void MainFrame::startAutoUpdateFromSavedPlaylists() {
   m_autoUpdateStarted = true;
 
   auto *mgr = getPlaylistManager();
-  const auto &pls = mgr->getPlaylists();
 
-  // Глобальный мастер-флаг: если ON — обновляем ВСЕ плейлисты,
-  // per-playlist флаг игнорируется. Если OFF (по умолчанию) — только
-  // те, у кого per-playlist autoUpdate == true.
-  const bool globalAutoUpdate =
+  const bool includeAll =
       (getConfigManager() != nullptr &&
        getConfigManager()->getSetting("auto_update", "false") == "true");
 
-  LOG_DEBUG("startAutoUpdateFromSavedPlaylists: globalAutoUpdate=%d, "
-            "playlists=%zu",
-            static_cast<int>(globalAutoUpdate), pls.size());
-
-  std::vector<std::size_t> autoIndices;
-  for (std::size_t i = 0; i < pls.size(); ++i) {
-    const Playlist *p = pls[i].get();
-    if (!p)
-      continue;
-    if (globalAutoUpdate || p->getAutoUpdate())
-      autoIndices.push_back(i);
-  }
+  auto autoIndices = mgr->getAutoUpdateIndices(includeAll);
+  LOG_DEBUG("startAutoUpdateFromSavedPlaylists: includeAll=%d, due=%zu",
+            static_cast<int>(includeAll), autoIndices.size());
 
   if (autoIndices.empty())
-    return; // нечего обновлять
+    return;
 
   BeginPlaylistGauge(static_cast<int>(autoIndices.size()));
 

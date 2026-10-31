@@ -433,6 +433,8 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
   if (!m_epgMgr)
     return;
 
+  m_epgMgr->StopAutoUpdate();
+
   wxDialog dlg(this, wxID_ANY, _U("Delete EPG Cache"), wxDefaultPosition,
                wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
@@ -467,10 +469,13 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
   dlg.SetSizerAndFit(topSizer);
   dlg.CentreOnParent();
 
-  if (dlg.ShowModal() != wxID_OK)
+  if (dlg.ShowModal() != wxID_OK) {
+    m_epgMgr->StartAutoUpdate();
     return;
+  }
 
   if (!m_epgMgr->DeleteCache()) {
+    m_epgMgr->StartAutoUpdate();
     wxMessageBox(_U("Failed to delete EPG cache."), _U("Error"),
                  wxOK | wxICON_ERROR, this);
     return;
@@ -488,6 +493,8 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
     wxMessageBox(_U("EPG cache cleared. You can now refresh sources manually."),
                  _U("Info"), wxOK | wxICON_INFORMATION, this);
   }
+
+  m_epgMgr->StartAutoUpdate();
 }
 
 void EpgSourceManagerPanel::OnSourceSelected(wxListEvent &) {}
