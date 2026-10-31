@@ -563,7 +563,11 @@ jobs:
           set -euo pipefail
           pacman -Syu --noconfirm --needed
           pacman -S --noconfirm --needed \
-            base-devel cmake git patchelf wget curl
+            base-devel cmake git patchelf wget curl \
+            autoconf automake libtool gettext pkgconf \
+            gtk3 mpv rapidjson librsvg \
+            libx11 libxcb mesa \
+            libpng libjpeg-turbo libwebp zlib expat freetype2
 
       - name: Verify glibc baseline
         run: |
