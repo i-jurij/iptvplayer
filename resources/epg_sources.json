@@ -50,7 +50,7 @@
 {
 "region": "Russia",
 "name": "Programtv",
-"url": "http://programtv.ru/xmltv.xml.gz;",
+"url": "http://programtv.ru/xmltv.xml.gz",
 "notes": "Russian"
 },
 {
