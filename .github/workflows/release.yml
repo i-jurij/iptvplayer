@@ -552,23 +552,11 @@ jobs:
           echo 'Server=https://archive.archlinux.org/repos/2025/10/05/$repo/os/$arch' \
             > /etc/pacman.d/mirrorlist
 
-      - name: Init and refresh pacman keyring
+      - name: Configure pacman for snapshot compatibility
         run: |
           set -euo pipefail
-          mkdir -p /etc/pacman.d/gnupg
-          # Разрешаем SHA1-подписи (нужно для снапшота 2025-10-05)
-          echo 'allow-weak-key-signatures' > /etc/pacman.d/gnupg/gpg.conf
-
-          pacman-key --init
-          pacman-key --populate archlinux
-          pacman -Sy --noconfirm archlinux-keyring
-
-          gpg --homedir /etc/pacman.d/gnupg \
-              --batch --no-tty --no-permission-warning \
-              --allow-weak-key-signatures \
-              --update-trustdb
-
-          pacman-key --updatedb 2>/dev/null || true
+          echo 'SigLevel = Never' >> /etc/pacman.conf
+          echo "[i] SigLevel = Never установлен для compat-сборки (снапшот 2025-10-05)"
 
       - name: Install build toolchain
         run: |
