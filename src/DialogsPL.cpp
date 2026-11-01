@@ -20,7 +20,7 @@
 // ============================================================================
 namespace {
     constexpr int DIALOG_WIDTH = 500;
-    constexpr int URL_DIALOG_HEIGHT = 300;
+    constexpr int URL_DIALOG_HEIGHT = 400;
     constexpr int EDIT_DIALOG_HEIGHT = 350;
 }
 
@@ -47,6 +47,17 @@ AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow* parent)
                                  wxDefaultPosition, wxSize(300, -1));
     m_titleCtrl->SetHint(_U("Leave empty to use filename"));
 
+    m_epgUrlCtrl = new wxTextCtrl(this, wxID_ANY, "",
+                                  wxDefaultPosition, wxSize(300, -1));
+    m_epgUrlCtrl->SetHint(_U("Optional"));
+
+    m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY,
+                                       _U("Auto-update on startup"));
+    m_autoUpdateCheck->SetValue(true);
+    m_autoUpdateCheck->SetToolTip(
+        _U("Playlist will be re-downloaded from its source "
+           "every time the application starts."));
+
     // ----- layout ---------------------------------------------------
     auto* topSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -64,10 +75,20 @@ AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow* parent)
     titleRow->Add(m_titleCtrl, 1, wxEXPAND);
     topSizer->Add(titleRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
 
+    // EPG URL row
+    auto* epgRow = new wxBoxSizer(wxHORIZONTAL);
+    epgRow->Add(new wxStaticText(this, wxID_ANY, _U("EPG URL:")), 0,
+                wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+    epgRow->Add(m_epgUrlCtrl, 1, wxEXPAND);
+    topSizer->Add(epgRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+
+    // Auto-update
+    topSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+
     // custom buttons (own IDs!)
     auto* btnSizer = new wxBoxSizer(wxHORIZONTAL);
-    btnSizer->Add(new wxButton(this, ID_BtnOk,     _U("OK")),     0, wxRIGHT, 5);
     btnSizer->Add(new wxButton(this, ID_BtnCancel, _U("Cancel")), 0);
+    btnSizer->Add(new wxButton(this, ID_BtnOk,     _U("OK")),     0, wxRIGHT, 5);
     topSizer->Add(btnSizer, 0, wxALIGN_RIGHT | wxALL, 20);
 
     SetSizerAndFit(topSizer);
@@ -95,8 +116,10 @@ void AddPlaylistFileDialog::OnOK(wxCommandEvent&)
         return;
     }
 
-    m_filePath = path;
-    m_title    = title.IsEmpty() ? wxFileName(path).GetName() : title;
+    m_filePath   = path;
+    m_title      = title.IsEmpty() ? wxFileName(path).GetName() : title;
+    m_epgUrl     = m_epgUrlCtrl->GetValue().Trim();
+    m_autoUpdate = m_autoUpdateCheck->GetValue();
 
     //wxLogMessage("DEBUG: Path received from dialog: '%s'", m_filePath);
     EndModal(wxID_OK);
@@ -127,10 +150,21 @@ void AddPlaylistUrlDialog::initializeControls() {
 
     m_titleCtrl = new wxTextCtrl(this, wxID_ANY, "",
                                  wxDefaultPosition, wxSize(400, -1));
-
+    m_titleCtrl->SetHint(_U("Optional"));
     m_userAgentCtrl = new wxTextCtrl(this, wxID_ANY, "",
                                      wxDefaultPosition, wxSize(400, -1));
     m_userAgentCtrl->SetHint(_U("Optional"));
+
+    m_epgUrlCtrl = new wxTextCtrl(this, wxID_ANY, "",
+                                  wxDefaultPosition, wxSize(400, -1));
+    m_epgUrlCtrl->SetHint(_U("Optional"));
+
+    m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY,
+                                       _U("Auto-update on startup"));
+    m_autoUpdateCheck->SetValue(true);
+    m_autoUpdateCheck->SetToolTip(
+        _U("Playlist will be re-downloaded from its source "
+           "every time the application starts."));
 }
 
 void AddPlaylistUrlDialog::setupLayout() {
@@ -142,6 +176,9 @@ void AddPlaylistUrlDialog::setupLayout() {
                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
     mainSizer->Add(createInputField(_U("User Agent:"), m_userAgentCtrl), 0,
                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+    mainSizer->Add(createInputField(_U("EPG URL:"), m_epgUrlCtrl), 0,
+                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+    mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
     mainSizer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0, wxEXPAND | wxALL, 10);
 
     SetSizer(mainSizer);
@@ -163,9 +200,11 @@ void AddPlaylistUrlDialog::bindEvents() {
 void AddPlaylistUrlDialog::onOK(wxCommandEvent& event)
 {
     // ---- 1. read controls -------------------------------------------------
-    m_url       = m_urlCtrl->GetValue().Trim();
-    m_title     = m_titleCtrl->GetValue().Trim();   // may be empty
-    m_userAgent = m_userAgentCtrl->GetValue().Trim();
+    m_url        = m_urlCtrl->GetValue().Trim();
+    m_title      = m_titleCtrl->GetValue().Trim();   // may be empty
+    m_userAgent  = m_userAgentCtrl->GetValue().Trim();
+    m_epgUrl     = m_epgUrlCtrl->GetValue().Trim();
+    m_autoUpdate = m_autoUpdateCheck->GetValue();
 
     // ---- 2. validate URL --------------------------------------------------
     if (m_url.IsEmpty())

@@ -16,21 +16,24 @@ class AddPlaylistFileDialog : public wxDialog
 public:
     explicit AddPlaylistFileDialog(wxWindow* parent);
     wxString GetFilePath() const { return m_filePath; }
-    wxString GetTitle()    const { return m_title; }
+    wxString GetTitle() const { return m_title; }
+    wxString GetEpgUrl() const { return m_epgUrl; }
+    bool GetAutoUpdate() const { return m_autoUpdate; }
 
-private:
+  private:
     void OnOK    (wxCommandEvent&);
     void OnCancel(wxCommandEvent&);  // opens extra file‑open dialog
 
-    wxFilePickerCtrl* m_filePicker;   // replaces the plain text control
-    wxTextCtrl*       m_titleCtrl;
-    wxString          m_filePath;     // filled after OK
-    wxString          m_title;        // filled after OK
-    
-        enum {
-        ID_BtnOk     = wxID_HIGHEST + 1,
-        ID_BtnCancel
-    };
+    wxFilePickerCtrl *m_filePicker;
+    wxTextCtrl *m_titleCtrl;
+    wxTextCtrl *m_epgUrlCtrl;
+    wxCheckBox *m_autoUpdateCheck;
+    wxString m_filePath;
+    wxString m_title;
+    wxString m_epgUrl;
+    bool m_autoUpdate = true;
+
+    enum { ID_BtnOk = wxID_HIGHEST + 1, ID_BtnCancel };
 
 };
 
@@ -45,8 +48,10 @@ public:
     wxString GetUrl() const { return m_url; }
     wxString GetTitle() const { return m_title; }
     wxString GetUserAgent() const { return m_userAgent; }
+    wxString GetEpgUrl() const { return m_epgUrl; }
+    bool GetAutoUpdate() const { return m_autoUpdate; }
 
-private:
+  private:
     void initializeControls();
     void setupLayout();
     void bindEvents();
@@ -54,13 +59,17 @@ private:
 
     void onOK(wxCommandEvent& event);
 
-    wxTextCtrl* m_urlCtrl;
-    wxTextCtrl* m_titleCtrl;
-    wxTextCtrl* m_userAgentCtrl;
+    wxTextCtrl *m_urlCtrl;
+    wxTextCtrl *m_titleCtrl;
+    wxTextCtrl *m_userAgentCtrl;
+    wxTextCtrl *m_epgUrlCtrl;
+    wxCheckBox *m_autoUpdateCheck;
 
     wxString m_url;
     wxString m_title;
     wxString m_userAgent;
+    wxString m_epgUrl;
+    bool m_autoUpdate = true;
 };
 
 // ============================================================================
