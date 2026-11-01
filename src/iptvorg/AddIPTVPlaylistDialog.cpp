@@ -40,38 +40,37 @@ void AddIPTVPlaylistDialog::InitializeUI() {
                        wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
   m_filterTypeChoice = new wxChoice(this, wxID_ANY);
   filterTypeSizer->Add(m_filterTypeChoice, 0, wxEXPAND);
-  mainSizer->Add(filterTypeSizer, 0, wxEXPAND | wxALL, 10);
+  mainSizer->Add(filterTypeSizer, 0, wxEXPAND | wxALL, FromDIP(10));
 
   // ------ Поле поиска (wxTextCtrl) ------
   m_searchCtrl =
       new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition,
                      wxDefaultSize, wxTE_PROCESS_ENTER);
-#if wxCHECK_VERSION(3, 1, 0)
   m_searchCtrl->SetHint(_U("Type to search..."));
-#else
-  m_searchCtrl->SetToolTip(_U("Type to search..."));
-#endif
-  mainSizer->Add(m_searchCtrl, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+  mainSizer->Add(m_searchCtrl, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                 FromDIP(10));
 
   // ------ Список (wxDataViewListCtrl) ------
   m_dataViewList = new wxDataViewListCtrl(this, wxID_ANY);
   m_dataViewList->AppendTextColumn(_U("Name"), wxDATAVIEW_CELL_INERT, 400,
                                    wxALIGN_LEFT);
-  mainSizer->Add(m_dataViewList, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+  mainSizer->Add(m_dataViewList, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                 FromDIP(10));
 
   // ------ Auto-update ------
   m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY,
                                      _U("Auto-update on startup"));
   m_autoUpdateCheck->SetValue(true);
-  mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+  mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM,
+                 FromDIP(10));
 
   // ------ Кнопки ------
   auto *btnSizer = new wxBoxSizer(wxHORIZONTAL);
   m_refreshBtn = new wxButton(this, wxID_ANY, _U("Refresh List"));
-  btnSizer->Add(m_refreshBtn, 0, wxRIGHT, 5);
+  btnSizer->Add(m_refreshBtn, 0, wxRIGHT, FromDIP(10));
   btnSizer->AddStretchSpacer(1);
   btnSizer->Add(CreateButtonSizer(wxOK | wxCANCEL));
-  mainSizer->Add(btnSizer, 0, wxEXPAND | wxALL, 10);
+  mainSizer->Add(btnSizer, 0, wxEXPAND | wxALL, FromDIP(10));
 
   SetSizer(mainSizer);
   SetMinSize(wxSize(600, 400));

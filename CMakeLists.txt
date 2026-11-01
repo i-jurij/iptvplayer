@@ -273,6 +273,8 @@ set(SOURCES
     src/epg/AddEpgSourceDialog.cpp
     src/epg/EPGDatabase.cpp
     src/epg/ManualMappingDialog.cpp
+    src/xtream/XtreamUrl.cpp
+    src/xtream/AddXtreamPlaylistDialog.cpp
 )
 
 # ------------------------
@@ -281,7 +283,8 @@ set(SOURCES
 if(APPLE)
     add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES})
 else()
-    add_executable(${PROJECT_NAME} ${SOURCES})
+    add_executable(${PROJECT_NAME} ${SOURCES}
+        src/xtream/XtreamUrl.cpp)
 endif()
 
 if(WIN32)

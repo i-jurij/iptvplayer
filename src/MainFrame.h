@@ -22,6 +22,7 @@
 
 #include <future>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 wxDECLARE_EVENT(EVT_UPDATE_PROGRESS, wxCommandEvent);
@@ -173,6 +174,7 @@ private:
   bool m_playlistSuggestionShown = false;
 
   void onAddIPTVPlaylist(wxCommandEvent &event);
+  void onAddXtreamPlaylist(wxCommandEvent &event);
   void RegisterEpgSourceForPlaylist(const wxString &epgUrl,
                                     const wxString &playlistTitle);
 
@@ -326,9 +328,11 @@ private:
 
   bool m_playlistPanelVisible{false};
   int m_selectedPlaylistIndex = -1;
-  int m_loadedPlaylistIndex = -1;   // индекс последнего реально открытого
-  std::string m_loadedPlaylistName; // имя последнего реально открытого
+  int m_loadedPlaylistIndex = -1;
+  std::string m_loadedPlaylistName;
   bool m_autoUpdateStarted = false;
+
+  std::unordered_map<std::string, wxString> m_pendingEpgBySource;
 
   bool m_closing = false;
 

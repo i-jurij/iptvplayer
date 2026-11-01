@@ -164,3 +164,121 @@ UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
   curl_easy_cleanup(curl);
   return result;
 }
+
+// ============================================================================
+// URL helpers
+// ============================================================================
+wxString UrlEncode(const wxString &s) {
+  static const char hex[] = "0123456789ABCDEF";
+  wxString out;
+  const wxScopedCharBuffer buf = s.utf8_str();
+  const size_t len = buf.length();
+  out.reserve(len * 3);
+  for (size_t i = 0; i < len; ++i) {
+    const unsigned char c = static_cast<unsigned char>(buf.data()[i]);
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+        (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' ||
+        c == '~') {
+      out += static_cast<char>(c);
+    } else {
+      out += '%';
+      out += hex[(c >> 4) & 0x0F];
+      out += hex[c & 0x0F];
+    }
+  }
+  return out;
+}
+
+wxString UrlDecode(const wxString &s) {
+  const wxScopedCharBuffer buf = s.utf8_str();
+  const size_t len = buf.length();
+  std::string out;
+  out.reserve(len);
+  auto hexVal = [](char ch) -> int {
+    if (ch >= '0' && ch <= '9')
+      return ch - '0';
+    if (ch >= 'a' && ch <= 'f')
+      return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F')
+      return ch - 'A' + 10;
+    return -1;
+  };
+  for (size_t i = 0; i < len; ++i) {
+    const char c = buf.data()[i];
+    if (c == '%' && i + 2 < len) {
+      const int h = hexVal(buf.data()[i + 1]);
+      const int l = hexVal(buf.data()[i + 2]);
+      if (h >= 0 && l >= 0) {
+        out += static_cast<char>((h << 4) | l);
+        i += 2;
+        continue;
+      }
+    }
+    out += c;
+  }
+  return wxString::FromUTF8(out.data(), out.size());
+}
+
+bool IsHttpUrl(const wxString &url) {
+  if (url.IsEmpty())
+    return false;
+  wxURI uri(url);
+  if (!uri.HasScheme())
+    return false;
+  const wxString scheme = uri.GetScheme().Lower();
+  return scheme == "http" || scheme == "https";
+}
+
+bool HasNonTrivialPath(const wxString &url) {
+  if (url.IsEmpty())
+    return false;
+  wxURI uri(url);
+  const wxString path = uri.GetPath();
+  return !path.IsEmpty() && path != "/";
+}
+
+wxString GetOrigin(const wxString &url) {
+  if (url.IsEmpty())
+    return wxString();
+  wxURI uri(url);
+  if (!uri.HasScheme() || !uri.HasServer())
+    return wxString();
+  wxString origin = uri.GetScheme().Lower() + "://";
+  origin += uri.GetServer();
+  if (uri.HasPort()) {
+    origin += ":" + uri.GetPort();
+  }
+  return origin;
+}
+
+UrlCredentials ExtractQueryCredentials(const wxString &url) {
+  UrlCredentials result;
+  if (url.IsEmpty())
+    return result;
+  wxURI uri(url);
+  if (!uri.HasScheme())
+    return result;
+  result.valid = true;
+  if (!uri.HasQuery())
+    return result;
+  const wxString query = uri.GetQuery();
+  size_t pos = 0;
+  while (pos < query.length()) {
+    const size_t amp = query.find('&', pos);
+    const wxString pair =
+        (amp == wxString::npos) ? query.Mid(pos) : query.Mid(pos, amp - pos);
+    const size_t eq = pair.find('=');
+    if (eq != wxString::npos) {
+      const wxString key = pair.Left(eq).Lower();
+      const wxString value = pair.Mid(eq + 1);
+      if (key == "username")
+        result.user = UrlDecode(value);
+      else if (key == "password")
+        result.pass = UrlDecode(value);
+    }
+    if (amp == wxString::npos)
+      break;
+    pos = amp + 1;
+  }
+  return result;
+}

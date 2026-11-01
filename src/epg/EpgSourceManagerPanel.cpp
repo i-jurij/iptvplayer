@@ -807,9 +807,8 @@ void EpgSourceManagerPanel::RefreshSourceInternal(const std::string &url,
     return;
 
   wxWeakRef<EpgSourceManagerPanel> weakThis(this);
-  m_epgMgr->RefreshSourceAsync(
-      url, name,
-      [weakThis, url](bool success, const std::string &error) {
+  m_epgMgr->EnqueueRefreshSource(
+      url, name, [weakThis, url](bool success, const std::string &error) {
         auto *self = weakThis.get();
         if (!self)
           return;

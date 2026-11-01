@@ -55,7 +55,8 @@ public:
     void initializeControls();
     void setupLayout();
     void bindEvents();
-    wxSizer* createInputField(const wxString& label, wxTextCtrl* ctrl);
+    wxSizer *createInputField(wxWindow *parent, const wxString &label,
+                              wxTextCtrl *ctrl);
 
     void onOK(wxCommandEvent& event);
 

@@ -16,86 +16,71 @@
 #include <wx/sizer.h>
 
 // ============================================================================
-// Constants
-// ============================================================================
-namespace {
-    constexpr int DIALOG_WIDTH = 500;
-    constexpr int URL_DIALOG_HEIGHT = 400;
-    constexpr int EDIT_DIALOG_HEIGHT = 350;
-}
-
-// ============================================================================
 // AddPlaylistFileDialog
 // ============================================================================
-AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow* parent)
+AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow *parent)
     : wxDialog(parent, wxID_ANY, _U("Add Playlist from File"),
                wxDefaultPosition, wxDefaultSize,
-               wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
-{
-    // ----- controls -------------------------------------------------
-    // i18n: описания переводятся, маски и '|' — константы кода.
-    const wxString playlistWildcard =
-        _U("Playlist files") + " (*.m3u;*.m3u8)|*.m3u;*.m3u8|"
-        + _U("All files") + " (*.*)|*.*";
+               wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
+  const wxString playlistWildcard = _U("Playlist files") +
+                                    " (*.m3u;*.m3u8)|*.m3u;*.m3u8|" +
+                                    _U("All files") + " (*.*)|*.*";
 
-    m_filePicker = new wxFilePickerCtrl(this, wxID_ANY, wxEmptyString,
-                                        _U("Select a playlist file"),
-                                        playlistWildcard,
-                                        wxDefaultPosition, wxDefaultSize,
-                                        wxFLP_OPEN | wxFLP_FILE_MUST_EXIST);
-    m_titleCtrl = new wxTextCtrl(this, wxID_ANY, "",
-                                 wxDefaultPosition, wxSize(300, -1));
-    m_titleCtrl->SetHint(_U("Leave empty to use filename"));
+  auto *topSizer = new wxBoxSizer(wxVERTICAL);
 
-    m_epgUrlCtrl = new wxTextCtrl(this, wxID_ANY, "",
-                                  wxDefaultPosition, wxSize(300, -1));
-    m_epgUrlCtrl->SetHint(_U("Optional"));
+  auto *reqSizer = AddSectionHeader(this, topSizer, _U("Required"));
+  wxWindow *reqBox = reqSizer->GetStaticBox();
 
-    m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY,
-                                       _U("Auto-update on startup"));
-    m_autoUpdateCheck->SetValue(true);
-    m_autoUpdateCheck->SetToolTip(
-        _U("Playlist will be re-downloaded from its source "
-           "every time the application starts."));
+  m_filePicker = new wxFilePickerCtrl(
+      reqBox, wxID_ANY, wxEmptyString, _U("Select a playlist file"),
+      playlistWildcard, wxDefaultPosition, wxDefaultSize,
+      wxFLP_OPEN | wxFLP_FILE_MUST_EXIST);
+  auto *fileRow = new wxBoxSizer(wxHORIZONTAL);
+  fileRow->Add(new wxStaticText(reqBox, wxID_ANY, _U("File:")), 0,
+               wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  fileRow->Add(m_filePicker, 1, wxEXPAND);
+  reqSizer->Add(fileRow, 0, wxEXPAND | wxALL, FromDIP(5));
 
-    // ----- layout ---------------------------------------------------
-    auto* topSizer = new wxBoxSizer(wxVERTICAL);
+  topSizer->AddSpacer(FromDIP(10));
 
-    // file‑picker row
-    auto* fileRow = new wxBoxSizer(wxHORIZONTAL);
-    fileRow->Add(new wxStaticText(this, wxID_ANY, _U("File:")), 0,
-                 wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
-    fileRow->Add(m_filePicker, 1, wxEXPAND);
-    topSizer->Add(fileRow, 0, wxEXPAND | wxALL, 10);
+  auto *optSizer = AddSectionHeader(this, topSizer, _U("Optional"));
+  wxWindow *optBox = optSizer->GetStaticBox();
 
-    // title row
-    auto* titleRow = new wxBoxSizer(wxHORIZONTAL);
-    titleRow->Add(new wxStaticText(this, wxID_ANY, _U("Title:")), 0,
-                  wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
-    titleRow->Add(m_titleCtrl, 1, wxEXPAND);
-    topSizer->Add(titleRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+  m_titleCtrl = new wxTextCtrl(optBox, wxID_ANY, "");
+  m_titleCtrl->SetHint(_U("Leave empty to use filename"));
+  auto *titleRow = new wxBoxSizer(wxHORIZONTAL);
+  titleRow->Add(new wxStaticText(optBox, wxID_ANY, _U("Title:")), 0,
+                wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  titleRow->Add(m_titleCtrl, 1, wxEXPAND);
+  optSizer->Add(titleRow, 0, wxEXPAND | wxALL, FromDIP(5));
 
-    // EPG URL row
-    auto* epgRow = new wxBoxSizer(wxHORIZONTAL);
-    epgRow->Add(new wxStaticText(this, wxID_ANY, _U("EPG URL:")), 0,
-                wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
-    epgRow->Add(m_epgUrlCtrl, 1, wxEXPAND);
-    topSizer->Add(epgRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+  m_epgUrlCtrl = new wxTextCtrl(optBox, wxID_ANY, "");
+  m_epgUrlCtrl->SetHint(_U("Optional"));
+  auto *epgRow = new wxBoxSizer(wxHORIZONTAL);
+  epgRow->Add(new wxStaticText(optBox, wxID_ANY, _U("EPG URL:")), 0,
+              wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  epgRow->Add(m_epgUrlCtrl, 1, wxEXPAND);
+  optSizer->Add(epgRow, 0, wxEXPAND | wxALL, FromDIP(5));
 
-    // Auto-update
-    topSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+  m_autoUpdateCheck =
+      new wxCheckBox(optBox, wxID_ANY, _U("Auto-update on startup"));
+  m_autoUpdateCheck->SetValue(true);
+  m_autoUpdateCheck->SetToolTip(
+      _U("Playlist will be re-downloaded from its source "
+         "every time the application starts."));
+  optSizer->Add(m_autoUpdateCheck, 0, wxALL, FromDIP(5));
 
-    // custom buttons (own IDs!)
-    auto* btnSizer = new wxBoxSizer(wxHORIZONTAL);
-    btnSizer->Add(new wxButton(this, ID_BtnCancel, _U("Cancel")), 0);
-    btnSizer->Add(new wxButton(this, ID_BtnOk,     _U("OK")),     0, wxRIGHT, 5);
-    topSizer->Add(btnSizer, 0, wxALIGN_RIGHT | wxALL, 20);
+  auto *btnSizer = new wxBoxSizer(wxHORIZONTAL);
+  btnSizer->Add(new wxButton(this, ID_BtnCancel, _U("Cancel")), 0);
+  btnSizer->Add(new wxButton(this, ID_BtnOk, _U("OK")), 0, wxRIGHT, FromDIP(5));
+  topSizer->Add(btnSizer, 0, wxALIGN_RIGHT | wxALL, FromDIP(20));
 
-    SetSizerAndFit(topSizer);
-    Layout();
+  SetSizer(topSizer);
+  SetClientSize(wxSize(DIALOG_WIDTH, topSizer->GetMinSize().GetHeight()));
+  Layout();
 
-    Bind(wxEVT_BUTTON, &AddPlaylistFileDialog::OnOK, this, ID_BtnOk);
-    Bind(wxEVT_BUTTON, &AddPlaylistFileDialog::OnCancel, this, ID_BtnCancel);
+  Bind(wxEVT_BUTTON, &AddPlaylistFileDialog::OnOK, this, ID_BtnOk);
+  Bind(wxEVT_BUTTON, &AddPlaylistFileDialog::OnCancel, this, ID_BtnCancel);
 }
 
 void AddPlaylistFileDialog::OnOK(wxCommandEvent&)
@@ -143,54 +128,68 @@ AddPlaylistUrlDialog::AddPlaylistUrlDialog(wxWindow* parent)
 }
 
 void AddPlaylistUrlDialog::initializeControls() {
-    m_urlCtrl = new wxTextCtrl(this, wxID_ANY, "",
-                               wxDefaultPosition, wxSize(400, -1));
-    // i18n: example URL, not translated.
-    m_urlCtrl->SetHint("http://example.com/playlist.m3u");
+  m_urlCtrl = new wxTextCtrl(this, wxID_ANY, "");
+  m_urlCtrl->SetHint("http://example.com/playlist.m3u");
 
-    m_titleCtrl = new wxTextCtrl(this, wxID_ANY, "",
-                                 wxDefaultPosition, wxSize(400, -1));
-    m_titleCtrl->SetHint(_U("Optional"));
-    m_userAgentCtrl = new wxTextCtrl(this, wxID_ANY, "",
-                                     wxDefaultPosition, wxSize(400, -1));
-    m_userAgentCtrl->SetHint(_U("Optional"));
+  m_titleCtrl = new wxTextCtrl(this, wxID_ANY, "");
+  m_titleCtrl->SetHint(_U("Optional"));
 
-    m_epgUrlCtrl = new wxTextCtrl(this, wxID_ANY, "",
-                                  wxDefaultPosition, wxSize(400, -1));
-    m_epgUrlCtrl->SetHint(_U("Optional"));
+  m_userAgentCtrl = new wxTextCtrl(this, wxID_ANY, "");
+  m_userAgentCtrl->SetHint(_U("Optional"));
 
-    m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY,
-                                       _U("Auto-update on startup"));
-    m_autoUpdateCheck->SetValue(true);
-    m_autoUpdateCheck->SetToolTip(
-        _U("Playlist will be re-downloaded from its source "
-           "every time the application starts."));
+  m_epgUrlCtrl = new wxTextCtrl(this, wxID_ANY, "");
+  m_epgUrlCtrl->SetHint(_U("Optional"));
+
+  m_autoUpdateCheck =
+      new wxCheckBox(this, wxID_ANY, _U("Auto-update on startup"));
+  m_autoUpdateCheck->SetValue(true);
+  m_autoUpdateCheck->SetToolTip(
+      _U("Playlist will be re-downloaded from its source "
+         "every time the application starts."));
 }
 
 void AddPlaylistUrlDialog::setupLayout() {
-    auto* mainSizer = new wxBoxSizer(wxVERTICAL);
+  auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-    mainSizer->Add(createInputField(_U("URL:"), m_urlCtrl), 0,
-                   wxEXPAND | wxALL, 10);
-    mainSizer->Add(createInputField(_U("Title:"), m_titleCtrl), 0,
-                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(createInputField(_U("User Agent:"), m_userAgentCtrl), 0,
-                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(createInputField(_U("EPG URL:"), m_epgUrlCtrl), 0,
-                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0, wxEXPAND | wxALL, 10);
+  auto *reqSizer = AddSectionHeader(this, mainSizer, _U("Required"));
+  wxWindow *reqBox = reqSizer->GetStaticBox();
+  m_urlCtrl->Reparent(reqBox);
+  reqSizer->Add(createInputField(reqBox, _U("URL:"), m_urlCtrl), 0,
+                wxEXPAND | wxALL, FromDIP(5));
 
-    SetSizer(mainSizer);
+  mainSizer->AddSpacer(FromDIP(10));
+
+  auto *optSizer = AddSectionHeader(this, mainSizer, _U("Optional"));
+  wxWindow *optBox = optSizer->GetStaticBox();
+  m_titleCtrl->Reparent(optBox);
+  m_userAgentCtrl->Reparent(optBox);
+  m_epgUrlCtrl->Reparent(optBox);
+  m_autoUpdateCheck->Reparent(optBox);
+
+  optSizer->Add(createInputField(optBox, _U("Title:"), m_titleCtrl), 0,
+                wxEXPAND | wxALL, FromDIP(5));
+  optSizer->Add(createInputField(optBox, _U("User Agent:"), m_userAgentCtrl), 0,
+                wxEXPAND | wxALL, FromDIP(5));
+  optSizer->Add(createInputField(optBox, _U("EPG URL:"), m_epgUrlCtrl), 0,
+                wxEXPAND | wxALL, FromDIP(5));
+  optSizer->Add(m_autoUpdateCheck, 0, wxALL, FromDIP(5));
+
+  mainSizer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0, wxEXPAND | wxALL,
+                 FromDIP(10));
+
+  SetSizer(mainSizer);
+  SetClientSize(wxSize(DIALOG_WIDTH, mainSizer->GetMinSize().GetHeight()));
+  Layout();
 }
 
-wxSizer* AddPlaylistUrlDialog::createInputField(const wxString& label,
-                                                 wxTextCtrl* ctrl) {
-    auto* sizer = new wxBoxSizer(wxHORIZONTAL);
-    sizer->Add(new wxStaticText(this, wxID_ANY, label), 0,
-               wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
-    sizer->Add(ctrl, 1, wxEXPAND);
-    return sizer;
+wxSizer *AddPlaylistUrlDialog::createInputField(wxWindow *parent,
+                                                const wxString &label,
+                                                wxTextCtrl *ctrl) {
+  auto *sizer = new wxBoxSizer(wxHORIZONTAL);
+  sizer->Add(new wxStaticText(parent, wxID_ANY, label), 0,
+             wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  sizer->Add(ctrl, 1, wxEXPAND);
+  return sizer;
 }
 
 void AddPlaylistUrlDialog::bindEvents() {
@@ -234,61 +233,59 @@ EditPlaylistDialog::EditPlaylistDialog(wxWindow* parent,
     , m_autoUpdate(autoUpdate)
     , m_playlistIndex(0)
 {
-    initializeControls();
-    setupLayout();
-    bindEvents();
+  initializeControls();
+  setupLayout();
+  bindEvents();
 
-    SetSizerAndFit(GetSizer());   // make the dialog size match its contents
-    Layout();
+  SetSize(wxSize(DIALOG_WIDTH, EDIT_DIALOG_HEIGHT));
+  Layout();
 }
 
 void EditPlaylistDialog::initializeControls() {
-    m_titleCtrl = new wxTextCtrl(this, wxID_ANY, m_title,
-                                 wxDefaultPosition, wxSize(400, -1));
-    m_sourceCtrl = new wxTextCtrl(this, wxID_ANY, m_source,
-                                  wxDefaultPosition, wxSize(400, -1));
-    m_userAgentCtrl = new wxTextCtrl(this, wxID_ANY, m_userAgent,
-                                     wxDefaultPosition, wxSize(400, -1));
-    m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY,
-                                       _U("Auto-update on startup"));
-    m_autoUpdateCheck->SetValue(m_autoUpdate);
+  m_titleCtrl = new wxTextCtrl(this, wxID_ANY, m_title);
+  m_sourceCtrl = new wxTextCtrl(this, wxID_ANY, m_source);
+  m_userAgentCtrl = new wxTextCtrl(this, wxID_ANY, m_userAgent);
+  m_autoUpdateCheck =
+      new wxCheckBox(this, wxID_ANY, _U("Auto-update on startup"));
+  m_autoUpdateCheck->SetValue(m_autoUpdate);
 }
 
 void EditPlaylistDialog::setupLayout() {
-    auto* mainSizer = new wxBoxSizer(wxVERTICAL);
+  auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-    mainSizer->Add(createInputField(_U("Title:"), m_titleCtrl), 0,
-                   wxEXPAND | wxALL, 10);
-    mainSizer->Add(createInputField(_U("Source:"), m_sourceCtrl), 0,
-                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(createInputField(_U("User Agent:"), m_userAgentCtrl), 0,
-                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
-    mainSizer->Add(createButtonSection(), 0, wxEXPAND | wxALL, 10);
+  mainSizer->Add(createInputField(_U("Title:"), m_titleCtrl), 0,
+                 wxEXPAND | wxALL, FromDIP(10));
+  mainSizer->Add(createInputField(_U("Source:"), m_sourceCtrl), 0,
+                 wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+  mainSizer->Add(createInputField(_U("User Agent:"), m_userAgentCtrl), 0,
+                 wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+  mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM,
+                 FromDIP(10));
+  mainSizer->Add(createButtonSection(), 0, wxEXPAND | wxALL, FromDIP(10));
 
-    SetSizer(mainSizer);
+  SetSizer(mainSizer);
 }
 
-wxSizer* EditPlaylistDialog::createInputField(const wxString& label,
-                                               wxTextCtrl* ctrl) {
-    auto* sizer = new wxBoxSizer(wxHORIZONTAL);
-    sizer->Add(new wxStaticText(this, wxID_ANY, label), 0,
-               wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
-    sizer->Add(ctrl, 1, wxEXPAND);
-    return sizer;
+wxSizer *EditPlaylistDialog::createInputField(const wxString &label,
+                                              wxTextCtrl *ctrl) {
+  auto *sizer = new wxBoxSizer(wxHORIZONTAL);
+  sizer->Add(new wxStaticText(this, wxID_ANY, label), 0,
+             wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  sizer->Add(ctrl, 1, wxEXPAND);
+  return sizer;
 }
 
-wxSizer* EditPlaylistDialog::createButtonSection() {
-    auto* buttonSizer = new wxBoxSizer(wxHORIZONTAL);
+wxSizer *EditPlaylistDialog::createButtonSection() {
+  auto *buttonSizer = new wxBoxSizer(wxHORIZONTAL);
 
-    auto* exportBtn = new wxButton(this, wxID_ANY, _U("Export as M3U"));
-    exportBtn->Bind(wxEVT_BUTTON, &EditPlaylistDialog::onExport, this);
+  auto *exportBtn = new wxButton(this, wxID_ANY, _U("Export as M3U"));
+  exportBtn->Bind(wxEVT_BUTTON, &EditPlaylistDialog::onExport, this);
 
-    buttonSizer->Add(exportBtn, 0, wxRIGHT, 5);
-    buttonSizer->AddStretchSpacer();
-    buttonSizer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0);
+  buttonSizer->Add(exportBtn, 0, wxRIGHT, FromDIP(5));
+  buttonSizer->AddStretchSpacer();
+  buttonSizer->Add(CreateButtonSizer(wxOK | wxCANCEL), 0);
 
-    return buttonSizer;
+  return buttonSizer;
 }
 
 void EditPlaylistDialog::bindEvents() {
@@ -420,48 +417,52 @@ static void onRemoveDialogNo(wxDialog* dlg)
     dlg->EndModal(wxID_NO);
 }
 
-bool showRemovePlaylistDialog(wxWindow* parent, const Playlist* playlist, bool& removeSource)
-{
-    wxDialog dlg(parent, wxID_ANY, _U("Remove Playlist"),
-                 wxDefaultPosition, wxDefaultSize);
-    wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
+bool showRemovePlaylistDialog(wxWindow *parent, const Playlist *playlist,
+                              bool &removeSource) {
+  wxDialog dlg(parent, wxID_ANY, _U("Remove Playlist"), wxDefaultPosition,
+               wxDefaultSize);
+  wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-    // Сообщение
-    wxStaticText* msg = new wxStaticText(&dlg, wxID_ANY,
-        wxString::Format(_U("Remove playlist \"%s\"?"),
-                         wxString::FromUTF8(playlist->getTitle())));
-    mainSizer->Add(msg, 0, wxALL | wxEXPAND, 10);
+  wxStaticText *msg = new wxStaticText(
+      &dlg, wxID_ANY,
+      wxString::Format(_U("Remove playlist \"%s\"?"),
+                       wxString::FromUTF8(playlist->getTitle())));
+  mainSizer->Add(msg, 0, wxALL | wxEXPAND, dlg.FromDIP(10));
 
-    // Чекбокс
-    wxCheckBox* removeSourceCheck =
-        new wxCheckBox(&dlg, wxID_ANY, _U("Remove source file"));
-    if (playlist->isUrl()) {
-        removeSourceCheck->Disable();
-    }
-    mainSizer->Add(removeSourceCheck, 0, wxALL | wxEXPAND, 10);
+  wxCheckBox *removeSourceCheck =
+      new wxCheckBox(&dlg, wxID_ANY, _U("Remove source file"));
+  if (playlist->isUrl()) {
+    removeSourceCheck->Disable();
+  }
+  mainSizer->Add(removeSourceCheck, 0, wxALL | wxEXPAND, dlg.FromDIP(10));
 
-    // --- стандартные кнопки ---
-    wxStdDialogButtonSizer* btnSizer = new wxStdDialogButtonSizer();
-    wxButton* yesBtn = new wxButton(&dlg, wxID_YES, _U("Yes"));
-    wxButton* noBtn  = new wxButton(&dlg, wxID_NO, _U("No"));
+  wxStdDialogButtonSizer *btnSizer = new wxStdDialogButtonSizer();
+  wxButton *yesBtn = new wxButton(&dlg, wxID_YES, _U("Yes"));
+  wxButton *noBtn = new wxButton(&dlg, wxID_NO, _U("No"));
 
-    btnSizer->AddButton(yesBtn);
-    btnSizer->AddButton(noBtn);
-    btnSizer->Realize();
+  btnSizer->AddButton(yesBtn);
+  btnSizer->AddButton(noBtn);
+  btnSizer->Realize();
 
-    // Кнопки всегда внизу
-    mainSizer->AddStretchSpacer(1);
-    mainSizer->Add(btnSizer, 0, wxALL | wxEXPAND, 10);
+  mainSizer->AddStretchSpacer(1);
+  mainSizer->Add(btnSizer, 0, wxALL | wxEXPAND, dlg.FromDIP(10));
 
-    dlg.SetSizerAndFit(mainSizer);
+  dlg.SetSizer(mainSizer);
+  dlg.Layout();
+  wxSize minSz = mainSizer->CalcMin();
+  minSz.IncTo(dlg.FromDIP(wxSize(400, 160)));
+  dlg.SetMinSize(minSz);
+  dlg.SetSize(minSz);
+  dlg.Layout();
+  dlg.CentreOnParent();
 
-    // Привязка обработчиков
-    yesBtn->Bind(wxEVT_BUTTON, [&](wxCommandEvent&){ onRemoveDialogYes(&dlg, removeSourceCheck, removeSource); });
-    noBtn->Bind(wxEVT_BUTTON, [&](wxCommandEvent&){ onRemoveDialogNo(&dlg); });
+  yesBtn->Bind(wxEVT_BUTTON, [&](wxCommandEvent &) {
+    onRemoveDialogYes(&dlg, removeSourceCheck, removeSource);
+  });
+  noBtn->Bind(wxEVT_BUTTON, [&](wxCommandEvent &) { onRemoveDialogNo(&dlg); });
 
-    if (dlg.ShowModal() == wxID_YES) {
-        return true;
-    }
-    return false;
+  if (dlg.ShowModal() == wxID_YES) {
+    return true;
+  }
+  return false;
 }
-

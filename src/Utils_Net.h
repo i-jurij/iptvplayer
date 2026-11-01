@@ -28,3 +28,35 @@ bool IsNetworkUrl(const wxString &url);
 inline bool IsNetworkUrl(const std::string &url) {
   return IsNetworkUrl(wxString::FromUTF8(url));
 }
+
+// ============================================================================
+// URL helpers (RFC 3986)
+// ============================================================================
+
+// Percent-encoding (UTF-8). Unreserved A-Z a-z 0-9 - _ . ~ → как есть,
+// остальные байты → %XX. Для form-encoding (пробел → '+') НЕ подходит.
+wxString UrlEncode(const wxString &s);
+
+// Percent-decoding. Невалидные %XX оставляет как есть.
+// '+' не трогает (это не form-encoding).
+wxString UrlDecode(const wxString &s);
+
+// scheme ∈ {http, https}, case-insensitive. URL без схемы → false.
+bool IsHttpUrl(const wxString &url);
+
+// true если wxURI::GetPath() не пуст и не "/".
+// Т.е. пользователь дал endpoint, а не просто host:port.
+bool HasNonTrivialPath(const wxString &url);
+
+// scheme://host[:port], без path/query. URL без схемы → пустая строка.
+wxString GetOrigin(const wxString &url);
+
+struct UrlCredentials {
+  wxString user;
+  wxString pass;
+  bool valid = false; // true если URL разобран wxURI (схема есть)
+};
+
+// Извлекает username/password из query. URL без схемы → valid=false.
+// Отсутствие username/password в query → valid=true, user/pass пустые.
+UrlCredentials ExtractQueryCredentials(const wxString &url);

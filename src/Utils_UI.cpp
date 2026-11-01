@@ -2,6 +2,8 @@
 
 #include <wx/dcclient.h>
 #include <wx/msgdlg.h>
+#include <wx/stattext.h>
+#include <wx/statbox.h>
 #include <wx/thread.h>
 #include <wx/tokenzr.h>
 
@@ -71,6 +73,18 @@ void showError(wxWindow *parent, const wxString &message,
       wxMessageBox(message, title, wxOK | wxICON_ERROR, parent);
     });
   }
+}
+
+// ============================================================================
+// Widget helpers
+// ============================================================================
+wxStaticBoxSizer *AddSectionHeader(wxWindow *parent, wxSizer *parentSizer,
+                                   const wxString &text, int border) {
+  auto *box = new wxStaticBox(parent, wxID_ANY, text);
+  auto *boxSizer = new wxStaticBoxSizer(box, wxVERTICAL);
+  parentSizer->Add(boxSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                   border);
+  return boxSizer;
 }
 
 void showInfo(wxWindow *parent, const wxString &message,

@@ -28,66 +28,60 @@ AddEpgSourceDialog::AddEpgSourceDialog(wxWindow *parent)
 
   // ---- Кнопка "More info" ----
   wxBoxSizer *topSizer = new wxBoxSizer(wxHORIZONTAL);
-  // Стрелка вынесена за _U(): в .pot не нужен \u2192, переводчику — только текст.
   m_infoBtn = new wxButton(this, wxID_ANY,
                            _U("More info about popular sources") +
                                wxString::FromUTF8(" →"));
   topSizer->Add(m_infoBtn, 0);
   mainSizer->Add(topSizer, 0, wxEXPAND | wxALL, FromDIP(14));
 
-  // ---- Информационная строка  ----
+  // ---- Информационная строка ----
   wxBoxSizer *infoSizer = new wxBoxSizer(wxHORIZONTAL);
   infoSizer->Add(
       new wxStaticText(this, wxID_ANY,
                        _U("Enter XMLTV URL or choose a local file.")),
       0, wxALIGN_CENTER_VERTICAL);
-  mainSizer->Add(infoSizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));
+  mainSizer->Add(infoSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
+                 FromDIP(10));
 
-  // Основная сетка
-  wxFlexGridSizer *grid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
-  grid->AddGrowableCol(1);
-
-  grid->Add(new wxStaticText(this, wxID_ANY, _U("URL / Path:")), 0,
-            wxALIGN_CENTER_VERTICAL);
-  wxBoxSizer *rowSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_urlCtrl = new wxTextCtrl(this, wxID_ANY, "");
+  // ---- Required: URL / Path ----
+  auto *reqSizer = AddSectionHeader(this, mainSizer, _U("Required"));
+  wxWindow *reqBox = reqSizer->GetStaticBox();
+  wxBoxSizer *urlRow = new wxBoxSizer(wxHORIZONTAL);
+  urlRow->Add(new wxStaticText(reqBox, wxID_ANY, _U("URL / Path:")), 0,
+              wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  m_urlCtrl = new wxTextCtrl(reqBox, wxID_ANY, "");
   m_urlCtrl->SetHint("https://epg.com/epg.xml");
-  m_browseBtn = new wxButton(this, wxID_ANY, _U("Browse..."));
-  rowSizer->Add(m_urlCtrl, 1, wxEXPAND | wxRIGHT, FromDIP(5));
-  rowSizer->Add(m_browseBtn, 0);
-  grid->Add(rowSizer, 1, wxEXPAND);
+  m_browseBtn = new wxButton(reqBox, wxID_ANY, _U("Browse..."));
+  urlRow->Add(m_urlCtrl, 1, wxEXPAND | wxRIGHT, FromDIP(5));
+  urlRow->Add(m_browseBtn, 0);
+  reqSizer->Add(urlRow, 0, wxEXPAND | wxALL, FromDIP(5));
 
-  grid->Add(new wxStaticText(this, wxID_ANY, _U("Name (optional):")), 0,
-            wxALIGN_CENTER_VERTICAL);
-  m_nameCtrl = new wxTextCtrl(this, wxID_ANY, "");
-  grid->Add(m_nameCtrl, 1, wxEXPAND);
+  mainSizer->AddSpacer(FromDIP(10));
+
+  auto *optSizer = AddSectionHeader(this, mainSizer, _U("Optional"));
+  wxWindow *optBox = optSizer->GetStaticBox();
+  wxBoxSizer *nameRow = new wxBoxSizer(wxHORIZONTAL);
+  nameRow->Add(new wxStaticText(optBox, wxID_ANY, _U("Name:")), 0,
+               wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
+  m_nameCtrl = new wxTextCtrl(optBox, wxID_ANY, "");
+  nameRow->Add(m_nameCtrl, 1, wxEXPAND);
+  optSizer->Add(nameRow, 0, wxEXPAND | wxALL, FromDIP(5));
+
   wxStaticText *nameNote = new wxStaticText(
-      this, wxID_ANY,
+      optBox, wxID_ANY,
       _U("If empty, name will be auto-filled from URL or file name."));
   nameNote->SetForegroundColour(*wxLIGHT_GREY);
-  mainSizer->Add(nameNote, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+  optSizer->Add(nameNote, 0, wxALL, FromDIP(5));
 
-  // ---- Чекбокс "Auto-update" ----
-  grid->Add(new wxStaticText(this, wxID_ANY, ""), 0, wxALIGN_CENTER_VERTICAL);
-  m_autoUpdateCheck = new wxCheckBox(this, wxID_ANY, _U("Auto-update"));
+  m_autoUpdateCheck = new wxCheckBox(optBox, wxID_ANY, _U("Auto-update"));
   m_autoUpdateCheck->SetValue(true);
-  grid->Add(m_autoUpdateCheck, 0, wxALL, FromDIP(14));
-
-  mainSizer->Add(grid, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));
-
-
+  optSizer->Add(m_autoUpdateCheck, 0, wxALL, FromDIP(5));
 
   wxSizer *btnSizer = CreateButtonSizer(wxOK | wxCANCEL);
   if (btnSizer)
     mainSizer->Add(btnSizer, 0, wxEXPAND | wxALL, FromDIP(10));
 
   SetSizerAndFit(mainSizer);
-  {
-    wxSize sz = GetSize();
-    int desiredW = FromDIP(550);
-    if (sz.GetWidth() < desiredW)
-      SetSize(wxSize(desiredW, sz.GetHeight()));
-  }
   CentreOnParent();
 
   // Bind events

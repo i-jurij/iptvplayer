@@ -11,6 +11,8 @@
 #include "UpdateOneThread.h"
 #include "Utils.h"
 #include "iptvorg/AddIPTVPlaylistDialog.h"
+#include "xtream/AddXtreamPlaylistDialog.h"
+#include "xtream/XtreamUrl.h"
 
 #include <wx/app.h>
 #include <wx/event.h>
@@ -159,15 +161,39 @@ void MainFrame::onAddPlaylistFile(wxCommandEvent &WXUNUSED(event)) {
     return;
 
   auto *mgr = getPlaylistManager();
+  const wxString epgUrl = dlg.GetEpgUrl();
+  const wxString titleWx = dlg.GetTitle();
+
   ErrorCode ec = mgr->addPlaylistFromFile(dlg.GetFilePath().ToStdWstring(),
-                                          dlg.GetTitle().ToStdWstring());
+                                          titleWx.ToStdWstring(),
+                                          dlg.GetAutoUpdate());
 
   if (ec == ErrorCode::OK) {
+    // Найти свежедобавленный плейлист по source — путь файла в UTF-8.
+    if (!epgUrl.IsEmpty() && m_application) {
+      const std::string src = dlg.GetFilePath().ToUTF8().data();
+      Playlist *pl = nullptr;
+      for (const auto &up : mgr->getPlaylists()) {
+        if (up && up->getSource() == src) {
+          pl = up.get();
+          break;
+        }
+      }
+      if (pl) {
+        RegisterEpgSourceForPlaylist(epgUrl, titleWx);
+        if (EPGManager *epg = m_application->GetEPGManager())
+          epg->SetEpgSourceOwner(epgUrl.ToUTF8().data(), pl->getUniqueId());
+      } else {
+        LOG_WARN("onAddPlaylistFile: playlist not found by source '%s'",
+                 src.c_str());
+      }
+    }
+
     savePlaylistsToConfig();
     RefreshPlaylistView();
     SetStatusText(
         wxString::Format(_U("Playlist added: %s"),
-                         wxString::FromUTF8(dlg.GetTitle().ToStdString())));
+                         wxString::FromUTF8(titleWx.ToStdString())));
   } else if (ec == ErrorCode::DUPLICATE) {
     SetStatusText(_U("Duplicate playlist not added."));
     wxLogWarning(wxString::FromUTF8(mgr->getLastError()));
@@ -191,7 +217,6 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
 
   auto *mgr = getPlaylistManager();
 
-  // Конвертация в UTF-8
   std::string url = dlg.GetUrl().ToUTF8().data();
   std::string title = dlg.GetTitle().ToUTF8().data();
   std::string userAgent = dlg.GetUserAgent().ToUTF8().data();
@@ -202,11 +227,18 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
     return;
   }
 
+  // Pending для регистрации EPG. Пустой epgUrl стирает старую запись —
+  // пользователь явно выбрал «без EPG» для этого URL.
+  if (!dlg.GetEpgUrl().IsEmpty())
+    m_pendingEpgBySource[url] = dlg.GetEpgUrl();
+  else
+    m_pendingEpgBySource.erase(url);
+
   BeginPlaylistLoading("URL");
 
   ErrorCode ec = ErrorCode::OK;
   try {
-    ec = mgr->addPlaylistFromUrl(url, title, userAgent);
+    ec = mgr->addPlaylistFromUrl(url, title, userAgent, dlg.GetAutoUpdate());
   } catch (const std::exception &e) {
     LOG_ERROR("onAddPlaylistUrl: addPlaylistFromUrl threw: %s", e.what());
     ec = ErrorCode::Unknown;
@@ -224,6 +256,117 @@ void MainFrame::onAddPlaylistUrl(wxCommandEvent &WXUNUSED(event)) {
   }
 }
 
+void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
+  if (!validateApplication() || !validatePlaylistManager())
+    return;
+
+  AddXtreamPlaylistDialog dlg(this);
+  if (dlg.ShowModal() != wxID_OK)
+    return;
+
+  auto *mgr = getPlaylistManager();
+  const wxString serverUrl = dlg.GetServerUrl();
+  const wxString user = dlg.GetUsername();
+  const wxString pass = dlg.GetPassword();
+  const wxString epgUrl = dlg.GetEpgUrl();
+  const wxString titleWx = dlg.GetTitle();
+  const bool autoUpdate = dlg.GetAutoUpdate();
+
+  if (serverUrl.IsEmpty())
+    return;
+
+  // Full URL (get.php?... или playlist.m3u) — используем как есть.
+  if (HasNonTrivialPath(serverUrl)) {
+    const std::string srcKey = serverUrl.ToUTF8().data();
+    if (!epgUrl.IsEmpty())
+      m_pendingEpgBySource[srcKey] = epgUrl;
+    else
+      m_pendingEpgBySource.erase(srcKey);
+
+    BeginPlaylistLoading("Xtream");
+
+    std::string title = titleWx.ToUTF8().data();
+
+    ErrorCode ec = ErrorCode::OK;
+    try {
+      ec = mgr->addPlaylistFromUrl(serverUrl.ToUTF8().data(), title, "",
+                                   autoUpdate);
+    } catch (const std::exception &e) {
+      LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s", e.what());
+      ec = ErrorCode::Unknown;
+    } catch (...) {
+      LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw unknown");
+      ec = ErrorCode::Unknown;
+    }
+
+    if (ec != ErrorCode::OK) {
+      m_progressTimer.Stop();
+      SetStatusText(_U("Failed to start playlist loading."), 0);
+      showError(this,
+                wxString::Format(_U("Failed to start playlist loading:\n\n%s"),
+                                 wxString::FromUTF8(mgr->getLastError())));
+    }
+    return;
+  }
+
+  // Bare server — probe credentials + формат в фоне, потом add.
+  SetStatusText(_U("Checking Xtream server..."), 0);
+
+  wxWeakRef<MainFrame> weakThis(this);
+  xtream::ProbeAsync(
+      serverUrl, user, pass,
+      [weakThis, epgUrl, titleWx, autoUpdate](bool ok, const wxString &finalUrl,
+                                              const wxString &error) {
+        auto *self = weakThis.get();
+        if (!self)
+          return;
+
+        if (!ok) {
+          self->SetStatusText(_U("Xtream check failed."), 0);
+          showError(self, wxString::Format(
+                              _U("Xtream server check failed:\n\n%s"), error));
+          return;
+        }
+
+        auto *mgr = self->getPlaylistManager();
+        if (!mgr) {
+          self->SetStatusText(_U("PlaylistManager not available."), 0);
+          return;
+        }
+
+        const std::string srcKey = finalUrl.ToUTF8().data();
+        if (!epgUrl.IsEmpty())
+          self->m_pendingEpgBySource[srcKey] = epgUrl;
+        else
+          self->m_pendingEpgBySource.erase(srcKey);
+
+        self->BeginPlaylistLoading("Xtream");
+
+        std::string title = titleWx.ToUTF8().data();
+
+        ErrorCode ec = ErrorCode::OK;
+        try {
+          ec = mgr->addPlaylistFromUrl(finalUrl.ToUTF8().data(), title, "",
+                                       autoUpdate);
+        } catch (const std::exception &e) {
+          LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s",
+                    e.what());
+          ec = ErrorCode::Unknown;
+        } catch (...) {
+          LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw unknown");
+          ec = ErrorCode::Unknown;
+        }
+
+        if (ec != ErrorCode::OK) {
+          self->m_progressTimer.Stop();
+          self->SetStatusText(_U("Failed to start playlist loading."), 0);
+          showError(self, wxString::Format(
+                              _U("Failed to start playlist loading:\n\n%s"),
+                              wxString::FromUTF8(mgr->getLastError())));
+        }
+      });
+}
+
 void MainFrame::BeginPlaylistLoading(const wxString &sourceLabel) {
   SetStatusText(
       wxString::Format(_U("Loading playlist from %s..."), sourceLabel), 0);
@@ -235,6 +378,36 @@ void MainFrame::BeginPlaylistLoading(const wxString &sourceLabel) {
 void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
   m_progressTimer.Stop();
 
+  // Обрабатываем все pending-записи: для каждой ищем плейлист с matching
+  // source. Не найденные (маловероятно, но возможно при гонке) остаются
+  // в map и будут обработаны при следующем успехе.
+  if (m_application && !m_pendingEpgBySource.empty()) {
+    auto *mgr = getPlaylistManager();
+    if (mgr) {
+      auto it = m_pendingEpgBySource.begin();
+      while (it != m_pendingEpgBySource.end()) {
+        Playlist *found = nullptr;
+        for (const auto &up : mgr->getPlaylists()) {
+          if (up && up->getSource() == it->first) {
+            found = up.get();
+            break;
+          }
+        }
+        if (!found) {
+          ++it;
+          continue;
+        }
+        const wxString epgUrl = it->second;
+        RegisterEpgSourceForPlaylist(
+            epgUrl, wxString::FromUTF8(found->getTitle()));
+        if (EPGManager *epg = m_application->GetEPGManager())
+          epg->SetEpgSourceOwner(epgUrl.ToUTF8().data(),
+                                 found->getUniqueId());
+        it = m_pendingEpgBySource.erase(it);
+      }
+    }
+  }
+
   savePlaylistsToConfig();
   RefreshPlaylistView();
 
@@ -243,6 +416,7 @@ void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
 
 void MainFrame::onAddFromUrlError(wxCommandEvent &WXUNUSED(event)) {
   m_progressTimer.Stop();
+
   auto *mgr = getPlaylistManager();
   const std::string lastError = mgr->getLastError();
 
@@ -382,6 +556,12 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
               wxString::Format(_U("Failed to remove playlist:\n%s"),
                                wxString::FromUTF8(mgr->getLastError())));
     return;
+  }
+
+  // Удалить auto-created EPG-источники, привязанные только к этому плейлисту.
+  // Ручные источники и источники с другими владельцами не трогаются.
+  if (app && app->GetEPGManager()) {
+    app->GetEPGManager()->DeleteEpgSourcesForPlaylist(playlistUuid);
   }
 
   // Очистка логотипов удалённого плейлиста
@@ -773,91 +953,43 @@ void MainFrame::onPlDelKeyDown(wxKeyEvent &event) {
 }
 
 void MainFrame::onAddIPTVPlaylist(wxCommandEvent &WXUNUSED(event)) {
-  fprintf(stderr, "[MARK] A1: onAddIPTVPlaylist enter\n");
-  fflush(stderr);
-
   if (!validateApplication() || !validatePlaylistManager()) {
-    fprintf(stderr, "[MARK] A1a: validation failed, returning\n");
-    fflush(stderr);
     return;
   }
-  fprintf(stderr, "[MARK] A1b: validation passed\n");
-  fflush(stderr);
 
-  fprintf(stderr, "[MARK] A2: before AddIPTVPlaylistDialog ctor\n");
-  fflush(stderr);
   AddIPTVPlaylistDialog dlg(this, getPlaylistManager());
-  fprintf(stderr, "[MARK] A3: after AddIPTVPlaylistDialog ctor\n");
-  fflush(stderr);
 
-  fprintf(stderr, "[MARK] A4: before ShowModal\n");
-  fflush(stderr);
   int modalResult = dlg.ShowModal();
-  fprintf(stderr, "[MARK] A5: after ShowModal, result=%d (wxID_OK=%d)\n",
-          modalResult, wxID_OK);
-  fflush(stderr);
 
   if (modalResult != wxID_OK) {
-    fprintf(stderr, "[MARK] A5a: modal not OK, returning\n");
-    fflush(stderr);
     return;
   }
 
   wxString url = dlg.GetSelectedUrl();
   wxString title = dlg.GetSelectedTitle();
-  fprintf(stderr, "[MARK] A6: url='%s' title='%s'\n",
-          (const char *)url.utf8_str(), (const char *)title.utf8_str());
-  fflush(stderr);
 
   auto *mgr = getPlaylistManager();
   std::string titleStr = title.ToStdString();
   std::string urlStr = url.ToStdString();
-  fprintf(stderr, "[MARK] A7: urlStr='%s' titleStr='%s'\n", urlStr.c_str(),
-          titleStr.c_str());
-  fflush(stderr);
 
-  fprintf(stderr, "[MARK] A8: before BeginPlaylistLoading\n");
-  fflush(stderr);
   BeginPlaylistLoading("IPTV-Org");
-  fprintf(stderr, "[MARK] A9: after BeginPlaylistLoading\n");
-  fflush(stderr);
 
   ErrorCode ec = ErrorCode::OK;
   try {
-    fprintf(stderr, "[MARK] A10: before addPlaylistFromUrl\n");
-    fflush(stderr);
-
     ec = mgr->addPlaylistFromUrl(urlStr, titleStr, "", dlg.GetAutoUpdate());
-
-    fprintf(stderr, "[MARK] A11: after addPlaylistFromUrl, ec=%d\n", (int)ec);
-    fflush(stderr);
   } catch (const std::exception &e) {
-    fprintf(stderr, "[MARK] A11E: exception: %s\n", e.what());
-    fflush(stderr);
     LOG_ERROR("onAddIPTVPlaylist: addPlaylistFromUrl threw: %s", e.what());
     ec = ErrorCode::Unknown;
   } catch (...) {
-    fprintf(stderr, "[MARK] A11E: unknown exception\n");
-    fflush(stderr);
     LOG_ERROR("onAddIPTVPlaylist: addPlaylistFromUrl threw unknown");
     ec = ErrorCode::Unknown;
   }
 
-  fprintf(stderr, "[MARK] A12: after try/catch, ec=%d\n", (int)ec);
-  fflush(stderr);
-
   if (ec != ErrorCode::OK) {
-    fprintf(stderr, "[MARK] A13: error path, lastError='%s'\n",
-            mgr->getLastError().c_str());
-    fflush(stderr);
-
     m_progressTimer.Stop();
     SetStatusText(_U("Failed to start playlist loading."), 0);
     showError(this,
               wxString::Format(_U("Failed to start playlist loading:\n\n%s"),
                                wxString::FromUTF8(mgr->getLastError())));
   }
-
-  fprintf(stderr, "[MARK] A14: onAddIPTVPlaylist exit\n");
-  fflush(stderr);
 }

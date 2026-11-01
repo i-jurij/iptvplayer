@@ -2,6 +2,8 @@
 
 #include <wx/app.h>
 #include <wx/font.h>
+#include <wx/sizer.h>
+#include <wx/statbox.h>
 #include <wx/string.h>
 #include <wx/window.h>
 
@@ -9,6 +11,11 @@
 #include <ctime>
 #include <functional>
 #include <string>
+
+// Стандартные размеры диалогов плейлистов.
+inline constexpr int DIALOG_WIDTH = 640;
+inline constexpr int URL_DIALOG_HEIGHT = 480;
+inline constexpr int EDIT_DIALOG_HEIGHT = 350;
 
 // ============================================================================
 // Измерение текста с переносом
@@ -57,6 +64,13 @@ struct CardLayoutInfo {
 };
 
 CardLayoutInfo ComputeCardLayoutForDisplay(int displayW);
+
+// ============================================================================
+// Widget helpers
+// ============================================================================
+// Жирный заголовок секции в sizer.
+wxStaticBoxSizer *AddSectionHeader(wxWindow *parent, wxSizer *parentSizer,
+                                   const wxString &text, int border = 10);
 
 // ============================================================================
 // Безопасный CallAfter по window id

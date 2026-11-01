@@ -17,9 +17,6 @@
 static int NewMenuId() { return wxWindow::NewControlId(); }
 
 void MainFrame::ShowMainMenu(bool deferred) {
-  fprintf(stderr, "[MARK] M1: ShowMainMenu enter deferred=%d\n", (int)deferred);
-  fflush(stderr);
-
   auto menuPtr = std::make_shared<wxMenu>();
   wxMenu &menu = *menuPtr;
 

@@ -127,15 +127,20 @@ wxSizer *MainFrame::createPlaylistTopButtons() {
                                   _U("Add from IPTV-Org..."));
   topBtnSizer->Add(addIptvBtn, 0, wxRIGHT, FromDIP(6));
 
-  auto *addFileBtn =
-      new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_FILE,
-                   _U("Add from File..."));
-  topBtnSizer->Add(addFileBtn, 0, wxRIGHT, FromDIP(6));
-
   auto *addUrlBtn =
       new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_URL,
                    _U("Add from URL..."));
-  topBtnSizer->Add(addUrlBtn, 0);
+  topBtnSizer->Add(addUrlBtn, 0, wxRIGHT, FromDIP(6));
+
+  auto *addXtreamBtn =
+      new wxButton(m_playlistPanel, ID_ADD_XTREAM_PLAYLIST,
+                   _U("Add Xtream..."));
+  topBtnSizer->Add(addXtreamBtn, 0, wxRIGHT, FromDIP(6));
+
+  auto *addFileBtn =
+      new wxButton(m_playlistPanel, ID_ADD_PLAYLIST_FILE,
+                   _U("Add from File..."));
+  topBtnSizer->Add(addFileBtn, 0);
 
   auto *vbox = new wxBoxSizer(wxVERTICAL);
   vbox->Add(topBtnSizer, 0, wxEXPAND | wxALL, FromDIP(6));

@@ -259,6 +259,29 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
   if (!ok)
     return ErrorCode::FileNotFound;
 
+  // Xtream API (player_api.php) и другие JSON-эндпоинты возвращают объект
+  // или массив вместо M3U. Отсекаем до парсера — иначе M3UParser выдаст
+  // невнятное "no channels found".
+  {
+    size_t i = 0;
+    if (content.size() >= 3 && static_cast<unsigned char>(content[0]) == 0xEF &&
+        static_cast<unsigned char>(content[1]) == 0xBB &&
+        static_cast<unsigned char>(content[2]) == 0xBF)
+      i = 3;
+    while (i < content.size()) {
+      const char c = content[i];
+      if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+        ++i;
+      else
+        break;
+    }
+    if (i < content.size() && (content[i] == '{' || content[i] == '[')) {
+      setLastError("Server returned JSON (Xtream API). "
+                   "Use get.php for M3U playlists.");
+      return ErrorCode::Unknown;
+    }
+  }
+
   auto result = m_parser.parse(content);
   if (!result.success) {
     setLastError(result.error);
@@ -376,7 +399,7 @@ void PostAddFromUrlEvent(int eventId, const std::string &errorMsg = "") {
     fprintf(stderr, "[MARK] D0: CallAfter eventId=%d err='%s'\n", eventId,
             errorMsg.c_str());
     fflush(stderr);
-    
+
     wxWindow *top = wxTheApp->GetTopWindow();
     if (!top)
       return;
