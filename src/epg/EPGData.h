@@ -40,6 +40,16 @@ struct EpgSource {
   std::string name;
   time_t lastUpdate = 0;
   bool autoUpdate = true;
+
+  // true = источник создан приложением (RegisterEpgSource), а не
+  // пользователем через AddEpgSourceDialog. Управляет жизненным циклом:
+  // autoCreated источники удаляются вместе с последним владельцем.
+  bool autoCreated = false;
+
+  // UUID плейлистов, к которым привязан autoCreated-источник.
+  // Пусто = orphan (плейлист ещё не открыт или уже удалён).
+  // Ручные источники (autoCreated=false) это поле не используют.
+  std::vector<std::string> ownerPlaylistIds;
 };
 
 struct MappingEntry {

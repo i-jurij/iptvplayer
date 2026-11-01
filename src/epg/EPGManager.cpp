@@ -321,6 +321,8 @@ EPGManager::~EPGManager() {
   m_cancelMatching = true;
   m_cancelFavoritesMatching = true;
 
+  ClearRefreshQueue();
+
   // -----------------------------------------------------------------
   // 2) Снимаем всех подписчиков прогресса ДО ожидания задач.
   //    Если фон всё-таки вызовет UpdateProgress в процессе ожидания,
@@ -625,7 +627,7 @@ void EPGManager::UpdateSourcesDue(bool force) {
     sourcesCopy = m_sources;
   }
 
-  auto queue = std::make_shared<
+  auto work = std::make_shared<
       std::vector<std::pair<std::string, std::string>>>(); // (url, name)
 
   const time_t now = EpgTime::GetCurrentUtcEpoch();
@@ -635,17 +637,15 @@ void EPGManager::UpdateSourcesDue(bool force) {
 
   for (const auto &src : sourcesCopy) {
     if (!force) {
-      // Фильтр по флагу: либо глобальный оверрайд, либо per-source.
       if (!allSources && !src.autoUpdate)
         continue;
-      // Фильтр по времени: обновляем только «просроченные».
       if (src.lastUpdate > 0 && (now - src.lastUpdate) < thresholdSecs)
         continue;
     }
-    queue->emplace_back(src.url, src.name);
+    work->emplace_back(src.url, src.name);
   }
 
-  if (queue->empty()) {
+  if (work->empty()) {
     LOG_DEBUG("EPGManager: No sources due for update (force=%d)",
               static_cast<int>(force));
     m_autoUpdateInProgress = false;
@@ -656,78 +656,57 @@ void EPGManager::UpdateSourcesDue(bool force) {
     return;
   }
 
-  LOG_DEBUG("EPGManager: updating %zu source(s) (force=%d)",
-            queue->size(), static_cast<int>(force));
+  LOG_DEBUG("EPGManager: enqueueing %zu source(s) (force=%d)", work->size(),
+            static_cast<int>(force));
 
-  auto index      = std::make_shared<size_t>(0);
   auto anySuccess = std::make_shared<std::atomic<bool>>(false);
-  auto cancelled  = std::make_shared<std::atomic<bool>>(false);
+  auto cancelled = std::make_shared<std::atomic<bool>>(false);
 
-  // Рекурсивная лямбда через shared_ptr<function> — стандартный приём
-  // для C++17, если нет Y-комбинатора под рукой.
-  auto next = std::make_shared<std::function<void()>>();
-  *next = [this, queue, index, anySuccess, cancelled, next]() {
-    if (cancelled->load()) {
-      LOG_DEBUG("EPGManager: batch update cancelled, stopping chain");
-      m_autoUpdateInProgress = false;
-      return;
+  for (const auto &entry : *work) {
+    EnqueueRefreshSource(entry.first, entry.second,
+                         [this, entry, anySuccess,
+                          cancelled](bool success, const std::string &) {
+                           if (success) {
+                             anySuccess->store(true);
+                             std::lock_guard<std::recursive_mutex> lock(
+                                 m_mutex);
+                             const time_t ts = EpgTime::GetCurrentUtcEpoch();
+                             for (auto &src : m_sources) {
+                               if (src.url == entry.first) {
+                                 src.lastUpdate = ts;
+                                 break;
+                               }
+                             }
+                           }
+                           if (m_downloadProgress.abort.load())
+                             cancelled->store(true);
+                         });
+  }
+
+  // Финальная задача: матчинг + Done строго после всех источников.
+  auto queue = m_refreshQueue;
+  queue->Enqueue([this, anySuccess, cancelled, queue]() {
+    m_autoUpdateInProgress = false;
+
+    if (anySuccess->load()) {
+      SaveSourcesToConfig();
     }
 
-    size_t i = (*index)++;
-    if (i >= queue->size()) {
-      // Все источники обработаны.
-      m_autoUpdateInProgress = false;
-
-      // Сохраняем per-source lastUpdate в config одним разом после всей
-      // цепочки (а не после каждого источника — меньше дисковой нагрузки).
-      if (anySuccess->load()) {
-        SaveSourcesToConfig();
+    bool startedMatching = false;
+    if (anySuccess->load() && !cancelled->load() &&
+        !m_currentPlaylistId.empty() && m_playlistManager) {
+      Playlist *pl = m_playlistManager->findByUniqueId(m_currentPlaylistId);
+      if (pl && !pl->getChannels().empty()) {
+        MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId, nullptr);
+        MatchFavoritesAsync(false);
+        startedMatching = true;
       }
-
-      bool startedMatching = false;
-      if (anySuccess->load() && !m_currentPlaylistId.empty() &&
-          m_playlistManager) {
-        Playlist *pl = m_playlistManager->findByUniqueId(m_currentPlaylistId);
-        if (pl && !pl->getChannels().empty()) {
-          MatchChannelsAsync(pl->getChannels(), m_currentPlaylistId, nullptr);
-          MatchFavoritesAsync(false);
-          startedMatching = true;
-        }
-      }
-      if (!startedMatching) {
-        UpdateProgress({EpgProgressStage::Done, 100,
-                        _U("Done").ToStdString()});
-      }
-      return;
     }
-
-    const auto &entry = (*queue)[i];
-    RefreshSourceAsync(
-        entry.first, entry.second,
-        [this, entry, anySuccess, cancelled, next](bool success,
-                                                   const std::string &) {
-          if (success) {
-            anySuccess->store(true);
-            // Обновляем per-source lastUpdate в памяти. В config сохраним
-            // один раз после завершения всей цепочки.
-            std::lock_guard<std::recursive_mutex> lock(m_mutex);
-            const time_t ts = EpgTime::GetCurrentUtcEpoch();
-            for (auto &src : m_sources) {
-              if (src.url == entry.first) {
-                src.lastUpdate = ts;
-                break;
-              }
-            }
-          }
-          // abort сбрасывается в начале LoadFromUrl, поэтому читаем его
-          // сразу в колбэке — до того, как запустится следующий источник.
-          if (m_downloadProgress.abort.load())
-            cancelled->store(true);
-          (*next)();
-        });
-  };
-
-  (*next)();
+    if (!startedMatching) {
+      UpdateProgress({EpgProgressStage::Done, 100, _U("Done").ToStdString()});
+    }
+    queue->OnTaskFinished();
+  });
 }
 
 bool EPGManager::GetMappingEntry(const std::string &playlistId,
@@ -972,14 +951,132 @@ void EPGManager::RefreshSourceAsync(
       });
 }
 
+void EPGManager::EnqueueRefreshSource(
+    const std::string &url, const std::string &name,
+    std::function<void(bool, const std::string &)> callback) {
+  auto queue = m_refreshQueue;
+  queue->Enqueue([this, url, name, callback, queue]() {
+    // Очередь гарантирует, что предыдущая задача завершена
+    // (её OnTaskFinished уже сработал). Значит m_singleRefreshFuture
+    // готов, проверка внутри RefreshSourceAsync пройдёт.
+    RefreshSourceAsync(url, name,
+                       [callback, queue](bool ok, const std::string &err) {
+                         if (callback)
+                           callback(ok, err);
+                         queue->OnTaskFinished();
+                       });
+  });
+}
+
+void EPGManager::ClearRefreshQueue() {
+  if (m_refreshQueue)
+    m_refreshQueue->Clear();
+}
+
+void EPGManager::RegisterEpgSource(const std::string &url,
+                                   const std::string &name) {
+  if (url.empty())
+    return;
+
+  auto sources = GetSources();
+  for (const auto &src : sources) {
+    if (src.url == url) {
+      // Уже есть. Ручной — не трогаем. Auto-created — тоже (idempotent).
+      LOG_DEBUG("RegisterEpgSource: source already exists: %s", url.c_str());
+      return;
+    }
+  }
+
+  EpgSource src;
+  src.url = url;
+  src.name = name;
+  src.lastUpdate = 0;
+  src.autoUpdate = true;
+  src.autoCreated = true;
+  sources.push_back(std::move(src));
+
+  SetSources(sources);
+  LOG_INFO("RegisterEpgSource: added auto-created source '%s' (%s)",
+           name.c_str(), url.c_str());
+}
+
+void EPGManager::SetEpgSourceOwner(const std::string &url,
+                                   const std::string &playlistId) {
+  if (url.empty() || playlistId.empty())
+    return;
+
+  auto sources = GetSources();
+  bool changed = false;
+  for (auto &src : sources) {
+    if (src.url != url)
+      continue;
+    if (!src.autoCreated) {
+      LOG_DEBUG("SetEpgSourceOwner: source '%s' is manual, skipping",
+                url.c_str());
+      return;
+    }
+    if (std::find(src.ownerPlaylistIds.begin(), src.ownerPlaylistIds.end(),
+                  playlistId) != src.ownerPlaylistIds.end()) {
+      return; // уже привязан
+    }
+    src.ownerPlaylistIds.push_back(playlistId);
+    changed = true;
+    break;
+  }
+
+  if (changed) {
+    SetSources(sources);
+    LOG_DEBUG("SetEpgSourceOwner: attached '%s' to playlist '%s'", url.c_str(),
+              playlistId.c_str());
+  }
+}
+
+void EPGManager::DeleteEpgSourcesForPlaylist(const std::string &playlistId) {
+  if (playlistId.empty())
+    return;
+
+  auto sources = GetSources();
+  bool changed = false;
+
+  auto it = sources.begin();
+  while (it != sources.end()) {
+    if (!it->autoCreated) {
+      ++it;
+      continue;
+    }
+    auto &owners = it->ownerPlaylistIds;
+    auto pos = std::find(owners.begin(), owners.end(), playlistId);
+    if (pos == owners.end()) {
+      ++it;
+      continue;
+    }
+    owners.erase(pos);
+    changed = true;
+    if (owners.empty()) {
+      LOG_INFO("DeleteEpgSourcesForPlaylist: removing orphan source '%s'",
+               it->url.c_str());
+      it = sources.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  if (changed) {
+    SetSources(sources);
+    LOG_DEBUG("DeleteEpgSourcesForPlaylist: playlist '%s' detached",
+              playlistId.c_str());
+  }
+}
+
 void EPGManager::AbortDownload() {
   m_downloadProgress.abort = true;
+  ClearRefreshQueue();
+
   // Если задача не запущена — сбрасываем флаг сразу. Иначе его сбросит
   // колбэк цепочки, когда текущая загрузка завершится.
-  bool taskRunning =
-      m_singleRefreshFuture.valid() &&
-      m_singleRefreshFuture.wait_for(std::chrono::seconds(0)) !=
-          std::future_status::ready;
+  bool taskRunning = m_singleRefreshFuture.valid() &&
+                     m_singleRefreshFuture.wait_for(std::chrono::seconds(0)) !=
+                         std::future_status::ready;
   if (!taskRunning) {
     m_autoUpdateInProgress = false;
   }
@@ -2448,9 +2545,19 @@ void EPGManager::LoadSourcesFromConfig() {
     if (item.HasMember("autoUpdate") && item["autoUpdate"].IsBool()) {
       src.autoUpdate = item["autoUpdate"].GetBool();
     } else {
-      src.autoUpdate = true; // значение по умолчанию
+      src.autoUpdate = true;
     }
-    m_sources.push_back(src);
+    if (item.HasMember("autoCreated") && item["autoCreated"].IsBool()) {
+      src.autoCreated = item["autoCreated"].GetBool();
+    }
+    if (item.HasMember("ownerPlaylistIds") &&
+        item["ownerPlaylistIds"].IsArray()) {
+      for (const auto &v : item["ownerPlaylistIds"].GetArray()) {
+        if (v.IsString())
+          src.ownerPlaylistIds.emplace_back(v.GetString());
+      }
+    }
+    m_sources.push_back(std::move(src));
   }
 }
 
@@ -2474,6 +2581,14 @@ void EPGManager::SaveSourcesToConfig() const {
     obj.AddMember("lastUpdate", static_cast<int64_t>(src.lastUpdate),
                   allocator);
     obj.AddMember("autoUpdate", src.autoUpdate, allocator);
+    obj.AddMember("autoCreated", src.autoCreated, allocator);
+
+    rapidjson::Value ownersArr(rapidjson::kArrayType);
+    for (const auto &id : src.ownerPlaylistIds) {
+      ownersArr.PushBack(rapidjson::Value(id.c_str(), allocator), allocator);
+    }
+    obj.AddMember("ownerPlaylistIds", ownersArr, allocator);
+
     doc.PushBack(obj, allocator);
   }
   rapidjson::StringBuffer buffer;

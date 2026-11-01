@@ -15,9 +15,11 @@
 #include "UpdateAllThread.h"
 #include "UpdateOneThread.h"
 #include "Utils.h"
+#include "epg/EPGManager.h"
 #include "iptvorg/AddIPTVPlaylistDialog.h"
 
 #include <wx/msgdlg.h>
+#include <wx/weakref.h>
 
 void MainFrame::RefreshPlaylistView() {
   if (!validatePlaylistManager())
@@ -684,6 +686,83 @@ bool MainFrame::ReloadPlaylistIfCurrent(Playlist *pl) {
 
   LOG_INFO("Playlist '%s' reloaded after update", plName);
   return true;
+}
+
+void MainFrame::RegisterEpgSourceForPlaylist(const wxString &epgUrl,
+                                             const wxString &playlistTitle) {
+  if (epgUrl.IsEmpty())
+    return;
+
+  if (!m_application)
+    return;
+  EPGManager *epg = m_application->GetEPGManager();
+  if (!epg)
+    return;
+
+  const std::string url = epgUrl.ToUTF8().data();
+
+  // Имя источника: title плейлиста, иначе из URL.
+  std::string name;
+  if (!playlistTitle.IsEmpty()) {
+    name = playlistTitle.ToUTF8().data();
+  } else {
+    wxString path = epgUrl.AfterLast('/').BeforeFirst('?');
+    if (path.EndsWith(".xml") || path.EndsWith(".gz") ||
+        path.EndsWith(".xml.gz")) {
+      path = path.BeforeLast('.');
+    }
+    name = path.ToStdString();
+  }
+
+  // Создать auto-created источник (или no-op, если уже есть).
+  epg->RegisterEpgSource(url, name);
+
+  // Запустить загрузку через очередь. Привязка владельца будет сделана
+  // позже (SetEpgSourceOwner) в onAddFromUrlSuccess / onAddPlaylistFile.
+  wxWeakRef<MainFrame> weakThis(this);
+  epg->EnqueueRefreshSource(
+      url, name, [weakThis, url](bool success, const std::string &error) {
+        auto *self = weakThis.get();
+        if (!self)
+          return;
+
+        auto *app = self->getApplication();
+        if (!app)
+          return;
+        EPGManager *epg2 = app->GetEPGManager();
+        if (!epg2)
+          return;
+
+        if (success) {
+          auto sources = epg2->GetSources();
+          const time_t ts = EpgTime::GetCurrentUtcEpoch();
+          bool changed = false;
+          for (auto &src : sources) {
+            if (src.url == url) {
+              src.lastUpdate = ts;
+              changed = true;
+              break;
+            }
+          }
+          if (changed) {
+            epg2->SetSources(sources);
+            epg2->SaveSourcesToConfig();
+          }
+          epg2->ReMatchCurrentPlaylist();
+          self->SetStatusText(_U("EPG source updated."), 0);
+        } else {
+          LOG_WARN("RegisterEpgSourceForPlaylist: EPG refresh failed: %s",
+                   error.c_str());
+          self->SetStatusText(
+              wxString::Format(_U("EPG source update failed: %s"),
+                               wxString::FromUTF8(error)),
+              0);
+        }
+      });
+
+  LOG_INFO("RegisterEpgSourceForPlaylist: enqueued '%s' (%s)", name.c_str(),
+           url.c_str());
+  SetStatusText(_U("EPG source added, updating in background."), 0);
 }
 
 void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {

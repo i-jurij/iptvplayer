@@ -173,7 +173,9 @@ private:
   bool m_playlistSuggestionShown = false;
 
   void onAddIPTVPlaylist(wxCommandEvent &event);
-  
+  void RegisterEpgSourceForPlaylist(const wxString &epgUrl,
+                                    const wxString &playlistTitle);
+
   wxButton *m_menuButton = nullptr;
 
   void OnGlobalCharHook(wxKeyEvent &evt);

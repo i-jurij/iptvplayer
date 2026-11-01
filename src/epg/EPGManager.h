@@ -14,6 +14,7 @@
 
 #include "EPGData.h"
 #include "EPGDatabase.h"
+#include "EPGRefreshQueue.h"
 #include "PlaylistManager.h"
 
 #include <wx/event.h>
@@ -198,6 +199,30 @@ public:
   void RefreshSourceAsync(
       const std::string &url, const std::string &name,
       std::function<void(bool, const std::string &)> callback = nullptr);
+  // Последовательная очередь EPG-загрузок. Гарантирует, что все
+  // запросы (UpdateSourcesDue, RegisterEpgSource, RefreshSourceInternal)
+  // будут выполнены по одному, без отказов "previous in progress".
+  void EnqueueRefreshSource(
+      const std::string &url, const std::string &name,
+      std::function<void(bool, const std::string &)> callback = nullptr);
+
+  // Очистить ожидающие задачи. Текущая (если есть) доиграет.
+  // Вызывается из AbortDownload и из деструктора.
+  void ClearRefreshQueue();
+
+  // Создать auto-created источник (если ещё нет). Дедупликация по url.
+  // Если источник уже существует и он autoCreated — no-op.
+  // Если существует и он ручной — no-op (ручной не трогаем).
+  void RegisterEpgSource(const std::string &url, const std::string &name);
+
+  // Привязать autoCreated-источник к плейлисту (добавить UUID в owners,
+  // если его там нет). Для ручных источников — no-op.
+  void SetEpgSourceOwner(const std::string &url, const std::string &playlistId);
+
+  // Удалить playlistId из owners всех autoCreated-источников.
+  // Если owners пуст — источник удаляется.
+  // Для ручных источников (autoCreated=false) — no-op.
+  void DeleteEpgSourcesForPlaylist(const std::string &playlistId);
 
   void RemoveMappingEntry(const std::string &playlistId,
                           const std::string &key);
@@ -442,6 +467,8 @@ private:
   std::future<void> m_favoritesMatchFuture;
   std::future<void> m_incrementalRemapFuture;
   std::future<void> m_singleRefreshFuture;
+  std::shared_ptr<EPGRefreshQueue> m_refreshQueue =
+      std::make_shared<EPGRefreshQueue>();
 };
 
 #endif
