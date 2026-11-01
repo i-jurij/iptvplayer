@@ -223,6 +223,15 @@ MainFrame::MainFrame(Application *app)
 }
 
 MainFrame::~MainFrame() {
+  // Сразу помечаем закрытие и прячем окно — до любой блокирующей работы.
+  // Hide()+Update() безопасны: виджеты ещё живы, ниже читаются
+  // m_videoPanel->GetLastVolume(), GetRect() и т.д.
+  m_closing = true;
+  if (IsShown()) {
+    Hide();
+    Update();
+  }
+
   // Отписка от прогресса EPG до разрушения GUI. Иначе колбэк с висячим
   // this остаётся в EPGManager и UAF'нет при следующем UpdateProgress
   // (в т.ч. в окне между ~MainFrame и ~EPGManager).
@@ -260,7 +269,7 @@ MainFrame::~MainFrame() {
     }
 
     IconManager::Shutdown();
-    m_closing = true;
+    // m_closing уже true — см. начало деструктора.
     // Ожидание завершения всех фоновых задач
     for (auto &fut : m_backgroundTasks) {
       if (fut.valid()) {
@@ -268,10 +277,9 @@ MainFrame::~MainFrame() {
       }
     }
   } catch (const std::exception &e) {
-    wxMessageBox(
-        wxString::Format("MainFrame dtor std::exception: %s", e.what()));
+    std::cerr << "MainFrame dtor std::exception: " << e.what() << std::endl;
   } catch (...) {
-    wxMessageBox("MainFrame dtor unknown exception");
+    std::cerr << "MainFrame dtor unknown exception" << std::endl;
   }
 }
 

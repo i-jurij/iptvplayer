@@ -54,7 +54,7 @@ Depends: $depends
 Maintainer: ijurij <mnisjil@duck.com>
 Homepage: https://github.com/i-jurij/$PACKAGE_NAME
 Description: IPTV Playlist Player
- A simple player for M3U playlists with GUI.
+ A simple player for playlists with GUI.
 EOF
 
     cat > "$STAGING_DIR/DEBIAN/postinst" << 'EOF'

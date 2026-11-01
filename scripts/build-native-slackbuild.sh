@@ -68,7 +68,7 @@ build_native_slackbuild() {
          |-----handy-ruler------------------------------------------------------|
 $PACKAGE_NAME: $PACKAGE_NAME (IPTV Playlist Player)
 $PACKAGE_NAME:
-$PACKAGE_NAME: A simple player for M3U playlists with GUI.
+$PACKAGE_NAME: A simple player for playlists with GUI.
 $PACKAGE_NAME:
 $PACKAGE_NAME: Homepage: https://github.com/i-jurij/$PACKAGE_NAME
 $PACKAGE_NAME:

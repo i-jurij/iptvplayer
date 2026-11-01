@@ -51,7 +51,19 @@ build_rpm_common() {
     local changelog_tag="${RPM_CHANGELOG_TAG:-}"
     local output_suffix="${RPM_OUTPUT_SUFFIX:-$DISTRO}"
     local extra_spec="${RPM_EXTRA_SPEC:-}"
+    # Универсальный абзац к %description для всех RPM-семейств: где взять
+    # кодеки H.264/H.265. Адаптер может переопределить через RPM_DESC_EXTRA.
+    local desc_extra="
 
+For H.264/H.265 video the system needs libavcodec and(or) openh264, openh265
+with patent-encumbered codecs from your distribution's multimedia repository 
+(RPM Fusion on RHEL-compatible systems, Packman on openSUSE, Tainted on Mageia,
+restricted on OpenMandriva)."
+    if [ -n "${RPM_DESC_EXTRA:-}" ]; then
+        desc_extra="
+
+${RPM_DESC_EXTRA}"
+    fi
     local group_line=""
     [ -n "${RPM_GROUP:-}" ] && group_line="Group:          ${RPM_GROUP}"
 
@@ -155,7 +167,7 @@ BuildArch:      $RPM_ARCH
 $extra_spec
 
 %description
-A simple player for M3U playlists with GUI.
+A simple player for playlists with GUI.${desc_extra}
 
 %prep
 %setup -q

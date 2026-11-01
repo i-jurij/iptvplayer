@@ -127,9 +127,6 @@ void MainFrame::createMainPanel() {
   // --- create top global gauge at the very top of client area ---
   m_gaugeTop = makeGauge(m_mainPanel);
   m_gaugeTop->Hide();
-  // add gauge first so it stays above headerPanel in the layout
-  m_mainSizerGaugeItem = mainSizer->Add(
-      m_gaugeTop, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
 
   // -------------------------------
   // NOTEBOOK
@@ -608,6 +605,8 @@ void MainFrame::createMainPanel() {
       mainSizer->Add(headerPanel, 0, wxEXPAND | wxALL, FromDIP(0));
   m_mainSizerNotebookItem =
       mainSizer->Add(m_notebook, 1, wxEXPAND | wxALL, FromDIP(0));
+  m_mainSizerGaugeItem = mainSizer->Add(
+      m_gaugeTop, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(6));
   m_mainPanel->SetSizer(mainSizer);
 
   // Добавляем панель в sizer самого фрейма

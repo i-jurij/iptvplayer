@@ -24,8 +24,12 @@ void MainFrame::onSettings(wxCommandEvent &WXUNUSED(event)) {
 }
 
 void MainFrame::onQuit(wxCommandEvent &WXUNUSED(event)) {
-  IconManager::Shutdown();
   m_closing = true;
+  if (IsShown()) {
+    Hide();
+    Update();
+  }
+
   Close(true);
 }
 
