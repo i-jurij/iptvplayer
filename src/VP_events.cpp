@@ -1,5 +1,7 @@
 #include "LogControl.h"
 #include "VideoPanel.h"
+#include "Utils_Platform.h"
+
 #include <wx/dir.h>
 #include <wx/menu.h>
 #include <wx/snglinst.h>

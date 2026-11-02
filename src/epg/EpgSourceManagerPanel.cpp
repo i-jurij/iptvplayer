@@ -15,6 +15,7 @@
 #include <wx/log.h>
 #include <wx/menu.h>
 #include <wx/msgdlg.h>
+#include <wx/settings.h>
 #include <wx/sizer.h>
 #include <wx/statbox.h>
 #include <wx/stattext.h>
@@ -438,18 +439,6 @@ void EpgSourceManagerPanel::OnRefresh(wxCommandEvent &) {
     return;
   }
 
-  // Не тратим время на заведомо мёртвый источник.
-  const std::string &url = sel.sources[sel.idx].url;
-  if (IsNetworkUrl(wxString::FromUTF8(url))) {
-    auto it = m_availabilityCache.find(url);
-    if (it != m_availabilityCache.end() && !it->second.available) {
-      m_sourceList->SetItemTextColour(sel.idx, ShouldUseDarkColors()
-                                                   ? wxColour(255, 140, 140)
-                                                   : wxColour(180, 0, 0));
-      return;
-    }
-  }
-
   wxString urlWx = m_sourceList->GetItemText(sel.idx, 0);
   wxString nameWx = m_sourceList->GetItemText(sel.idx, 1);
   RefreshSourceInternal(urlWx.ToUTF8().data(), nameWx.ToUTF8().data());
@@ -624,40 +613,36 @@ void EpgSourceManagerPanel::UpdateSourceList() {
     }
 
     wxString url = wxString::FromUTF8(sources[i].url);
-    wxString avail;
+    const char *availGlyph = UiGlyph::kOff;
     if (IsNetworkUrl(url)) {
       auto it = m_availabilityCache.find(sources[i].url);
       if (it != m_availabilityCache.end()) {
         const auto &entry = it->second;
         if (entry.available) {
-          avail = _U("online");
+          availGlyph = UiGlyph::kOn;
         } else {
-          if (entry.failCount >= 5) {
-            avail = _U("offline (permanent)");
+          auto now = std::chrono::steady_clock::now();
+          auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+              now - entry.timestamp);
+          if (entry.failCount < 5 && elapsed.count() >= 60) {
+            availGlyph = UiGlyph::kChecking;
+            CheckAvailabilityAsync(sources[i].url);
           } else {
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                now - entry.timestamp);
-            if (elapsed.count() >= 60) {
-              avail = _U("checking...");
-              CheckAvailabilityAsync(sources[i].url);
-            } else {
-              avail = _U("offline");
-            }
+            availGlyph = UiGlyph::kOff;
           }
         }
       } else {
-        avail = _U("checking...");
+        availGlyph = UiGlyph::kChecking;
         CheckAvailabilityAsync(sources[i].url);
       }
     } else {
-      // ✔ и ✘ — пиктограммы, вынесены за _U(); "(missing)" — текст.
-      avail = wxFileExists(url) ? wxString::FromUTF8("✔")
-                                : wxString::FromUTF8("✘ ") + _U("(missing)");
+      availGlyph = wxFileExists(url) ? UiGlyph::kPresent : UiGlyph::kMissing;
     }
-    m_sourceList->SetItem(idx, 3, avail);
+    m_sourceList->SetItem(idx, 3, wxString::FromUTF8(availGlyph));
     m_sourceList->SetItem(idx, 4,
-                          sources[i].autoUpdate ? wxString::FromUTF8("✔") : "");
+                          wxString::FromUTF8(sources[i].autoUpdate
+                                                 ? UiGlyph::kOn
+                                                 : ""));
   }
 
   m_dirty = false;
@@ -691,17 +676,9 @@ void EpgSourceManagerPanel::OnAvailabilityChecked(const std::string &url,
   for (long i = 0; i < m_sourceList->GetItemCount(); ++i) {
     wxString itemUrl = m_sourceList->GetItemText(i, 0);
     if (itemUrl.ToUTF8().data() == url) {
-      wxString status;
-      if (entry.available) {
-        status = _U("online");
-      } else {
-        if (entry.failCount >= 5) {
-          status = _U("offline (permanent)");
-        } else {
-          status = _U("offline");
-        }
-      }
-      m_sourceList->SetItem(i, 3, status);
+      m_sourceList->SetItem(
+          i, 3,
+          wxString::FromUTF8(entry.available ? UiGlyph::kOn : UiGlyph::kOff));
       break;
     }
   }
@@ -763,73 +740,73 @@ void EpgSourceManagerPanel::AdjustColumnWidths() {
     return;
 
   wxClientDC dc(m_sourceList);
-  dc.SetFont(m_sourceList->GetFont());
+  wxFont headerFont = m_sourceList->GetFont().Bold();
+  const int headerPadding = FromDIP(20);
+  const int cellPadding = FromDIP(10);
 
   wxString headers[] = {_U("URL"), _U("Name"), _U("Imported"),
-                        _U("Availability")};
-  const int colCount = 4;
-  int minWidths[colCount] = {FromDIP(150), FromDIP(100), FromDIP(100),
-                             FromDIP(60)};
-  int maxWidths[colCount] = {FromDIP(600), FromDIP(300), FromDIP(200),
-                             FromDIP(100)};
-
-  int bestWidths[colCount];
-
-  for (int col = 0; col < colCount; ++col) {
-    int maxTextWidth = 0;
-    wxSize headerSize = dc.GetTextExtent(headers[col]);
-    maxTextWidth = headerSize.GetWidth();
-
-    int itemCount = m_sourceList->GetItemCount();
-    for (int i = 0; i < itemCount; ++i) {
-      wxString text = m_sourceList->GetItemText(i, col);
-      wxSize textSize = dc.GetTextExtent(text);
-      if (textSize.GetWidth() > maxTextWidth)
-        maxTextWidth = textSize.GetWidth();
-    }
-
-    int desired = maxTextWidth + FromDIP(10);
-    if (desired < minWidths[col])
-      desired = minWidths[col];
-    if (desired > maxWidths[col])
-      desired = maxWidths[col];
-    bestWidths[col] = desired;
-  }
+                        _U("Availability"), _U("Auto")};
+  const int colCount = 5;
+  const int urlCol = 0;
 
   int totalWidth = m_sourceList->GetClientSize().GetWidth();
-  if (totalWidth <= 0) {
-    for (int col = 0; col < colCount; ++col) {
-      m_sourceList->SetColumnWidth(col, bestWidths[col]);
-    }
+
+  // 1) Вычитаем ширину вертикального скроллбара, если он есть.
+  int sbW = wxSystemSettings::GetMetric(wxSYS_VSCROLL_X);
+  if (sbW > 0)
+    totalWidth -= sbW;
+
+  // 2) Компенсация внутренних отступов wxListCtrl между колонками
+  //    (на некоторых GTK-темах ~1 px на границу → сумма ширин выходит
+  //    за клиентскую область и появляется горизонтальный скролл).
+  totalWidth -= FromDIP(4);
+
+  if (totalWidth <= 0)
     return;
-  }
 
-  int sumDesired = 0;
-  for (int col = 0; col < colCount; ++col)
-    sumDesired += bestWidths[col];
+  const int maxFixedW = totalWidth * 30 / 100;
 
-  if (sumDesired <= totalWidth) {
-    int extra = totalWidth - sumDesired;
-    int addToUrl = static_cast<int>(extra * 0.6);
-    int addToName = extra - addToUrl;
+  int fixedWidths[colCount] = {0, 0, 0, 0, 0};
+  for (int col = 1; col < colCount; ++col) {
+    dc.SetFont(headerFont);
+    int w = dc.GetTextExtent(headers[col]).GetWidth() + headerPadding;
 
-    int newUrl = bestWidths[0] + addToUrl;
-    int newName = bestWidths[1] + addToName;
-
-    if (newUrl > maxWidths[0]) {
-      addToName += (newUrl - maxWidths[0]);
-      newUrl = maxWidths[0];
+    dc.SetFont(m_sourceList->GetFont());
+    for (int i = 0; i < m_sourceList->GetItemCount(); ++i) {
+      int cw = dc.GetTextExtent(m_sourceList->GetItemText(i, col)).GetWidth() +
+               cellPadding;
+      if (cw > w)
+        w = cw;
     }
-    if (newName > maxWidths[1]) {
-      newName = maxWidths[1];
-    }
-    bestWidths[0] = std::min(newUrl, maxWidths[0]);
-    bestWidths[1] = std::min(newName, maxWidths[1]);
+    if (w > maxFixedW)
+      w = maxFixedW;
+    fixedWidths[col] = w;
   }
 
-  for (int col = 0; col < colCount; ++col) {
-    m_sourceList->SetColumnWidth(col, bestWidths[col]);
+  int fixedSum = 0;
+  for (int col = 1; col < colCount; ++col)
+    fixedSum += fixedWidths[col];
+
+  int urlMin = FromDIP(150);
+  int urlWidth = totalWidth - fixedSum;
+
+  if (urlWidth < urlMin) {
+    urlWidth = urlMin;
+    int availableForFixed = totalWidth - urlMin;
+    if (availableForFixed > 0 && fixedSum > 0) {
+      int distributed = 0;
+      for (int col = 1; col < colCount - 1; ++col) {
+        int nw = fixedWidths[col] * availableForFixed / fixedSum;
+        fixedWidths[col] = nw;
+        distributed += nw;
+      }
+      fixedWidths[colCount - 1] = availableForFixed - distributed;
+    }
   }
+
+  m_sourceList->SetColumnWidth(urlCol, urlWidth);
+  for (int col = 1; col < colCount; ++col)
+    m_sourceList->SetColumnWidth(col, fixedWidths[col]);
 }
 
 // === Методы прогресса ===
@@ -926,7 +903,8 @@ void EpgSourceManagerPanel::RefreshSourceInternal(const std::string &url,
         } else {
           wxMessageBox(wxString::Format(_U("Failed to update source: %s\n\n"
                                            "The source is kept in the list. "
-                                           "Use \"Refresh Now\" to retry."),
+                                           "Use \"Refresh Now\" to retry when "
+                                           "it becomes available."),
                                         wxString::FromUTF8(error)),
                        _U("Error"), wxOK | wxICON_ERROR, self);
         }

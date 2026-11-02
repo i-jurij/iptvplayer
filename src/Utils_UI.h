@@ -12,6 +12,17 @@
 #include <functional>
 #include <string>
 
+// ============================================================================
+// Индикаторы состояния для списков/таблиц.
+// ============================================================================
+namespace UiGlyph {
+inline constexpr const char *kOn = "\xE2\x97\x8F";       // ●  U+25CF online
+inline constexpr const char *kOff = "\xE2\x88\x92";      // −  U+2212 offline
+inline constexpr const char *kChecking = "\xE2\x97\x8C"; // ◌  U+25CC checking
+inline constexpr const char *kPresent = "\xE2\x97\x89";  // ◉  U+25C9 файл есть
+inline constexpr const char *kMissing = "\xC3\x97";      // ×  U+00D7 файла нет
+} // namespace UiGlyph
+
 // Стандартные размеры диалогов плейлистов.
 inline constexpr int DIALOG_WIDTH = 640;
 inline constexpr int URL_DIALOG_HEIGHT = 480;
