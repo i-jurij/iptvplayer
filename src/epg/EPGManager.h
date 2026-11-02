@@ -39,7 +39,8 @@ enum class EpgProgressStage {
   Downloading,
   Error,
   Extracting,
-  Parsing,
+  Parsing,   // expat: разбор XML (percent = -1)
+  Saving,    // вставка в SQLite: прогресс 0..100 по каналам
   Matching,
   Done,
   Cancelled

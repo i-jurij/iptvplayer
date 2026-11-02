@@ -80,6 +80,17 @@ bool EPGDatabase::Open(const wxString &dbPath) {
     m_db.ExecuteUpdate("PRAGMA foreign_keys = ON");
     m_db.ExecuteUpdate("PRAGMA busy_timeout = 10000");
     m_db.ExecuteUpdate("PRAGMA wal_autocheckpoint = 10000");
+
+    // Безопасная производительность: больше страниц в кэше = меньше
+    // случайных чтений с диска при bulk-insert и обновлении индексов.
+    // Отрицательное значение = КиБ (здесь ~128 МБ).
+    m_db.ExecuteUpdate("PRAGMA cache_size = -131072");
+
+    // Memory-mapped I/O (256 МБ). Позволяет SQLite читать страницы
+    // без syscall-ов на больших сканах (SELECT DISTINCT, DELETE по
+    // диапазону). Безопасно на современных ОС; при нехватке адресного
+    // пространства SQLite сам откажется и продолжит обычным путём.
+    m_db.ExecuteUpdate("PRAGMA mmap_size = 268435456");
     // Раз в старте схлопываем WAL: сбрасывает накопленные блокировки,
     // дальнейшие чтения идут напрямую из БД.
     m_db.ExecuteUpdate("PRAGMA wal_checkpoint(TRUNCATE)");
@@ -139,14 +150,14 @@ bool EPGDatabase::CreateTables() {
                        "start_time INTEGER NOT NULL,"
                        "stop_time INTEGER NOT NULL,"
                        "title TEXT, description TEXT, category TEXT)");
+
     m_db.ExecuteUpdate(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_channel_start "
         "ON programs(channel_id, start_time)");
     m_db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_programs_stop_time ON "
                        "programs(stop_time)");
-    m_db.ExecuteUpdate(
-        "CREATE INDEX IF NOT EXISTS idx_programs_channel_start_stop "
-        "ON programs(channel_id, start_time, stop_time)");
+    m_db.ExecuteUpdate("DROP INDEX IF EXISTS idx_programs_channel_start_stop");
+
     m_db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS playlist_metadata ("
                        "playlist_id TEXT PRIMARY KEY,"
                        "channel_count INTEGER, channel_hash TEXT,"
@@ -244,33 +255,6 @@ bool EPGDatabase::InsertOrUpdateChannel(const EpgChannel &channel) {
   }
 }
 
-bool EPGDatabase::InsertOrUpdateChannels(
-    const std::vector<EpgChannel> &channels) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  if (!m_isOpen || channels.empty())
-    return true;
-
-  try {
-    ScopedTransaction tx(*this);
-    size_t idx = 0;
-    for (const auto &ch : channels) {
-      if (!InsertOrUpdateChannel(ch)) {
-        LOG_ERROR(
-            "InsertOrUpdateChannels: failed at index %zu for channel '%s'", idx,
-            ch.id.c_str());
-        return false;
-      }
-      ++idx;
-    }
-    tx.Commit();
-    return true;
-  } catch (wxSQLite3::Exception &e) {
-    LOG_ERROR("InsertOrUpdateChannels exception: %s",
-              e.GetMessage().ToUTF8().data());
-    return false;
-  }
-}
-
 bool EPGDatabase::InsertProgram(const std::string &channelId,
                                 const EpgProgram &program) {
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -305,14 +289,15 @@ bool EPGDatabase::InsertProgram(const std::string &channelId,
   }
 }
 
+// ВАЖНО: транзакцию открывает вызывающий.
+// вызывающие должны сами обернуть вызов в
+// BeginTransaction()/CommitTransaction().
 bool EPGDatabase::InsertPrograms(const std::string &channelId,
                                  const std::vector<EpgProgram> &programs) {
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
   if (!m_isOpen || programs.empty())
     return true;
-
   try {
-    ScopedTransaction tx(*this);
     size_t idx = 0;
     for (const auto &prog : programs) {
       if (!InsertProgram(channelId, prog)) {
@@ -323,7 +308,6 @@ bool EPGDatabase::InsertPrograms(const std::string &channelId,
       }
       ++idx;
     }
-    tx.Commit();
     return true;
   } catch (wxSQLite3::Exception &e) {
     LOG_ERROR("InsertPrograms exception for channel '%s': %s",

@@ -127,6 +127,7 @@ private:
 
   static std::atomic<bool> shuttingDown;
   static std::atomic<bool> queueStarted;
+  static std::atomic<bool> cancelDownloads;
 };
 
 #endif // ICON_MANAGER_H

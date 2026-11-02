@@ -41,7 +41,6 @@ public:
   void RollbackTransaction();
 
   bool InsertOrUpdateChannel(const EpgChannel &channel);
-  bool InsertOrUpdateChannels(const std::vector<EpgChannel> &channels);
 
   bool InsertProgram(const std::string &channelId, const EpgProgram &program);
   bool InsertPrograms(const std::string &channelId,

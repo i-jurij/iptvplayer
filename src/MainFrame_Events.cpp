@@ -24,13 +24,22 @@ void MainFrame::onSettings(wxCommandEvent &WXUNUSED(event)) {
 }
 
 void MainFrame::onQuit(wxCommandEvent &WXUNUSED(event)) {
+  Close(true);
+}
+
+void MainFrame::OnCloseWindow(wxCloseEvent &evt) {
+  if (m_closing) { // уже в процессе закрытия — не Hide/Yield повторно
+    evt.Skip();
+    return;
+  }
   m_closing = true;
   if (IsShown()) {
     Hide();
     Update();
+    wxYield();
   }
 
-  Close(true);
+  evt.Skip();
 }
 
 void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
@@ -141,6 +150,9 @@ void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
       break;
     case EpgProgressStage::Parsing:
       brief = _U("EPG: Parsing");
+      break;
+    case EpgProgressStage::Saving:
+      brief = _U("EPG: Saving to database");
       break;
     case EpgProgressStage::Matching:
       brief = _U("EPG: Matching channels");

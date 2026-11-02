@@ -33,9 +33,12 @@ static constexpr size_t HARD_LIMIT_BYTES = 2 * 1024 * 1024; // 2 MB
 //  STATIC FIELDS
 // ============================================================================
 std::atomic<bool> IconManager::shuttingDown = false;
-
 // New: paused flag for IconManager (controls whether workers should process)
 std::atomic<bool> IconManager::paused{false};
+// Cooperative-cancel flag for in-flight curl transfers. Set by Shutdown();
+// checked by CURLOPT_XFERINFOFUNCTION so long downloads abort fast instead
+// of waiting for CURLOPT_TIMEOUT.
+std::atomic<bool> IconManager::cancelDownloads{false};
 
 // Очередь задач (FIFO, приоритеты будут добавлены позже)
 namespace {
@@ -98,6 +101,7 @@ void IconManager::EnqueueTask(std::function<void()> fn) {
 void IconManager::Shutdown() {
   LOG_DEBUG("IconManager::Shutdown: stopping thread pool");
   shuttingDown.store(true);
+  cancelDownloads.store(true);   // ← сигнал для curl progress callback
   s_stopWorkers.store(true);
   qCV.notify_all();
   for (auto &t : s_workers) {
@@ -585,8 +589,8 @@ bool IconManager::DownloadIconToBuffer(const std::string &url,
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
-  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
   curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
   curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 iptvplayer/1.0");
 
@@ -600,6 +604,19 @@ bool IconManager::DownloadIconToBuffer(const std::string &url,
 
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+  // Cooperative cancellation: libcurl вызывает этот callback примерно раз
+  // в секунду (или чаще при активном обмене). Возврат ненулевого значения
+  // прерывает передачу с CURLE_ABORTED_BY_CALLBACK. Без этого join() в
+  // Shutdown() будет ждать полный CURLOPT_TIMEOUT (10 с), и GNOME увидит
+  // зависшее приложение.
+  auto progress_cb = +[](void *clientp, curl_off_t, curl_off_t, curl_off_t,
+                         curl_off_t) -> int {
+    auto *flag = static_cast<std::atomic<bool> *>(clientp);
+    return (flag && flag->load(std::memory_order_relaxed)) ? 1 : 0;
+  };
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void *)&cancelDownloads);
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L); // 0 = включить callback
 
   CURLcode res = curl_easy_perform(curl);
 
@@ -612,6 +629,10 @@ bool IconManager::DownloadIconToBuffer(const std::string &url,
   curl_easy_cleanup(curl);
 
   if (res != CURLE_OK) {
+    if (res == CURLE_ABORTED_BY_CALLBACK && cancelDownloads.load()) {
+      LOG_DEBUG("IconManager: download cancelled (shutdown)");
+      return false;
+    }
     LOG_ERROR("IconManager: curl error: %s", curl_easy_strerror(res));
     return false;
   }

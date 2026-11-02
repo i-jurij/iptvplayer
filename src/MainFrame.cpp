@@ -201,7 +201,7 @@ MainFrame::MainFrame(Application *app)
       });
 
   Bind(wxEVT_CHAR_HOOK, &MainFrame::OnGlobalCharHook, this);
-
+  Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnCloseWindow, this);
   Bind(wxEVT_BUTTON, &MainFrame::onAddIPTVPlaylist, this, ID_ADD_IPTV_PLAYLIST);
   Bind(wxEVT_BUTTON, &MainFrame::onAddXtreamPlaylist, this,
        ID_ADD_XTREAM_PLAYLIST);
@@ -223,15 +223,6 @@ MainFrame::MainFrame(Application *app)
 }
 
 MainFrame::~MainFrame() {
-  // Сразу помечаем закрытие и прячем окно — до любой блокирующей работы.
-  // Hide()+Update() безопасны: виджеты ещё живы, ниже читаются
-  // m_videoPanel->GetLastVolume(), GetRect() и т.д.
-  m_closing = true;
-  if (IsShown()) {
-    Hide();
-    Update();
-  }
-
   // Отписка от прогресса EPG до разрушения GUI. Иначе колбэк с висячим
   // this остаётся в EPGManager и UAF'нет при следующем UpdateProgress
   // (в т.ч. в окне между ~MainFrame и ~EPGManager).

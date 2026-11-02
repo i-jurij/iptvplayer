@@ -343,6 +343,7 @@ private:
   // ----------------------------------------------------------------
   // Event handlers
   void onQuit(wxCommandEvent &event);
+  void OnCloseWindow(wxCloseEvent &evt);
   void onAbout(wxCommandEvent &event);
   void onSettings(wxCommandEvent &event);
   void onAddPlaylistFile(wxCommandEvent &event);

@@ -353,16 +353,28 @@ EPGManager::~EPGManager() {
   auto start = std::chrono::steady_clock::now();
 
   // Ждём все futures. Деструкторы std::future от launch::async и так
-  // блокирующие, но мы ждём ЯВНО в теле — до разрушения mutex'ов,
-  // к которым обращаются задачи.
-  if (m_matchFuture.valid())
-    m_matchFuture.wait();
-  if (m_favoritesMatchFuture.valid())
-    m_favoritesMatchFuture.wait();
-  if (m_incrementalRemapFuture.valid())
-    m_incrementalRemapFuture.wait();
-  if (m_singleRefreshFuture.valid())
-    m_singleRefreshFuture.wait();
+  // блокирующие, но мы ждём ЯВНО в теле — до разрушения mutex'ов
+  auto waitWithHeartbeat = [](std::future<void> &f, const char *name) {
+    if (!f.valid())
+      return;
+    using namespace std::chrono;
+    auto start = steady_clock::now();
+    auto lastLog = start;
+    while (f.wait_for(milliseconds(100)) != std::future_status::ready) {
+      auto now = steady_clock::now();
+      if (now - lastLog >= seconds(5)) {
+        auto elapsed = duration_cast<seconds>(now - start).count();
+        LOG_DEBUG("EPGManager dtor: still waiting for %s (%lld s)...",
+                  name, static_cast<long long>(elapsed));
+        lastLog = now;
+      }
+    }
+  };
+
+  waitWithHeartbeat(m_matchFuture, "match");
+  waitWithHeartbeat(m_favoritesMatchFuture, "favoritesMatch");
+  waitWithHeartbeat(m_incrementalRemapFuture, "incrementalRemap");
+  waitWithHeartbeat(m_singleRefreshFuture, "singleRefresh");
 
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                      std::chrono::steady_clock::now() - start)
@@ -1133,8 +1145,8 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     // Обновляем прогресс каждые 10 каналов или после последнего
     if (processed % 10 == 0 || processed == total) {
       int percent = static_cast<int>((processed * 100) / total);
-      UpdateProgress({EpgProgressStage::Parsing, percent,
-                      _U("Parsing").ToStdString()});
+      UpdateProgress({EpgProgressStage::Saving, percent,
+                      _U("Saving to database").ToStdString()});
     }
   }
 
@@ -1167,8 +1179,8 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
 
     // Завершение
     UpdateProgress(
-        {EpgProgressStage::Parsing, 100,
-         _U("Parsing complete, waiting for matching...").ToStdString()});
+        {EpgProgressStage::Saving, 100,
+         _U("Saving complete, waiting for matching...").ToStdString()});
   } else {
     m_db->RollbackTransaction();
     setLastError("Failed to insert data into database");
@@ -1692,14 +1704,9 @@ EPGManager::FindBestMatch(const Channel &playlistChannel) const {
       result.confidence = "low";
     else
       result.confidence = "none";
-    LOG_DEBUG("FindBestMatch: MATCH FOUND for '%s' -> epgId='%s', method='%s', "
-              "score=%d",
-              channelName.c_str(), result.channelId.c_str(),
-              result.method.c_str(), result.score);
     return result;
   }
 
-  LOG_DEBUG("FindBestMatch: NO MATCH for '%s'", channelName.c_str());
   return result;
 }
 
