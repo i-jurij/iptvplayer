@@ -168,6 +168,8 @@ select_deps_file() {
     PKG_MANAGER="$(detect_pkgmgr)"
     if [[ "$PKG_MANAGER" == dnf ]] && distro_is 'rosa*'; then
         DEPS_FILE="$SCRIPT_DIR/setup-deps-rosa.sh"
+    elif [[ "$PKG_MANAGER" == dnf ]] && distro_is 'ol*' 'oracle*'; then
+        DEPS_FILE="$SCRIPT_DIR/setup-deps-oracle.sh"
     elif [[ "$PKG_MANAGER" == dnf ]] && distro_is 'openmandriva*'; then
         DEPS_FILE="$SCRIPT_DIR/setup-deps-openmandriva.sh"
     elif [[ "$PKG_MANAGER" == dnf ]] && distro_is 'mageia*'; then
@@ -224,10 +226,17 @@ if [[ "$SKIP_SYSTEM" == false ]]; then
     # shellcheck disable=SC1090
     source "$DEPS_FILE"
 
-    # RHEL-family: EPEL/RPM Fusion. Только для чистого dnf, не для ROSA.
-    # _pkgtable — локальная переменная select_deps_file и здесь недоступна;
-    # проверяем по PKG_MANAGER + DISTRO.
-        if [[ "$PKG_MANAGER" == dnf ]] && ! distro_is 'rosa*' 'openmandriva*'; then
+    # Distribution-specific repo setup (e.g. Oracle: oracle-epel-release-el${major}
+    # + ol${major}_codeready_builder). Optional function: other deps files
+    # do not define it.
+    if declare -F deps_setup_repos >/dev/null 2>&1; then
+        deps_setup_repos
+    fi
+
+    # RHEL-family: EPEL/RPM Fusion. Only for plain dnf;
+    # ROSA, OpenMandriva, Oracle configure repos in their
+    # setup-deps-*.sh via deps_setup_repos.
+    if [[ "$PKG_MANAGER" == dnf ]] && ! distro_is 'rosa*' 'openmandriva*' 'ol*' 'oracle*'; then
         _id="${DISTRO%%-*}"; _major="$(distro_major)"
         case "$_id" in
             rhel|rocky|almalinux|centos)
