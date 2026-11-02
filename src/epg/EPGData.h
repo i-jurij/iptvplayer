@@ -26,7 +26,6 @@ struct EpgProgram {
   time_t stopTime = 0;
 
   bool IsCurrent() const;
-  bool IsFuture() const;
 };
 
 struct EpgChannel {
@@ -86,11 +85,6 @@ inline time_t GetCurrentUtcEpoch() {
 inline bool EpgProgram::IsCurrent() const {
   time_t now = EpgTime::GetCurrentUtcEpoch();
   return (startTime <= now && stopTime > now);
-}
-
-inline bool EpgProgram::IsFuture() const {
-  time_t now = EpgTime::GetCurrentUtcEpoch();
-  return startTime > now;
 }
 
 // ---------------------------------------------------------------------

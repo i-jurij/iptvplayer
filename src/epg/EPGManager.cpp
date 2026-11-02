@@ -1269,33 +1269,9 @@ std::string EPGManager::LookupChannelId(const std::string &tvgId,
   return channelId;
 }
 
-std::vector<std::string> EPGManager::GetChannelIdsWithEpg() const {
-  std::vector<std::string> ids;
-  std::shared_lock lock(m_mappingMutex);
-  ids.reserve(m_channelMapping.size() + m_favoritesMapping.size());
-  for (const auto &[key, val] : m_channelMapping) {
-    if (key.find("name:") != 0)
-      ids.push_back(val);
-  }
-  for (const auto &[key, val] : m_favoritesMapping) {
-    if (key.find("name:") != 0)
-      ids.push_back(val);
-  }
-  return ids;
-}
-
 // --------------------------------------------------------------------------
 // Нормализация
 // --------------------------------------------------------------------------
-void EPGManager::NormalizeTvgId(std::string &id) const {
-  std::transform(id.begin(), id.end(), id.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-  id.erase(std::remove(id.begin(), id.end(), '.'), id.end());
-  id.erase(std::remove(id.begin(), id.end(), ' '), id.end());
-  id.erase(std::remove(id.begin(), id.end(), '_'), id.end());
-}
-
 std::string EPGManager::NormalizeName(const std::string &name) const {
   std::string result = ToLower(name);
 
@@ -1316,25 +1292,6 @@ std::string EPGManager::NormalizeName(const std::string &name) const {
   // Очистка пунктуации и пробелов
   result = CleanPunctuation(result);
   return result;
-}
-
-std::vector<std::string> EPGManager::Tokenize(const std::string &name) const {
-  std::vector<std::string> tokens;
-  std::string token;
-  for (char c : name) {
-    if (c == ' ') {
-      if (!token.empty()) {
-        tokens.push_back(token);
-        token.clear();
-      }
-    } else {
-      token += c;
-    }
-  }
-  if (!token.empty()) {
-    tokens.push_back(token);
-  }
-  return tokens;
 }
 
 // --------------------------------------------------------------------------
@@ -1987,24 +1944,6 @@ void EPGManager::ReMatchCurrentPlaylist() {
   MatchFavoritesAsync(true);
 }
 
-std::unordered_map<std::string, std::string>
-EPGManager::ProcessChannelBatch(const std::vector<Channel> &batch) const {
-  std::unordered_map<std::string, std::string> localMapping;
-  localMapping.reserve(batch.size());
-
-  for (const auto &ch : batch) {
-    MatchResult match = FindBestMatch(ch);
-    if (!match.channelId.empty()) {
-      std::string key = ch.getTvgId();
-      if (key.empty()) {
-        key = "name:" + ch.getName();
-      }
-      localMapping[key] = match.channelId;
-    }
-  }
-  return localMapping;
-}
-
 std::string EPGManager::GetEpgName(const std::string &epgId) const {
   std::lock_guard<std::mutex> lock(m_epgNameCacheMutex);
   auto it = m_epgNameCache.find(epgId);
@@ -2149,10 +2088,6 @@ bool EPGManager::LoadMappingForPlaylist(const std::string &playlistId,
     IncrementalRemap(channels, playlistId);
   }
   return true;
-}
-void EPGManager::SaveMappingForPlaylist(const std::string &playlistId,
-                                        const std::vector<Channel> &channels) {
-  MatchChannels(channels, playlistId);
 }
 
 void EPGManager::InvalidatePlaylistMapping(const std::string &playlistId) {
@@ -2712,15 +2647,6 @@ void EPGManager::OnAutoUpdateTimer(wxTimerEvent &) { TriggerAutoUpdateNow(); }
 // --------------------------------------------------------------------------
 // Обработчики колбэков и статус
 // --------------------------------------------------------------------------
-void EPGManager::SetOnUpdateFinished(
-    std::function<void(int, const std::string &)> callback) {
-  m_onUpdateFinished = callback;
-}
-
-void EPGManager::SetOnRefreshStarted(RefreshStartedCallback callback) {
-  m_onRefreshStarted = callback;
-}
-
 std::string EPGManager::getLastError() const {
   std::lock_guard<std::mutex> lock(m_lastErrorMutex);
   return m_lastError;

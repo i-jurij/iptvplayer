@@ -420,31 +420,6 @@ bool EPGDatabase::DeleteProgramsOlderThan(time_t threshold) {
   }
 }
 
-bool EPGDatabase::ClearChannelPrograms(const std::string &channelId) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  if (!m_isOpen)
-    return false;
-
-  try {
-    Statement stmt =
-        m_db.PrepareStatement("DELETE FROM programs WHERE channel_id = ?");
-    StatementGuard guard(stmt);
-    stmt.Bind(1, wxString::FromUTF8(channelId));
-    stmt.ExecuteUpdate();
-    return true;
-  } catch (wxSQLite3::Exception &e) {
-    LOG_ERROR("EPGDatabase::ClearChannelPrograms exception for '%s': %s",
-              channelId.c_str(), e.GetMessage().ToUTF8().data());
-    return false;
-  } catch (std::exception &e) {
-    LOG_ERROR("EPGDatabase::ClearChannelPrograms std::exception: %s", e.what());
-    return false;
-  } catch (...) {
-    LOG_ERROR("EPGDatabase::ClearChannelPrograms unknown exception");
-    return false;
-  }
-}
-
 // ------------------------------------------------------------------
 // GetAllChannels
 // ------------------------------------------------------------------

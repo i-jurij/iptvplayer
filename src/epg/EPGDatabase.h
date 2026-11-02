@@ -50,7 +50,6 @@ public:
                                                 time_t endTime);
   EpgProgram GetCurrentProgram(const std::string &channelId, time_t now);
   bool DeleteProgramsOlderThan(time_t threshold);
-  bool ClearChannelPrograms(const std::string &channelId);
 
   // Ручные маппинги
   bool UpdateManualMapping(const std::string &playlistId,

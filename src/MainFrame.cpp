@@ -64,8 +64,7 @@ MainFrame::MainFrame(Application *app)
     : wxFrame(nullptr, wxID_ANY, "IPTV Player", wxDefaultPosition,
               wxSize(800, 600)),
       m_application(app), m_mainPanel(nullptr), m_notebook(nullptr),
-      m_playlistPanel(nullptr), m_playlistList(nullptr),
-      m_placeholderText(nullptr), m_updateBtn(nullptr), m_editBtn(nullptr),
+      m_playlistPanel(nullptr), m_playlistList(nullptr), m_updateBtn(nullptr), m_editBtn(nullptr),
       m_removeBtn(nullptr), m_selectedPlaylistIndex(-1),
       m_loadedPlaylistIndex(-1), m_progressTimer(this, wxNewId()) {
   const int minW = 800;

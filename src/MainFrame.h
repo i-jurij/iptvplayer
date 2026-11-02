@@ -203,7 +203,6 @@ private:
   bool m_startInGrid = false;
 
   bool m_channelsNoLogo = true;
-  wxCheckBox *m_showLogoToggle = nullptr;
 
   // placeholder: later will apply flag to channel views
   void ApplyChannelsNoLogoToViews();
@@ -233,12 +232,8 @@ private:
   wxToolBar *m_viewToolBar{nullptr};
 #endif
 
-  wxStaticText *m_infoText{nullptr};
-
   wxListCtrl *m_playlistList{nullptr};
-  wxStaticText *m_placeholderText{nullptr};
-
-  wxBitmapButton *m_menuBtn{nullptr};
+  
   wxButton *m_openBtn{nullptr};
   wxButton *m_updateAllBtn{nullptr};
   wxButton *m_updateBtn{nullptr};
@@ -326,7 +321,6 @@ private:
   // Общая UI-подготовка перед запуском асинхронной загрузки плейлиста
   void BeginPlaylistLoading(const wxString &sourceLabel);
 
-  bool m_playlistPanelVisible{false};
   int m_selectedPlaylistIndex = -1;
   int m_loadedPlaylistIndex = -1;
   std::string m_loadedPlaylistName;

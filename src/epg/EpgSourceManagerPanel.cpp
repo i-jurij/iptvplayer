@@ -7,9 +7,11 @@
 #include "epg/ManualMappingDialog.h"
 
 #include <wx/dcclient.h>
+#include <wx/event.h>
 #include <wx/filename.h>
 #include <wx/gauge.h>
 #include <wx/log.h>
+#include <wx/menu.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/statbox.h>
@@ -36,8 +38,10 @@ EpgSourceManagerPanel::EpgSourceManagerPanel(wxWindow *parent,
   }
 
   // Привязки событий через Bind (без таблицы)
-  m_sourceList->Bind(wxEVT_LIST_ITEM_SELECTED,
-                     &EpgSourceManagerPanel::OnSourceSelected, this);
+  m_sourceList->Bind(wxEVT_RIGHT_DOWN,
+                     &EpgSourceManagerPanel::OnSourceRightClick, this);
+  // На GTK RIGHT_DOWN иногда порождает CONTEXT_MENU. Съедаем, как в AddEpgSourceDialog.
+  m_sourceList->Bind(wxEVT_CONTEXT_MENU, [](wxContextMenuEvent &) {});
   m_addBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnAdd, this);
   m_editBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnEdit, this);
   m_removeBtn->Bind(wxEVT_BUTTON, &EpgSourceManagerPanel::OnRemove, this);
@@ -286,19 +290,13 @@ void EpgSourceManagerPanel::SetupUI() {
 }
 
 // === Обработчики событий ===
-void EpgSourceManagerPanel::OnToggleAutoUpdate(wxListEvent &event) {
-  long idx = event.GetIndex();
-  if (idx == -1)
-    return;
-  if (!m_epgMgr)
-    return;
+void EpgSourceManagerPanel::OnToggleAutoUpdate(wxListEvent &) {
+  auto sel = GetSelectedSource();
+  if (!sel.ok())
+    return;  // silent: двойной клик по пустому месту не должен ругаться
 
-  auto sources = m_epgMgr->GetSources();
-  if (idx >= (long)sources.size())
-    return;
-
-  sources[idx].autoUpdate = !sources[idx].autoUpdate;
-  m_epgMgr->SetSources(sources);
+  sel.sources[sel.idx].autoUpdate = !sel.sources[sel.idx].autoUpdate;
+  m_epgMgr->SetSources(sel.sources);
   m_epgMgr->SaveSourcesToConfig();
   UpdateSourceList();
 }
@@ -361,31 +359,49 @@ void EpgSourceManagerPanel::OnAdd(wxCommandEvent &) {
   RefreshSourceInternal(urlUtf8, name.ToUTF8().data());
 }
 
-void EpgSourceManagerPanel::OnEdit(wxCommandEvent &) {
-  long sel =
+EpgSourceManagerPanel::SelectedSource
+EpgSourceManagerPanel::GetSelectedSource() const {
+  SelectedSource r;
+  if (!m_epgMgr)
+    return r;
+
+  long idx =
       m_sourceList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
-  if (sel == -1) {
+  if (idx == -1)
+    return r;
+
+  auto sources = m_epgMgr->GetSources();
+  if (idx >= static_cast<long>(sources.size()))
+    return r;
+
+  r.idx = idx;
+  r.sources = std::move(sources);
+  return r;
+}
+
+void EpgSourceManagerPanel::OnEdit(wxCommandEvent &) {
+  auto sel = GetSelectedSource();
+  if (!sel.ok()) {
     wxMessageBox(_U("Please select a source to edit."), _U("Info"),
                  wxOK | wxICON_INFORMATION);
     return;
   }
 
-  auto sources = m_epgMgr->GetSources();
-  if (sel >= (long)sources.size())
-    return;
+  auto &sources = sel.sources;
+  const long idx = sel.idx;
 
   AddEpgSourceDialog dlg(this);
   dlg.SetTitle(_U("Edit EPG Source"));
-  dlg.SetUrlOrPath(wxString::FromUTF8(sources[sel].url));
-  dlg.SetName(wxString::FromUTF8(sources[sel].name));
-  dlg.SetAutoUpdate(sources[sel].autoUpdate);
+  dlg.SetUrlOrPath(wxString::FromUTF8(sources[idx].url));
+  dlg.SetName(wxString::FromUTF8(sources[idx].name));
+  dlg.SetAutoUpdate(sources[idx].autoUpdate);
 
   if (dlg.ShowModal() != wxID_OK)
     return;
 
-  sources[sel].url = dlg.GetUrlOrPath().ToUTF8().data();
-  sources[sel].name = dlg.GetName().ToUTF8().data();
-  sources[sel].autoUpdate = dlg.GetAutoUpdate();
+  sources[idx].url = dlg.GetUrlOrPath().ToUTF8().data();
+  sources[idx].name = dlg.GetName().ToUTF8().data();
+  sources[idx].autoUpdate = dlg.GetAutoUpdate();
 
   m_epgMgr->SetSources(sources);
   m_epgMgr->SaveSourcesToConfig();
@@ -394,9 +410,8 @@ void EpgSourceManagerPanel::OnEdit(wxCommandEvent &) {
 }
 
 void EpgSourceManagerPanel::OnRemove(wxCommandEvent &) {
-  long sel =
-      m_sourceList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
-  if (sel == -1) {
+  auto sel = GetSelectedSource();
+  if (!sel.ok()) {
     wxMessageBox(_U("Please select a source to remove."), _U("Info"),
                  wxOK | wxICON_INFORMATION);
     return;
@@ -406,26 +421,35 @@ void EpgSourceManagerPanel::OnRemove(wxCommandEvent &) {
                    wxYES_NO | wxICON_QUESTION) != wxYES)
     return;
 
-  auto sources = m_epgMgr->GetSources();
-  if (sel < (long)sources.size()) {
-    sources.erase(sources.begin() + sel);
-    m_epgMgr->SetSources(sources);
-    m_epgMgr->SaveSourcesToConfig();
-    UpdateSourceList();
-    m_dirty = true;
-  }
+  sel.sources.erase(sel.sources.begin() + sel.idx);
+  m_epgMgr->SetSources(sel.sources);
+  m_epgMgr->SaveSourcesToConfig();
+  UpdateSourceList();
+  m_dirty = true;
 }
 
 void EpgSourceManagerPanel::OnRefresh(wxCommandEvent &) {
-  long selected =
-      m_sourceList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
-  if (selected == -1) {
+  auto sel = GetSelectedSource();
+  if (!sel.ok()) {
     wxMessageBox(_U("Please select a source to refresh."), _U("Info"),
                  wxOK | wxICON_INFORMATION, this);
     return;
   }
-  wxString urlWx = m_sourceList->GetItemText(selected, 0);
-  wxString nameWx = m_sourceList->GetItemText(selected, 1);
+
+  // Не тратим время на заведомо мёртвый источник.
+  const std::string &url = sel.sources[sel.idx].url;
+  if (IsNetworkUrl(wxString::FromUTF8(url))) {
+    auto it = m_availabilityCache.find(url);
+    if (it != m_availabilityCache.end() && !it->second.available) {
+      m_sourceList->SetItemTextColour(sel.idx, ShouldUseDarkColors()
+                                                   ? wxColour(255, 140, 140)
+                                                   : wxColour(180, 0, 0));
+      return;
+    }
+  }
+
+  wxString urlWx = m_sourceList->GetItemText(sel.idx, 0);
+  wxString nameWx = m_sourceList->GetItemText(sel.idx, 1);
   RefreshSourceInternal(urlWx.ToUTF8().data(), nameWx.ToUTF8().data());
 }
 
@@ -497,7 +521,75 @@ void EpgSourceManagerPanel::OnDeleteCache(wxCommandEvent &) {
   m_epgMgr->StartAutoUpdate();
 }
 
-void EpgSourceManagerPanel::OnSourceSelected(wxListEvent &) {}
+void EpgSourceManagerPanel::OnSourceRightClick(wxMouseEvent &event) {
+  if (!m_epgMgr || m_busy)
+    return;
+
+  int flags = 0;
+  long idx = m_sourceList->HitTest(event.GetPosition(), flags);
+  if (idx == -1)
+    return;
+
+  auto sources = m_epgMgr->GetSources();
+  if (idx >= static_cast<long>(sources.size()))
+    return;
+
+  // Выделяем строку под курсором — OnRefresh/OnEdit/OnRemove/
+  // OnToggleAutoUpdate читают выделение через GetNextItem.
+  // Между этим SetItemState и PopupMenu выделение измениться не может:
+  // мы в одном обработчике, event loop не крутится, пока меню открыто.
+  m_sourceList->SetItemState(idx, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+  m_sourceList->SetItemState(idx, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED);
+
+  const int idRefresh = wxNewId();
+  const int idToggleAuto = wxNewId();
+  const int idEdit = wxNewId();
+  const int idRemove = wxNewId();
+
+  wxMenu menu;
+  menu.Append(idRefresh, _U("Refresh now"));
+  wxMenuItem *autoItem = menu.AppendCheckItem(idToggleAuto, _U("Auto-update"));
+  autoItem->Check(sources[idx].autoUpdate);
+  menu.AppendSeparator();
+  menu.Append(idEdit, _U("Edit..."));
+  menu.Append(idRemove, _U("Remove"));
+
+  // Dummy-события: обработчики не читают параметр, берут выделение
+  // через GetNextItem. SetItemState выше гарантирует, что это idx.
+  menu.Bind(
+      wxEVT_MENU,
+      [this](wxCommandEvent &) {
+        wxCommandEvent dummy(wxEVT_BUTTON);
+        OnRefresh(dummy);
+      },
+      idRefresh);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [this](wxCommandEvent &) {
+        wxListEvent dummy(wxEVT_LIST_ITEM_ACTIVATED, m_sourceList->GetId());
+        OnToggleAutoUpdate(dummy);
+      },
+      idToggleAuto);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [this](wxCommandEvent &) {
+        wxCommandEvent dummy(wxEVT_BUTTON);
+        OnEdit(dummy);
+      },
+      idEdit);
+
+  menu.Bind(
+      wxEVT_MENU,
+      [this](wxCommandEvent &) {
+        wxCommandEvent dummy(wxEVT_BUTTON);
+        OnRemove(dummy);
+      },
+      idRemove);
+
+  m_sourceList->PopupMenu(&menu, event.GetPosition());
+}
 
 // === Методы управления ===
 void EpgSourceManagerPanel::UpdateSourceList() {
@@ -662,16 +754,6 @@ void EpgSourceManagerPanel::SaveSettings() {
   m_epgMgr->SetDaysToKeep(m_daysToKeepSpin->GetValue());
   m_epgMgr->RestartAutoUpdate();
   m_dirty = false;
-}
-
-bool EpgSourceManagerPanel::IsDirty() const { return m_dirty; }
-
-void EpgSourceManagerPanel::EnableButtons(bool enable) {
-  m_addBtn->Enable(enable);
-  m_editBtn->Enable(enable);
-  m_removeBtn->Enable(enable);
-  m_refreshBtn->Enable(enable);
-  m_deleteCacheBtn->Enable(enable);
 }
 
 void EpgSourceManagerPanel::AdjustColumnWidths() {

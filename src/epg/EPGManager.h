@@ -106,7 +106,6 @@ public:
   std::vector<EpgProgram> GetProgramsForChannel(const std::string &tvgId,
                                                 const std::string &channelName,
                                                 time_t date) const;
-  std::vector<std::string> GetChannelIdsWithEpg() const;
 
   void SetSources(const std::vector<EpgSource> &sources);
   std::vector<EpgSource> GetSources() const;
@@ -120,8 +119,6 @@ public:
   std::string GetEpgChannelIdForTvgId(const std::string &tvgId) const;
 
   bool LoadMappingForPlaylist(const std::string &playlistId,
-                              const std::vector<Channel> &channels);
-  void SaveMappingForPlaylist(const std::string &playlistId,
                               const std::vector<Channel> &channels);
   void InvalidatePlaylistMapping(const std::string &playlistId);
 
@@ -140,11 +137,6 @@ public:
   bool DeleteCache();
   std::string getLastError() const;
   void setLastError(const std::string &msg) const;
-
-  void
-  SetOnUpdateFinished(std::function<void(int, const std::string &)> callback);
-  using RefreshStartedCallback = std::function<void()>;
-  void SetOnRefreshStarted(RefreshStartedCallback callback);
 
   void AbortDownload();
   bool HasMapping() const;
@@ -287,10 +279,6 @@ private:
   // Количество потоков для параллельного матчинга
   int m_matchThreads = 0;
 
-  // Вспомогательный метод для параллельной обработки части каналов
-  std::unordered_map<std::string, std::string>
-  ProcessChannelBatch(const std::vector<Channel> &batch) const;
-
   // Прогресс
   // Реестр подписчиков: token → callback. Доступ — только под
   // m_progressCallbacksMutex. Итерируется по КОПИИ в UpdateProgress,
@@ -360,9 +348,6 @@ private:
   // при старте в StartAutoUpdate).
   void TriggerAutoUpdateNow();
 
-  std::function<void(int, const std::string &)> m_onUpdateFinished;
-  RefreshStartedCallback m_onRefreshStarted;
-
   mutable std::unique_ptr<EPGDatabase> m_db;
   std::string m_dbPath;
   // Кэш хеша списка каналов EPG. Запись — из ParseAndMerge (фон) и
@@ -418,8 +403,6 @@ private:
   };
 
   void RebuildNormalizedCache();
-  void NormalizeTvgId(std::string &id) const;
-  std::vector<std::string> Tokenize(const std::string &name) const;
 
   void InitializeDefaultRegionalSuffixes();
   std::vector<std::string> m_regionalSuffixes;

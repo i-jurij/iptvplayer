@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EPGData.h"
+
 #include <wx/activityindicator.h>
 #include <wx/button.h>
 #include <wx/checkbox.h>
@@ -30,8 +32,6 @@ public:
   void UpdateSourceList();
   void SaveSettings();
   void LoadSettings();
-  void EnableButtons(bool enable);
-  bool IsDirty() const;
   void SetMainFrame(MainFrame *mainFrame) { m_mainFrame = mainFrame; }
   void SetBusy(bool busy);
 
@@ -45,6 +45,17 @@ private:
   void OnEditRules(wxCommandEvent &event);
   
   void OnToggleAutoUpdate(wxListEvent &event);
+
+  // Возвращает текущее выделение + снимок GetSources().
+  // idx == -1, если выделения нет, m_epgMgr == nullptr, или idx вне
+  // границ sources.size(). Сообщений не показывает — это делают
+  // вызывающие (у OnToggleAutoUpdate — silent return).
+  struct SelectedSource {
+    long idx = -1;
+    std::vector<EpgSource> sources;
+    bool ok() const { return idx >= 0; }
+  };
+  SelectedSource GetSelectedSource() const;
   
   wxButton *m_autoApplyBtn;
   void OnAutoApply(wxCommandEvent &event);
@@ -108,5 +119,5 @@ private:
   void OnRemove(wxCommandEvent &event);
   void OnRefresh(wxCommandEvent &event);
   void OnDeleteCache(wxCommandEvent &event);
-  void OnSourceSelected(wxListEvent &event);
+  void OnSourceRightClick(wxMouseEvent &event);
 };
