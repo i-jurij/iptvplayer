@@ -2,7 +2,6 @@
 #define EPGDATA_H
 
 #include "LogControl.h"
-#include "Utils.h"
 
 #include <cctype>
 #include <chrono>
@@ -13,6 +12,10 @@
 #include <limits>
 #include <string>
 #include <vector>
+
+#include <wx/string.h> // wxString для forward declaration
+// FormatLocalTime определён в Utils_UI.cpp. Forward declaration
+std::string FormatLocalTime(time_t t, const wxString &format);
 
 // Константа для обозначения ошибки при парсинге времени
 constexpr time_t kTimeParseError = static_cast<time_t>(-1);

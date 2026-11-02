@@ -1,7 +1,7 @@
 #include "ManualMappingDialog.h"
 #include "Channel.h"
 #include "MainFrame.h"
-#include "Utils.h"
+#include "Utils_Platform.h" // _U
 #include "epg/EPGManager.h"
 
 #include <wx/msgdlg.h>

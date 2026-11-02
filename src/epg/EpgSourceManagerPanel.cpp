@@ -1,6 +1,8 @@
 #include "epg/EpgSourceManagerPanel.h"
 #include "MainFrame.h"
-#include "Utils.h"
+#include "Utils_Net.h"      // IsNetworkUrl, CheckUrlAvailability
+#include "Utils_Platform.h" // _U, ShouldUseDarkColors
+#include "Utils_UI.h"       // MeasureWrappedTextHeight
 #include "epg/AddEpgSourceDialog.h"
 #include "epg/EPGData.h"
 #include "epg/EPGManager.h"

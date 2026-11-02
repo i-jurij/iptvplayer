@@ -8,8 +8,11 @@
 #include "EPGParserExpat.h"
 #include "EventIDs.h"
 #include "FavoritesManager.h"
-#include "Utils.h"
-#include "Utils_FsPath.h"
+#include "Utils_Fs.h"       // FindAppDataFile
+#include "Utils_FsPath.h"   // ToFsPath
+#include "Utils_Net.h"      // IsNetworkUrl, CheckUrlAvailability
+#include "Utils_Perf.h"     // GetAvailableRAM_MB, GetPerformanceTuning
+#include "Utils_Platform.h" // _U
 
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>

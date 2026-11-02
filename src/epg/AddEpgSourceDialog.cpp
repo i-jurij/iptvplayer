@@ -1,5 +1,8 @@
 #include "AddEpgSourceDialog.h"
-#include "Utils.h"
+#include "Utils_Fs.h"       // FindAppDataFile
+#include "Utils_Net.h"      // IsNetworkUrl
+#include "Utils_Platform.h" // _U
+#include "Utils_UI.h"       // AddSectionHeader
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>

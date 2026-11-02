@@ -5,7 +5,8 @@
 #include "EPGManager.h"
 #include "MainFrame.h"
 #include "SettingsDialog.h"
-#include "Utils.h"
+#include "Utils_Platform.h" // _U
+#include "Utils_UI.h"       // FormatLocalTime
 #include "epg/ManualMappingDialog.h"
 
 #include <wx/artprov.h>
