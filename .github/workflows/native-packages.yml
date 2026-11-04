@@ -43,13 +43,6 @@ jobs:
           # Единый реестр известных таргетов. Пользователь подаёт только
           # имена — маппинг на образ/пакетный менеджер задан здесь, чтобы
           # нельзя было случайно передать произвольный контейнер.
-          #
-          # Политика: собираем на самом старом glibc в целевом семействе.
-          #   ubuntu-24.04 — glibc 2.39, для Ubuntu 24.04+ и Mint 22+
-          #   debian-13    — glibc 2.41, для Debian 13+ (своя сборка, т.к.
-          #                  имена пакетов и Depends формируются против
-          #                  репозиториев Debian, а не Ubuntu)
-          #   rocky-10     — glibc 2.39, для RHEL 10+, Fedora 40+
           ALL='{
             "ubuntu-24.04": {"family":"deb","container":"ubuntu:24.04","pkgmgr":"apt"},
             "debian-13":    {"family":"deb","container":"debian:13","pkgmgr":"apt"},
@@ -91,13 +84,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Кэш third_party — per-target. Ubuntu, Debian и Rocky имеют разные
-      # glibc, поэтому .a-файлы wxWidgets собираются отдельно под каждый.
+      # Cache third_party per-target. Ubuntu, Debian and Rocky have different
+      # glibc, so wxWidgets .a files are built separately for each.
       - uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ matrix.target }}-third_party-${{ hashFiles('scripts/setup-deps.sh', 'scripts/setup-deps-*.sh') }}
+          key: ${{ matrix.target }}-third_party-${{ hashFiles('scripts/cmd/deps.sh', 'scripts/lib.sh', 'scripts/distros/*.sh') }}
 
+      # Install build toolchain + runtime deps via the workflow YAML (not via
+      # make.sh --deps) — CI images are prepared in advance; make.sh in
+      # NON_INTERACTIVE skips deps_ensure_for_build entirely.
       - name: Install build toolchain
         run: |
           set -euo pipefail
@@ -135,14 +131,14 @@ jobs:
               libX11-devel libxcb-devel mesa-libGL-devel mesa-libEGL-devel
           fi
 
+      # Third_party only; system packages are already installed above.
+      # --skip-system keeps deps_run from touching apt/dnf.
       - name: Build binary
         run: |
           set -euo pipefail
-          chmod +x scripts/setup-deps.sh scripts/build-release.sh
-          # Системные пакеты поставлены выше; setup-deps.sh собирает только
-          # third_party и не трогает apt/dnf.
-          ./scripts/setup-deps.sh --yes --skip-system
-          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
+          chmod +x scripts/make.sh
+          ./scripts/make.sh --deps --yes --skip-system
+          ./scripts/make.sh --build --yes
 
       - name: Import GPG key
         id: gpg
@@ -151,14 +147,13 @@ jobs:
           private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase:  ${{ secrets.GPG_PASSPHRASE }}
 
+      # --native uses distros/<adapter>.sh: distro_build → pack_rpm/pack_deb.
+      # The binary already exists, so package_run does not rebuild it.
       - name: Build native package
         run: |
           set -euo pipefail
-          chmod +x scripts/build-package.sh
-          case "${{ matrix.family }}" in
-            deb) ./scripts/build-package.sh --native-deb --yes ;;
-            rpm) ./scripts/build-package.sh --native-rpm --yes ;;
-          esac
+          chmod +x scripts/make.sh
+          ./scripts/make.sh --package --native --yes
           ls -la dist/
 
       - name: Upload native package

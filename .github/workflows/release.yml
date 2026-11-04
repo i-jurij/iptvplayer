@@ -163,8 +163,6 @@ jobs:
             exit 0
           fi
 
-          # Авто-режим. Ищем последний неистёкший артефакт arch-install,
-          # исключая текущий run (в нём ещё нет готового install).
           RID=$(gh api \
             "/repos/${{ github.repository }}/actions/artifacts?name=arch-install&per_page=50" \
             --jq '.artifacts[] | select(.expired == false) | "\(.created_at)\t\(.workflow_run.id)"' \
@@ -313,26 +311,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Cache third_party per-target. Key changes when deps logic or
+      # distro data changes.
       - uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-arch-appimage-third_party-${{ hashFiles('scripts/setup-deps.sh', 'scripts/setup-deps-*.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-arch-appimage-third_party-${{ hashFiles('scripts/cmd/deps.sh', 'scripts/lib.sh', 'scripts/distros/*.sh') }}
 
+      # --skip-system: system packages already in the image.
+      # --rebuild (when requested): wipe third_party before re-build.
       - name: Build third_party (wxWidgets, wxSQLite3)
         run: |
           set -euo pipefail
-          chmod +x scripts/setup-deps.sh
+          chmod +x scripts/make.sh
           if [[ "${REBUILD_DEPS:-}" == "true" ]]; then
-            ./scripts/setup-deps.sh --yes --skip-system --rebuild-deps
+            ./scripts/make.sh --deps --yes --skip-system --rebuild
           else
-            ./scripts/setup-deps.sh --yes --skip-system
+            ./scripts/make.sh --deps --yes --skip-system
           fi
 
       - name: Build binary
         run: |
           set -euo pipefail
-          chmod +x scripts/build-release.sh
-          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
+          ./scripts/make.sh --build --yes
 
       - name: Upload install tree
         uses: actions/upload-artifact@v5
@@ -396,9 +397,9 @@ jobs:
           set -euo pipefail
 
           mkdir -p logs
-          chmod +x scripts/build-package.sh
+          chmod +x scripts/make.sh
 
-          ./scripts/build-package.sh --sharun --yes 2>&1 \
+          ./scripts/make.sh --package --sharun --yes 2>&1 \
             | tee logs/build-package.log
 
           shopt -s nullglob
@@ -475,18 +476,17 @@ jobs:
           name: arch-install
           path: install
 
+      # actions/upload-artifact drops the exec bit; restore +x before packing.
+      # --native picks arch.sh → distro_build (full makepkg pipeline).
       - name: Build Arch package
         run: |
           set -euo pipefail
-          # actions/upload-artifact не сохраняет exec-бит, всё выгружается
-          # как 644. Возвращаем +x бинарнику до вызова скрипта.
           chmod +x install/bin/iptvplayer
           ls -la install/bin/
 
-          chmod +x scripts/*.sh
+          chmod +x scripts/make.sh
 
-          # Вся логика — в build-native-arch.sh:build_pkg_arch.
-          ./scripts/build-package.sh --native-arch --yes
+          ./scripts/make.sh --package --native --yes
           ls -la dist/
 
       - name: Import GPG key
@@ -580,19 +580,20 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: third_party
-          key: ${{ runner.os }}-${{ runner.arch }}-arch-compat-third_party-${{ hashFiles('scripts/setup-deps.sh', 'scripts/setup-deps-*.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-arch-compat-third_party-${{ hashFiles('scripts/cmd/deps.sh', 'scripts/lib.sh', 'scripts/distros/*.sh') }}
 
+      # --skip-system: pacman -Syu + pacman -S above already installed
+      # everything needed; make.sh --deps only builds third_party here.
       - name: Build third_party
         run: |
           set -euo pipefail
-          chmod +x scripts/setup-deps.sh
-          ./scripts/setup-deps.sh --yes --skip-system
+          chmod +x scripts/make.sh
+          ./scripts/make.sh --deps --yes --skip-system
 
       - name: Build binary
         run: |
           set -euo pipefail
-          chmod +x scripts/build-release.sh
-          ./scripts/build-release.sh --type release --prefix "$PWD/install" --yes
+          ./scripts/make.sh --build --yes
 
       - name: Verify binary glibc requirement
         run: |
@@ -604,13 +605,14 @@ jobs:
           [ "$HIGHER" = "2.42" ] \
             || { echo "::error::binary requires GLIBC_$REQ > 2.42"; exit 1; }
 
+      # --native picks arch.sh → distro_build (full makepkg pipeline).
+      # The -compat suffix is added below to distinguish from the main arch-pkg.
       - name: Build Arch compat package
         run: |
           set -euo pipefail
-          chmod +x install/bin/iptvplayer scripts/*.sh
+          chmod +x install/bin/iptvplayer scripts/make.sh
           ls -la install/bin/
-          ./scripts/build-package.sh --native-arch --yes
-          # Суффикс -compat до расширения, чтобы отличать от основного.
+          ./scripts/make.sh --package --native --yes
           shopt -s nullglob
           for f in dist/*.pkg.tar.zst; do
             mv "$f" "${f%.pkg.tar.zst}-compat.pkg.tar.zst"
@@ -700,10 +702,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Скачиваем уже опубликованные ассеты — чтобы при частичной
-      # пересборке (skip_appimage/skip_arch_pkg/skip_native) в итоговом
-      # checksums.txt были хеши ВСЕХ файлов релиза, а не только свежих.
-      # Ошибки глушим — на первом релизе этого шага просто нет.
+      # Download already published assets so that on a partial rebuild
+      # (skip_appimage/skip_arch_pkg/skip_native) checksums.txt contains
+      # hashes of ALL release files, not just freshly built ones.
+      # Errors are ignored — on the first release this step simply finds
+      # nothing to download.
       - name: Download existing release assets
         continue-on-error: true
         env:
@@ -731,7 +734,6 @@ jobs:
             || true
           ls -la dist/ || true
 
-      # Свежие ассеты из текущего run'а перезаписывают существующие.
       - name: Download AppImage (current run)
         continue-on-error: true
         uses: actions/download-artifact@v5

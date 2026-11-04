@@ -75,7 +75,6 @@ distro_build() {
         return 1
     fi
 
-    # Sync pacman file DB (pacman -Fy needs root).
     if [ "$(id -u)" -eq 0 ]; then
         log "Syncing pacman file database (pacman -Fy)..."
         if ! timeout 120 pacman -Fy >/dev/null; then
@@ -102,13 +101,33 @@ distro_build() {
         fi
     fi
 
-    local libs_tmp pkgs_tmp ldd_tmp workdir keep_workdir=0
-    libs_tmp=$(mktemp) || { echo "[!] mktemp libs_tmp failed" >&2; return 1; }
-    pkgs_tmp=$(mktemp) || { echo "[!] mktemp pkgs_tmp failed" >&2; return 1; }
-    ldd_tmp=$(mktemp)  || { echo "[!] mktemp ldd_tmp failed" >&2; return 1; }
-    workdir=$(mktemp -d) || { echo "[!] mktemp workdir failed" >&2; return 1; }
+    # Single temp root; one RETURN trap cleans everything and removes
+    # itself, so it fires exactly once.
+    #
+    # The shell RETURN trap fires on the NEXT function return after
+    # installation. In this function that is the `return 0` at the very
+    # bottom (see note there). Do NOT add log()/warn()/error() calls
+    # between trap installation and the mv below - any function return
+    # would fire the trap prematurely and wipe $workdir while still in
+    # use.
+    #
+    # keep_workdir=1 (set on failure paths) preserves the whole tree
+    # for post-mortem: PKGBUILD, staging_usr, makepkg logs.
+    #
+    # chmod 0755 lets the unprivileged builder user traverse $tmproot
+    # into $workdir (which is chowned to builder below). The libs/pkgs/ldd
+    # files stay root-owned and contain no sensitive data.
+    local tmproot keep_workdir=0
+    tmproot=$(mktemp -d) || { echo "[!] mktemp -d failed" >&2; return 1; }
+    chmod 0755 "$tmproot"
     # shellcheck disable=SC2064
-    trap 'rm -f "$libs_tmp" "$pkgs_tmp" "$ldd_tmp"; [ "$keep_workdir" = 1 ] || rm -rf "$workdir"; trap - RETURN' RETURN
+    trap '[ "$keep_workdir" = 1 ] || rm -rf "$tmproot"; trap - RETURN' RETURN
+
+    local libs_tmp="$tmproot/libs"
+    local pkgs_tmp="$tmproot/pkgs"
+    local ldd_tmp="$tmproot/ldd"
+    local workdir="$tmproot/work"
+    mkdir -p "$workdir" || { echo "[!] failed to create $workdir" >&2; return 1; }
 
     readelf -d "$BIN" 2>/dev/null \
       | awk '/NEEDED/ {gsub(/[][]/, ""); print $NF}' \
@@ -230,7 +249,9 @@ EOF
     fi
 
     mv "$built" "$pkg_file"
-    log ".pkg.tar.zst: $pkg_file"
-    trap - RETURN
+    # echo is a builtin - it does not trigger the RETURN trap. The
+    # `return 0` below fires the trap, which removes $tmproot
+    # (keep_workdir=0) and then removes itself.
+    echo "[INFO] .pkg.tar.zst: $pkg_file"
     return 0
 }
