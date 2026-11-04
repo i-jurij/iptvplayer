@@ -184,8 +184,8 @@ EOF
         return 1
     fi
 
-    log "auto-detected: $auto_deps"
-    log "final:         $auto_deps"
+    echo "[INFO] auto-detected: $auto_deps"
+    echo "[INFO] final:         $auto_deps"
 
     cp -a "$STAGING_DIR/usr" "$workdir/staging_usr"
 

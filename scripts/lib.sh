@@ -295,14 +295,6 @@ EOF
 #   RPM_SPEC_DIR, RPM_RELEASE, RPM_FILE_RELEASE, RPM_GROUP, RPM_CHANGELOG_TAG,
 #   RPM_POST_BODY, RPM_EXTRA_SPEC, RPM_OUTPUT_SUFFIX, RPM_DESC_EXTRA
 # -----------------------------------------------------------------------------
-_default_rpm_post_body() {
-    cat << 'EOF'
-if [ -x /usr/bin/update-icon-caches ]; then
-    /usr/bin/update-icon-caches /usr/share/icons/hicolor || true
-fi
-EOF
-}
-
 pack_rpm() {
     : "${RPM_SPEC_DIR:?RPM_SPEC_DIR not set by distro}"
     : "${RPM_RELEASE:?RPM_RELEASE not set by distro}"
@@ -327,13 +319,6 @@ restricted on OpenMandriva)."
 
     local group_line=""
     [ -n "${RPM_GROUP:-}" ] && group_line="Group:          ${RPM_GROUP}"
-
-    local post_body
-    if [ -n "${RPM_POST_BODY+x}" ]; then
-        post_body="$RPM_POST_BODY"
-    else
-        post_body="$(_default_rpm_post_body)"
-    fi
 
     local rpm_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}-${file_release}.${output_suffix}.${RPM_ARCH}.rpm"
     log "Creating .rpm (release=$RPM_RELEASE, dist=$output_suffix)..."
@@ -421,9 +406,6 @@ tar -xzf %{SOURCE0} -C %{buildroot} --strip-components=1
 
 %files
 $files_block
-
-%post
-$post_body
 
 %changelog
 * $(LC_TIME=en_US.UTF-8 date +"%a %b %d %Y") ijurij <mnisjil@duck.com> - $VERSION-$RPM_RELEASE

@@ -71,12 +71,6 @@ RPM_GROUP="Productivity/Multimedia/Video"
 RPM_CHANGELOG_TAG=""
 RPM_EXTRA_SPEC=""
 RPM_DESC_EXTRA=""
-RPM_POST_BODY=$(cat <<'EOF'
-if [ -x /usr/bin/gtk-update-icon-cache ]; then
-    /usr/bin/gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
-fi
-EOF
-)
 
 NATIVE_LABEL="Native .rpm (openSUSE/SLES)"
 

@@ -55,7 +55,6 @@ RPM_GROUP="Video"
 RPM_CHANGELOG_TAG="for ALT Linux"
 RPM_EXTRA_SPEC=""
 RPM_DESC_EXTRA=""
-RPM_POST_BODY=":"
 
 NATIVE_LABEL="Native .rpm (ALT Linux)"
 
