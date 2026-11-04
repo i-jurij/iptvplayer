@@ -430,7 +430,12 @@ HOOK
     chmod +x "$APPDIR/bin/98-fonts.hook"
 
     log "Packing AppDir into AppImage..."
+    # appimagetool (invoked by quick-sharun) writes the .zsync via
+    # zsyncmake relative to the current working directory. Run from
+    # $OUTPUT_DIR so the .zsync lands next to the .AppImage.
+    cd "$OUTPUT_DIR" || return 1
     if ! "$QUICK_SHARUN" --make-appimage; then
+        cd "$PROJECT_ROOT"
         echo "[!] quick-sharun --make-appimage failed" >&2
         unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
               UPINFO GTK_CLASS_FIX DEPLOY_GDK \
@@ -438,6 +443,7 @@ HOOK
         rm -f "$QUICK_SHARUN"
         return 1
     fi
+    cd "$PROJECT_ROOT"
 
     unset ARCH VERSION OUTPATH OUTNAME ICON DESKTOP \
           UPINFO GTK_CLASS_FIX DEPLOY_GDK \

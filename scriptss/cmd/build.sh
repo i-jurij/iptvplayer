@@ -134,6 +134,7 @@ bin_ensure_binary() {
         error "Executable not found: $EXE_PATH"
     fi
 
+    cd "$PROJECT_ROOT" || return 1
     log "Binary: $EXE_PATH"
     return 0
 }

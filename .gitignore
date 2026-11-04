@@ -28,6 +28,7 @@ bash-static-*
 /pkg-xbps/
 /pkg-gentoo/
 /pkg-nix/
+*.zsync
 
 # -------------------------------
 # IDE и редакторы
@@ -90,3 +91,4 @@ member
 *.mo~
 *.po~
 po/*.pot~
+

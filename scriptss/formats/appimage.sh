@@ -254,9 +254,11 @@ build_appimage() {
         return 1
     fi
 
-    if [ ! -e "$APPDIR/.DirIcon" ] && [ -f "$APPDIR/$ICON_NAME" ]; then
-        ln -sf "$ICON_NAME" "$APPDIR/.DirIcon"
+    if [ ! -f "$PROJECT_ROOT/icons/${PACKAGE_NAME}-256.png" ]; then
+        error "Missing icons/${PACKAGE_NAME}-256.png (required for .DirIcon by appimagetool)"
     fi
+    rm -f "$APPDIR/.DirIcon"
+    cp "$PROJECT_ROOT/icons/${PACKAGE_NAME}-256.png" "$APPDIR/.DirIcon"
 
     local APPIMAGETOOL="$SCRIPT_DIR/appimagetool-${APPIMAGE_ARCH}.AppImage"
     if [ ! -f "$APPIMAGETOOL" ]; then
@@ -272,14 +274,23 @@ build_appimage() {
 
     log "Packing AppDir into AppImage via appimagetool..."
     rm -f "$appimage_file"
+
+    # appimagetool invokes zsyncmake which writes the .zsync relative to
+    # the current working directory, not to the AppImage path. Run from
+    # $OUTPUT_DIR so the .zsync lands next to the .AppImage.
+    cd "$OUTPUT_DIR" || return 1
+
     local upd_info="gh-releases-zsync|i-jurij|iptvplayer|latest|iptvplayer-linux-*-linuxdeploy.AppImage.zsync"
     if ! APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$APPIMAGE_ARCH" "$APPIMAGETOOL" \
         --no-appstream \
         -u "$upd_info" \
-        "$APPDIR" "$appimage_file"; then
+        "$APPDIR" "${appimage_file##*/}"; then
+        cd "$PROJECT_ROOT"
         echo "[!] appimagetool failed" >&2
         return 1
     fi
+
+    cd "$PROJECT_ROOT"
 
     if [ ! -f "$appimage_file" ]; then
         echo "[!] appimagetool did not produce $appimage_file" >&2
