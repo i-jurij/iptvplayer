@@ -186,11 +186,16 @@
                 <li>manual channel-to-EPG mapping.</li>
             </ul>
         </li>
-        <li><strong>Video playback:</strong> fullscreen, volume, mute, audio/subtitle tracks, speed control.</li>
+        <li><strong>Video playback:</strong> fullscreen, volume, mute, audio/subtitle tracks, speed control...</li>
         <li><strong>Recording:</strong> record the current stream to a user-defined directory.</li>
         <li><strong>IPTV-Org integration:</strong> add playlists from the public IPTV-Org repository with filters by
             country, language, and category.</li>
         <li><strong>Export:</strong> export any playlist to M3U.</li>
+        <li><strong>Xtream Codes (planned):</strong> an "Add Xtream…" entry is present
+            (bare host + credentials, background probe of the correct <code>get.php</code>),
+            but the flow is not fully implemented or tested yet.</li>
+        <li><strong>Temporary playlist:</strong> drag &amp; drop media files, M3U/M3U8 playlists
+            or URLs onto the video area; browse with prev/next/shuffle/remove/clear.</li>
     </ul>
 
     <h2>Installation</h2>
@@ -263,13 +268,27 @@
         </li>
         <li><strong>Open the playlist.</strong> Double-click it (or press <strong>Open</strong>) and switch to the
             <strong>Channels</strong> tab.</li>
-        <li><strong>Add an EPG source (optional).</strong> Open the <strong>Program</strong> tab (or <strong>Settings →
-                EPG</strong>), press <strong>Add</strong>, and enter an XMLTV URL. Press <strong>Refresh Now</strong> to
-            load it.</li>
+        <li><strong>Add an EPG source (optional).</strong> Open the <strong>Program</strong> tab, press
+            <strong>Add</strong>, and enter an XMLTV URL. Press <strong>Refresh Now</strong> to load it.
+        </li>
         <li><strong>Configure the rest (optional).</strong> In <strong>Settings</strong> you can enable channel logos,
             choose the recording method (<code>stream-record</code> or <code>record-file</code>), and adjust cache and
             auto-update intervals.</li>
     </ol>
+
+    <h3>Command line</h3>
+    
+    <p><code>iptvplayer [OPTIONS] [FILES…]</code></p>
+    
+    <ul>
+        <li><code>-h</code>, <code>--help</code> — show help and exit.</li>
+        <li><code>-V</code>, <code>--version</code> — show version and exit.</li>
+        <li><code>FILES…</code> — media files, M3U/M3U8 playlists or network URLs opened in the
+            temporary playlist on the Video tab.</li>
+    </ul>
+    
+    <p><code>--help</code> and <code>--version</code> are handled before GTK is initialised, so they
+        work without a display server (useful in CI).</p>
 
     <h2>Usage</h2>
 
@@ -279,9 +298,11 @@
         source (local file or URL), and update settings. You can:</p>
 
     <ul>
-        <li>add, edit, update, and remove playlists;</li>
-        <li>manually update one playlist or all playlists at once (updates run in the background — the UI stays
-            responsive);</li>
+        <li>add (from file, URL, IPTV-Org, Xtream), edit, update, and remove playlists;</li>
+        <li>manually update one playlist or all playlists at once (updates run in the background — the UI stays responsive);
+        </li>
+        <li><strong>"Auto-update all on startup"</strong> checkbox — when on, all playlists are refreshed at startup
+            (per-playlist flag is ignored); when off, only playlists whose own auto-update flag is on are refreshed;</li>
         <li>export a playlist to a local <code>.m3u</code> file.</li>
     </ul>
 
@@ -292,7 +313,9 @@
     <ul>
         <li><strong>List or grid</strong> — switch between the two views with the toolbar buttons. Grid view shows
             channel cards with logos.</li>
-        <li><strong>Filters</strong> — filter by group, country, and language; sort by name, group, or country.</li>
+        <li><strong>Filters</strong> — filter by group, country, and language; sort by name, group, country,
+    or language (ascending and descending); <strong>Fav first</strong> checkbox; <strong>Reset</strong>
+    button.</li>
         <li><strong>Search</strong> — TypeAheadSearch in list and grid views.</li>
         <li><strong>Context menu (right click)</strong> — "Program Guide", "Copy URL", "Copy Name", "Remove from
             playlist".</li>
@@ -337,7 +360,7 @@
     <p><strong>Setting up EPG:</strong></p>
 
     <ol>
-        <li>Open <strong>Settings → EPG</strong>, or switch to the <strong>Program</strong> tab.</li>
+        <li>Switch to the <strong>Program</strong> tab.</li>
         <li>In <strong>EPG Sources</strong>, press <strong>Add</strong> and enter the source URL and an optional name.
         </li>
         <li>Configure:
@@ -351,7 +374,7 @@
     </ol>
 
     <p><strong>Recommended sources.</strong> The file <code>epg_sources.json</code> in the resources directory
-        (<code>/usr/share/iptvplayer/resources/</code>) contains links to the most well-known sources. Links change and
+        (<code>/usr/share/iptvplayer/</code>) contains links to the most well-known sources. Links change and
         go stale, so verify their availability online before relying on them. You can use multiple sources at once —
         data is merged on load.</p>
 
@@ -387,8 +410,8 @@
     <p><strong>How to open it:</strong></p>
 
     <ul>
-        <li>From the channel context menu → <strong>Manual Mapping</strong> (if present in your build);</li>
-        <li>From the <strong>Manual Mapping</strong> button on the EPG control panel (Program tab or Settings).</li>
+        <li>From the <strong>Manual Mapping</strong> button on the EPG panel (right side of Channels/Favorites);</li>
+        <li>There is no "Manual Mapping" entry in the channel context menu — use the button above.</li>
     </ul>
 
     <p><strong>Dialog features:</strong></p>
@@ -409,16 +432,19 @@
 
     <h3>Recording</h3>
 
-    <ul>
-        <li>Records the currently playing stream.</li>
-        <li>Two methods are supported — <code>stream-record</code> and <code>record-file</code> — chosen in Settings.
-        </li>
-        <li>The <strong>Rec</strong> button on the video panel is active during playback.</li>
-        <li>Recording starts from the current moment; the file is saved to a configurable directory.</li>
-        <li>The status bar shows the file name and duration.</li>
-        <li>Stopping playback stops recording automatically.</li>
-        <li><code>.ts</code> and <code>.mkv</code> containers are supported depending on the stream codec.</li>
-    </ul>
+<ul>
+    <li>Records the currently playing stream via mpv's <code>stream-record</code>.</li>
+    <li>Directory: <strong>Menu → Record → Set Record Directory…</strong>. Defaults:
+        <code>~/Videos/iptvplayer</code> on Linux (respects <code>XDG_VIDEOS_DIR</code>),
+        <code>&lt;Videos&gt;\iptvplayer</code> on Windows, <code>~/Movies/iptvplayer</code> on macOS.
+    </li>
+    <li>Filename: <code>record_&lt;YYYYMMDD_HHMMSS&gt;_&lt;channel&gt;.ts</code> or <code>.mkv</code>
+        (<code>.ts</code> for MPEG-2 / MPEG-4 codecs, otherwise <code>.mkv</code>).</li>
+    <li>The <strong>Rec</strong> button on the video panel is active during playback; <strong>Record →
+            Open Recordings Folder</strong> jumps to the output directory.</li>
+    <li>Recording starts from the current moment; the status bar shows the file name and elapsed time.</li>
+    <li>Stopping playback stops recording automatically.</li>
+</ul>
 
     <h3>IPTV-Org</h3>
 
@@ -427,6 +453,20 @@
         <li>Filter by country, language, or category, with dynamic data loading from the official IPTV-Org repository.
         </li>
         <li>The playlist is downloaded and added to your collection automatically.</li>
+    </ul>
+
+    <h3>Xtream (planned)</h3>
+    
+    <ul>
+        <li>Button <strong>"Add Xtream…"</strong> on the <strong>Playlists</strong> tab.</li>
+        <li>Enter server URL, username, password, optional EPG URL and title, and an auto-update flag.</li>
+        <li>If the server field contains a path (e.g. <code>…/get.php?…</code> or
+            <code>…/playlist.m3u</code>), it is used as-is. If it contains only the host, the app runs
+            a background credentials probe to discover the correct <code>get.php</code> URL, then adds
+            the playlist.
+        </li>
+        <li><strong>Status: not fully implemented.</strong> The dialog and probe are present, but
+            the end-to-end flow is not yet tested.</li>
     </ul>
 
     <h3>Export</h3>
@@ -444,11 +484,53 @@
             source management).</li>
         <li>Switch between list and grid for channels and favorites.</li>
         <li>Channel search (TypeAheadSearch) in both views.</li>
-        <li>Channel context menu (right click): "Program Guide", "Copy URL", "Copy Name", "Remove from playlist".</li>
-        <li>Fullscreen video (double-click, F, or ESC).</li>
-        <li>Volume, mute, audio delay, audio/subtitle track switching (from the menu).</li>
+        <li>Channel context menu (right click): "Play", "Copy URL", "Copy Name", "Remove from playlist"
+            (or "Remove from favorites" in the Favorites tab). There is <strong>no</strong> "Program Guide"
+            entry — the EPG panel on the right is driven by selection, and manual mapping is on the EPG
+            panel itself.</li>
+        <li><strong>Menu</strong> button (top right): <em>Video</em>, <em>Audio</em>, <em>Record</em>,
+            <em>Subtitles</em>, <em>Settings</em>, <em>About</em>, <em>Quit</em>.
+        </li>
+        <li>Fullscreen: double-click the video area, <code>F</code> on the Video tab, <code>ESC</code>
+            to exit. Controls and cursor auto-hide after 3 s.</li>
+        <li>Volume, mute, audio delay, audio/subtitle track switching, speed control, and many
+            mpv-specific video/audio options via the <strong>Menu</strong>.</li>
     </ul>
 
+<h3>Settings</h3>
+
+<p>The <strong>Settings</strong> dialog manages channel logos only:</p>
+
+<ul>
+    <li><strong>Show channel logos (thumbnails)</strong> — toggles logos in all views.</li>
+    <li><strong>Delete logo cache (disk and memory)</strong> — when disabling logos via the dialog, also
+        wipe the on-disk and in-memory caches on <strong>Apply</strong>.</li>
+    <li><strong>Delete disk cache</strong> / <strong>Delete RAM cache</strong> — individual cleanups.</li>
+    <li><strong>Reload missing logos</strong> — removes <code>.marker</code> files so previously failed
+        logos are retried.</li>
+    <li><strong>Restore Defaults</strong>.</li>
+</ul>
+
+<p>EPG sources are configured on the <strong>Program</strong> tab, not in Settings. The recording
+    directory lives under <strong>Menu → Record</strong>. mpv video/audio options are under
+    <strong>Menu → Video</strong> / <strong>Menu → Audio</strong>.
+</p>
+
+<h3>Menu</h3>
+
+<p>The <strong>Menu</strong> button in the header opens a popup menu:</p>
+
+<ul>
+    <li><strong>Video</strong> — Zoom, Aspect Ratio, Rotate, Mirror/Filters (mirror, vflip, deinterlace,
+        sharpen, crop), Equalizer (brightness, contrast, saturation, gamma, hue), Hardware Decoding,
+        Video Sync, Scaling, Drop Frames, Network Cache, Interpolation, Deband, Reset to defaults.</li>
+    <li><strong>Audio</strong> — Track, Delay, Speed, Channels, Device, Passthrough (S/PDIF, HDMI),
+        Pitch Correction, Reset.</li>
+    <li><strong>Record</strong> — Set Record Directory…, Open Recordings Folder.</li>
+    <li><strong>Subtitles</strong> — Track, Delay, Scale, Position, Reset.</li>
+    <li><strong>Settings</strong>, <strong>About</strong>, <strong>Quit</strong>.</li>
+</ul>
+    
     <h2>Keyboard shortcuts</h2>
 
     <table>
@@ -550,11 +632,11 @@
             <td>Favorite channels</td>
         </tr>
         <tr>
-            <td><code>~/.cache/iptvplayer/icons/</code></td>
-            <td>Cached channel logos (disk)</td>
+            <td><code>~/.cache/icons/&lt;playlist&gt;/original/</code></td>
+            <td>Cached channel logos (WebP/PNG/SVG + <code>.marker</code>)</td>
         </tr>
         <tr>
-            <td><code>~/.config/iptvplayer/epg_cache.db</code></td>
+            <td><code>~/.config/iptvplayer/epg.db</code></td>
             <td>Cached EPG data (SQLite)</td>
         </tr>
     </table>
@@ -611,11 +693,16 @@
                 <li>ручное сопоставление каналов с EPG.</li>
             </ul>
         </li>
-        <li><strong>Воспроизведение видео:</strong> полноэкранный режим, громкость, mute, аудио/субтитры, скорость.</li>
+        <li><strong>Воспроизведение видео:</strong> полноэкранный режим, громкость, mute, аудио/субтитры, скорость...</li>
         <li><strong>Запись:</strong> запись текущего потока в указанный каталог.</li>
         <li><strong>Интеграция с IPTV-Org:</strong> добавление плейлистов из публичного репозитория IPTV-Org с фильтрами
             по стране, языку и категории.</li>
         <li><strong>Экспорт:</strong> выгрузка любого плейлиста в M3U.</li>
+        <li><strong>Xtream Codes (planned):</strong> в коде уже есть «Add Xtream…» (голый
+            хост + учётные данные, фоновое определение корректного <code>get.php</code>),
+            но сценарий пока не доведён и не протестирован.</li>
+        <li><strong>Временный плейлист:</strong> перетащите медиафайлы, M3U/M3U8 или URL на
+            область видео — навигация prev/next/shuffle/remove/clear.</li>
     </ul>
 
     <h2>Установка</h2>
@@ -692,13 +779,27 @@
         </li>
         <li><strong>Откройте плейлист.</strong> Двойной клик (или кнопка <strong>Open</strong>), затем перейдите на
             вкладку <strong>Channels</strong>.</li>
-        <li><strong>Добавьте EPG-источник (опционально).</strong> Вкладка <strong>Program</strong> (или
-            <strong>Настройки → EPG</strong>), нажмите <strong>Add</strong> и введите URL XMLTV. Затем <strong>Refresh
-                Now</strong>.</li>
+        <li><strong>Добавьте EPG-источник (опционально).</strong> Вкладка <strong>Program</strong>, нажмите
+            <strong>Add</strong> и введите URL XMLTV. Затем <strong>Refresh Now</strong>.
+        </li>
         <li><strong>Настройте остальное (опционально).</strong> В <strong>Настройках</strong> можно включить логотипы,
             выбрать метод записи (<code>stream-record</code> или <code>record-file</code>), настроить интервалы кэша и
             автообновления.</li>
     </ol>
+
+    <h3>Командная строка</h3>
+    
+    <p><code>iptvplayer [OPTIONS] [FILES…]</code></p>
+    
+    <ul>
+        <li><code>-h</code>, <code>--help</code> — вывести справку и выйти.</li>
+        <li><code>-V</code>, <code>--version</code> — вывести версию и выйти.</li>
+        <li><code>FILES…</code> — медиафайлы, M3U/M3U8-плейлисты или URL; открываются во временном
+            плейлисте на вкладке Video.</li>
+    </ul>
+    
+    <p><code>--help</code> и <code>--version</code> обрабатываются до инициализации GTK и работают без
+        дисплея (удобно в CI).</p>
 
     <h2>Использование</h2>
 
@@ -708,8 +809,11 @@
         источник (локальный файл или URL) и настройки обновления. Можно:</p>
 
     <ul>
-        <li>добавлять, редактировать, обновлять и удалять плейлисты;</li>
+        <li>добавлять (из файла, URL, IPTV-Org, Xtream), редактировать, обновлять и удалять плейлисты;</li>
         <li>обновлять вручную один плейлист или все сразу (обновления идут в фоне — UI остаётся отзывчивым);</li>
+        <li>чекбокс <strong>"Auto-update all on startup"</strong> — если включён, при старте обновляются
+            все плейлисты (per-playlist флаг игнорируется); если выключен — только плейлисты с
+            per-playlist флагом;</li>
         <li>экспортировать плейлист в локальный <code>.m3u</code>.</li>
     </ul>
 
@@ -720,7 +824,8 @@
     <ul>
         <li><strong>Список или сетка</strong> — переключение кнопками тулбара. Сетка показывает карточки каналов с
             логотипами.</li>
-        <li><strong>Фильтры</strong> — по группе, стране и языку; сортировка по имени, группе или стране.</li>
+        <li><strong>Фильтры</strong> — по группе, стране и языку; сортировка по имени, группе, стране или
+    языку (по возрастанию и убыванию); чекбокс <strong>Fav first</strong>; кнопка <strong>Reset</strong>.</li>
         <li><strong>Поиск</strong> — TypeAheadSearch в списке и сетке.</li>
         <li><strong>Контекстное меню (ПКМ)</strong> — "Program Guide", "Copy URL", "Copy Name", "Remove from playlist".
         </li>
@@ -763,7 +868,7 @@
     <p><strong>Настройка EPG:</strong></p>
 
     <ol>
-        <li>Откройте <strong>Настройки → EPG</strong> или вкладку <strong>Program</strong>.</li>
+        <li>Откройте вкладку <strong>Program</strong>.</li>
         <li>В разделе <strong>EPG Sources</strong> нажмите <strong>Add</strong> и введите URL источника и опциональное
             имя.</li>
         <li>Настройте:
@@ -777,7 +882,7 @@
     </ol>
 
     <p><strong>Рекомендуемые источники.</strong> Файл <code>epg_sources.json</code> в каталоге ресурсов
-        (<code>/usr/share/iptvplayer/resources/</code>) содержит ссылки на самые известные источники. Ссылки меняются и
+        (<code>/usr/share/iptvplayer/</code>) содержит ссылки на самые известные источники. Ссылки меняются и
         устаревают — проверяйте их актуальность в сети. Можно использовать несколько источников одновременно: данные
         объединяются при загрузке.</p>
 
@@ -814,8 +919,8 @@
     <p><strong>Как открыть:</strong></p>
 
     <ul>
-        <li>Из контекстного меню канала → <strong>Manual Mapping</strong> (если доступно);</li>
-        <li>Кнопкой <strong>Manual Mapping</strong> на панели EPG (вкладка Program или Настройки).</li>
+        <li>Кнопкой <strong>Manual Mapping</strong> на панели EPG (справа на вкладках Channels/Favorites);</li>
+        <li>Пункта "Manual Mapping" в контекстном меню канала нет — используйте кнопку.</li>
     </ul>
 
     <p><strong>Возможности диалога:</strong></p>
@@ -835,15 +940,21 @@
 
     <h3>Запись</h3>
 
-    <ul>
-        <li>Запись текущего воспроизводимого потока.</li>
-        <li>Поддерживаются два метода — <code>stream-record</code> и <code>record-file</code> — выбор в Настройках.</li>
-        <li>Кнопка <strong>Rec</strong> на панели видео активна во время воспроизведения.</li>
-        <li>Запись начинается с текущего момента; файл сохраняется в настраиваемый каталог.</li>
-        <li>В статус-баре отображается имя файла и длительность записи.</li>
-        <li>Остановка воспроизведения автоматически останавливает запись.</li>
-        <li>Поддерживаются контейнеры <code>.ts</code> и <code>.mkv</code> в зависимости от кодека потока.</li>
-    </ul>
+<ul>
+    <li>Запись текущего воспроизводимого потока через mpv <code>stream-record</code>.</li>
+    <li>Каталог: <strong>Menu → Record → Set Record Directory…</strong>. По умолчанию:
+        <code>~/Videos/iptvplayer</code> (Linux, учитывается <code>XDG_VIDEOS_DIR</code>),
+        <code>&lt;Videos&gt;\iptvplayer</code> (Windows), <code>~/Movies/iptvplayer</code> (macOS).
+    </li>
+    <li>Имя файла: <code>record_&lt;YYYYMMDD_HHMMSS&gt;_&lt;канал&gt;.ts</code> или
+        <code>.mkv</code> (<code>.ts</code> для MPEG-2 / MPEG-4, иначе <code>.mkv</code>).
+    </li>
+    <li>Кнопка <strong>Rec</strong> на панели видео активна во время воспроизведения;
+        <strong>Record → Open Recordings Folder</strong> открывает каталог.
+    </li>
+    <li>Запись начинается с текущего момента; в статус-баре — имя файла и прошедшее время.</li>
+    <li>Остановка воспроизведения автоматически останавливает запись.</li>
+</ul>
 
     <h3>IPTV-Org</h3>
 
@@ -852,6 +963,18 @@
         <li>Фильтр по стране, языку или категории с динамической загрузкой данных из официального репозитория IPTV-Org.
         </li>
         <li>Плейлист скачивается и добавляется в коллекцию автоматически.</li>
+    </ul>
+
+    <h3>Xtream (planned)</h3>
+    
+    <ul>
+        <li>Кнопка <strong>"Add Xtream…"</strong> на вкладке <strong>Playlists</strong>.</li>
+        <li>Введите URL сервера, логин, пароль, опциональные EPG URL и название, флаг автообновления.</li>
+        <li>Если в поле сервера указан путь (<code>…/get.php?…</code> или <code>…/playlist.m3u</code>),
+            он используется как есть. Если только хост — приложение в фоне проверяет учётные данные
+            и определяет корректный <code>get.php</code>, после чего добавляет плейлист.</li>
+        <li><strong>Статус: не доведено до конца.</strong> Диалог и проба есть, но сквозной сценарий
+            пока не протестирован.</li>
     </ul>
 
     <h3>Экспорт</h3>
@@ -869,9 +992,51 @@
             <strong>Program</strong> (управление источниками EPG).</li>
         <li>Переключение между списком и сеткой для каналов и избранного.</li>
         <li>Поиск каналов (TypeAheadSearch) в обоих видах.</li>
-        <li>Контекстное меню канала (ПКМ): "Program Guide", "Copy URL", "Copy Name", "Remove from playlist".</li>
-        <li>Полноэкранный режим видео (двойной клик, F или ESC).</li>
-        <li>Громкость, mute, задержка аудио, переключение аудио/субтитров (в меню).</li>
+        <li>Контекстное меню канала (ПКМ): "Play", "Copy URL", "Copy Name", "Remove from playlist"
+            (или "Remove from favorites" в Favorites). Пункта "Program Guide" <strong>нет</strong> —
+            панель EPG справа управляется выделением, ручное сопоставление — на самой панели EPG.</li>
+        <li>Кнопка <strong>Menu</strong> (справа вверху): <em>Video</em>, <em>Audio</em>, <em>Record</em>,
+            <em>Subtitles</em>, <em>Settings</em>, <em>About</em>, <em>Quit</em>.
+        </li>
+        <li>Полноэкранный режим: двойной клик по области видео, <code>F</code> на вкладке Video,
+            <code>ESC</code> для выхода. Элементы управления и курсор скрываются через 3 с.
+        </li>
+        <li>Громкость, mute, задержка аудио, переключение аудио/субтитров, скорость и многие
+            mpv-специфичные опции — через <strong>Menu</strong>.</li>
+    </ul>
+
+    <h3>Настройки</h3>
+    
+    <p>Диалог <strong>Настройки</strong> управляет только логотипами каналов:</p>
+    
+    <ul>
+        <li><strong>Show channel logos (thumbnails)</strong> — включение/выключение логотипов во всех видах.</li>
+        <li><strong>Delete logo cache (disk and memory)</strong> — при выключении логотипов также
+            очистить дисковый и RAM-кэш по <strong>Apply</strong>.</li>
+        <li><strong>Delete disk cache</strong> / <strong>Delete RAM cache</strong> — раздельная очистка.</li>
+        <li><strong>Reload missing logos</strong> — удаляет <code>.marker</code>-файлы, чтобы ранее
+            неудачные логотипы попробовали загрузиться снова.</li>
+        <li><strong>Restore Defaults</strong>.</li>
+    </ul>
+    
+    <p>Источники EPG настраиваются на вкладке <strong>Program</strong>, а не в Настройках. Каталог
+        записей — <strong>Menu → Record</strong>. mpv-опции — <strong>Menu → Video</strong> /
+        <strong>Menu → Audio</strong>.
+    </p>
+    
+    <h3>Меню</h3>
+    
+    <p>Кнопка <strong>Menu</strong> в шапке открывает всплывающее меню:</p>
+    
+    <ul>
+        <li><strong>Video</strong> — Zoom, Aspect Ratio, Rotate, Mirror/Filters (mirror, vflip, deinterlace,
+            sharpen, crop), Equalizer (brightness, contrast, saturation, gamma, hue), Hardware Decoding,
+            Video Sync, Scaling, Drop Frames, Network Cache, Interpolation, Deband, Reset to defaults.</li>
+        <li><strong>Audio</strong> — Track, Delay, Speed, Channels, Device, Passthrough, Pitch Correction,
+            Reset.</li>
+        <li><strong>Record</strong> — Set Record Directory…, Open Recordings Folder.</li>
+        <li><strong>Subtitles</strong> — Track, Delay, Scale, Position, Reset.</li>
+        <li><strong>Settings</strong>, <strong>About</strong>, <strong>Quit</strong>.</li>
     </ul>
 
     <h2>Горячие клавиши</h2>
@@ -975,11 +1140,11 @@
             <td>Избранные каналы</td>
         </tr>
         <tr>
-            <td><code>~/.cache/iptvplayer/icons/</code></td>
-            <td>Кэш логотипов каналов</td>
+            <td><code>~/.cache/icons/&lt;playlist&gt;/original/</code></td>
+            <td>Кэш логотипов каналов (WebP/PNG/SVG + <code>.marker</code>)</td>
         </tr>
         <tr>
-            <td><code>~/.config/iptvplayer/epg_cache.db</code></td>
+            <td><code>~/.config/iptvplayer/epg.db</code></td>
             <td>Кэш EPG (SQLite)</td>
         </tr>
     </table>

@@ -256,7 +256,6 @@ set(SOURCES
     src/Utils_Fs.cpp
     src/Utils_Net.cpp
     src/Utils_Perf.cpp
-    src/Utils_Platform.cpp
     src/Utils_UI.cpp
     src/SettingsDialog.cpp
     src/StarIcon.cpp
@@ -283,8 +282,7 @@ set(SOURCES
 if(APPLE)
     add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES})
 else()
-    add_executable(${PROJECT_NAME} ${SOURCES}
-        src/xtream/XtreamUrl.cpp)
+    add_executable(${PROJECT_NAME} ${SOURCES})
 endif()
 
 if(WIN32)
