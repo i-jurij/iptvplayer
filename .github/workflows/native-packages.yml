@@ -119,13 +119,13 @@ jobs:
           set -euo pipefail
           if [ "${{ matrix.pkgmgr }}" = "apt" ]; then
             apt-get install -y --no-install-recommends \
-              libmpv-dev libgtk-3-dev libgdk-pixbuf-2.0-dev \
+              libmpv-dev libgtk-3-dev libgdk-pixbuf-2.0-dev librsvg2-common \
               libcurl4-openssl-dev libjpeg-dev libexpat1-dev zlib1g-dev \
               libwebp-dev libfreetype-dev libpng-dev rapidjson-dev \
               libx11-dev libx11-xcb-dev libgl1-mesa-dev libegl1-mesa-dev
           elif [ "${{ matrix.pkgmgr }}" = "dnf" ]; then
             dnf install -y \
-              mpv-libs-devel gtk3-devel gdk-pixbuf2-devel \
+              mpv-libs-devel gtk3-devel gdk-pixbuf2-devel librsvg2 \
               libcurl-devel libjpeg-turbo-devel expat-devel zlib-devel \
               libwebp-devel freetype-devel libpng-devel rapidjson-devel \
               libX11-devel libxcb-devel mesa-libGL-devel mesa-libEGL-devel

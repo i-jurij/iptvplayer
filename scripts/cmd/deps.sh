@@ -38,7 +38,7 @@ deps_run() {
         deps_ensure_tools
     fi
 
-    if [ "$OPT_REBUILD_DEPS" = true ]; then
+    if [ "$OPT_REBUILD" = true ]; then
         rm -rf "$PROJECT_ROOT/third_party/wx" "$PROJECT_ROOT/third_party/wxsqlite3"
         log "Removed third_party (--rebuild)"
     fi
