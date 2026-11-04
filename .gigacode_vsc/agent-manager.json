@@ -1,9 +1,15 @@
 {
   "worktrees": {},
-  "sessions": {},
+  "sessions": {
+    "ses_e58fd67c1ffegootp414s40EUx": {
+      "worktreeId": null,
+      "createdAt": "2026-11-04T14:42:07.605Z"
+    }
+  },
   "tabOrder": {
     "local": [
-      "pending:1"
+      "ses_e58fd67c1ffegootp414s40EUx"
     ]
-  }
+  },
+  "reviewDiffStyle": "split"
 }
