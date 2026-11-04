@@ -15,6 +15,18 @@ package_run() {
     fi
     detect_sudo
 
+    # --- Format selection FIRST (matches old build-package.sh) --------------
+    if [ "$OPT_NATIVE" = false ] && [ "$OPT_APPIMAGE" = false ] \
+       && [ "$OPT_SHARUN" = false ] && [ "$OPT_FLATPAK" = false ]; then
+        if [[ "${NON_INTERACTIVE:-false}" == true ]] || [ "$OPT_NO_MENU" = true ]; then
+            warn "No format flag specified - defaulting to native package"
+            OPT_NATIVE=true
+        else
+            package_show_menu
+        fi
+    fi
+
+    # --- --rebuild cleanup (after menu: cancel does not nuke artifacts) -----
     if [ "$OPT_REBUILD" = true ]; then
         rm -rf "$PROJECT_ROOT"/build-*
         rm -rf "$PROJECT_ROOT/install"
@@ -25,6 +37,7 @@ package_run() {
         log "--rebuild: removed build/install/dist/pkg-*/staging/AppDir"
     fi
 
+    # --- Binary (build if missing) ------------------------------------------
     if [ ! -x "$PROJECT_ROOT/install/bin/$PACKAGE_NAME" ]; then
         log "Binary not found - building"
         OPT_BUILD_TYPE="release"
@@ -36,6 +49,7 @@ package_run() {
         fi
     fi
 
+    # --- Versions ------------------------------------------------------------
     local versions_tmp
     versions_tmp="$(mktemp)"
     if ! read_versions_from_install > "$versions_tmp"; then
@@ -52,20 +66,10 @@ package_run() {
         error "Cannot read version files from install/"
     fi
 
-    if [ "$OPT_NATIVE" = false ] && [ "$OPT_APPIMAGE" = false ] \
-       && [ "$OPT_SHARUN" = false ] && [ "$OPT_FLATPAK" = false ]; then
-        if [ "$OPT_NO_MENU" = true ]; then
-            error "No format requested and --no-menu is set. Use --native/--appimage/--sharun/--flatpak"
-        fi
-        package_show_menu
-    fi
-
     echo "=== $PACKAGE_NAME:$VERSION (file: $VERSION_FILE, arch: $DEB_ARCH/$RPM_ARCH/$APPIMAGE_ARCH, distro: $DISTRO) ==="
 
     check_deps "$OPT_NATIVE" "$OPT_APPIMAGE" "$OPT_SHARUN" "$OPT_FLATPAK"
-
     ensure_tools "base packaging tools" "tar:tar" "readelf:binutils"
-
     setup_dirs
 
     local -a FAILED=()
@@ -74,17 +78,14 @@ package_run() {
         source "$SCRIPT_DIR/formats/native.sh"
         build_native || FAILED+=("native")
     fi
-
     if [ "$OPT_APPIMAGE" = true ]; then
         source "$SCRIPT_DIR/formats/appimage.sh"
         build_appimage || FAILED+=("appimage")
     fi
-
     if [ "$OPT_SHARUN" = true ]; then
         source "$SCRIPT_DIR/formats/sharun.sh"
         build_sharun_appimage || FAILED+=("sharun")
     fi
-
     if [ "$OPT_FLATPAK" = true ]; then
         source "$SCRIPT_DIR/formats/flatpak.sh"
         build_flatpak || FAILED+=("flatpak")
@@ -99,9 +100,11 @@ package_run() {
     fi
 
     deps_cleanup_after_success
-
-    log "Done. Artifacts in $OUTPUT_DIR"
+    
+    echo ""
     ls -la "$OUTPUT_DIR/"
+    echo ""
+    log "Done. Artifacts in $OUTPUT_DIR"
     return 0
 }
 
@@ -118,8 +121,9 @@ package_show_menu() {
     labels+=("AppImage (linuxdeploy)"); actions+=("appimage")
     labels+=("AppImage (quick-sharun)"); actions+=("sharun")
     labels+=("Flatpak"); actions+=("flatpak")
-
+    echo ""
     echo "Detected: $DISTRO ($(uname -m))"
+    echo ""
     echo "Choose what to build:"
     local i=1
     local label
