@@ -448,12 +448,11 @@ bool showRemovePlaylistDialog(wxWindow *parent, const Playlist *playlist,
   mainSizer->Add(btnSizer, 0, wxALL | wxEXPAND, dlg.FromDIP(10));
 
   dlg.SetSizer(mainSizer);
-  dlg.Layout();
-  wxSize minSz = mainSizer->CalcMin();
-  minSz.IncTo(dlg.FromDIP(wxSize(400, 160)));
-  dlg.SetMinSize(minSz);
-  dlg.SetSize(minSz);
-  dlg.Layout();
+
+  wxSize clientSz = mainSizer->CalcMin();
+  clientSz.IncTo(dlg.FromDIP(wxSize(400, 160)));
+  dlg.SetClientSize(clientSz);
+  dlg.SetMinSize(dlg.GetSize());
   dlg.CentreOnParent();
 
   yesBtn->Bind(wxEVT_BUTTON, [&](wxCommandEvent &) {

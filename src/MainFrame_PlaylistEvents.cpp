@@ -286,10 +286,11 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
     BeginPlaylistLoading("Xtream");
 
     std::string title = titleWx.ToUTF8().data();
+    const std::string ua = dlg.GetUserAgent().ToUTF8().data();
 
     ErrorCode ec = ErrorCode::OK;
     try {
-      ec = mgr->addPlaylistFromUrl(serverUrl.ToUTF8().data(), title, "",
+      ec = mgr->addPlaylistFromUrl(serverUrl.ToUTF8().data(), title, ua,
                                    autoUpdate);
     } catch (const std::exception &e) {
       LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s", e.what());
@@ -300,6 +301,7 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
     }
 
     if (ec != ErrorCode::OK) {
+      m_pendingEpgBySource.erase(srcKey);
       m_progressTimer.Stop();
       SetStatusText(_U("Failed to start playlist loading."), 0);
       showError(this,
@@ -309,14 +311,17 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
     return;
   }
 
-  // Bare server — probe credentials + формат в фоне, потом add.
+  // Bare server — probe credentials + format in background, then add.
   SetStatusText(_U("Checking Xtream server..."), 0);
+
+  const wxString ua = dlg.GetUserAgent(); // NEW
 
   wxWeakRef<MainFrame> weakThis(this);
   xtream::ProbeAsync(
-      serverUrl, user, pass,
-      [weakThis, epgUrl, titleWx, autoUpdate](bool ok, const wxString &finalUrl,
-                                              const wxString &error) {
+      serverUrl, user, pass, ua, // NEW: ua passed
+      [weakThis, epgUrl, titleWx, autoUpdate,
+       ua](bool ok, const wxString &finalUrl, const wxString &error,
+           const std::string &userInfoJson, const std::string &serverInfoJson) {
         auto *self = weakThis.get();
         if (!self)
           return;
@@ -327,6 +332,9 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
                               _U("Xtream server check failed:\n\n%s"), error));
           return;
         }
+
+        LOG_DEBUG("Xtream probe: user_info=%zu bytes, server_info=%zu bytes",
+                  userInfoJson.size(), serverInfoJson.size());
 
         auto *mgr = self->getPlaylistManager();
         if (!mgr) {
@@ -340,13 +348,17 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
         else
           self->m_pendingEpgBySource.erase(srcKey);
 
+        // NEW: short status line before add
+        self->SetStatusText(_U("Xtream: server ready, loading playlist..."), 0);
+
         self->BeginPlaylistLoading("Xtream");
 
         std::string title = titleWx.ToUTF8().data();
+        const std::string uaStr = ua.ToUTF8().data();
 
         ErrorCode ec = ErrorCode::OK;
         try {
-          ec = mgr->addPlaylistFromUrl(finalUrl.ToUTF8().data(), title, "",
+          ec = mgr->addPlaylistFromUrl(finalUrl.ToUTF8().data(), title, uaStr,
                                        autoUpdate);
         } catch (const std::exception &e) {
           LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s",
@@ -358,6 +370,7 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
         }
 
         if (ec != ErrorCode::OK) {
+          self->m_pendingEpgBySource.erase(srcKey); // NEW: cleanup
           self->m_progressTimer.Stop();
           self->SetStatusText(_U("Failed to start playlist loading."), 0);
           showError(self, wxString::Format(

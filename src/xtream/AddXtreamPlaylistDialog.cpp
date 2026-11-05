@@ -65,6 +65,35 @@ AddXtreamPlaylistDialog::AddXtreamPlaylistDialog(wxWindow *parent)
   m_titleCtrl->SetHint(_U("Optional: leave empty to use server host"));
   addRow(optBox, optSizer, _U("Title:"), m_titleCtrl);
 
+  // ---- User-Agent (editable combobox with presets) ----
+  struct UaPreset {
+    wxString label;
+    wxString ua;
+  };
+  const std::vector<UaPreset> presets = {
+      {_U("mpv (default)"), xtream::DefaultUserAgent()},
+      {_U("VLC"), "VLC/3.0.20 LibVLC/3.0.20"},
+      {_U("TiviMate"), "TiviMate/4.7.0 (Linux;Android 9) ExoPlayerLib/2.18.1"},
+      {_U("Kodi"), "Kodi/20.5.0 (Windows NT 10.0; Win64; x64) App_Bitness/64 "
+                   "Version/20.5.0"},
+      {_U("ExoPlayer"), "ExoPlayerLib/2.18.1"},
+      {_U("Chrome"),
+       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
+  };
+
+  m_uaCombo = new wxComboBox(optBox, wxID_ANY, "", wxDefaultPosition,
+                             wxDefaultSize, 0, nullptr, wxCB_DROPDOWN);
+  for (const auto &p : presets)
+    m_uaCombo->Append(p.label);
+  m_uaCombo->SetValue(xtream::DefaultUserAgent());
+  m_uaCombo->Bind(wxEVT_COMBOBOX, [this, presets](wxCommandEvent &evt) {
+    const int sel = evt.GetSelection();
+    if (sel >= 0 && sel < static_cast<int>(presets.size()))
+      m_uaCombo->SetValue(presets[sel].ua);
+  });
+  addRow(optBox, optSizer, _U("User Agent:"), m_uaCombo);
+
   m_epgUrlCtrl = new wxTextCtrl(optBox, wxID_ANY, "");
   m_epgUrlCtrl->SetHint(_U("Auto if empty"));
   addRow(optBox, optSizer, _U("EPG URL:"), m_epgUrlCtrl);
@@ -177,9 +206,20 @@ wxString AddXtreamPlaylistDialog::GetTitle() const {
     return title;
   const wxString server = GetServerUrl();
   wxURI uri(server);
-  if (uri.HasServer() && !uri.GetServer().IsEmpty())
-    return uri.GetServer();
+  if (uri.HasServer() && !uri.GetServer().IsEmpty()) {
+    wxString host = uri.GetServer();
+    if (uri.HasPort())
+      host += ":" + uri.GetPort();
+    return host;
+  }
   return server;
+}
+
+wxString AddXtreamPlaylistDialog::GetUserAgent() const {
+  const wxString ua = m_uaCombo ? m_uaCombo->GetValue().Trim() : wxString();
+  if (!ua.IsEmpty())
+    return ua;
+  return xtream::DefaultUserAgent();
 }
 
 wxString AddXtreamPlaylistDialog::GetEpgUrl() const {
