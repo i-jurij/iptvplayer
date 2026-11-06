@@ -65,11 +65,13 @@ distro_setup_repos() {
     if ! deps_is_installed "$_epel"; then
         warn "Build on $DISTRO needs $_epel"
         if ask "Enable $_epel? [Y/n]:" y; then
+            log "Installing $_epel..."
             deps_install "$_epel" || error "Failed to enable $_epel"
         else
             error "Cannot build without $_epel"
         fi
     fi
+    log "Enabling ol${_major}_codeready_builder repo..."
     $SUDO dnf config-manager --set-enabled "ol${_major}_codeready_builder" \
         || warn "Failed to enable ol${_major}_codeready_builder — check manually"
 }

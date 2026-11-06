@@ -642,7 +642,10 @@ ensure_tools() {
         error "Cannot continue without ${missing_tools[*]}."
     fi
 
+    log "Updating package lists (this can take a while)..."
     deps_update || true
+
+    log "Installing packages: ${missing_pkgs[*]}"
     if ! deps_install "${missing_pkgs[@]}"; then
         error "Failed to install ${missing_pkgs[*]}."
     fi

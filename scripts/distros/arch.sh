@@ -6,7 +6,7 @@
 PKGMGR=pacman
 PKGMGR_CHECK=pacman
 COM_CHECK="-Q"
-COM_UPDATE="-Sy --noconfirm"
+COM_UPDATE="-Syu --noconfirm"
 COM_INSTALL="-S --noconfirm --needed"
 COM_REMOVE="-Rs --noconfirm"
 OPTS_CHECK=""

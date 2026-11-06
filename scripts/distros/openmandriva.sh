@@ -68,6 +68,7 @@ _ensure_restricted_repo() {
     if dnf repolist --enabled 2>/dev/null | grep -q 'restricted'; then
         return 0
     fi
+    log "Looking for disabled 'restricted' repository..."
     local _ids
     _ids=$(dnf repolist --disabled 2>/dev/null \
            | awk '/restricted/ {print $1}' \

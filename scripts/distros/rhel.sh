@@ -86,6 +86,7 @@ distro_setup_repos() {
     if ! deps_is_installed "$_pkg"; then
         warn "Build on $DISTRO needs $_pkg"
         if ask "Enable $_pkg? [Y/n]:" y; then
+            log "Installing $_pkg..."
             deps_install "$_url" || error "Failed to enable $_pkg"
         else
             error "Cannot build without $_pkg"
