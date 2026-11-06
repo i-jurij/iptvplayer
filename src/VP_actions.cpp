@@ -144,12 +144,12 @@ void VideoPanel::OpenUrl() {
   StartTempPlayAsync(url, -1, true, "open_url");
 }
 
-void VideoPanel::PlayChannel(const Channel &ch) {
+void VideoPanel::PlayChannel(const Channel &ch, const std::string &userAgent) {
   EnsurePlayerBackend();
   ClearTempPlaylist();
   std::string url = ch.getUrl();
   m_currentName = NormalizeFileNameForDisk(ch.getName(), 128, Display);
-  m_isLoading = true; 
+  m_isLoading = true;
   m_loadAttempts = 0;
   m_tempState = TempPlayState::Loading;
 
@@ -175,7 +175,14 @@ void VideoPanel::PlayChannel(const Channel &ch) {
     m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
   }
 
-  wxTheApp->CallAfter([this, url]() {
+  wxTheApp->CallAfter([this, url, userAgent]() {
+    // Применяем UA плейлиста к mpv перед loadfile. Пусто — оставляем
+    // дефолт mpv. Свойство "user-agent" у mpv применяется при
+    // следующем loadfile.
+    if (!userAgent.empty()) {
+      m_playerController->SetPropertyString("user-agent", userAgent);
+    }
+
     bool ok = true;
     try {
       m_playerController->PlayUrl(url);

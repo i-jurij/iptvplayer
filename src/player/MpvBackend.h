@@ -24,6 +24,8 @@ struct MpvInitOptions {
   std::string subScale;
   std::string subPos;
   std::string audioSpdif;
+  // HTTP User-Agent для mpv. Пусто = дефолт mpv (`mpv/<ver>`).
+  std::string userAgent;
 };
 
 class MpvBackend : public IPlayerBackend {

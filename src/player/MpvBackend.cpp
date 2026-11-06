@@ -76,6 +76,7 @@ MpvBackend::MpvBackend(wxWindow *parentWindow, const MpvInitOptions &opts)
   setOptIfSet("sub-scale", opts.subScale);
   setOptIfSet("sub-pos", opts.subPos);
   setOptIfSet("audio-spdif", opts.audioSpdif);
+  setOptIfSet("user-agent", opts.userAgent);
 
   if (opts.cacheMB > 0) {
     std::string bytes = std::to_string((long long)opts.cacheMB * 1024 * 1024);

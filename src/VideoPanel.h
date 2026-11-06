@@ -69,7 +69,7 @@ public:
 
   int GetLastVolume() const { return m_lastVolume; };
 
-  void PlayChannel(const Channel &ch);
+  void PlayChannel(const Channel &ch, const std::string &userAgent = "");
 
   // Drag & drop
   bool AcceptsFocus() const override { return true; }

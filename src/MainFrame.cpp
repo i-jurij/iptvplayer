@@ -393,8 +393,25 @@ void MainFrame::PlayChannel(const Channel &ch) {
   // Инкремент токена — предыдущие отложенные showPanel станут неактуальны
   uint64_t token = ++m_showPanelToken;
 
+  // Определяем UA плейлиста (важно для Xtream-источников).
+  // Для файлов, drag&drop и т.п. ch.getPlaylistName() пуст — UA
+  // останется пустым, mpv использует свой дефолт.
+  std::string ua;
+  if (auto *mgr = getPlaylistManager()) {
+    if (!ch.getPlaylistName().empty()) {
+      if (Playlist *pl = mgr->findByTitle(ch.getPlaylistName())) {
+        ua = pl->getUserAgent();
+        if (!ua.empty()) {
+          LOG_DEBUG("MainFrame::PlayChannel: applying playlist UA '%s' "
+                    "to channel '%s'",
+                    ua.c_str(), ch.getName().c_str());
+        }
+      }
+    }
+  }
+
   // Запускаем воспроизведение
-  m_videoPanel->PlayChannel(ch);
+  m_videoPanel->PlayChannel(ch, ua);
 
   // Планируем безопасное переключение: выполняем только если токен актуален
   CallAfter([this, token]() {
