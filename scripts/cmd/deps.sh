@@ -198,7 +198,10 @@ deps_ensure_system() {
         return 0
     fi
 
+    log "Updating package lists (this can take a while)..."
     deps_update || warn "deps_update failed, continuing"
+
+    log "Installing packages: ${missing[*]}"
     if ! deps_install "${missing[@]}"; then
         error "Failed to install: ${missing[*]}"
     fi
@@ -246,6 +249,7 @@ deps_ensure_tools() {
         error "Cannot build without ${_missing[*]}."
     fi
 
+    log "Installing packages: ${_to_install[*]}"
     if ! deps_install "${_to_install[@]}"; then
         error "Failed to install ${_missing[*]}"
     fi
@@ -440,6 +444,7 @@ deps_ensure_wxsqlite3() {
     fi
 
     cd src || return 1
+    log "Running autoreconf for wxSQLite3 (this can take a while)..."
     if ! autoreconf -fi; then
         error "wxSQLite3 autoreconf failed"
     fi
