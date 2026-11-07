@@ -108,43 +108,6 @@ std::size_t PlaylistManager::size() const {
   return m_playlists.size();
 }
 
-std::string PlaylistManager::copyIntoConfigFolder(const std::string &srcPath) {
-  namespace fs = std::filesystem;
-  std::string baseDir = m_configDir;
-
-  if (baseDir.empty()) {
-    // ToUTF8(), не ToStdString() — на Windows второй вернёт CP_ACP.
-    wxString wxDir = wxStandardPaths::Get().GetUserConfigDir();
-    baseDir = std::string(wxDir.ToUTF8().data());
-  }
-
-  fs::path destDir = ToFsPath(baseDir) / "playlists";
-  std::error_code ec;
-  fs::create_directories(destDir, ec);
-  if (ec)
-    return std::string();
-
-  auto now = std::chrono::system_clock::now();
-  auto t = std::chrono::system_clock::to_time_t(now);
-  std::stringstream ss;
-  ss << std::put_time(std::localtime(&t), "%Y%m%d_%H%M%S");
-
-  fs::path src = ToFsPath(srcPath);
-
-  // filename() определяет имя по правилам платформы (учитывает и '/', и '\\'
-  const auto fnU8 = src.filename().u8string();
-  std::string srcFileName(reinterpret_cast<const char *>(fnU8.data()),
-                          fnU8.size());
-
-  fs::path dest = destDir / ToFsPath(ss.str() + "_" + srcFileName);
-
-  fs::copy_file(src, dest, fs::copy_options::overwrite_existing, ec);
-  if (ec)
-    return std::string();
-
-  return std::string(dest.u8string().begin(), dest.u8string().end());
-}
-
 static int ProgressCallback(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
                             curl_off_t ultotal, curl_off_t ulnow) {
   (void)ultotal; // не используется
@@ -840,26 +803,6 @@ Playlist *PlaylistManager::findByTitle(const std::string &title) {
       return pl.get();
   }
   return nullptr;
-}
-
-std::vector<Playlist *>
-PlaylistManager::findByCategory(const std::string &category) {
-  std::vector<Playlist *> result;
-  std::lock_guard<std::mutex> lock(m_playlistsMutex);
-  for (auto &pl : m_playlists) {
-    for (const auto &ch : pl->getChannels()) {
-      if (ch.getCategory() == category) {
-        result.push_back(pl.get());
-        break;
-      }
-    }
-  }
-  return result;
-}
-
-void PlaylistManager::clearAll() {
-  std::lock_guard<std::mutex> lock(m_playlistsMutex);
-  m_playlists.clear();
 }
 
 std::string

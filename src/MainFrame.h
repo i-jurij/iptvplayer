@@ -178,8 +178,6 @@ private:
   void RegisterEpgSourceForPlaylist(const wxString &epgUrl,
                                     const wxString &playlistTitle);
 
-  wxButton *m_menuButton = nullptr;
-
   void OnGlobalCharHook(wxKeyEvent &evt);
   bool IsVideoPageActive() const;
 
@@ -214,7 +212,6 @@ private:
 
   wxPanel *m_playlistPanel{nullptr};
   wxPanel *m_favoritesPanel{nullptr};
-  wxToggleButton *m_favViewToggle{nullptr};
   VideoPanel *m_videoPanel = nullptr;
   int m_videoPageIdx = -1;
 
@@ -306,7 +303,6 @@ private:
 
   // Progress gauges
   wxGauge *m_gaugeTop{nullptr};
-  wxGauge *m_gaugeProgress{nullptr};
 
   enum class GaugeOwner { None, Playlist, Epg };
   GaugeOwner m_gaugeOwner = GaugeOwner::None;
@@ -351,7 +347,6 @@ private:
   void onUpdatePlaylist(wxCommandEvent &event);
   void onUpdateAllPlaylists(wxCommandEvent &event);
   void onPlDelKeyDown(wxKeyEvent &event);
-  void onToggleFavoritesView(wxCommandEvent &evt);
   void onChannelSelected(const Channel &ch, size_t index, const wxRect &rect);
   void onFavoriteSelected(const Channel &ch, size_t index, const wxRect &rect);
 

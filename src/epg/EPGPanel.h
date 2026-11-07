@@ -60,9 +60,6 @@ private:
   EPGManager *m_epgManager;
 
   bool m_isActive;
-  bool m_hasError;
-  wxString m_lastError;
-
   void SetupUI();
   void UpdateDateLabel();
   void OnPrevDay(wxCommandEvent &);
@@ -71,7 +68,6 @@ private:
   void OnProgramSelected(wxGridEvent &);
   void AdjustProgramColumns();
   void OnProgramListResize(wxSizeEvent &);
-  void ShowMessage(const wxString &msg);
 };
 
 #endif

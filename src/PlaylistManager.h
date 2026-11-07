@@ -62,8 +62,7 @@ public:
   ErrorCode downloadUrl(const std::string &url, std::string &content,
                         const std::string &userAgent,
                         DownloadProgress *progress = nullptr);
-
-  std::string derivePlaylistTitleFromFile(const std::string &path) const;
+                        
   std::string derivePlaylistTitleFromUrl(const std::string &url) const;
   std::string makePlaylistFileName(const std::string &title) const;
   std::string normalizePlaylistTitle(const std::string &rawTitle) const;
@@ -88,8 +87,6 @@ public:
   std::size_t size() const;
 
   Playlist *findByTitle(const std::string &title);
-  std::vector<Playlist *> findByCategory(const std::string &category);
-  void clearAll();
 
   ErrorCode savePlaylist(const Playlist *pl, size_t idx = (size_t)-1) const;
   ErrorCode savePlaylists() const;
@@ -120,6 +117,5 @@ private:
   ErrorCode loadPlaylistContent(Playlist *playlist);
   bool readFile(const std::string &path, std::string &outContent);
 
-  std::string copyIntoConfigFolder(const std::string &srcPath);
   bool atomicWrite(const std::string &path, const std::string &data) const;
 };

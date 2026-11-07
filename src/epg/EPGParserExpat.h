@@ -3,6 +3,7 @@
 
 #include "EPGData.h"
 
+#include <atomic>
 #include <expat.h>
 #include <string>
 #include <unordered_map>
@@ -10,7 +11,10 @@
 
 class EPGParserExpat {
 public:
-  bool Parse(const std::string &xmlData);
+  // abortFlag (если не null) опрашивается между чанками по 64 КБ.
+  // При abort Parse возвращает false и очищает внутренние коллекции.
+  bool Parse(const std::string &xmlData,
+             const std::atomic<bool> *abortFlag = nullptr);
   const std::vector<EpgChannel> &GetChannels() const { return m_channels; }
 
 private:

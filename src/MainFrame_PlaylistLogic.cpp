@@ -109,14 +109,6 @@ void MainFrame::updateStatusBar(size_t playlistCount) {
   SetStatusText(wxString::Format(_U("Playlists: %zu"), playlistCount), 1);
 }
 
-void MainFrame::resetPlaylistSelection() {
-  m_openBtn->Enable(false);
-  m_updateBtn->Enable(false);
-  m_editBtn->Enable(false);
-  m_removeBtn->Enable(false);
-  m_selectedPlaylistIndex = -1;
-}
-
 void MainFrame::enablePlaylistButtons(bool enable) {
   m_openBtn->Enable(enable);
   m_updateBtn->Enable(enable);

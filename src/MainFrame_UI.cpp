@@ -198,7 +198,6 @@ void MainFrame::createMainPanel() {
 
 #ifdef __WXMSW__
   wxButton *btnMenu = new wxButton(headerPanel, wxID_ANY, "");
-  m_menuButton = btnMenu;
   if (menuIcon.IsOk()) {
     btnMenu->SetBitmap(menuIcon);
     btnMenu->SetToolTip(_U("Menu"));
@@ -208,7 +207,6 @@ void MainFrame::createMainPanel() {
 #else
   wxButton *btnMenu =
       new wxButton(headerPanel, wxID_ANY, wxString::FromUTF8(" ") + _U("Menu"));
-  m_menuButton = btnMenu;
   if (menuIcon.IsOk())
     btnMenu->SetBitmap(menuIcon, wxLEFT);
 #endif

@@ -34,24 +34,30 @@ public:
 // ------------------------------------------------------------------
 class ScopedTransaction {
   EPGDatabase &m_db;
+  bool m_active = false;
   bool m_committed = false;
 
 public:
   explicit ScopedTransaction(EPGDatabase &db) : m_db(db) {
-    m_db.BeginTransaction();
+    m_active = m_db.BeginTransaction();
   }
-  void Commit() {
-    if (!m_committed) {
-      m_db.CommitTransaction();
+
+  bool Commit() {
+    if (!m_active || m_committed)
+      return m_committed;
+    if (m_db.CommitTransaction()) {
       m_committed = true;
+      m_active = false;
+      return true;
     }
+    m_db.RollbackTransaction();
+    m_active = false;
+    return false;
   }
   ~ScopedTransaction() {
-    if (!m_committed)
-      try {
-        m_db.RollbackTransaction();
-      } catch (...) {
-      }
+    if (m_active && !m_committed) {
+      try { m_db.RollbackTransaction(); } catch (...) {}
+    }
   }
   ScopedTransaction(const ScopedTransaction &) = delete;
   ScopedTransaction &operator=(const ScopedTransaction &) = delete;
@@ -71,29 +77,58 @@ bool EPGDatabase::Open(const wxString &dbPath) {
   if (m_isOpen)
     Close();
 
+  // Сброс кэша: БД могла быть заменена (DeleteCache создаёт новый instance,
+  // но Close/Open этой же — тоже требует сброса).
+  m_cachedEpgHash.clear();
+  m_epgHashDirty = true;
+
   try {
     m_db.Open(dbPath);
     m_isOpen = true;
 
-    m_db.ExecuteUpdate("PRAGMA journal_mode = WAL");
     m_db.ExecuteUpdate("PRAGMA synchronous = NORMAL");
     m_db.ExecuteUpdate("PRAGMA foreign_keys = ON");
     m_db.ExecuteUpdate("PRAGMA busy_timeout = 10000");
     m_db.ExecuteUpdate("PRAGMA wal_autocheckpoint = 10000");
-
-    // Безопасная производительность: больше страниц в кэше = меньше
-    // случайных чтений с диска при bulk-insert и обновлении индексов.
-    // Отрицательное значение = КиБ (здесь ~128 МБ).
     m_db.ExecuteUpdate("PRAGMA cache_size = -131072");
-
-    // Memory-mapped I/O (256 МБ). Позволяет SQLite читать страницы
-    // без syscall-ов на больших сканах (SELECT DISTINCT, DELETE по
-    // диапазону). Безопасно на современных ОС; при нехватке адресного
-    // пространства SQLite сам откажется и продолжит обычным путём.
     m_db.ExecuteUpdate("PRAGMA mmap_size = 268435456");
-    // Раз в старте схлопываем WAL: сбрасывает накопленные блокировки,
-    // дальнейшие чтения идут напрямую из БД.
-    m_db.ExecuteUpdate("PRAGMA wal_checkpoint(TRUNCATE)");
+
+    // journal_mode — read/write pragma. Устанавливаем WAL и проверяем,
+    // что удалось: на сетевых ФС SQLite может молча остаться в 'delete',
+    // и тогда конкурентное чтение во время импорта снова блокируется.
+    m_db.ExecuteUpdate("PRAGMA journal_mode = WAL");
+    try {
+      Statement stmt = m_db.PrepareStatement("PRAGMA journal_mode");
+      ResultSet rs = stmt.ExecuteQuery();
+      if (rs.NextRow()) {
+        const std::string mode = wx_to_std(rs.GetString(0));
+        if (mode != "wal") {
+          LOG_WARN("EPGDatabase: journal_mode='%s' (WAL unavailable — "
+                   "concurrent reads during import may block). "
+                   "Common cause: network filesystem or read-only mount.",
+                   mode.c_str());
+        }
+      }
+    } catch (const wxSQLite3::Exception &e) {
+      LOG_WARN("EPGDatabase: journal_mode check failed: %s",
+               e.GetMessage().ToUTF8().data());
+    }
+
+    // Checkpoint: старт с пустого WAL. Не критично: busy = 1/2 → пропускаем.
+    try {
+      Statement stmt = m_db.PrepareStatement("PRAGMA wal_checkpoint(TRUNCATE)");
+      ResultSet rs = stmt.ExecuteQuery();
+      if (rs.NextRow()) {
+        const int result = rs.GetInt(0);
+        if (result != 0) {
+          LOG_DEBUG("EPGDatabase: wal_checkpoint returned %d "
+                    "(0=ok, 1=busy, 2=locked) — not critical", result);
+        }
+      }
+    } catch (const wxSQLite3::Exception &e) {
+      LOG_DEBUG("EPGDatabase: wal_checkpoint failed: %s",
+                e.GetMessage().ToUTF8().data());
+    }
 
     if (!TableExists("channels")) {
       if (!CreateTables()) {
@@ -129,6 +164,8 @@ void EPGDatabase::Close() {
     }
     m_isOpen = false;
   }
+  m_cachedEpgHash.clear();
+  m_epgHashDirty = true;
 }
 
 bool EPGDatabase::IsOpen() const {
@@ -197,31 +234,44 @@ bool EPGDatabase::TableExists(const std::string &tableName) {
 // ------------------------------------------------------------------
 // Транзакции
 // ------------------------------------------------------------------
-void EPGDatabase::BeginTransaction() {
+bool EPGDatabase::BeginTransaction() {
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  if (m_isOpen)
-    try {
-      m_db.ExecuteUpdate("BEGIN TRANSACTION");
-    } catch (...) {
-    }
+  if (!m_isOpen)
+    return false;
+  try {
+    m_db.ExecuteUpdate("BEGIN TRANSACTION");
+    return true;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::BeginTransaction exception: %s",
+              e.GetMessage().ToUTF8().data());
+    return false;
+  }
 }
 
-void EPGDatabase::CommitTransaction() {
+bool EPGDatabase::CommitTransaction() {
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  if (m_isOpen)
-    try {
-      m_db.ExecuteUpdate("COMMIT");
-    } catch (...) {
-    }
+  if (!m_isOpen)
+    return false;
+  try {
+    m_db.ExecuteUpdate("COMMIT");
+    return true;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::CommitTransaction exception: %s",
+              e.GetMessage().ToUTF8().data());
+    return false;
+  }
 }
 
-void EPGDatabase::RollbackTransaction() {
+bool EPGDatabase::RollbackTransaction() {
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  if (m_isOpen)
-    try {
-      m_db.ExecuteUpdate("ROLLBACK");
-    } catch (...) {
-    }
+  if (!m_isOpen)
+    return false;
+  try {
+    m_db.ExecuteUpdate("ROLLBACK");
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 
 // ------------------------------------------------------------------
@@ -240,6 +290,8 @@ bool EPGDatabase::InsertOrUpdateChannel(const EpgChannel &channel) {
     stmt.Bind(1, wxString::FromUTF8(channel.id));
     stmt.Bind(2, wxString::FromUTF8(channel.displayName));
     stmt.ExecuteUpdate();
+
+    m_epgHashDirty = true;
     return true;
   } catch (wxSQLite3::Exception &e) {
     LOG_ERROR("EPGDatabase::InsertOrUpdateChannel exception for '%s': %s",
@@ -255,40 +307,6 @@ bool EPGDatabase::InsertOrUpdateChannel(const EpgChannel &channel) {
   }
 }
 
-bool EPGDatabase::InsertProgram(const std::string &channelId,
-                                const EpgProgram &program) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  if (!m_isOpen)
-    return false;
-
-  try {
-    Statement stmt = m_db.PrepareStatement(
-        "INSERT OR IGNORE INTO programs "
-        "(channel_id, start_time, stop_time, title, description, category) "
-        "VALUES (?, ?, ?, ?, ?, ?)");
-    StatementGuard guard(stmt);
-
-    stmt.Bind(1, wxString::FromUTF8(channelId));
-    stmt.Bind(2, wxLongLong(program.startTime));
-    stmt.Bind(3, wxLongLong(program.stopTime));
-    stmt.Bind(4, wxString::FromUTF8(program.title));
-    stmt.Bind(5, wxString::FromUTF8(program.description));
-    stmt.Bind(6, wxString::FromUTF8(program.category));
-    stmt.ExecuteUpdate();
-    return true;
-  } catch (wxSQLite3::Exception &e) {
-    LOG_ERROR("EPGDatabase::InsertProgram exception for channel '%s': %s",
-              channelId.c_str(), e.GetMessage().ToUTF8().data());
-    return false;
-  } catch (std::exception &e) {
-    LOG_ERROR("EPGDatabase::InsertProgram std::exception: %s", e.what());
-    return false;
-  } catch (...) {
-    LOG_ERROR("EPGDatabase::InsertProgram unknown exception");
-    return false;
-  }
-}
-
 // ВАЖНО: транзакцию открывает вызывающий.
 // вызывающие должны сами обернуть вызов в
 // BeginTransaction()/CommitTransaction().
@@ -297,21 +315,38 @@ bool EPGDatabase::InsertPrograms(const std::string &channelId,
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
   if (!m_isOpen || programs.empty())
     return true;
+
+  size_t idx = 0;
   try {
-    size_t idx = 0;
+    Statement stmt = m_db.PrepareStatement(
+        "INSERT OR IGNORE INTO programs "
+        "(channel_id, start_time, stop_time, title, description, category) "
+        "VALUES (?, ?, ?, ?, ?, ?)");
+    StatementGuard guard(stmt);
+
+    const wxString chIdWx = wxString::FromUTF8(channelId);
     for (const auto &prog : programs) {
-      if (!InsertProgram(channelId, prog)) {
-        LOG_ERROR(
-            "InsertPrograms: failed at index %zu for channel '%s' (time %lld)",
-            idx, channelId.c_str(), static_cast<long long>(prog.startTime));
-        return false;
-      }
+      stmt.Bind(1, chIdWx);
+      stmt.Bind(2, wxLongLong(prog.startTime));
+      stmt.Bind(3, wxLongLong(prog.stopTime));
+      stmt.Bind(4, wxString::FromUTF8(prog.title));
+      stmt.Bind(5, wxString::FromUTF8(prog.description));
+      stmt.Bind(6, wxString::FromUTF8(prog.category));
+      stmt.ExecuteUpdate();
+      stmt.Reset();
       ++idx;
     }
     return true;
   } catch (wxSQLite3::Exception &e) {
-    LOG_ERROR("InsertPrograms exception for channel '%s': %s",
-              channelId.c_str(), e.GetMessage().ToUTF8().data());
+    LOG_ERROR("EPGDatabase::InsertPrograms exception for channel '%s' "
+              "(index %zu): %s",
+              channelId.c_str(), idx, e.GetMessage().ToUTF8().data());
+    return false;
+  } catch (std::exception &e) {
+    LOG_ERROR("EPGDatabase::InsertPrograms std::exception: %s", e.what());
+    return false;
+  } catch (...) {
+    LOG_ERROR("EPGDatabase::InsertPrograms unknown exception");
     return false;
   }
 }
@@ -648,7 +683,11 @@ bool EPGDatabase::SavePlaylistMapping(
       return false;
     }
 
-    tx.Commit();
+    if (!tx.Commit()) {
+      LOG_ERROR("SavePlaylistMapping: commit failed for '%s'",
+                playlistId.c_str());
+      return false;
+    }
     LOG_DEBUG(
         "EPGDatabase: Saved playlist mapping for '%s' (%zu auto, %zu manual)",
         playlistId.c_str(), mapping.size(), manualMapping.size());
@@ -776,7 +815,11 @@ bool EPGDatabase::DeletePlaylistMapping(const std::string &playlistId) {
     stmt.Bind(1, wxString::FromUTF8(playlistId));
     stmt.ExecuteUpdate();
     DeletePlaylistMetadata(playlistId);
-    tx.Commit();
+    if (!tx.Commit()) {
+      LOG_ERROR("DeletePlaylistMapping: commit failed for '%s'",
+                playlistId.c_str());
+      return false;
+    }
     LOG_DEBUG("EPGDatabase: Deleted playlist mapping for '%s'",
               playlistId.c_str());
     return true;
@@ -795,23 +838,34 @@ std::string EPGDatabase::GetEpgChannelsHash() {
   if (!m_isOpen)
     return "";
 
+  if (!m_epgHashDirty)
+    return m_cachedEpgHash;
+
   try {
-    Statement stmt = m_db.PrepareStatement(
-        "SELECT DISTINCT channel_id FROM programs ORDER BY channel_id");
+    Statement stmt =
+        m_db.PrepareStatement("SELECT id FROM channels ORDER BY id");
     StatementGuard guard(stmt);
     ResultSet rs = stmt.ExecuteQuery();
+
     std::string concatenated;
     while (rs.NextRow()) {
       concatenated += wx_to_std(rs.GetString(0));
       concatenated += "|";
     }
-    if (concatenated.empty())
-      return "";
-    concatenated.pop_back();
-    return stable_hash(concatenated);
+    if (!concatenated.empty()) {
+      concatenated.pop_back();
+      m_cachedEpgHash = stable_hash(concatenated);
+    } else {
+      m_cachedEpgHash.clear();
+    }
+    m_epgHashDirty = false;
+    return m_cachedEpgHash;
   } catch (wxSQLite3::Exception &e) {
     LOG_ERROR("EPGDatabase::GetEpgChannelsHash exception: %s",
               e.GetMessage().ToUTF8().data());
+    return "";
+  } catch (...) {
+    LOG_ERROR("EPGDatabase::GetEpgChannelsHash unknown exception");
     return "";
   }
 }
@@ -900,30 +954,6 @@ bool EPGDatabase::SetIgnored(const std::string &playlistId,
     return rows > 0;
   } catch (wxSQLite3::Exception &e) {
     LOG_ERROR("EPGDatabase::SetIgnored exception: %s",
-              e.GetMessage().ToUTF8().data());
-    return false;
-  }
-}
-
-bool EPGDatabase::IsIgnored(const std::string &playlistId,
-                            const std::string &key) {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  if (!m_isOpen)
-    return false;
-  try {
-    Statement stmt =
-        m_db.PrepareStatement("SELECT ignored FROM playlist_mappings WHERE "
-                              "playlist_id = ? AND key = ?");
-    StatementGuard guard(stmt);
-    stmt.Bind(1, wxString::FromUTF8(playlistId));
-    stmt.Bind(2, wxString::FromUTF8(key));
-    ResultSet rs = stmt.ExecuteQuery();
-    if (rs.NextRow()) {
-      return rs.GetInt(0) != 0;
-    }
-    return false;
-  } catch (wxSQLite3::Exception &e) {
-    LOG_ERROR("EPGDatabase::IsIgnored exception: %s",
               e.GetMessage().ToUTF8().data());
     return false;
   }

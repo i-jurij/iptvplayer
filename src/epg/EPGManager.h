@@ -116,14 +116,12 @@ public:
                         const std::string &epgId,
                         const std::string &channelName = "");
   void RemoveChannelMapping(const std::string &playlistId, const Channel &ch);
-  std::string GetEpgChannelIdForTvgId(const std::string &tvgId) const;
 
   bool LoadMappingForPlaylist(const std::string &playlistId,
                               const std::vector<Channel> &channels);
   void InvalidatePlaylistMapping(const std::string &playlistId);
 
   bool IsLoaded() const { return m_loaded; }
-  time_t GetLastUpdate() const { return m_lastUpdate; }
 
   // Глобальный оверрайд: true — обновлять все источники (игнорируя per-source
   // флаг autoUpdate); false — только источники с autoUpdate == true.
@@ -140,7 +138,6 @@ public:
 
   void AbortDownload();
   bool HasMapping() const;
-  const DownloadProgress &GetDownloadProgress() const;
   void StartAutoUpdate();
   void StopAutoUpdate();
   void RestartAutoUpdate();
@@ -171,8 +168,6 @@ public:
   // ---- Для ручного маппинга (будет использовано позже) ----
   std::vector<std::pair<std::string, std::string>> GetAllEpgChannels() const;
 
-  void RemoveManualMapping(const std::string &playlistId,
-                           const std::string &tvgId);
   std::string GetEpgName(const std::string &epgId) const;
   bool GetMappingEntry(const std::string &playlistId, const std::string &key,
                        std::string &channelId, bool &isManual);
@@ -222,7 +217,6 @@ public:
   void IgnoreAutoMapping(const std::string &playlistId, const std::string &key);
   void UnignoreAutoMapping(const std::string &playlistId,
                            const std::string &key);
-  bool IsIgnored(const std::string &playlistId, const std::string &key) const;
 
   std::string NormalizeName(const std::string &name) const;
 
@@ -256,8 +250,6 @@ private:
   void SaveFavoritesEpgHashToDB(const std::string &hash);
   bool IsFavoritesEpgHashChanged() const;
 
-  void AddAutoMapping(const std::string &playlistId, const std::string &key,
-                      const std::string &epgId);
   // Пишет auto-mapping в favorites-карты (не в общие) + БД.
   void AddFavoritesAutoMapping(const std::string &playlistId,
                                const std::string &key,
@@ -314,13 +306,6 @@ private:
 
   void LoadMatchSettings(); // загружает пороги из ConfigManager
 
-  // Вспомогательная структура для хранения кандидата
-  struct Candidate {
-    std::string epgId;
-    int score = 0;
-    std::string method;
-  };
-
   // Прямой индекс EPG-id → EPG-id. Точное совпадение строк, без нормализации.
   // Работает, когда playlist.tvg-id совпадает с XMLTV <channel id> —
   // т.е. источники согласованы.
@@ -370,7 +355,6 @@ private:
   // MatchFavoritesAsync. Без atomic — data race + возможный «залипший»
   // регистр у читателя.
   std::atomic<bool> m_loaded{false};
-  std::atomic<time_t> m_lastUpdate{0};
 
   // true — глобальный оверрайд «обновлять все источники» (default ON).
   // false — обновляются только источники с EpgSource::autoUpdate == true.
@@ -409,6 +393,7 @@ private:
 
   std::unordered_map<std::string, std::string>
       m_aliasIndex; // очищенное имя EPG → epgId
+  mutable std::shared_mutex m_aliasIndexMutex;
   void RebuildAliasIndex();
 
   mutable std::mutex m_normalizedCacheMutex;

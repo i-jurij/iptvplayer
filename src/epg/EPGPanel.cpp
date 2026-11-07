@@ -27,7 +27,7 @@
 EPGPanel::EPGPanel(wxWindow *parent, MainFrame *mainFrame)
     : wxPanel(parent, wxID_ANY), m_mainFrame(mainFrame),
       m_currentDate(EpgTime::GetStartOfDay(EpgTime::GetCurrentUtcEpoch())),
-      m_epgManager(nullptr), m_isActive(false), m_hasError(false) {
+      m_epgManager(nullptr), m_isActive(false) {
   Application *app = static_cast<Application *>(wxTheApp);
   if (app) {
     m_epgManager = app->GetEPGManager();
@@ -203,16 +203,6 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   m_detailTitle->SetLabel("");
   m_detailDesc->SetValue("");
 
-  // Если есть ошибка — показать сообщение
-  if (m_hasError && !m_lastError.IsEmpty()) {
-    m_programGrid->AppendRows(1);
-    m_programGrid->SetCellValue(0, 0, "");
-    m_programGrid->SetCellValue(0, 1, wxString::FromUTF8("⚠ ") + m_lastError);
-    m_programGrid->SetCellValue(0, 2, "");
-    AdjustProgramColumns();
-    return;
-  }
-
   if (!m_epgManager) {
     LOG_ERROR("EPGPanel: EPGManager is null");
     m_programGrid->AppendRows(1);
@@ -381,10 +371,6 @@ void EPGPanel::AdjustProgramColumns() {
 void EPGPanel::OnProgramListResize(wxSizeEvent &event) {
   AdjustProgramColumns();
   event.Skip();
-}
-
-void EPGPanel::ShowMessage(const wxString &msg) {
-  wxMessageBox(msg, _U("Info"), wxOK | wxICON_INFORMATION, this);
 }
 
 void EPGPanel::OnManualMapping(wxCommandEvent &) {

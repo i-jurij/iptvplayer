@@ -13,8 +13,13 @@
 #endif
 #endif
 
-bool EPGParserExpat::Parse(const std::string &xmlData) {
-  // FIX: явно указываем кодировку UTF-8
+bool EPGParserExpat::Parse(const std::string &xmlData,
+                           const std::atomic<bool> *abortFlag) {
+  if (xmlData.empty()) {
+    LOG_ERROR("EPGParserExpat: empty input");
+    return false;
+  }
+
   XML_Parser parser = XML_ParserCreate("UTF-8");
   if (!parser) {
     LOG_ERROR("EPGParserExpat: Failed to create XML parser");
@@ -32,30 +37,54 @@ bool EPGParserExpat::Parse(const std::string &xmlData) {
   m_currentText.clear();
   m_state = STATE_NONE;
 
+  constexpr size_t kChunk = 64 * 1024;
   bool success = true;
-  if (XML_Parse(parser, xmlData.c_str(), static_cast<int>(xmlData.size()),
-                XML_TRUE) == XML_STATUS_ERROR) {
+  bool aborted = false;
+
+  for (size_t offset = 0; offset < xmlData.size();) {
+    if (abortFlag && abortFlag->load()) {
+      aborted = true;
+      success = false;
+      break;
+    }
+    const size_t len = std::min(kChunk, xmlData.size() - offset);
+    const bool isFinal = (offset + len >= xmlData.size());
+    if (XML_Parse(parser, xmlData.data() + offset,
+                  static_cast<int>(len),
+                  isFinal ? XML_TRUE : XML_FALSE) == XML_STATUS_ERROR) {
 #if defined(XML_MAJOR_VERSION) &&                                              \
     (XML_MAJOR_VERSION > 2 ||                                                  \
      (XML_MAJOR_VERSION == 2 && XML_MINOR_VERSION >= 9))
-    LOG_ERROR(
-        "EPGParserExpat: XML parse error at line %llu, column %llu: %s",
-        static_cast<unsigned long long>(XML_GetCurrentLineNumber64(parser)),
-        static_cast<unsigned long long>(XML_GetCurrentColumnNumber64(parser)),
-        XML_ErrorString(XML_GetErrorCode(parser)));
+      LOG_ERROR(
+          "EPGParserExpat: XML parse error at line %llu, column %llu: %s",
+          static_cast<unsigned long long>(XML_GetCurrentLineNumber64(parser)),
+          static_cast<unsigned long long>(XML_GetCurrentColumnNumber64(parser)),
+          XML_ErrorString(XML_GetErrorCode(parser)));
 #else
-    // Для более старых версий Expat оставляем 32-битные
-    LOG_ERROR("EPGParserExpat: XML parse error at line %lu, column %lu: %s",
-              static_cast<unsigned long>(XML_GetCurrentLineNumber(parser)),
-              static_cast<unsigned long>(XML_GetCurrentColumnNumber(parser)),
-              XML_ErrorString(XML_GetErrorCode(parser)));
+      LOG_ERROR("EPGParserExpat: XML parse error at line %lu, column %lu: %s",
+                static_cast<unsigned long>(XML_GetCurrentLineNumber(parser)),
+                static_cast<unsigned long>(XML_GetCurrentColumnNumber(parser)),
+                XML_ErrorString(XML_GetErrorCode(parser)));
 #endif
-    success = false;
+      success = false;
+      break;
+    }
+    offset += len;
   }
 
   XML_ParserFree(parser);
 
-  // Прикрепляем программы к каналам (из unordered_map в вектор) и сортируем
+  if (aborted) {
+    LOG_WARN("EPGParserExpat: parse aborted by user request");
+    m_channels.clear();
+    m_programmesMap.clear();
+    m_currentChannel = EpgChannel();
+    m_currentProgram = EpgProgram();
+    m_currentText.clear();
+    m_state = STATE_NONE;
+    return false;
+  }
+
   for (auto &ch : m_channels) {
     auto it = m_programmesMap.find(ch.id);
     if (it != m_programmesMap.end()) {

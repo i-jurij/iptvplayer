@@ -95,16 +95,6 @@ void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
   dlg.ShowModal();
 }
 
-void MainFrame::onToggleFavoritesView(wxCommandEvent &) {
-  if (m_favViewToggle->GetValue()) {
-    m_favViewBook->ChangeSelection(1); // Grid
-    m_favViewToggle->SetLabel(_U("List View"));
-  } else {
-    m_favViewBook->ChangeSelection(0); // List
-    m_favViewToggle->SetLabel(_U("Grid View"));
-  }
-}
-
 void MainFrame::OnEpgProgress(const EpgProgressInfo &info) {
   bool isActive = (info.stage != EpgProgressStage::None &&
                    info.stage != EpgProgressStage::Done &&

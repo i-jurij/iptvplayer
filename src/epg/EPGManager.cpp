@@ -132,8 +132,15 @@ static bool IsValidXmltv(const std::string &data) {
          lower.find("<tv") != std::string::npos;
 }
 
-static bool DecompressIfNeeded(std::string &data) {
-  // GZIP
+static bool DecompressIfNeeded(std::string &data,
+                               const std::atomic<bool> *abortFlag,
+                               bool &outCancelled) {
+  outCancelled = false;
+  auto isAborted = [abortFlag]() {
+    return abortFlag && abortFlag->load();
+  };
+
+  // ---------- GZIP ----------
   if (data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1F &&
       static_cast<unsigned char>(data[1]) == 0x8B) {
     std::vector<unsigned char> inbuf(data.begin(), data.end());
@@ -150,6 +157,12 @@ static bool DecompressIfNeeded(std::string &data) {
     char buf[16384];
     int ret;
     do {
+      if (isAborted()) {
+        inflateEnd(&zs);
+        outCancelled = true;
+        LOG_DEBUG("DecompressIfNeeded: GZIP decompression cancelled");
+        return false;
+      }
       zs.next_out = reinterpret_cast<Bytef *>(buf);
       zs.avail_out = sizeof(buf);
       ret = inflate(&zs, Z_NO_FLUSH);
@@ -159,13 +172,15 @@ static bool DecompressIfNeeded(std::string &data) {
         return false;
       }
       out.append(buf, sizeof(buf) - zs.avail_out);
+
+      if (out.size() > 1024 * 1024 * 1024) {
+        inflateEnd(&zs);
+        LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
+        return false;
+      }
     } while (ret != Z_STREAM_END);
     inflateEnd(&zs);
 
-    if (out.size() > 1024 * 1024 * 1024) {
-      LOG_ERROR("DecompressIfNeeded: decompressed data exceeds 1 GB");
-      return false;
-    }
     if (out.empty()) {
       LOG_ERROR("DecompressIfNeeded: decompressed GZIP data is empty");
       return false;
@@ -178,11 +193,35 @@ static bool DecompressIfNeeded(std::string &data) {
     return true;
   }
 
-  // ZIP
+  // ---------- ZIP ----------
   if (data.size() >= 4 && static_cast<unsigned char>(data[0]) == 0x50 &&
       static_cast<unsigned char>(data[1]) == 0x4B &&
       static_cast<unsigned char>(data[2]) == 0x03 &&
       static_cast<unsigned char>(data[3]) == 0x04) {
+
+    auto readEntryChunked = [isAborted, &outCancelled](
+                                wxZipInputStream &zipIn,
+                                std::string &out) -> bool {
+      char buf[16384];
+      out.clear();
+      while (true) {
+        if (isAborted()) {
+          outCancelled = true;
+          return false;
+        }
+        zipIn.Read(buf, sizeof(buf));
+        const size_t n = zipIn.LastRead();
+        if (n == 0)
+          break;
+        out.append(buf, n);
+        if (out.size() > 1024 * 1024 * 1024) {
+          LOG_ERROR("DecompressIfNeeded: ZIP entry exceeds 1 GB");
+          return false;
+        }
+      }
+      return zipIn.GetLastError() == wxSTREAM_NO_ERROR || zipIn.Eof();
+    };
+
     wxMemoryInputStream memIn(data.data(), data.size());
     wxZipInputStream zipIn(memIn);
     if (!zipIn.IsOk()) {
@@ -195,23 +234,14 @@ static bool DecompressIfNeeded(std::string &data) {
     std::unique_ptr<wxZipEntry> entry(zipIn.GetNextEntry());
     while (entry) {
       if (!entry->IsDir()) {
-        wxString name = entry->GetName();
-        bool isXml = name.EndsWith(".xml") || name.EndsWith(".XML") ||
-                     name.EndsWith(".xml.gz") || name.EndsWith(".XML.GZ");
+        const wxString name = entry->GetName();
+        const bool isXml = name.EndsWith(".xml") || name.EndsWith(".XML") ||
+                           name.EndsWith(".xml.gz") || name.EndsWith(".XML.GZ");
         if (isXml) {
-          wxMemoryOutputStream memOut;
-          zipIn.Read(memOut);
-          if (zipIn.GetLastError() != wxSTREAM_NO_ERROR) {
-            LOG_ERROR("DecompressIfNeeded: error reading ZIP entry");
+          if (!readEntryChunked(zipIn, extracted))
             return false;
-          }
-          wxStreamBuffer *buf = memOut.GetOutputStreamBuffer();
-          if (buf) {
-            extracted.assign(static_cast<const char *>(buf->GetBufferStart()),
-                             buf->GetBufferSize());
-            foundXml = true;
-            break;
-          }
+          foundXml = true;
+          break;
         }
       }
       entry.reset(zipIn.GetNextEntry());
@@ -224,19 +254,13 @@ static bool DecompressIfNeeded(std::string &data) {
         std::unique_ptr<wxZipEntry> entry2(zipIn2.GetNextEntry());
         while (entry2) {
           if (!entry2->IsDir()) {
-            wxMemoryOutputStream memOut2;
-            zipIn2.Read(memOut2);
-            if (zipIn2.GetLastError() == wxSTREAM_NO_ERROR) {
-              wxStreamBuffer *buf2 = memOut2.GetOutputStreamBuffer();
-              if (buf2) {
-                extracted.assign(
-                    static_cast<const char *>(buf2->GetBufferStart()),
-                    buf2->GetBufferSize());
-                if (IsValidXmltv(extracted)) {
-                  foundXml = true;
-                  break;
-                }
-              }
+            std::string tmp;
+            if (!readEntryChunked(zipIn2, tmp))
+              return false;
+            if (IsValidXmltv(tmp)) {
+              extracted = std::move(tmp);
+              foundXml = true;
+              break;
             }
           }
           entry2.reset(zipIn2.GetNextEntry());
@@ -252,14 +276,11 @@ static bool DecompressIfNeeded(std::string &data) {
       LOG_ERROR("DecompressIfNeeded: ZIP archive contains no data");
       return false;
     }
-    if (extracted.size() > 1024 * 1024 * 1024) {
-      LOG_ERROR("DecompressIfNeeded: decompressed ZIP data exceeds 1 GB");
-      return false;
-    }
     data.swap(extracted);
     return true;
   }
 
+  // ---------- plain XML ----------
   if (!IsValidXmltv(data)) {
     LOG_ERROR("DecompressIfNeeded: data is not valid XMLTV (no <?xml or <tv)");
     return false;
@@ -771,12 +792,12 @@ bool EPGManager::OpenDatabase() {
     LOG_DEBUG("EPGManager: Database opened with %zu channels", channels.size());
   }
 
-  // Загружаем last_update
+  // last_update хранится в БД; для диагностики логируем при старте.
   std::string lastUpdateStr = m_db->LoadGlobalMetadata("last_update");
   if (!lastUpdateStr.empty()) {
-    m_lastUpdate = static_cast<time_t>(std::stoll(lastUpdateStr));
+    LOG_DEBUG("EPGManager: last_update in DB = %s", lastUpdateStr.c_str());
   } else {
-    m_lastUpdate = 0;
+    LOG_DEBUG("EPGManager: no last_update in DB");
   }
 
   // Очистка старых программ
@@ -865,7 +886,14 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     return false;
   }
 
-  if (!DecompressIfNeeded(xmlData)) {
+  bool decompressCancelled = false;
+  if (!DecompressIfNeeded(xmlData, &m_downloadProgress.abort,
+                          decompressCancelled)) {
+    if (decompressCancelled) {
+      setLastError("Cancelled during decompression");
+      LOG_DEBUG("EPGManager: decompression cancelled for %s", url.c_str());
+      return false;
+    }
     setLastError("Failed to decompress data from " + url);
     LOG_ERROR("EPGManager: Failed to decompress data from %s", url.c_str());
     return false;
@@ -881,7 +909,10 @@ bool EPGManager::LoadFromUrl(const std::string &url,
 }
 
 bool EPGManager::LoadFromFile(const std::string &filePath) {
-  // Уведомление о начале
+  // Сброс abort, унаследованного от предыдущей URL-загрузки (URL-путь
+  // сбрасывает его в StartProgressTimer, file-путь — здесь).
+  m_downloadProgress.abort = false;
+
   UpdateProgress({EpgProgressStage::Extracting, -1,
                   _U("Extracting").ToStdString()});
 
@@ -889,17 +920,39 @@ bool EPGManager::LoadFromFile(const std::string &filePath) {
   if (!file.is_open()) {
     setLastError("Cannot open file: " + filePath);
     LOG_ERROR("EPGManager: Cannot open file: %s", filePath.c_str());
-    
     return false;
   }
-  std::string content((std::istreambuf_iterator<char>(file)),
-                      std::istreambuf_iterator<char>());
+
+  // Чанковое чтение: abort проверяется между чанками.
+  std::string content;
+  constexpr size_t kChunk = 64 * 1024;
+  char buf[kChunk];
+  while (file.good()) {
+    if (m_downloadProgress.abort.load()) {
+      setLastError("Cancelled while reading file");
+      return false;
+    }
+    file.read(buf, sizeof(buf));
+    const std::streamsize n = file.gcount();
+    if (n > 0)
+      content.append(buf, static_cast<size_t>(n));
+    if (content.size() > 500 * 1024 * 1024) {
+      setLastError("File too large (max 500 MB): " + filePath);
+      LOG_ERROR("EPGManager: file exceeds 500 MB: %s", filePath.c_str());
+      return false;
+    }
+  }
   file.close();
 
-  if (!DecompressIfNeeded(content)) {
+  bool decompressCancelled = false;
+  if (!DecompressIfNeeded(content, &m_downloadProgress.abort,
+                          decompressCancelled)) {
+    if (decompressCancelled) {
+      setLastError("Cancelled during decompression");
+      return false;
+    }
     setLastError("Failed to decompress file: " + filePath);
     LOG_ERROR("EPGManager: Failed to decompress file: %s", filePath.c_str());
-
     return false;
   }
 
@@ -1102,18 +1155,26 @@ void EPGManager::AbortDownload() {
 // --------------------------------------------------------------------------
 bool EPGManager::ParseAndMerge(const std::string &xmlData,
                                const std::string &sourceUrl) {
-  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-  if (!m_db || !m_db->IsOpen()) {
-    setLastError("Database not open");
-    return false;
+  // Проверка состояния БД — короткий lock.
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (!m_db || !m_db->IsOpen()) {
+      setLastError("Database not open");
+      return false;
+    }
   }
 
-  // Начало парсинга
   UpdateProgress({EpgProgressStage::Parsing, -1,
                   _U("Parsing").ToStdString()});
 
+  // Парсинг вне lock (abort проверяется чанками в EPGParserExpat::Parse).
   EPGParserExpat parser;
-  if (!parser.Parse(xmlData)) {
+  if (!parser.Parse(xmlData, &m_downloadProgress.abort)) {
+    if (m_downloadProgress.abort.load()) {
+      setLastError("Cancelled during XML parse");
+      LOG_WARN("EPGManager: XML parse cancelled for %s", sourceUrl.c_str());
+      return false;
+    }
     setLastError("Failed to parse XML from " + sourceUrl);
     LOG_ERROR("EPGManager: Failed to parse XML from %s", sourceUrl.c_str());
     return false;
@@ -1127,70 +1188,131 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     return false;
   }
 
-  bool success = true;
-  m_db->BeginTransaction();
+  // Батч-импорт: лимит по программам (~300 мс на батч).
+  constexpr size_t kMaxProgramsPerBatch = 30000;
+  const size_t total = newChannels.size();
+  size_t committedChannels = 0;
+  bool anyBatchCommitted = false;
+  bool cancelled = false;
+  bool fatalError = false;
 
-  size_t total = newChannels.size();
-  size_t processed = 0;
-  for (const auto &ch : newChannels) {
-    if (!m_db->InsertOrUpdateChannel(ch)) {
-      LOG_ERROR("Failed to insert channel %s", ch.id.c_str());
-      success = false;
+  for (size_t start = 0; start < total;) {
+    if (m_downloadProgress.abort.load()) {
+      cancelled = true;
       break;
     }
-    if (!m_db->InsertPrograms(ch.id, ch.programs)) {
-      LOG_ERROR("Failed to insert programs for channel %s", ch.id.c_str());
-      success = false;
-      break;
-    }
-    ++processed;
 
-    // Обновляем прогресс каждые 10 каналов или после последнего
-    if (processed % 10 == 0 || processed == total) {
-      int percent = static_cast<int>((processed * 100) / total);
-      UpdateProgress({EpgProgressStage::Saving, percent,
-                      _U("Saving to database").ToStdString()});
+    size_t end = start;
+    size_t progs = 0;
+    while (end < total && progs < kMaxProgramsPerBatch) {
+      progs += newChannels[end].programs.size();
+      ++end;
     }
-  }
+    if (end == start)
+      end = start + 1;
 
-  if (success) {
-    // Сохраняем last_update (в той же транзакции)
-    m_lastUpdate = EpgTime::GetCurrentUtcEpoch();
-    bool saved = false;
-    for (int attempt = 0; attempt < 2; ++attempt) {
-      if (m_db->SaveGlobalMetadata("last_update",
-                                   std::to_string(m_lastUpdate))) {
-        saved = true;
+    bool batchOk = true;
+    {
+      std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+      if (!m_db || !m_db->IsOpen()) {
+        setLastError("Database closed during import");
+        fatalError = true;
         break;
       }
-      LOG_WARN("Failed to save last_update, attempt %d/2", attempt + 1);
-      if (attempt == 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      if (!m_db->BeginTransaction()) {
+        LOG_ERROR("BeginTransaction failed for batch [%zu..%zu)", start, end);
+        batchOk = false;
+      } else {
+        for (size_t i = start; i < end; ++i) {
+          const auto &ch = newChannels[i];
+          if (!m_db->InsertOrUpdateChannel(ch) ||
+              !m_db->InsertPrograms(ch.id, ch.programs)) {
+            LOG_ERROR("Failed to insert channel %s (batch [%zu..%zu))",
+                      ch.id.c_str(), start, end);
+            batchOk = false;
+            break;
+          }
+        }
+        if (batchOk) {
+          if (!m_db->CommitTransaction()) {
+            LOG_ERROR("CommitTransaction failed for batch [%zu..%zu)", start,
+                      end);
+            m_db->RollbackTransaction();
+            batchOk = false;
+          } else {
+            anyBatchCommitted = true;
+            committedChannels = end;
+          }
+        } else {
+          m_db->RollbackTransaction();
+        }
       }
-    }
-    if (!saved) {
-      LOG_ERROR("Failed to save last_update after 2 attempts");
-    }
+    }  // lock отпущен
 
-    m_db->CommitTransaction();
-    SetEpgChannelsHash(m_db->GetEpgChannelsHash());
-    m_loaded = true;
-    CleanExpiredPrograms();
-    UpdateEpgNameCache();
-    LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu channels",
-              sourceUrl.c_str(), newChannels.size());
+    if (!batchOk)
+      break;
 
-    // Завершение
-    UpdateProgress(
-        {EpgProgressStage::Saving, 100,
-         _U("Saving complete, waiting for matching...").ToStdString()});
-  } else {
-    m_db->RollbackTransaction();
-    setLastError("Failed to insert data into database");
-    // Можно добавить Error, но оставим как есть
-    return false;
+    const int percent =
+        static_cast<int>((committedChannels * 100) / total);
+    UpdateProgress({EpgProgressStage::Saving, percent,
+                    _U("Saving to database").ToStdString()});
+
+    start = end;
   }
 
+  if (cancelled) {
+    setLastError("Cancelled during import");
+    LOG_WARN("EPGManager: import cancelled, %zu/%zu channels committed",
+             committedChannels, total);
+    return false;
+  }
+  if (fatalError || !anyBatchCommitted) {
+    if (getLastError().empty())
+      setLastError("Failed to insert data into database");
+    return false;
+  }
+  if (committedChannels < total) {
+    LOG_WARN("EPGManager: partial import from %s (%zu/%zu channels)",
+             sourceUrl.c_str(), committedChannels, total);
+  }
+
+  const time_t newLastUpdate = EpgTime::GetCurrentUtcEpoch();
+
+  std::string newHash;
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (m_db && m_db->IsOpen()) {
+      bool saved = false;
+      for (int attempt = 0; attempt < 2; ++attempt) {
+        if (m_db->SaveGlobalMetadata("last_update",
+                                      std::to_string(newLastUpdate))) {
+          saved = true;
+          break;
+        }
+        LOG_WARN("Failed to save last_update, attempt %d/2", attempt + 1);
+        if (attempt == 0) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+      }
+      if (!saved)
+        LOG_ERROR("Failed to save last_update after 2 attempts");
+
+      newHash = m_db->GetEpgChannelsHash();
+    }
+  }
+  SetEpgChannelsHash(newHash);
+
+  CleanExpiredPrograms();
+  UpdateEpgNameCache();
+
+  m_loaded = true;
+
+  LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu/%zu channels",
+            sourceUrl.c_str(), committedChannels, total);
+
+  UpdateProgress(
+      {EpgProgressStage::Saving, 100,
+       _U("Saving complete, waiting for matching...").ToStdString()});
   return true;
 }
 
@@ -1301,22 +1423,28 @@ std::string EPGManager::NormalizeName(const std::string &name) const {
 // Сопоставление (Match)
 // --------------------------------------------------------------------------
 void EPGManager::RebuildAliasIndex() {
-  m_aliasIndex.clear();
-  std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
-  for (const auto &epg : m_normalizedCache) {
-    std::string key = NormalizeAliasKey(epg.displayName);
-    if (!key.empty()) {
-      m_aliasIndex[key] = epg.id;
+  std::unordered_map<std::string, std::string> newIndex;
+  {
+    std::lock_guard<std::mutex> cacheLock(m_normalizedCacheMutex);
+    for (const auto &epg : m_normalizedCache) {
+      std::string key = NormalizeAliasKey(epg.displayName);
+      if (!key.empty())
+        newIndex[key] = epg.id;
     }
   }
+  std::unique_lock lock(m_aliasIndexMutex);
+  m_aliasIndex.swap(newIndex);
 }
 
 void EPGManager::RebuildNormalizedCache() {
-  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-  if (!m_db || !m_db->IsOpen())
-    return;
+  std::vector<std::pair<std::string, std::string>> channels;
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (!m_db || !m_db->IsOpen())
+      return;
+    channels = m_db->GetAllChannels();
+  }
 
-  auto channels = m_db->GetAllChannels();
   std::vector<NormalizedChannel> newCache;
   newCache.reserve(channels.size());
 
@@ -1968,13 +2096,13 @@ std::string EPGManager::GetEpgChannelsHash() const {
 
 // Обновляет кэш имён EPG-каналов из БД
 void EPGManager::UpdateEpgNameCache() {
-  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-  if (!m_db || !m_db->IsOpen())
-    return;
-
-  // Сначала забираем каналы из БД (долгая операция), потом под коротким
-  // lock заполняем кэш. Mutex держим минимальное время.
-  auto channels = m_db->GetAllChannels();
+  std::vector<std::pair<std::string, std::string>> channels;
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (!m_db || !m_db->IsOpen())
+      return;
+    channels = m_db->GetAllChannels();
+  }
 
   std::lock_guard<std::mutex> lock(m_epgNameCacheMutex);
   m_epgNameCache.clear();
@@ -1983,44 +2111,6 @@ void EPGManager::UpdateEpgNameCache() {
   }
   LOG_DEBUG("EPGManager: Updated EPG name cache with %zu channels",
             m_epgNameCache.size());
-}
-
-void EPGManager::RemoveManualMapping(const std::string &playlistId,
-                                     const std::string &tvgId) {
-  if (playlistId.empty() || tvgId.empty()) {
-    LOG_WARN("EPGManager::RemoveManualMapping: empty playlistId or tvgId");
-    return;
-  }
-
-  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-  if (!m_db || !m_db->IsOpen()) {
-    LOG_ERROR("EPGManager::RemoveManualMapping: database not open");
-    return;
-  }
-
-  // Проверяем, существует ли ручной маппинг для этого плейлиста и tvg-id
-  std::string existingEpgId;
-  bool isManual = false;
-  if (!m_db->GetMappingEntry(playlistId, tvgId, existingEpgId, isManual) ||
-      !isManual) {
-    LOG_DEBUG("EPGManager::RemoveManualMapping: no manual mapping found for "
-              "playlist '%s', tvgId '%s'",
-              playlistId.c_str(), tvgId.c_str());
-    return;
-  }
-
-  // Удаляем из БД
-  if (m_db->DeleteManualMapping(playlistId, tvgId)) {
-    // Удаляем из локального кэша ручных маппингов (ключ — только tvgId, т.к. он
-    // уникален в рамках плейлиста)
-    std::unique_lock lock(m_mappingMutex);
-    m_manualMapping.erase(tvgId);
-    LOG_DEBUG(
-        "EPGManager: Removed manual mapping for playlist '%s', tvgId '%s'",
-        playlistId.c_str(), tvgId.c_str());
-  } else {
-    LOG_ERROR("EPGManager::RemoveManualMapping: failed to delete from DB");
-  }
 }
 
 // --------------------------------------------------------------------------
@@ -2173,24 +2263,6 @@ void EPGManager::RemoveChannelMapping(const std::string &playlistId,
   LOG_DEBUG("EPGManager::RemoveChannelMapping: removed mappings for channel "
             "'%s' in playlist '%s'",
             ch.getName().c_str(), playlistId.c_str());
-}
-
-std::string
-EPGManager::GetEpgChannelIdForTvgId(const std::string &tvgId) const {
-  std::shared_lock lock(m_mappingMutex);
-  auto it = m_manualMapping.find(tvgId);
-  if (it != m_manualMapping.end())
-    return it->second;
-  it = m_favoritesManualMapping.find(tvgId);
-  if (it != m_favoritesManualMapping.end())
-    return it->second;
-  it = m_channelMapping.find(tvgId);
-  if (it != m_channelMapping.end())
-    return it->second;
-  it = m_favoritesMapping.find(tvgId);
-  if (it != m_favoritesMapping.end())
-    return it->second;
-  return "";
 }
 
 // --------------------------------------------------------------------------
@@ -2598,7 +2670,6 @@ bool EPGManager::DeleteCache() {
   // Восстанавливаем состояние
   SetEpgChannelsHash(m_db->GetEpgChannelsHash());
   m_loaded = false;
-  m_lastUpdate = 0;
   UpdateEpgNameCache();
 
   LOG_DEBUG("EPGManager: Cache deleted and new database created");
@@ -2664,10 +2735,6 @@ bool EPGManager::HasMapping() const {
   std::shared_lock lock(m_mappingMutex);
   return !m_channelMapping.empty() || !m_manualMapping.empty() ||
          !m_favoritesMapping.empty() || !m_favoritesManualMapping.empty();
-}
-
-const DownloadProgress &EPGManager::GetDownloadProgress() const {
-  return m_downloadProgress;
 }
 
 // --------------------------------------------------------------------------
@@ -2758,17 +2825,6 @@ void EPGManager::UnignoreAutoMapping(const std::string &playlistId,
     LOG_DEBUG("EPGManager: Auto mapping unignored for playlist '%s', key '%s'",
               playlistId.c_str(), key.c_str());
   }
-}
-
-bool EPGManager::IsIgnored(const std::string &playlistId,
-                           const std::string &key) const {
-  if (playlistId.empty() || key.empty())
-    return false;
-  std::lock_guard<std::recursive_mutex> dbLock(
-      m_dbMutex); // m_dbMutex уже mutable
-  if (!m_db || !m_db->IsOpen())
-    return false;
-  return m_db->IsIgnored(playlistId, key);
 }
 
 std::string EPGManager::ToLower(const std::string &str) {
@@ -2933,6 +2989,7 @@ EPGManager::MatchByAlias(const std::string &playlistName) const {
   std::string targetName = aliasIt->second;
   std::string normTarget = NormalizeAliasKey(targetName);
 
+  std::shared_lock lock(m_aliasIndexMutex);
   auto indexIt = m_aliasIndex.find(normTarget);
   if (indexIt != m_aliasIndex.end()) {
     result.channelId = indexIt->second;
@@ -3228,20 +3285,6 @@ void EPGManager::IncrementalRemap(const std::vector<Channel> &channels,
         }
         m_mappingStale = false;
       });
-}
-
-void EPGManager::AddAutoMapping(const std::string &playlistId,
-                                const std::string &key,
-                                const std::string &epgId) {
-  std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-  if (!m_db || !m_db->IsOpen())
-    return;
-  m_db->InsertAutoMapping(playlistId, key, epgId);
-  // также добавляем в локальный кэш как автоматический
-  {
-    std::unique_lock lock(m_mappingMutex);
-    m_channelMapping[key] = epgId;
-  }
 }
 
 void EPGManager::AddFavoritesAutoMapping(const std::string &playlistId,

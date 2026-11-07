@@ -52,16 +52,6 @@ public:
     m_queue.clear();
   }
 
-  bool IsEmpty() const {
-    std::lock_guard<std::mutex> lk(m_mutex);
-    return m_queue.empty() && !m_running;
-  }
-
-  size_t Size() const {
-    std::lock_guard<std::mutex> lk(m_mutex);
-    return m_queue.size() + (m_running ? 1u : 0u);
-  }
-
 private:
   mutable std::mutex m_mutex;
   std::deque<Task> m_queue;

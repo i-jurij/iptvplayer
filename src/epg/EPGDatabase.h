@@ -36,13 +36,12 @@ public:
 
   bool CreateTables();
 
-  void BeginTransaction();
-  void CommitTransaction();
-  void RollbackTransaction();
+  bool BeginTransaction();
+  bool CommitTransaction();
+  bool RollbackTransaction();
 
   bool InsertOrUpdateChannel(const EpgChannel &channel);
-
-  bool InsertProgram(const std::string &channelId, const EpgProgram &program);
+  
   bool InsertPrograms(const std::string &channelId,
                       const std::vector<EpgProgram> &programs);
   std::vector<EpgProgram> GetProgramsForChannel(const std::string &channelId,
@@ -63,7 +62,6 @@ public:
                           const std::string &key);
   bool SetIgnored(const std::string &playlistId, const std::string &key,
                   bool ignored);
-  bool IsIgnored(const std::string &playlistId, const std::string &key);
 
   struct PlaylistMetadata {
     size_t channelCount = 0;
@@ -112,6 +110,11 @@ private:
   Database m_db;
   bool m_isOpen = false;
   mutable std::recursive_mutex m_mutex;
+
+  // Кэш хэша каналов EPG. m_epgHashDirty выставляется в
+  // InsertOrUpdateChannel, сбрасывается в Close/Open.
+  std::string m_cachedEpgHash;
+  bool m_epgHashDirty = true;
 
   bool TableExists(const std::string &tableName);
 };
