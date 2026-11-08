@@ -598,10 +598,48 @@ deps_install() {
     $SUDO $PKGMGR $COM_INSTALL $OPTS_INSTALL "$@"
 }
 
+# Remove packages without cascading through reverse dependencies.
+# On RPM-based systems `dnf remove` / `yum remove` also remove anything that
+# depends on the listed packages (and, with clean_requirements_on_remove,
+# orphaned leaves), which can take down unrelated parts of the system.
+# `rpm -e` refuses to remove a package if anything depends on it, so it only
+# removes the listed packages and leaves the rest intact.
 deps_remove() {
     [ -n "${PKGMGR:-}" ] || return 0
-    # shellcheck disable=SC2086
-    $SUDO ${PKGMGR_REMOVE:-$PKGMGR} $COM_REMOVE $OPTS_REMOVE "$@"
+    [ $# -eq 0 ] && return 0
+
+    if command -v rpm >/dev/null 2>&1; then
+        local -a installed=()
+        local p
+        for p in "$@"; do
+            rpm -q "$p" >/dev/null 2>&1 && installed+=("$p")
+        done
+        [ ${#installed[@]} -eq 0 ] && return 0
+
+        local _out
+        if _out=$(rpm -e --test "${installed[@]}" 2>&1); then
+            $SUDO rpm -e "${installed[@]}"
+            return $?
+        fi
+        warn "Cannot remove: reverse dependencies exist"
+        printf '%s\n' "$_out" | sed 's/^/  /' >&2
+        return 1
+    fi
+
+    if command -v apt-get >/dev/null 2>&1; then
+        $SUDO apt-get remove -y "$@"
+    elif command -v zypper >/dev/null 2>&1; then
+        $SUDO zypper --non-interactive remove --no-clean-deps "$@"
+    elif command -v pacman >/dev/null 2>&1; then
+        $SUDO pacman -R --noconfirm "$@"
+    elif command -v apk >/dev/null 2>&1; then
+        $SUDO apk del "$@"
+    elif command -v xbps-remove >/dev/null 2>&1; then
+        $SUDO xbps-remove -y "$@"
+    else
+        # shellcheck disable=SC2086
+        $SUDO ${PKGMGR_REMOVE:-$PKGMGR} $COM_REMOVE $OPTS_REMOVE "$@"
+    fi
 }
 
 # -----------------------------------------------------------------------------

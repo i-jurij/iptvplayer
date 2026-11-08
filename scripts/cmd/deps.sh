@@ -159,13 +159,20 @@ deps_ensure_system() {
         for pkg in $pkgs; do
             if deps_is_installed "$pkg"; then found=true; break; fi
         done
-        if [ "$found" = true ]; then
-            log "OK: $label"
-        else
+
+        local label_missing=false
+        # shellcheck disable=SC2086
+        for pkg in $pkgs; do
+            if ! deps_is_installed "$pkg"; then
+                missing+=("$pkg")
+                label_missing=true
+            fi
+        done
+        if [ "$label_missing" = true ]; then
             warn "MISSING: $label ($pkgs)"
             missing_labels+=("$label")
-            # shellcheck disable=SC2206
-            missing+=($pkgs)
+        else
+            log "OK: $label"
         fi
     done <<< "$DEPS"
 
