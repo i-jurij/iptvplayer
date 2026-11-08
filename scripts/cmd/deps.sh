@@ -20,15 +20,8 @@ fi
 # deps_run - public (--deps)
 # -----------------------------------------------------------------------------
 deps_run() {
-    detect_distro
-    if [ -z "$DISTRO_ADAPTER" ]; then
-        error "No distros/*.sh matched DISTRO=$DISTRO"
-    fi
-    detect_sudo
-
-    if declare -F distro_setup_repos >/dev/null 2>&1; then
-        distro_setup_repos
-    fi
+    # detect_distro / detect_sudo / system_prepare (update + upgrade +
+    # distro_setup_repos) already ran once in make.sh.
 
     if [ "$OPT_SKIP_SYSTEM" = true ]; then
         log "Skipping system packages (--skip-system)"
@@ -44,8 +37,6 @@ deps_run() {
     fi
 
     deps_ensure_third_party
-
-    deps_cleanup_after_success
     return 0
 }
 
@@ -53,20 +44,13 @@ deps_run() {
 # deps_ensure_for_build - public (called by bin_run, package_run)
 # -----------------------------------------------------------------------------
 deps_ensure_for_build() {
-    detect_distro
-    if [ -z "$DISTRO_ADAPTER" ]; then
-        error "No distros/*.sh matched DISTRO=$DISTRO"
-    fi
-    detect_sudo
-
+    # detect_distro / detect_sudo / system_prepare (update + upgrade +
+    # distro_setup_repos) already ran once in make.sh.
     if [[ "${NON_INTERACTIVE:-false}" == true ]]; then
         deps_check_prerequisites
         return 0
     fi
 
-    if declare -F distro_setup_repos >/dev/null 2>&1; then
-        distro_setup_repos
-    fi
     deps_ensure_system
     deps_ensure_tools
     deps_ensure_third_party
@@ -79,6 +63,14 @@ deps_ensure_for_build() {
 # Always returns 0. Never blocks a successful command.
 # -----------------------------------------------------------------------------
 deps_cleanup_after_success() {
+    if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+        return 0
+    fi
+    if [ "${IPTVPLAYER_CLEANUP_DEPS:-1}" = "0" ]; then
+        log "IPTVPLAYER_CLEANUP_DEPS=0: keeping build dependencies"
+        return 0
+    fi
+
     local state="$PROJECT_ROOT/.iptvplayer-deps-installed"
     [ -f "$state" ] || return 0
 
@@ -197,9 +189,6 @@ deps_ensure_system() {
         warn "If a package is genuinely missing, build will fail."
         return 0
     fi
-
-    log "Updating package lists (this can take a while)..."
-    deps_update || warn "deps_update failed, continuing"
 
     log "Installing packages: ${missing[*]}"
     if ! deps_install "${missing[@]}"; then

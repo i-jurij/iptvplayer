@@ -13,6 +13,8 @@ OPTS_CHECK=""
 OPTS_UPDATE=""
 OPTS_INSTALL=""
 OPTS_REMOVE=""
+COM_UPGRADE="upgrade -y"
+OPTS_UPGRADE=""
 CHECK_CHAIN=("-q|")
 
 _major="${DISTRO##*-}"; _major="${_major%%.*}"
@@ -74,6 +76,7 @@ distro_setup_repos() {
     log "Enabling ol${_major}_codeready_builder repo..."
     $SUDO dnf config-manager --set-enabled "ol${_major}_codeready_builder" \
         || warn "Failed to enable ol${_major}_codeready_builder — check manually"
+    deps_update || warn "deps_update failed, continuing"
 }
 
 distro_build() {

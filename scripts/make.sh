@@ -202,6 +202,22 @@ fi
 # -----------------------------------------------------------------------------
 if [ "$OPT_CMD" != "clean" ]; then
     detect_arch
+    detect_distro
+    if [ -z "$DISTRO_ADAPTER" ]; then
+        error "No distros/*.sh matched DISTRO=$DISTRO"
+    fi
+    detect_sudo
+    system_prepare
+
+    _IPTV_CLEANUP_DONE=0
+    _run_cleanup_once() {
+        if [ "$_IPTV_CLEANUP_DONE" = 1 ]; then
+            return 0
+        fi
+        _IPTV_CLEANUP_DONE=1
+        deps_cleanup_after_success || true
+    }
+    trap _run_cleanup_once EXIT
 fi
 
 # -----------------------------------------------------------------------------

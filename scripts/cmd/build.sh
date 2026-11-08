@@ -70,8 +70,6 @@ bin_run() {
 
     cp "$BUILD_DIR/compile_commands.json" "$PROJECT_ROOT/" 2>/dev/null || true
 
-    deps_cleanup_after_success
-
     log "Build complete"
     echo "Run: cd $INSTALL_DIR/bin && ./$PACKAGE_NAME"
     return 0

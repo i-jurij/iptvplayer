@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       reuse_install_from:
-        description: 'Run ID с готовым install/. Пусто = последний успешный, 0 = собрать заново.'
+        description: 'Run ID с готовым install/ для переиспользования (только явно). Пусто или 0 = собрать бинарник с нуля.'
         type: string
         default: ''
       skip_appimage:
@@ -163,19 +163,8 @@ jobs:
             exit 0
           fi
 
-          RID=$(gh api \
-            "/repos/${{ github.repository }}/actions/artifacts?name=arch-install&per_page=50" \
-            --jq '.artifacts[] | select(.expired == false) | "\(.created_at)\t\(.workflow_run.id)"' \
-            | sort -r \
-            | awk -v cur="$CURRENT_RUN" -F'\t' '$2 != cur {print $2; exit}' || true)
-
-          if [ -n "$RID" ]; then
-            echo "[i] авто-режим — используем run $RID"
-            echo "run_id=$RID" >> "$GITHUB_OUTPUT"
-          else
-            echo "[i] авто-режим — подходящих артефактов нет, бинарник собирается с нуля"
-            echo "run_id=" >> "$GITHUB_OUTPUT"
-          fi
+          echo "[i] reuse_install_from пуст — бинарник собирается с нуля"
+          echo "run_id=" >> "$GITHUB_OUTPUT"
 
   # =========================================================================
   # 2. Arch-образ для сборки sharun-AppImage.

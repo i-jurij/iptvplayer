@@ -539,6 +539,59 @@ deps_update() {
     $SUDO $PKGMGR $COM_UPDATE $OPTS_UPDATE
 }
 
+deps_upgrade() {
+    [ -n "${PKGMGR:-}" ] || return 0
+    [ -n "${COM_UPGRADE:-}" ] || return 0
+    # shellcheck disable=SC2086
+    $SUDO $PKGMGR $COM_UPGRADE ${OPTS_UPGRADE:-}
+}
+
+_DEPS_UPGRADED=0
+deps_upgrade_with_prompt() {
+    [ "${_DEPS_UPGRADED:-0}" = 1 ] && return 0
+    _DEPS_UPGRADED=1
+    [ -n "${COM_UPGRADE:-}" ] || return 0
+
+    if [[ "${NON_INTERACTIVE:-false}" == true ]]; then
+        if [ "${IPTVPLAYER_UPGRADE:-0}" = "1" ]; then
+            log "Upgrading installed packages (IPTVPLAYER_UPGRADE=1)..."
+            deps_upgrade || warn "deps_upgrade failed, continuing"
+        else
+            log "Noninteractive: skipping system upgrade (IPTVPLAYER_UPGRADE=1 to enable)"
+        fi
+        return 0
+    fi
+
+    if ask "Update installed packages before installing build deps? [Y/n]:" y; then
+        log "Upgrading installed packages (this can take a while)..."
+        deps_upgrade || warn "deps_upgrade failed, continuing"
+        warn "If kernel/systemd/glibc were upgraded, reboot before building."
+    else
+        warn "Skipping system upgrade - version conflicts are possible."
+    fi
+    return 0
+}
+
+# Called once from make.sh before dispatch. Skipped in CI (workflow YAML
+# installs packages) and with --skip-system.
+system_prepare() {
+    [ "${OPT_SKIP_SYSTEM:-false}" = true ] && return 0
+    if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+        log "CI detected: system prepare skipped (workflow installs packages)"
+        return 0
+    fi
+    [ -n "${PKGMGR:-}" ] || return 0
+
+    log "Updating package lists (this can take a while)..."
+    deps_update || warn "deps_update failed, continuing"
+    deps_upgrade_with_prompt
+
+    if declare -F distro_setup_repos >/dev/null 2>&1; then
+        distro_setup_repos
+    fi
+    return 0
+}
+
 deps_install() {
     [ -n "${PKGMGR:-}" ] || return 0
     # shellcheck disable=SC2086
@@ -641,9 +694,6 @@ ensure_tools() {
     if ! ask "Install (${missing_pkgs[*]})? [Y/n]:" y; then
         error "Cannot continue without ${missing_tools[*]}."
     fi
-
-    log "Updating package lists (this can take a while)..."
-    deps_update || true
 
     log "Installing packages: ${missing_pkgs[*]}"
     if ! deps_install "${missing_pkgs[@]}"; then

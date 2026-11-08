@@ -14,6 +14,8 @@ OPTS_CHECK=""
 OPTS_UPDATE=""
 OPTS_INSTALL=""
 OPTS_REMOVE=""
+COM_UPGRADE="upgrade -y"
+OPTS_UPGRADE=""
 CHECK_CHAIN=("-q|")
 
 # EL10 (RHEL/Rocky/Alma/CentOS 10, Fedora 40+) uses mpv-devel (canonical).
@@ -88,6 +90,7 @@ distro_setup_repos() {
         if ask "Enable $_pkg? [Y/n]:" y; then
             log "Installing $_pkg..."
             deps_install "$_url" || error "Failed to enable $_pkg"
+            deps_update || warn "deps_update failed, continuing"
         else
             error "Cannot build without $_pkg"
         fi

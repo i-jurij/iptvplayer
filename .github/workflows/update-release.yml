@@ -8,11 +8,11 @@ on:
         required: true
         type: string
       native_run_id:
-        description: 'Run ID job-а Native packages (пусто = последний успешный)'
+        description: 'Run ID workflow-а Native packages. Пусто = последний успешный, 0 = пропустить native.'
         required: false
         type: string
       windows_run_id:
-        description: 'Run ID job-а Windows-package-build (пусто = не трогать Windows)'
+        description: 'Run ID workflow-а Windows-package-build. Пусто = последний успешный, 0 = пропустить Windows.'
         required: false
         type: string
 
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   native-packages:
-    if: inputs.windows_run_id == '' || inputs.native_run_id != ''
+    if: inputs.native_run_id != '0'
     runs-on: ubuntu-latest
     steps:
       # Локальный composite action ./.github/actions/import-gpg доступен только после checkout.
@@ -35,14 +35,18 @@ jobs:
         run: |
           set -euo pipefail
           RID="${{ inputs.native_run_id }}"
-          if [ -z "$RID" ]; then
-            RID=$(gh run list --repo "${{ github.repository }}" \
-                    --workflow "Native packages" \
-                    --status success --limit 1 \
-                    --json databaseId --jq '.[0].databaseId')
+          if [ -n "$RID" ]; then
+            echo "[i] native_run_id=$RID"
+            echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          [ -n "$RID" ] || { echo "::error::не найден run Native packages"; exit 1; }
-          echo "run_id=$RID" >> $GITHUB_OUTPUT
+          RID=$(gh run list --repo "${{ github.repository }}" \
+                  --workflow "Native packages" \
+                  --status success --limit 1 \
+                  --json databaseId --jq '.[0].databaseId')
+          [ -n "$RID" ] || { echo "::error::не найден успешный run Native packages"; exit 1; }
+          echo "[i] авто: последний успешный Native packages = $RID"
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
 
       - name: Download native artifacts
         continue-on-error: true
@@ -116,7 +120,7 @@ jobs:
         uses: ./.github/actions/cleanup-gpg
 
   resolve-version:
-    if: inputs.windows_run_id != ''
+    if: inputs.windows_run_id != '0'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -131,12 +135,38 @@ jobs:
           fi
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
+  resolve-windows:
+    if: inputs.windows_run_id != '0'
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.r.outputs.run_id }}
+    steps:
+      - name: Resolve windows run
+        id: r
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RID="${{ inputs.windows_run_id }}"
+          if [ -n "$RID" ]; then
+            echo "[i] windows_run_id=$RID"
+            echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          RID=$(gh run list --repo "${{ github.repository }}" \
+                  --workflow "Windows-package-build" \
+                  --status success --limit 1 \
+                  --json databaseId --jq '.[0].databaseId')
+          [ -n "$RID" ] || { echo "::error::не найден успешный run Windows-package-build"; exit 1; }
+          echo "[i] авто: последний успешный Windows-package-build = $RID"
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+
   windows:
-    needs: resolve-version
-    if: inputs.windows_run_id != ''
+    needs: [resolve-version, resolve-windows]
+    if: inputs.windows_run_id != '0'
     uses: ./.github/workflows/windows-packages.yml
     with:
       version: ${{ needs.resolve-version.outputs.version }}
       tag: ${{ inputs.tag }}
-      reuse_run_id: ${{ inputs.windows_run_id }}
+      reuse_run_id: ${{ needs.resolve-windows.outputs.run_id }}
       upload_to_release: true

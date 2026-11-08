@@ -9,11 +9,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 package_run() {
-    detect_distro
-    if [ -z "$DISTRO_ADAPTER" ]; then
-        error "No distros/*.sh matched DISTRO=$DISTRO"
-    fi
-    detect_sudo
+    # detect_distro / detect_sudo / system_prepare already ran once in make.sh.
 
     # --- Format selection FIRST (matches old build-package.sh) --------------
     if [ "$OPT_NATIVE" = false ] && [ "$OPT_APPIMAGE" = false ] \
@@ -37,11 +33,27 @@ package_run() {
         log "--rebuild: removed build/install/dist/pkg-*/staging/AppDir"
     fi
 
-    # --- Binary (build if missing) ------------------------------------------
+    # --- Binary -------------------------------------------------------------
+    # Interactive: ask before rebuilding, so a user with a working binary can
+    # repackage as-is. wx/wxSQLite3 questions appear only on "yes" (inside
+    # deps_ensure_for_build). Noninteractive: never ask, use what exists.
+    OPT_BUILD_TYPE="${OPT_BUILD_TYPE:-release}"
+    bin_resolve_paths
+
+    local build_binary=false
     if [ ! -x "$PROJECT_ROOT/install/bin/$PACKAGE_NAME" ]; then
         log "Binary not found - building"
-        OPT_BUILD_TYPE="release"
-        bin_resolve_paths
+        build_binary=true
+    elif [[ "${NON_INTERACTIVE:-false}" == true ]]; then
+        log "Noninteractive: binary exists, using it"
+    elif ask "Rebuild binary ($PACKAGE_NAME)? [y/N]:" n; then
+        log "Rebuilding binary"
+        build_binary=true
+    else
+        log "Using existing binary"
+    fi
+
+    if [ "$build_binary" = true ]; then
         deps_ensure_for_build
         bin_ensure_binary || error "Failed to build binary"
         if [ ! -x "$PROJECT_ROOT/install/bin/$PACKAGE_NAME" ]; then
@@ -99,8 +111,6 @@ package_run() {
         return 1
     fi
 
-    deps_cleanup_after_success
-    
     echo ""
     ls -la "$OUTPUT_DIR/"
     echo ""

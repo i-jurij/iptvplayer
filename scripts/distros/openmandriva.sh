@@ -13,6 +13,8 @@ OPTS_CHECK=""
 OPTS_UPDATE=""
 OPTS_INSTALL=""
 OPTS_REMOVE=""
+COM_UPGRADE="upgrade -y"
+OPTS_UPGRADE=""
 CHECK_CHAIN=("-q|")
 
 _ver="$(distro_major)"
@@ -90,6 +92,7 @@ _ensure_restricted_repo() {
     $SUDO dnf config-manager --enable $_ids \
         || error "Failed to enable restricted repo (${_ids% }). Use om-repo-picker."
     log "restricted enabled: ${_ids% }"
+    deps_update || warn "deps_update failed, continuing"
 }
 
 distro_setup_repos() {

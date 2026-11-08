@@ -6,13 +6,15 @@
 PKGMGR=apk
 PKGMGR_CHECK=apk
 COM_CHECK="info -e"
-COM_UPDATE=""
+COM_UPDATE="update"
 COM_INSTALL="add --no-cache"
 COM_REMOVE="del"
 OPTS_CHECK=""
 OPTS_UPDATE=""
 OPTS_INSTALL=""
 OPTS_REMOVE=""
+COM_UPGRADE="upgrade"
+OPTS_UPGRADE=""
 CHECK_CHAIN=("info -e|")
 
 DEPS="

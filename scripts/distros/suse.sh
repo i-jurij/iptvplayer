@@ -13,6 +13,8 @@ OPTS_CHECK=""
 OPTS_UPDATE=""
 OPTS_INSTALL=""
 OPTS_REMOVE=""
+COM_UPGRADE="update -y"
+OPTS_UPGRADE=""
 CHECK_CHAIN=("-q|")
 
 # Explicit parse: distro_major() would give garbage for tumbleweed.
