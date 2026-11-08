@@ -5,7 +5,7 @@
 PKGMGR=dnf
 PKGMGR_CHECK=rpm
 COM_CHECK="-q"
-COM_UPDATE="makecache -q"
+COM_UPDATE="makecache"
 COM_INSTALL="install -y"
 COM_REMOVE="remove -y"
 OPTS_CHECK=""

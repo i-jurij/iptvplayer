@@ -5,7 +5,7 @@
 PKGMGR=apt-get
 PKGMGR_CHECK=dpkg
 COM_CHECK="-s"
-COM_UPDATE="update -qq"
+COM_UPDATE="update"
 COM_INSTALL="install -y --no-install-recommends"
 COM_REMOVE="remove -y --auto-remove"
 OPTS_CHECK=""

@@ -533,6 +533,9 @@ deps_is_installed() {
 }
 
 deps_update() {
+    echo ""
+    log "Repositories contain newer package versions. Installing build deps"
+    log "without upgrading first can cause dependency conflicts."
     [ -n "${PKGMGR:-}" ] || return 0
     [ -n "${COM_UPDATE:-}" ] || return 0
     # shellcheck disable=SC2086
@@ -563,10 +566,7 @@ deps_upgrade_with_prompt() {
     fi
 
     echo ""
-    log "Repositories contain newer package versions. Installing build deps"
-    log "without updating first can cause dependency conflicts."
-    if ask "Update installed packages before installing build deps? [Y/n]:" y; then
-        log "Upgrading installed packages (this can take a while)..."
+    if ask "Upgrade installed packages before installing build deps? [Y/n]:" y; then
         deps_upgrade || warn "deps_upgrade failed, continuing"
         warn "If kernel/systemd/glibc were upgraded, reboot before building."
     else
@@ -585,8 +585,8 @@ system_prepare() {
     fi
     [ -n "${PKGMGR:-}" ] || return 0
 
-    log "Updating package lists (this can take a while)..."
     deps_update || warn "deps_update failed, continuing"
+
     deps_upgrade_with_prompt
 
     if declare -F distro_setup_repos >/dev/null 2>&1; then

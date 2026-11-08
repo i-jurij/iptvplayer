@@ -6,7 +6,7 @@
 PKGMGR=apt-get
 PKGMGR_CHECK=rpm
 COM_CHECK="-q"
-COM_UPDATE="update -qq"
+COM_UPDATE="update"
 COM_INSTALL="install -y"
 COM_REMOVE="remove -y --auto-remove"
 OPTS_CHECK=""
