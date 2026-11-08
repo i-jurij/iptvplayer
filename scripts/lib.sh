@@ -546,19 +546,6 @@ deps_upgrade() {
     $SUDO $PKGMGR $COM_UPGRADE ${OPTS_UPGRADE:-}
 }
 
-# Returns 0 if a reboot is required to apply the upgrade, 1 otherwise.
-deps_needs_reboot() {
-    # Debian/Ubuntu: apt creates this after kernel/glibc/systemd upgrade.
-    [ -f /var/run/reboot-required ] && return 0
-    # openSUSE/SLES.
-    [ -f /run/reboot-needed ] && return 0
-    # RHEL/Fedora/Rocky/Alma/Oracle: needs-restarting from dnf-plugins-core.
-    if command -v needs-restarting >/dev/null 2>&1; then
-        needs-restarting -r >/dev/null 2>&1 || return 0
-    fi
-    return 1
-}
-
 _DEPS_UPGRADED=0
 deps_upgrade_with_prompt() {
     [ "${_DEPS_UPGRADED:-0}" = 1 ] && return 0
@@ -577,14 +564,13 @@ deps_upgrade_with_prompt() {
     echo ""
     if ask "Upgrade installed packages before installing build deps? [Y/n]:" y; then
         deps_upgrade || warn "deps_upgrade failed, continuing"
-        if deps_needs_reboot; then
-            if ask "A reboot is required to apply the update. Reboot now? [Y/n]:" y; then
-                log "Rebooting. Rerun this command after login."
-                _IPTV_CLEANUP_DONE=1
-                $SUDO reboot
-                exit 0
-            fi
-            warn "Continuing without reboot - build may use outdated libraries."
+        log "If kernel, systemd or glibc were upgraded, a reboot is required"
+        log "before building - the current session still uses the old libraries."
+        if ask "Reboot now? [Y/n]:" y; then
+            log "Rebooting. Rerun this command after login."
+            _IPTV_CLEANUP_DONE=1
+            $SUDO reboot
+            exit 0
         fi
     else
         warn "Skipping system upgrade - version conflicts are possible."
