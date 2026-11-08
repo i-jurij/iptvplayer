@@ -66,17 +66,28 @@ See [Building and packaging](#building-and-packaging) below.
 
 ### Codec for H.264
 
-Most IPTV streams are H.264. Some distributions do not include a decoder for it by default, and
-playback fails with a black screen or `Unable to create decoder for h264`.
+Most IPTV streams are H.264. On many distributions `ffmpeg` and `libmpv` from
+the main repositories are deliberately built without patent-encumbered
+codecs, so playback fails with a black screen or `Unable to create decoder
+for h264`.
 
-- **Fedora / RHEL:** `sudo dnf install openh264`.
-- **Debian / Ubuntu:** `sudo apt install libopenh264-<N>` — the exact version
-  number changes between releases; run `apt-cache search libopenh264` if
-  unsure. If no such package exists, try `sudo apt install libavcodec-extra`.
-- **Arch / CachyOS:** `sudo pacman -S ffmpeg` (H.264 decoding is included). Optionally also
-  `sudo pacman -S openh264`.
+Check what's installed:
 
-Then restart the application.
+```bash
+ffmpeg -hide_banner -decoders 2>/dev/null | grep -w h264
+```
+
+If the output is empty, the runtime `ffmpeg` / `libmpv` cannot decode H.264.
+Enable the repository that provides a codec-full `ffmpeg` build (search your
+package manager's available `ffmpeg` builds, or check the distribution's
+documentation for patent / codec / multimedia repositories — e.g. RPM Fusion
+on the RHEL family, Packman on openSUSE, Tainted on Mageia, restricted on
+OpenMandriva), replace `ffmpeg` and `mpv` / `mpv-libs` with the versions
+from it, and restart the application — a running instance keeps the old
+`libmpv` mapped in memory.
+
+Installing `openh264` alone rarely helps: it only works if the
+distribution's `ffmpeg` was specifically built with `--enable-libopenh264`.
 
 ### Hardware decoding
 

@@ -240,21 +240,29 @@
 
     <h3>Codec for H.264 streams</h3>
 
-    <p>Most IPTV streams are H.264. Some distributions do not include a decoder for it by default, and
-        playback fails with a black screen or <code>Unable to create decoder for h264</code>.</p>
+    <p>Most IPTV streams are H.264. On many distributions <code>ffmpeg</code> and
+        <code>libmpv</code> from the main repositories are deliberately built without
+        patent-encumbered codecs, so playback fails with a black screen or
+        <code>Unable to create decoder for h264</code>.
+    </p>
 
-    <ul>
-        <li><strong>Fedora / RHEL:</strong> <code>sudo dnf install openh264</code>.</li>
-        <li><strong>Debian / Ubuntu:</strong> <code>sudo apt install libopenh264-&lt;N&gt;</code>
-            (the exact version number changes between releases — run
-            <code>apt-cache search libopenh264</code> if unsure). If no such package exists, try
-            <code>sudo apt install libavcodec-extra</code>.
-        </li>
-        <li><strong>Arch / CachyOS:</strong> <code>sudo pacman -S ffmpeg</code> (H.264 decoding is
-            included). Optionally also <code>sudo pacman -S openh264</code>.</li>
-    </ul>
+    <p>Check what's installed:</p>
 
-    <p>Then restart the application.</p>
+    <pre><code>ffmpeg -hide_banner -decoders 2>/dev/null | grep -w h264</code></pre>
+
+    <p>If the output is empty, the runtime <code>ffmpeg</code> / <code>libmpv</code> cannot decode
+        H.264. Enable the repository that provides a codec-full <code>ffmpeg</code> build (search
+        your package manager's available <code>ffmpeg</code> builds, or check the distribution's
+        documentation for patent / codec / multimedia repositories — e.g. RPM Fusion on the RHEL
+        family, Packman on openSUSE, Tainted on Mageia, restricted on OpenMandriva), replace
+        <code>ffmpeg</code> and <code>mpv</code> / <code>mpv-libs</code> with the versions from
+        it, and restart the application — a running instance keeps the old <code>libmpv</code>
+        mapped in memory.
+    </p>
+
+    <p>Installing <code>openh264</code> alone rarely helps: it only works if the distribution's
+        <code>ffmpeg</code> was specifically built with <code>--enable-libopenh264</code>.
+    </p>
 
     <h2>First launch</h2>
 
@@ -748,23 +756,28 @@
 
     <h3>Кодек для потоков H.264</h3>
 
-    <p>Большинство IPTV-потоков — H.264. В некоторых дистрибутивах декодер для него не входит в
-        стандартную поставку, и воспроизведение падает с чёрным экраном или ошибкой
+    <p>Большинство IPTV-потоков — H.264. Во многих дистрибутивах <code>ffmpeg</code> и
+        <code>libmpv</code> из основных репозиториев намеренно собраны без патентованных кодеков, и
+        воспроизведение падает с чёрным экраном или ошибкой
         <code>Unable to create decoder for h264</code>.
     </p>
 
-    <ul>
-        <li><strong>Fedora / RHEL:</strong> <code>sudo dnf install openh264</code>.</li>
-        <li><strong>Debian / Ubuntu:</strong> <code>sudo apt install libopenh264-&lt;N&gt;</code>
-            (точная версия меняется между релизами — при сомнениях выполните
-            <code>apt-cache search libopenh264</code>). Если пакета нет, попробуйте
-            <code>sudo apt install libavcodec-extra</code>.
-        </li>
-        <li><strong>Arch / CachyOS:</strong> <code>sudo pacman -S ffmpeg</code> (декодер H.264 уже
-            входит). Дополнительно можно установить <code>sudo pacman -S openh264</code>.</li>
-    </ul>
+    <p>Проверьте, что установлено:</p>
 
-    <p>После установки перезапустите приложение.</p>
+    <pre><code>ffmpeg -hide_banner -decoders 2>/dev/null | grep -w h264</code></pre>
+
+    <p>Если вывод пуст, рантайм-<code>ffmpeg</code> / <code>libmpv</code> не умеет декодировать
+        H.264. Включите репозиторий с codec-full сборкой <code>ffmpeg</code> (посмотрите, какие
+        сборки <code>ffmpeg</code> доступны в вашем пакетном менеджере, или документацию
+        дистрибутива про патентные / мультимедийные репозитории — например, RPM Fusion в
+        RHEL-семействе, Packman в openSUSE, Tainted в Mageia, restricted в OpenMandriva),
+        замените <code>ffmpeg</code> и <code>mpv</code> / <code>mpv-libs</code> на версии из него
+        и перезапустите приложение — запущенный экземпляр держит в памяти старый
+        <code>libmpv</code>.
+    </p>
+
+    <p>Установка одного <code>openh264</code> помогает редко: только если <code>ffmpeg</code> в
+        дистрибутиве специально собран с <code>--enable-libopenh264</code>.</p>
 
     <h2>Первый запуск</h2>
 
