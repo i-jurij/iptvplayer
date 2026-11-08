@@ -562,6 +562,9 @@ deps_upgrade_with_prompt() {
         return 0
     fi
 
+    echo ""
+    log "Repositories contain newer package versions. Installing build deps"
+    log "without updating first can cause dependency conflicts."
     if ask "Update installed packages before installing build deps? [Y/n]:" y; then
         log "Upgrading installed packages (this can take a while)..."
         deps_upgrade || warn "deps_upgrade failed, continuing"
