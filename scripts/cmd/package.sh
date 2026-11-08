@@ -10,7 +10,7 @@ fi
 
 package_run() {
     # detect_distro / detect_sudo / system_prepare already ran once in make.sh.
-
+    section "Package format"
     # --- Format selection FIRST (matches old build-package.sh) --------------
     if [ "$OPT_NATIVE" = false ] && [ "$OPT_APPIMAGE" = false ] \
        && [ "$OPT_SHARUN" = false ] && [ "$OPT_FLATPAK" = false ]; then
@@ -34,6 +34,7 @@ package_run() {
     fi
 
     # --- Binary -------------------------------------------------------------
+    section "Binary"
     # Interactive: ask before rebuilding, so a user with a working binary can
     # repackage as-is. wx/wxSQLite3 questions appear only on "yes" (inside
     # deps_ensure_for_build). Noninteractive: never ask, use what exists.

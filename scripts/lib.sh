@@ -533,9 +533,6 @@ deps_is_installed() {
 }
 
 deps_update() {
-    echo ""
-    log "Repositories contain newer package versions. Installing build deps"
-    log "without upgrading first can cause dependency conflicts."
     [ -n "${PKGMGR:-}" ] || return 0
     [ -n "${COM_UPDATE:-}" ] || return 0
     # shellcheck disable=SC2086
@@ -547,6 +544,19 @@ deps_upgrade() {
     [ -n "${COM_UPGRADE:-}" ] || return 0
     # shellcheck disable=SC2086
     $SUDO $PKGMGR $COM_UPGRADE ${OPTS_UPGRADE:-}
+}
+
+# Returns 0 if a reboot is required to apply the upgrade, 1 otherwise.
+deps_needs_reboot() {
+    # Debian/Ubuntu: apt creates this after kernel/glibc/systemd upgrade.
+    [ -f /var/run/reboot-required ] && return 0
+    # openSUSE/SLES.
+    [ -f /run/reboot-needed ] && return 0
+    # RHEL/Fedora/Rocky/Alma/Oracle: needs-restarting from dnf-plugins-core.
+    if command -v needs-restarting >/dev/null 2>&1; then
+        needs-restarting -r >/dev/null 2>&1 || return 0
+    fi
+    return 1
 }
 
 _DEPS_UPGRADED=0
@@ -564,11 +574,18 @@ deps_upgrade_with_prompt() {
         fi
         return 0
     fi
-
     echo ""
     if ask "Upgrade installed packages before installing build deps? [Y/n]:" y; then
         deps_upgrade || warn "deps_upgrade failed, continuing"
-        warn "If kernel/systemd/glibc were upgraded, reboot before building."
+        if deps_needs_reboot; then
+            if ask "A reboot is required to apply the update. Reboot now? [Y/n]:" y; then
+                log "Rebooting. Rerun this command after login."
+                _IPTV_CLEANUP_DONE=1
+                $SUDO reboot
+                exit 0
+            fi
+            warn "Continuing without reboot - build may use outdated libraries."
+        fi
     else
         warn "Skipping system upgrade - version conflicts are possible."
     fi
@@ -578,15 +595,21 @@ deps_upgrade_with_prompt() {
 # Called once from make.sh before dispatch. Skipped in CI (workflow YAML
 # installs packages) and with --skip-system.
 system_prepare() {
+    section "System preparation"
+
     [ "${OPT_SKIP_SYSTEM:-false}" = true ] && return 0
     if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
         log "CI detected: system prepare skipped (workflow installs packages)"
         return 0
     fi
+
     [ -n "${PKGMGR:-}" ] || return 0
 
-    deps_update || warn "deps_update failed, continuing"
+    log "Repositories contain newer package versions. Installing build"
+    log "dependencies without upgrading first can cause version conflicts."
+    log "This will update package lists, then offer to upgrade."
 
+    deps_update || warn "deps_update failed, continuing"
     deps_upgrade_with_prompt
 
     if declare -F distro_setup_repos >/dev/null 2>&1; then
@@ -797,7 +820,8 @@ sign_files() {
         local gpg_real="/usr/bin/gpg"
         [ -x "$gpg_real" ] || gpg_real="$(command -v gpg)"
 
-        log "Signing packages (key: $GPG_KEY_ID)..."
+        section "Signing packages"
+        log "Signing packages key: $GPG_KEY_ID"
 
         # --- .deb: inline via debsigs + detached .asc ---
         local file

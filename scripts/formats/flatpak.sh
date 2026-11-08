@@ -9,6 +9,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 build_flatpak() {
+    section "Flatpak (${RUNTIME}//${RUNTIME_VERSION})"
     : "${PROJECT_ROOT:?}" "${OUTPUT_DIR:?}" "${PACKAGE_NAME:?}" "${VERSION:?}"
 
     local RUNTIME="${FLATPAK_RUNTIME:-org.gnome.Platform}"
@@ -21,8 +22,6 @@ build_flatpak() {
     local build_dir="$PROJECT_ROOT/dist/.flatpak-build"
     local repo_dir="$PROJECT_ROOT/dist/.flatpak-repo"
     local out_file="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION}.flatpak"
-
-    log "Building Flatpak (runtime ${RUNTIME}//${RUNTIME_VERSION})..."
 
     ensure_tools "Flatpak packaging" \
         "flatpak:flatpak" \

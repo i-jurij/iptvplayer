@@ -144,6 +144,8 @@ deps_cleanup_after_success() {
 # -----------------------------------------------------------------------------
 
 deps_ensure_system() {
+    section "System packages"
+
     if [ -z "${DEPS:-}" ]; then
         log "DEPS is empty for $DISTRO, skipping system packages"
         return 0
@@ -213,6 +215,7 @@ deps_ensure_system() {
 }
 
 deps_ensure_tools() {
+    section "Build tools"
     local -a _missing=()
     command -v cmake      >/dev/null 2>&1 || _missing+=(cmake)
     command -v autoreconf >/dev/null 2>&1 || _missing+=(autoreconf)
@@ -298,6 +301,7 @@ deps_check_prerequisites() {
 }
 
 deps_ensure_third_party() {
+    section "third_party (wxWidgets, wxSQLite3)"
     mkdir -p "$PROJECT_ROOT/third_party"
     cd "$PROJECT_ROOT" || return 1
     deps_ensure_wx

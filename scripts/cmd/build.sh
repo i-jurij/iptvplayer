@@ -95,6 +95,7 @@ bin_resolve_paths() {
 # bin_ensure_binary - public helper
 # -----------------------------------------------------------------------------
 bin_ensure_binary() {
+    section "Binary build"
     if [ -z "${BUILD_DIR:-}" ] || [ -z "${INSTALL_DIR:-}" ] || [ -z "${EXE_PATH:-}" ]; then
         bin_resolve_paths
     fi

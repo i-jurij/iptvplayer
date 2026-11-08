@@ -52,14 +52,13 @@ _resolve_dejavu_font() {
 }
 
 build_sharun_appimage() {
+    section "AppImage (quick-sharun)"
     local appimage_file="${PACKAGE_NAME}-linux-${APPIMAGE_ARCH}-${VERSION_FILE}-sharun.AppImage"
     local bin_src="$PROJECT_ROOT/install/bin/$PACKAGE_NAME"
     local share_src="$PROJECT_ROOT/install/share/$PACKAGE_NAME"
     local desktop_file="$PROJECT_ROOT/install/share/applications/$PACKAGE_NAME.desktop"
     local icon_file="$PROJECT_ROOT/install/share/$PACKAGE_NAME/icons/$ICON_NAME"
     local QUICK_SHARUN="$SCRIPT_DIR/quick-sharun.sh"
-
-    log "Building AppImage via quick-sharun..."
 
     : "${APPDIR:?APPDIR not set}"
     : "${OUTPUT_DIR:?OUTPUT_DIR not set}"

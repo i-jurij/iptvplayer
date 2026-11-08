@@ -235,6 +235,7 @@ APPRUN
 }
 
 build_appimage() {
+    section "AppImage (linuxdeploy)"
     local appimage_file="$OUTPUT_DIR/${PACKAGE_NAME}-linux-${APPIMAGE_ARCH}-${VERSION_FILE}-linuxdeploy.AppImage"
 
     log "Creating AppImage ($APPIMAGE_ARCH)..."

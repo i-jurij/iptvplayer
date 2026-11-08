@@ -19,13 +19,15 @@ fi
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
+BLUE='\033[1;36m'
 NC='\033[0m'
 
 log()     { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
 error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
-section() { echo -e "\n${BLUE}=== $1 ===${NC}\n"; }
+section() { echo -e "\n${BLUE}============================================================${NC}"; \
+            echo -e "${BLUE}== $1${NC}"; \
+            echo -e "${BLUE}============================================================${NC}\n"; }
 
 # -----------------------------------------------------------------------------
 # detect_arch - set DEB_ARCH, RPM_ARCH, APPIMAGE_ARCH from uname -m.

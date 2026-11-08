@@ -11,6 +11,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 build_native() {
+    section "Native package ($PACK_FORMAT)"
     if ! declare -F distro_build >/dev/null 2>&1; then
         error "distros/${DISTRO_ADAPTER}.sh does not define distro_build"
     fi
