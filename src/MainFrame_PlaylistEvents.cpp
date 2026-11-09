@@ -402,8 +402,8 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
 void MainFrame::BeginPlaylistLoading(const wxString &sourceLabel) {
   SetStatusText(
       wxString::Format(_U("Loading playlist from %s..."), sourceLabel), 0);
-  int timeout = std::stoi(
-      wxGetApp().getConfigManager()->getSetting("playlistTimeoutMs", "30000"));
+  int timeout = wxGetApp().getConfigManager()->getInt("playlistTimeoutMs",
+                                                      30000);
   m_progressTimer.Start(timeout, wxTIMER_ONE_SHOT);
 }
 
@@ -489,8 +489,8 @@ void MainFrame::onProgressTimeout(wxTimerEvent &WXUNUSED(event)) {
 
       SetStatusText(_U("Retrying playlist load..."));
 
-      int timeout = std::stoi(wxGetApp().getConfigManager()->getSetting(
-          "playlistTimeoutMs", "30000"));
+      int timeout = wxGetApp().getConfigManager()->getInt(
+          "playlistTimeoutMs", 30000);
       m_progressTimer.Start(timeout, wxTIMER_ONE_SHOT);
 
       mgr->addPlaylistFromUrl(url, title, userAgent);
