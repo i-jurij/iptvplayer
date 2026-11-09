@@ -6,8 +6,13 @@
 #include <string>
 #include <vector>
 
-// Объявление функции генерации UUID (определена в Playlist.cpp)
 std::string GenerateUUID();
+
+struct XtreamMeta {
+  std::string userInfoJson;
+  std::string serverInfoJson;
+  bool hasUserInfo() const { return !userInfoJson.empty(); }
+};
 
 class Playlist {
 public:
@@ -16,13 +21,11 @@ public:
                     bool isUrl);
   ~Playlist();
 
-  // Копирование/перемещение
   Playlist(const Playlist &) = default;
   Playlist(Playlist &&) noexcept = default;
   Playlist &operator=(const Playlist &) = default;
   Playlist &operator=(Playlist &&) noexcept = default;
 
-  // --- Геттеры ---
   const std::string &getTitle() const noexcept { return m_title; }
   const std::string &getSource() const noexcept { return m_source; }
   const std::string &getUserAgent() const noexcept { return m_userAgent; }
@@ -34,11 +37,23 @@ public:
   }
   size_t getChannelCount() const noexcept { return m_channels.size(); }
 
-  // --- Уникальный ID ---
   const std::string &getUniqueId() const noexcept { return m_uniqueId; }
   void setUniqueId(const std::string &id) { m_uniqueId = id; }
 
-  // --- Сеттеры ---
+  bool isXtream() const noexcept { return m_xtream; }
+  void setXtream(bool v) noexcept { m_xtream = v; }
+
+  const XtreamMeta &getXtreamMeta() const noexcept { return m_xtreamMeta; }
+  void setXtreamMeta(const XtreamMeta &m) noexcept { m_xtreamMeta = m; }
+  void setXtreamMeta(XtreamMeta &&m) noexcept { m_xtreamMeta = std::move(m); }
+
+  bool hasVod() const noexcept { return m_hasVod; }
+  bool hasSeries() const noexcept { return m_hasSeries; }
+  bool hasRadio() const noexcept { return m_hasRadio; }
+  void setHasVod(bool v) noexcept { m_hasVod = v; }
+  void setHasSeries(bool v) noexcept { m_hasSeries = v; }
+  void setHasRadio(bool v) noexcept { m_hasRadio = v; }
+
   void setTitle(const std::string &title) noexcept { m_title = title; }
   void setSource(const std::string &source) noexcept { m_source = source; }
   void setUserAgent(const std::string &ua) noexcept { m_userAgent = ua; }
@@ -46,17 +61,14 @@ public:
   void setLastUpdate(std::time_t t) noexcept { m_lastUpdate = t; }
   void setChannels(std::vector<Channel> channels) noexcept;
 
-  // --- Управление каналами ---
   void addChannel(const Channel &channel);
   void clearChannels();
   bool removeChannel(const Channel &ch);
   bool removeChannel(const std::string &name, const std::string &url);
 
-  // --- Вспомогательные ---
   std::vector<std::string> getChannelTitles() const;
   std::vector<std::string> getChannelUrls() const;
 
-  // --- JSON ---
   std::string toJson() const;
   bool fromJson(const std::string &json);
 
@@ -69,5 +81,11 @@ private:
   std::time_t m_lastUpdate;
   std::vector<Channel> m_channels;
 
-  std::string m_uniqueId; // уникальный идентификатор (UUID v4)
+  std::string m_uniqueId;
+
+  bool m_xtream = false;
+  XtreamMeta m_xtreamMeta;
+  bool m_hasVod = false;
+  bool m_hasSeries = false;
+  bool m_hasRadio = false;
 };

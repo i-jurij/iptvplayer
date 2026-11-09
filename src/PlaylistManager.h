@@ -58,7 +58,9 @@ public:
                                 bool autoUpdate = true);
   ErrorCode addPlaylistFromUrl(const std::string &url, std::string &title,
                                const std::string &userAgent,
-                               bool autoUpdate = true);
+                               bool autoUpdate = true,
+                               bool isXtream = false,
+                               XtreamMeta xtreamMeta = {});
   ErrorCode downloadUrl(const std::string &url, std::string &content,
                         const std::string &userAgent,
                         DownloadProgress *progress = nullptr);

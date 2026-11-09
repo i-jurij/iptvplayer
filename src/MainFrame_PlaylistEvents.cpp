@@ -12,6 +12,7 @@
 #include "Utils.h"
 #include "iptvorg/AddIPTVPlaylistDialog.h"
 #include "xtream/AddXtreamPlaylistDialog.h"
+#include "xtream/PlaylistInfoDialog.h"
 #include "xtream/XtreamUrl.h"
 
 #include <wx/app.h>
@@ -61,6 +62,7 @@ void MainFrame::onPlaylistRightClick(wxListEvent &event) {
 
   // Создаём меню
   wxMenu menu;
+  menu.Append(ID_PLAYLIST_INFO, _U("Info"));
   menu.Append(ID_OPEN_PLAYLIST, _U("Open"));
   menu.Append(ID_UPDATE_PLAYLIST, _U("Update"));
   menu.Append(ID_EDIT_PLAYLIST, _U("Edit"));
@@ -148,6 +150,18 @@ void MainFrame::onOpenPlaylist(wxCommandEvent &event) {
     return;
 
   OpenPlaylistByModelIndex(m_selectedPlaylistIndex);
+}
+
+void MainFrame::onPlaylistInfo(wxCommandEvent &WXUNUSED(event)) {
+  if (!validatePlaylistSelection())
+    return;
+
+  Playlist *pl = GetPlaylistByIndex(m_selectedPlaylistIndex);
+  if (!pl)
+    return;
+
+  PlaylistInfoDialog dlg(this, *pl);
+  dlg.ShowModal();
 }
 
 //====================================================================
@@ -356,10 +370,15 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
         std::string title = titleWx.ToUTF8().data();
         const std::string uaStr = ua.ToUTF8().data();
 
+        XtreamMeta meta;
+        meta.userInfoJson = userInfoJson;
+        meta.serverInfoJson = serverInfoJson;
+
         ErrorCode ec = ErrorCode::OK;
         try {
           ec = mgr->addPlaylistFromUrl(finalUrl.ToUTF8().data(), title, uaStr,
-                                       autoUpdate);
+                                       autoUpdate, /*isXtream=*/true,
+                                       std::move(meta));
         } catch (const std::exception &e) {
           LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s",
                     e.what());

@@ -204,6 +204,11 @@ find_package(EXPAT REQUIRED)
 add_subdirectory(src/player)
 
 # ------------------------
+# Xtream lib
+# ------------------------
+add_subdirectory(src/xtream)
+
+# ------------------------
 # Main application sources
 # ------------------------
 set(SOURCES
@@ -272,8 +277,6 @@ set(SOURCES
     src/epg/AddEpgSourceDialog.cpp
     src/epg/EPGDatabase.cpp
     src/epg/ManualMappingDialog.cpp
-    src/xtream/XtreamUrl.cpp
-    src/xtream/AddXtreamPlaylistDialog.cpp
 )
 
 # ------------------------
@@ -284,6 +287,8 @@ if(APPLE)
 else()
     add_executable(${PROJECT_NAME} ${SOURCES})
 endif()
+
+target_sources(${PROJECT_NAME} PRIVATE $<TARGET_OBJECTS:player_xtream>)
 
 if(WIN32)
     target_sources(${PROJECT_NAME} PRIVATE windows/app.rc)

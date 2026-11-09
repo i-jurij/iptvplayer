@@ -150,7 +150,22 @@ std::string Playlist::toJson() const {
   doc.AddMember("autoUpdate", m_autoUpdate, alloc);
   doc.AddMember("lastUpdate", static_cast<int64_t>(m_lastUpdate), alloc);
   doc.AddMember("uniqueId", rapidjson::Value(m_uniqueId.c_str(), alloc),
-                alloc); // <-- добавлено
+                alloc);
+  doc.AddMember("xtream", m_xtream, alloc);
+  doc.AddMember("hasVod", m_hasVod, alloc);
+  doc.AddMember("hasSeries", m_hasSeries, alloc);
+  doc.AddMember("hasRadio", m_hasRadio, alloc);
+
+  if (m_xtream) {
+    rapidjson::Value meta(rapidjson::kObjectType);
+    meta.AddMember("userInfoJson",
+                   rapidjson::Value(m_xtreamMeta.userInfoJson.c_str(), alloc),
+                   alloc);
+    meta.AddMember("serverInfoJson",
+                   rapidjson::Value(m_xtreamMeta.serverInfoJson.c_str(), alloc),
+                   alloc);
+    doc.AddMember("xtreamMeta", meta, alloc);
+  }
 
   rapidjson::Value channelsArr(rapidjson::kArrayType);
   for (const auto &ch : m_channels) {
@@ -221,6 +236,23 @@ bool Playlist::fromJson(const std::string &json) {
   } else {
     // Если поле отсутствует – генерируем новый ID
     m_uniqueId = GenerateUUID();
+  }
+
+  if (doc.HasMember("xtream") && doc["xtream"].IsBool())
+    m_xtream = doc["xtream"].GetBool();
+  if (doc.HasMember("hasVod") && doc["hasVod"].IsBool())
+    m_hasVod = doc["hasVod"].GetBool();
+  if (doc.HasMember("hasSeries") && doc["hasSeries"].IsBool())
+    m_hasSeries = doc["hasSeries"].GetBool();
+  if (doc.HasMember("hasRadio") && doc["hasRadio"].IsBool())
+    m_hasRadio = doc["hasRadio"].GetBool();
+
+  if (doc.HasMember("xtreamMeta") && doc["xtreamMeta"].IsObject()) {
+    const auto &m = doc["xtreamMeta"];
+    if (m.HasMember("userInfoJson") && m["userInfoJson"].IsString())
+      m_xtreamMeta.userInfoJson = m["userInfoJson"].GetString();
+    if (m.HasMember("serverInfoJson") && m["serverInfoJson"].IsString())
+      m_xtreamMeta.serverInfoJson = m["serverInfoJson"].GetString();
   }
 
   // Каналы

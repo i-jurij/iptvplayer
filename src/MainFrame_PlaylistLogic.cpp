@@ -17,9 +17,12 @@
 #include "Utils.h"
 #include "epg/EPGManager.h"
 #include "iptvorg/AddIPTVPlaylistDialog.h"
+#include "xtream/XtreamInfo.h"
 
 #include <wx/msgdlg.h>
 #include <wx/weakref.h>
+
+#include <ctime>
 
 void MainFrame::RefreshPlaylistView() {
   if (!validatePlaylistManager())
@@ -49,7 +52,27 @@ void MainFrame::RefreshPlaylistView() {
     wxString title = wxString::FromUTF8(pl->getTitle());
     wxString source = wxString::FromUTF8(pl->getSource());
     wxString channels = wxString::Format("%zu", pl->getChannelCount());
-    wxString autoUpd = pl->getAutoUpdate() ? _U("Yes") : _U("No");
+
+    wxString status;
+    wxString expires;
+    if (pl->isXtream() && pl->getXtreamMeta().hasUserInfo()) {
+      const xtream::UserInfo ui =
+          xtream::ParseUserInfo(pl->getXtreamMeta().userInfoJson);
+      status = wxString::FromUTF8(xtream::HumanStatus(ui));
+      if (ui.isTrial)
+        status += " " + _U("(Trial)");
+      if (!ui.hasExpDate()) {
+        expires = wxString::FromUTF8("\xE2\x88\x9E");
+      } else {
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        if (xtream::IsExpiringSoon(ui.expDate, now, 3))
+          expires = wxString::FromUTF8("\xE2\x9A\xA0 ");
+        expires += wxString::FromUTF8(xtream::FormatExpiryDate(ui.expDate));
+      }
+    }
+
+    wxString autoUpd =
+        pl->getAutoUpdate() ? wxString::FromUTF8(UiGlyph::kOn) : wxString();
     wxString lastUpd = formatTimestamp(pl->getLastUpdate());
 
     long itemIndex =
@@ -57,8 +80,10 @@ void MainFrame::RefreshPlaylistView() {
     m_playlistList->SetItem(itemIndex, 1, title);
     m_playlistList->SetItem(itemIndex, 2, source);
     m_playlistList->SetItem(itemIndex, 3, channels);
-    m_playlistList->SetItem(itemIndex, 4, autoUpd);
-    m_playlistList->SetItem(itemIndex, 5, lastUpd);
+    m_playlistList->SetItem(itemIndex, 4, status);
+    m_playlistList->SetItem(itemIndex, 5, expires);
+    m_playlistList->SetItem(itemIndex, 6, autoUpd);
+    m_playlistList->SetItem(itemIndex, 7, lastUpd);
     m_playlistList->SetItemData(itemIndex, static_cast<wxUIntPtr>(i));
     ++row;
   }
@@ -99,9 +124,32 @@ void MainFrame::addPlaylistToView(size_t index, const Playlist *playlist) {
   m_playlistList->SetItem(item, 2, wxString::FromUTF8(playlist->getSource()));
   m_playlistList->SetItem(item, 3,
                           wxString::Format("%zu", playlist->getChannelCount()));
-  m_playlistList->SetItem(item, 4,
-                          playlist->getAutoUpdate() ? _U("Yes") : _U("No"));
-  m_playlistList->SetItem(item, 5, formatTimestamp(playlist->getLastUpdate()));
+
+  wxString status;
+  wxString expires;
+  if (playlist->isXtream() && playlist->getXtreamMeta().hasUserInfo()) {
+    const xtream::UserInfo ui =
+        xtream::ParseUserInfo(playlist->getXtreamMeta().userInfoJson);
+    status = wxString::FromUTF8(xtream::HumanStatus(ui));
+    if (ui.isTrial)
+      status += " " + _U("(Trial)");
+    if (!ui.hasExpDate()) {
+      expires = wxString::FromUTF8("\xE2\x88\x9E");
+    } else {
+      const int64_t now = static_cast<int64_t>(std::time(nullptr));
+      if (xtream::IsExpiringSoon(ui.expDate, now, 3))
+        expires = wxString::FromUTF8("\xE2\x9A\xA0 ");
+      expires += wxString::FromUTF8(xtream::FormatExpiryDate(ui.expDate));
+    }
+  }
+
+  m_playlistList->SetItem(item, 4, status);
+  m_playlistList->SetItem(item, 5, expires);
+  m_playlistList->SetItem(
+      item, 6,
+      playlist->getAutoUpdate() ? wxString::FromUTF8(UiGlyph::kOn)
+                                : wxString());
+  m_playlistList->SetItem(item, 7, formatTimestamp(playlist->getLastUpdate()));
   m_playlistList->SetItemData(item, static_cast<wxUIntPtr>(index));
 }
 
@@ -110,6 +158,7 @@ void MainFrame::updateStatusBar(size_t playlistCount) {
 }
 
 void MainFrame::enablePlaylistButtons(bool enable) {
+  m_infoBtn->Enable(enable);
   m_openBtn->Enable(enable);
   m_updateBtn->Enable(enable);
   m_editBtn->Enable(enable);

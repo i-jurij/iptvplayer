@@ -134,12 +134,14 @@ MainFrame::MainFrame(Application *app)
   Bind(wxEVT_BUTTON, &MainFrame::onUpdatePlaylist, this, ID_UPDATE_PLAYLIST);
   Bind(wxEVT_BUTTON, &MainFrame::onEditPlaylist, this, ID_EDIT_PLAYLIST);
   Bind(wxEVT_BUTTON, &MainFrame::onRemovePlaylist, this, ID_REMOVE_PLAYLIST);
+  Bind(wxEVT_BUTTON, &MainFrame::onPlaylistInfo, this, ID_PLAYLIST_INFO);
 
   // Контекстное меню плейлистов
   Bind(wxEVT_MENU, &MainFrame::onOpenPlaylist, this, ID_OPEN_PLAYLIST);
   Bind(wxEVT_MENU, &MainFrame::onUpdatePlaylist, this, ID_UPDATE_PLAYLIST);
   Bind(wxEVT_MENU, &MainFrame::onEditPlaylist, this, ID_EDIT_PLAYLIST);
   Bind(wxEVT_MENU, &MainFrame::onRemovePlaylist, this, ID_REMOVE_PLAYLIST);
+  Bind(wxEVT_MENU, &MainFrame::onPlaylistInfo, this, ID_PLAYLIST_INFO);
 
   // События списка плейлистов
   Bind(wxEVT_LIST_ITEM_SELECTED, &MainFrame::onPlaylistSelected, this,

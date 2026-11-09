@@ -377,7 +377,8 @@ void PostAddFromUrlEvent(int eventId, const std::string &errorMsg = "") {
 ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
                                               std::string &title,
                                               const std::string &userAgent,
-                                              bool autoUpdate) {
+                                              bool autoUpdate, bool isXtream,
+                                              XtreamMeta xtreamMeta) {
   fprintf(stderr, "[MARK] B0: enter addPlaylistFromUrl url='%s'\n",
           url.c_str());
   fflush(stderr);
@@ -389,6 +390,12 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
   auto playlist = std::make_unique<Playlist>(title, url, true);
   playlist->setUserAgent(userAgent);
   playlist->setAutoUpdate(autoUpdate);
+
+  if (isXtream) {
+    playlist->setXtream(true);
+    if (xtreamMeta.hasUserInfo())
+      playlist->setXtreamMeta(std::move(xtreamMeta));
+  }
 
   if (m_addFromUrlFuture.valid()) {
     m_addFromUrlFuture.wait();

@@ -163,16 +163,19 @@ void MainFrame::onPlaylistsAutoUpdateAll(wxCommandEvent &) {
 wxSizer *MainFrame::createPlaylistButtons() {
   auto *btnSizer = new wxBoxSizer(wxHORIZONTAL);
 
+  m_infoBtn = new wxButton(m_playlistPanel, ID_PLAYLIST_INFO, _U("Info"));
   m_openBtn = new wxButton(m_playlistPanel, ID_OPEN_PLAYLIST, _U("Open"));
   m_updateBtn = new wxButton(m_playlistPanel, ID_UPDATE_PLAYLIST, _U("Update"));
   m_editBtn = new wxButton(m_playlistPanel, ID_EDIT_PLAYLIST, _U("Edit"));
   m_removeBtn = new wxButton(m_playlistPanel, ID_REMOVE_PLAYLIST, _U("Remove"));
 
+  m_infoBtn->Enable(false);
   m_openBtn->Enable(false);
   m_updateBtn->Enable(false);
   m_editBtn->Enable(false);
   m_removeBtn->Enable(false);
 
+  btnSizer->Add(m_infoBtn, 0, wxRIGHT, FromDIP(6));
   btnSizer->Add(m_openBtn, 0, wxRIGHT, FromDIP(6));
   btnSizer->Add(m_updateBtn, 0, wxRIGHT, FromDIP(6));
   btnSizer->Add(m_editBtn, 0, wxRIGHT, FromDIP(6));
@@ -219,8 +222,10 @@ void MainFrame::createPlaylistList() {
   m_playlistList->InsertColumn(1, _U("Title"), wxLIST_FORMAT_LEFT);
   m_playlistList->InsertColumn(2, _U("Source"), wxLIST_FORMAT_LEFT);
   m_playlistList->InsertColumn(3, _U("Channels"), wxLIST_FORMAT_LEFT);
-  m_playlistList->InsertColumn(4, _U("Auto update"), wxLIST_FORMAT_LEFT);
-  m_playlistList->InsertColumn(5, _U("Last Update"), wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(4, _U("Status"), wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(5, _U("Expires"), wxLIST_FORMAT_LEFT);
+  m_playlistList->InsertColumn(6, _U("Auto update"), wxLIST_FORMAT_CENTER);
+  m_playlistList->InsertColumn(7, _U("Last Update"), wxLIST_FORMAT_LEFT);
 
   // Синхронизация состояния при выборе элемента
   m_playlistList->Bind(wxEVT_LIST_ITEM_SELECTED, [this](wxListEvent &evt) {

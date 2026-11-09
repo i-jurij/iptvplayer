@@ -230,7 +230,8 @@ private:
 #endif
 
   wxListCtrl *m_playlistList{nullptr};
-  
+
+  wxButton *m_infoBtn{nullptr};
   wxButton *m_openBtn{nullptr};
   wxButton *m_updateAllBtn{nullptr};
   wxButton *m_updateBtn{nullptr};
@@ -344,6 +345,7 @@ private:
   void onOpenPlaylist(wxCommandEvent &event);
   void onEditPlaylist(wxCommandEvent &event);
   void onRemovePlaylist(wxCommandEvent &event);
+  void onPlaylistInfo(wxCommandEvent &event);
   void onUpdatePlaylist(wxCommandEvent &event);
   void onUpdateAllPlaylists(wxCommandEvent &event);
   void onPlDelKeyDown(wxKeyEvent &event);
