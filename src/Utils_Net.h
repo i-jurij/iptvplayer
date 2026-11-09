@@ -51,6 +51,10 @@ bool HasNonTrivialPath(const wxString &url);
 // scheme://host[:port], без path/query. URL без схемы → пустая строка.
 wxString GetOrigin(const wxString &url);
 
+// scheme://host[:port][/parent-path]
+// Отсекает последний сегмент path (get.php → /, /iptv/get.php → /iptv).
+wxString GetOriginWithParentPath(const wxString &url);
+
 struct UrlCredentials {
   wxString user;
   wxString pass;

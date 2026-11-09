@@ -230,6 +230,32 @@ wxString GetOrigin(const wxString &url) {
   return origin;
 }
 
+wxString GetOriginWithParentPath(const wxString &url) {
+  if (url.IsEmpty())
+    return wxString();
+
+  wxURI uri(url);
+  if (!uri.HasScheme() || !uri.HasServer())
+    return wxString();
+
+  wxString origin = uri.GetScheme().Lower() + "://" + uri.GetServer();
+  if (uri.HasPort())
+    origin += ":" + uri.GetPort();
+
+  wxString path = uri.GetPath();
+  if (!path.IsEmpty() && path != "/") {
+    const size_t lastSlash = path.rfind('/');
+    if (lastSlash != wxString::npos && lastSlash > 0)
+      path = path.Left(lastSlash);
+    else
+      path.clear();
+    if (!path.IsEmpty())
+      origin += path;
+  }
+
+  return origin;
+}
+
 UrlCredentials ExtractQueryCredentials(const wxString &url) {
   UrlCredentials result;
   if (url.IsEmpty())

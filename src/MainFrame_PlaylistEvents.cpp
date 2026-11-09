@@ -21,8 +21,23 @@
 #include <wx/filename.h>
 #include <wx/msgdlg.h>
 #include <wx/timer.h>
+#include <wx/uri.h>
 
 #include <cstdio>
+
+namespace {
+
+void SelectLastPlaylistRow(wxListCtrl *list) {
+  if (!list)
+    return;
+  const long lastRow = list->GetItemCount() - 1;
+  if (lastRow < 0)
+    return;
+  list->SetItemState(lastRow, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+  list->EnsureVisible(lastRow);
+}
+
+} // namespace
 
 void MainFrame::BeginPlaylistGauge(int total) {
   if (m_gaugeOwner == GaugeOwner::Epg)
@@ -205,6 +220,7 @@ void MainFrame::onAddPlaylistFile(wxCommandEvent &WXUNUSED(event)) {
 
     savePlaylistsToConfig();
     RefreshPlaylistView();
+    SelectLastPlaylistRow(m_playlistList);
     SetStatusText(
         wxString::Format(_U("Playlist added: %s"),
                          wxString::FromUTF8(titleWx.ToStdString())));
@@ -321,6 +337,68 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
       showError(this,
                 wxString::Format(_U("Failed to start playlist loading:\n\n%s"),
                                  wxString::FromUTF8(mgr->getLastError())));
+      return;
+    }
+
+    const UrlCredentials creds = ExtractQueryCredentials(serverUrl);
+    if (creds.valid && !creds.user.IsEmpty() && !creds.pass.IsEmpty()) {
+      const wxString apiBase = GetOriginWithParentPath(serverUrl);
+      if (!apiBase.IsEmpty()) {
+        wxWeakRef<MainFrame> weakThis(this);
+        const wxString serverUrlCopy = serverUrl;
+        const wxString uaProbe = dlg.GetUserAgent();
+
+        xtream::ProbeAsync(
+            apiBase, creds.user, creds.pass, uaProbe,
+            [weakThis, serverUrlCopy](bool ok, const wxString &,
+                                      const wxString &error,
+                                      const std::string &userInfoJson,
+                                      const std::string &serverInfoJson) {
+              auto *self = weakThis.get();
+              if (!self)
+                return;
+
+              if (!ok || userInfoJson.empty()) {
+                LOG_WARN("Xtream full-URL: meta probe failed for '%s': %s",
+                         serverUrlCopy.utf8_str().data(),
+                         error.utf8_str().data());
+                return;
+              }
+
+              const std::string srcKey = serverUrlCopy.utf8_str().data();
+
+              auto *mgr = self->getPlaylistManager();
+              if (!mgr) {
+                self->m_pendingXtreamMetaBySource[srcKey] =
+                    std::make_pair(userInfoJson, serverInfoJson);
+                return;
+              }
+
+              Playlist *found = nullptr;
+              for (const auto &up : mgr->getPlaylists()) {
+                if (up && up->getSource() == srcKey) {
+                  found = up.get();
+                  break;
+                }
+              }
+
+              if (!found) {
+                self->m_pendingXtreamMetaBySource[srcKey] =
+                    std::make_pair(userInfoJson, serverInfoJson);
+                return;
+              }
+
+              XtreamMeta meta;
+              meta.userInfoJson = userInfoJson;
+              meta.serverInfoJson = serverInfoJson;
+              found->setXtream(true);
+              found->setXtreamMeta(std::move(meta));
+              mgr->savePlaylist(found);
+              LOG_INFO("Xtream full-URL: saved meta for '%s'",
+                       found->getTitle().c_str());
+              self->RefreshPlaylistView();
+            });
+      }
     }
     return;
   }
@@ -440,9 +518,36 @@ void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
     }
   }
 
+  if (auto *mgr = getPlaylistManager();
+      mgr && !m_pendingXtreamMetaBySource.empty()) {
+    auto it = m_pendingXtreamMetaBySource.begin();
+    while (it != m_pendingXtreamMetaBySource.end()) {
+      Playlist *found = nullptr;
+      for (const auto &up : mgr->getPlaylists()) {
+        if (up && up->getSource() == it->first) {
+          found = up.get();
+          break;
+        }
+      }
+      if (!found) {
+        ++it;
+        continue;
+      }
+      XtreamMeta meta;
+      meta.userInfoJson = it->second.first;
+      meta.serverInfoJson = it->second.second;
+      found->setXtream(true);
+      found->setXtreamMeta(std::move(meta));
+      mgr->savePlaylist(found);
+      LOG_INFO("Xtream full-URL: applied pending meta for '%s'",
+               found->getTitle().c_str());
+      it = m_pendingXtreamMetaBySource.erase(it);
+    }
+  }
+
   savePlaylistsToConfig();
   RefreshPlaylistView();
-
+  SelectLastPlaylistRow(m_playlistList);
   SetStatusText(_U("Playlist added from URL."), 0);
 }
 
