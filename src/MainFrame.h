@@ -82,7 +82,7 @@ public:
   // ----------------------------------------------------------------
   // Public helpers
   void RefreshPlaylistView();
-  void adjustTitleColumnWidth();
+  void adjustPlaylistColumns();
   void addPlaylistToView(size_t index, const Playlist *playlist);
   void editPlaylistAtIndex(int index);
   void updatePlaylistFromDialog(int index, const EditPlaylistDialog &dlg);

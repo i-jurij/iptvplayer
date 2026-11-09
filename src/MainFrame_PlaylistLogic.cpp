@@ -50,7 +50,8 @@ void MainFrame::RefreshPlaylistView() {
       continue;
 
     wxString title = wxString::FromUTF8(pl->getTitle());
-    wxString source = wxString::FromUTF8(pl->getSource());
+    wxString source =
+        SanitizeUrlForLog(wxString::FromUTF8(pl->getSource()));
     wxString channels = wxString::Format("%zu", pl->getChannelCount());
 
     wxString status;
@@ -88,7 +89,7 @@ void MainFrame::RefreshPlaylistView() {
     ++row;
   }
 
-  adjustTitleColumnWidth();
+  adjustPlaylistColumns();
   updateStatusBar(playlists.size());
 
   // Попытка восстановить выделение по сохранённому модельному индексу
@@ -121,7 +122,9 @@ void MainFrame::addPlaylistToView(size_t index, const Playlist *playlist) {
       m_playlistList->InsertItem(static_cast<long>(index), indexStr);
 
   m_playlistList->SetItem(item, 1, wxString::FromUTF8(playlist->getTitle()));
-  m_playlistList->SetItem(item, 2, wxString::FromUTF8(playlist->getSource()));
+  m_playlistList->SetItem(
+      item, 2,
+      SanitizeUrlForLog(wxString::FromUTF8(playlist->getSource())));
   m_playlistList->SetItem(item, 3,
                           wxString::Format("%zu", playlist->getChannelCount()));
 

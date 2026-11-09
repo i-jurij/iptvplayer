@@ -26,26 +26,6 @@ bool IsNetworkUrl(const wxString &url) {
   return true;
 }
 
-// Структура для сбора заголовков
-struct HeaderData {
-  long long contentLength;
-  HeaderData() : contentLength(-1) {}
-};
-
-static size_t HeaderCallback(char *buffer, size_t size, size_t nitems,
-                             void *userdata) {
-  HeaderData *hd = static_cast<HeaderData *>(userdata);
-  std::string line(buffer, size * nitems);
-  std::string prefix = "Content-Length:";
-  if (line.find(prefix) == 0) {
-    std::string val = line.substr(prefix.size());
-    val.erase(0, val.find_first_not_of(" \t\r\n"));
-    val.erase(val.find_last_not_of(" \t\r\n") + 1);
-    hd->contentLength = std::stoll(val);
-  }
-  return size * nitems;
-}
-
 void ApplyCurlCaBundle(CURL *handle) {
   if (!handle)
     return;
@@ -106,12 +86,7 @@ UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
     curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
   }
 
-  HeaderData headerData;
-  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
-  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerData);
-
   curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
-  curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "HEAD");
 
   CURLcode res = curl_easy_perform(curl);
   long httpCode = 0;
@@ -124,16 +99,17 @@ UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
     return result;
   }
 
-  if (httpCode == 405) {
+  if (httpCode == 405 || httpCode == 501) {
     curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
     curl_easy_setopt(curl, CURLOPT_RANGE, "0-0");
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
-                     [](char *, size_t size, size_t nmemb, void *) -> size_t {
-                       return size * nmemb;
-                     });
+    curl_easy_setopt(
+        curl, CURLOPT_WRITEFUNCTION,
+        +[](char *, size_t s, size_t n, void *) -> size_t { return s * n; });
+
     res = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
     result.httpCode = httpCode;
+
     if (res != CURLE_OK) {
       result.errorText =
           "CURL error on GET Range: " + std::string(curl_easy_strerror(res));
@@ -145,14 +121,17 @@ UrlAvailabilityResult CheckUrlAvailability(const std::string &url,
       curl_easy_cleanup(curl);
       return result;
     }
-  } else if (httpCode != 200) {
+  } else if (httpCode < 200 || httpCode >= 300) {
     result.errorText = "HTTP " + std::to_string(httpCode);
     curl_easy_cleanup(curl);
     return result;
   }
 
   result.available = true;
-  result.contentLength = headerData.contentLength;
+
+  curl_off_t cl = -1;
+  curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &cl);
+  result.contentLength = cl > 0 ? static_cast<long long>(cl) : -1;
 
   if (maxFileSize > 0 && result.contentLength > maxFileSize) {
     result.available = false;
@@ -280,5 +259,50 @@ UrlCredentials ExtractQueryCredentials(const wxString &url) {
       break;
     pos = amp + 1;
   }
+  return result;
+}
+
+wxString SanitizeUrlForLog(const wxString &url) {
+  if (url.IsEmpty())
+    return url;
+
+  wxURI uri(url);
+  if (!uri.HasScheme())
+    return url;
+
+  wxString result = url;
+
+  if (uri.HasQuery()) {
+    const wxString query = uri.GetQuery();
+    wxString masked;
+    size_t pos = 0;
+    while (pos < query.length()) {
+      const size_t amp = query.find('&', pos);
+      wxString pair =
+          (amp == wxString::npos) ? query.Mid(pos) : query.Mid(pos, amp - pos);
+      const size_t eq = pair.find('=');
+      if (eq != wxString::npos) {
+        const wxString key = pair.Left(eq);
+        const wxString keyLower = key.Lower();
+        if (keyLower == "username" || keyLower == "password")
+          pair = key + "=***";
+      }
+      if (!masked.IsEmpty())
+        masked += "&";
+      masked += pair;
+      if (amp == wxString::npos)
+        break;
+      pos = amp + 1;
+    }
+
+    const size_t qpos = result.find('?');
+    if (qpos != wxString::npos) {
+      size_t endpos = result.find('#', qpos);
+      if (endpos == wxString::npos)
+        endpos = result.length();
+      result = result.Left(qpos + 1) + masked + result.Mid(endpos);
+    }
+  }
+
   return result;
 }

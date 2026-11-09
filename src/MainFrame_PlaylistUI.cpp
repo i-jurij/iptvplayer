@@ -10,71 +10,90 @@
 #include <wx/sizer.h>
 #include <wx/statline.h>
 
-void MainFrame::adjustTitleColumnWidth() {
+void MainFrame::adjustPlaylistColumns() {
   if (!m_playlistList)
+    return;
+
+  int clientW = m_playlistList->GetClientSize().GetWidth();
+  if (clientW <= 0)
+    return;
+
+  clientW -= wxSystemSettings::GetMetric(wxSYS_VSCROLL_X);
+  clientW -= FromDIP(4);
+  if (clientW <= 60)
     return;
 
   wxClientDC dc(m_playlistList);
   dc.SetFont(m_playlistList->GetFont());
+  const int pad = FromDIP(20);
 
-  wxListItem colItem;
-  colItem.SetMask(wxLIST_MASK_TEXT);
-  if (m_playlistList->GetColumn(1, colItem)) {
-    wxString titleHeader = colItem.GetText();
-    int headerWidth = dc.GetTextExtent(titleHeader).GetWidth() + 20;
-    int maxTitleWidth = dc.GetTextExtent(wxString('X', 50)).GetWidth();
-
-    m_playlistList->SetColumnWidth(1, wxLIST_AUTOSIZE);
-    int current = m_playlistList->GetColumnWidth(1);
-
-    int longestTitleWidth = 0;
+  auto getHeader = [&](int col) -> wxString {
     wxListItem item;
     item.SetMask(wxLIST_MASK_TEXT);
-    item.SetColumn(1);
-    for (long row = 0; row < m_playlistList->GetItemCount(); ++row) {
-      item.SetId(row);
-      if (m_playlistList->GetItem(item)) {
-        int textWidth = dc.GetTextExtent(item.GetText()).GetWidth();
-        if (textWidth > longestTitleWidth) {
-          longestTitleWidth = textWidth;
-        }
-      }
-    }
+    if (m_playlistList->GetColumn(col, item))
+      return item.GetText();
+    return wxString();
+  };
 
-    int targetWidth = std::max({current, headerWidth, longestTitleWidth});
-    if (targetWidth > maxTitleWidth)
-      targetWidth = maxTitleWidth;
-    m_playlistList->SetColumnWidth(1, targetWidth);
+  auto measure = [&](int col) -> int {
+    int w = dc.GetTextExtent(getHeader(col)).GetWidth() + pad;
+    for (long r = 0; r < m_playlistList->GetItemCount(); ++r) {
+      int cw =
+          dc.GetTextExtent(m_playlistList->GetItemText(r, col)).GetWidth() +
+          pad;
+      if (cw > w)
+        w = cw;
+    }
+    return w;
+  };
+
+  const int kMinNumW = FromDIP(40);
+  const int kMinChannelsW = FromDIP(60);
+  const int kMinStatusW = FromDIP(80);
+  const int kMinExpiresW = FromDIP(80);
+  const int kMinAutoW = FromDIP(50);
+  const int kMinLastUpdW = FromDIP(120);
+
+  const int w0 = std::max(measure(0), kMinNumW);
+  const int w3 = std::max(measure(3), kMinChannelsW);
+  const int w4 = std::max(measure(4), kMinStatusW);
+  const int w5 = std::max(measure(5), kMinExpiresW);
+  const int w6 = std::max(measure(6), kMinAutoW);
+  const int w7 = std::max(measure(7), kMinLastUpdW);
+
+  const int fixedSum = w0 + w3 + w4 + w5 + w6 + w7;
+
+  const int kMinTitleW = FromDIP(120);
+  const int kMaxTitleW = FromDIP(400);
+  const int kMinUrlW = FromDIP(180);
+
+  int titleW = std::clamp(measure(1), kMinTitleW, kMaxTitleW);
+  int urlW = std::max(measure(2), kMinUrlW);
+
+  const int needed = fixedSum + titleW + urlW;
+  if (needed > clientW) {
+    int overflow = needed - clientW;
+
+    const int urlCanShrink = std::max(0, urlW - kMinUrlW);
+    const int shrinkUrl = std::min(overflow, urlCanShrink);
+    urlW -= shrinkUrl;
+    overflow -= shrinkUrl;
+
+    if (overflow > 0) {
+      const int titleCanShrink = std::max(0, titleW - kMinTitleW);
+      const int shrinkTitle = std::min(overflow, titleCanShrink);
+      titleW -= shrinkTitle;
+    }
   }
 
-  colItem.SetMask(wxLIST_MASK_TEXT);
-  if (m_playlistList->GetColumn(2, colItem)) {
-    wxString sourceHeader = colItem.GetText();
-    int headerWidth2 = dc.GetTextExtent(sourceHeader).GetWidth() + 20;
-    int maxSourceWidth = dc.GetTextExtent(wxString('X', 150)).GetWidth();
-
-    m_playlistList->SetColumnWidth(2, wxLIST_AUTOSIZE);
-    int current = m_playlistList->GetColumnWidth(2);
-
-    int longestSourceWidth = 0;
-    wxListItem item;
-    item.SetMask(wxLIST_MASK_TEXT);
-    item.SetColumn(2);
-    for (long row = 0; row < m_playlistList->GetItemCount(); ++row) {
-      item.SetId(row);
-      if (m_playlistList->GetItem(item)) {
-        int textWidth = dc.GetTextExtent(item.GetText()).GetWidth();
-        if (textWidth > longestSourceWidth) {
-          longestSourceWidth = textWidth;
-        }
-      }
-    }
-
-    int targetWidth = std::max({current, headerWidth2, longestSourceWidth});
-    if (targetWidth > maxSourceWidth)
-      targetWidth = maxSourceWidth;
-    m_playlistList->SetColumnWidth(2, targetWidth);
-  }
+  m_playlistList->SetColumnWidth(0, w0);
+  m_playlistList->SetColumnWidth(1, titleW);
+  m_playlistList->SetColumnWidth(2, urlW);
+  m_playlistList->SetColumnWidth(3, w3);
+  m_playlistList->SetColumnWidth(4, w4);
+  m_playlistList->SetColumnWidth(5, w5);
+  m_playlistList->SetColumnWidth(6, w6);
+  m_playlistList->SetColumnWidth(7, w7);
 }
 
 void MainFrame::createPlaylistPanel() {
@@ -260,16 +279,10 @@ void MainFrame::createPlaylistList() {
 
   m_playlistPanel->Bind(wxEVT_SIZE, [this](wxSizeEvent &evt) {
     evt.Skip();
-    int clientWidth = m_playlistList->GetClientSize().GetWidth();
-    if (clientWidth <= 0)
-      return;
-    for (int i = 0; i < m_playlistList->GetColumnCount(); ++i) {
-      m_playlistList->SetColumnWidth(i, wxLIST_AUTOSIZE_USEHEADER);
-    }
-    adjustTitleColumnWidth();
+    adjustPlaylistColumns();
   });
 
-  adjustTitleColumnWidth();
+  adjustPlaylistColumns();
 
   // Bind Delete key
   m_playlistList->Bind(wxEVT_KEY_DOWN, &MainFrame::onPlDelKeyDown, this);

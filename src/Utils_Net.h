@@ -60,3 +60,12 @@ struct UrlCredentials {
 // Извлекает username/password из query. URL без схемы → valid=false.
 // Отсутствие username/password в query → valid=true, user/pass пустые.
 UrlCredentials ExtractQueryCredentials(const wxString &url);
+
+// Возвращает URL с замаскированными username/password в query.
+// Остальное (scheme, host, port, path, другие query-параметры) не меняется.
+// Для URL без схемы возвращает вход как есть.
+wxString SanitizeUrlForLog(const wxString &url);
+inline std::string SanitizeUrlForLog(const std::string &url) {
+  return std::string(
+      SanitizeUrlForLog(wxString::FromUTF8(url)).ToUTF8().data());
+}

@@ -6,10 +6,12 @@
 #include "xtream/XtreamInfo.h"
 
 #include <wx/button.h>
+#include <wx/dcclient.h>
 #include <wx/sizer.h>
 #include <wx/statbox.h>
 #include <wx/statline.h>
 #include <wx/stattext.h>
+#include <wx/textctrl.h>
 
 #include <ctime>
 
@@ -41,7 +43,36 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
 
   auto *infoBox = new wxStaticBoxSizer(wxVERTICAL, this, _U("Playlist"));
   addRow(infoBox, _U("Title:"), wxString::FromUTF8(playlist.getTitle()));
-  addRow(infoBox, _U("Source:"), wxString::FromUTF8(playlist.getSource()));
+
+  {
+    auto *row = new wxBoxSizer(wxHORIZONTAL);
+    auto *lbl = new wxStaticText(this, wxID_ANY, _U("Source:"));
+    wxFont f = lbl->GetFont();
+    f.SetWeight(wxFONTWEIGHT_BOLD);
+    lbl->SetFont(f);
+    row->Add(lbl, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+
+    const wxString sourceStr = wxString::FromUTF8(playlist.getSource());
+
+    auto *urlCtrl = new wxTextCtrl(
+        this, wxID_ANY, sourceStr,
+        wxDefaultPosition, wxDefaultSize,
+        wxTE_READONLY | wxBORDER_NONE);
+    urlCtrl->SetBackgroundColour(GetBackgroundColour());
+    urlCtrl->SetToolTip(_U("Select and copy with Ctrl+C"));
+
+    {
+      wxClientDC dc(this);
+      dc.SetFont(GetFont());
+      const int textW = dc.GetTextExtent(sourceStr).GetWidth();
+      urlCtrl->SetMinSize(wxSize(textW + FromDIP(24), -1));
+    }
+
+    row->Add(urlCtrl, 1, wxEXPAND);
+
+    infoBox->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
+  }
+
   addRow(infoBox, _U("Channels:"),
          wxString::Format("%zu", playlist.getChannelCount()));
   mainSizer->Add(infoBox, 0, wxEXPAND | wxALL, FromDIP(10));
@@ -66,9 +97,9 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
     }
 
     if (ui.maxConnections > 0) {
-      addRow(
-          accBox, _U("Connections:"),
-          wxString::Format("%d / %d", ui.activeConnections, ui.maxConnections));
+      addRow(accBox, _U("Connections:"),
+             wxString::Format(_U("active %d / %d allowed"),
+                              ui.activeConnections, ui.maxConnections));
     }
 
     if (ui.isTrial)
@@ -94,6 +125,16 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
   }
 
   SetSizerAndFit(mainSizer);
+
+  {
+    const int screenW = wxGetDisplaySize().GetWidth();
+    const int maxW = screenW - FromDIP(120);
+    wxSize cur = GetSize();
+    if (cur.GetWidth() > maxW)
+      SetSize(wxSize(maxW, cur.GetHeight()));
+  }
+
+  Layout();
   CentreOnParent();
 }
 

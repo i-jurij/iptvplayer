@@ -860,9 +860,10 @@ bool EPGManager::LoadFromUrl(const std::string &url,
                                                 &m_downloadProgress);
   if (ec != ErrorCode::OK) {
     StopProgressTimer();
-    setLastError("Failed to download EPG from " + url + ": " +
+    const std::string safeUrl = SanitizeUrlForLog(url);
+    setLastError("Failed to download EPG from " + safeUrl + ": " +
                  m_playlistManager->getLastError());
-    LOG_ERROR("EPGManager: Failed to download EPG from %s", url.c_str());
+    LOG_ERROR("EPGManager: Failed to download EPG from %s", safeUrl.c_str());
 
     return false;
   }
@@ -882,7 +883,7 @@ bool EPGManager::LoadFromUrl(const std::string &url,
   if (xmlData.size() > 100 * 1024 * 1024) {
     setLastError("Downloaded EPG exceeds 100 MB");
     LOG_ERROR("EPGManager: Downloaded data exceeds 100 MB from %s",
-              url.c_str());
+              SanitizeUrlForLog(url).c_str());
     return false;
   }
 
@@ -894,13 +895,15 @@ bool EPGManager::LoadFromUrl(const std::string &url,
       LOG_DEBUG("EPGManager: decompression cancelled for %s", url.c_str());
       return false;
     }
-    setLastError("Failed to decompress data from " + url);
-    LOG_ERROR("EPGManager: Failed to decompress data from %s", url.c_str());
+    const std::string safeUrl = SanitizeUrlForLog(url);
+    setLastError("Failed to decompress data from " + safeUrl);
+    LOG_ERROR("EPGManager: Failed to decompress data from %s",
+              safeUrl.c_str());
     return false;
   }
 
   LOG_DEBUG("EPGManager: Downloaded %zu bytes from %s", xmlData.size(),
-            url.c_str());
+            SanitizeUrlForLog(url).c_str());
   if (xmlData.size() > 200) {
     LOG_DEBUG("EPGManager: First 200 bytes: %.200s", xmlData.c_str());
   }
@@ -1172,19 +1175,22 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
   if (!parser.Parse(xmlData, &m_downloadProgress.abort)) {
     if (m_downloadProgress.abort.load()) {
       setLastError("Cancelled during XML parse");
-      LOG_WARN("EPGManager: XML parse cancelled for %s", sourceUrl.c_str());
+      LOG_WARN("EPGManager: XML parse cancelled for %s",
+               SanitizeUrlForLog(sourceUrl).c_str());
       return false;
     }
-    setLastError("Failed to parse XML from " + sourceUrl);
-    LOG_ERROR("EPGManager: Failed to parse XML from %s", sourceUrl.c_str());
+    const std::string safeUrl = SanitizeUrlForLog(sourceUrl);
+    setLastError("Failed to parse XML from " + safeUrl);
+    LOG_ERROR("EPGManager: Failed to parse XML from %s", safeUrl.c_str());
     return false;
   }
 
   const auto &newChannels = parser.GetChannels();
   if (newChannels.empty()) {
-    setLastError("No channels found in XMLTV from " + sourceUrl);
+    const std::string safeUrl = SanitizeUrlForLog(sourceUrl);
+    setLastError("No channels found in XMLTV from " + safeUrl);
     LOG_ERROR("EPGManager: No channels found in XMLTV from %s",
-              sourceUrl.c_str());
+              safeUrl.c_str());
     return false;
   }
 
@@ -1273,7 +1279,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
   }
   if (committedChannels < total) {
     LOG_WARN("EPGManager: partial import from %s (%zu/%zu channels)",
-             sourceUrl.c_str(), committedChannels, total);
+             SanitizeUrlForLog(sourceUrl).c_str(), committedChannels, total);
   }
 
   const time_t newLastUpdate = EpgTime::GetCurrentUtcEpoch();
@@ -1308,7 +1314,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
   m_loaded = true;
 
   LOG_DEBUG("EPGManager: Parsed and merged data from %s, %zu/%zu channels",
-            sourceUrl.c_str(), committedChannels, total);
+            SanitizeUrlForLog(sourceUrl).c_str(), committedChannels, total);
 
   UpdateProgress(
       {EpgProgressStage::Saving, 100,
