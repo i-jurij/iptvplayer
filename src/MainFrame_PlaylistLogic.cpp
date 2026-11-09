@@ -791,13 +791,12 @@ void MainFrame::RegisterEpgSourceForPlaylist(const wxString &epgUrl,
           }
           epg2->ReMatchCurrentPlaylist();
           self->SetStatusText(_U("EPG source updated."), 0);
+          self->SetStatusText("", 1);
         } else {
           LOG_WARN("RegisterEpgSourceForPlaylist: EPG refresh failed: %s",
                    error.c_str());
-          self->SetStatusText(
-              wxString::Format(_U("EPG source update failed: %s"),
-                               wxString::FromUTF8(error)),
-              0);
+          self->SetStatusText(_U("EPG source update failed"), 0);
+          self->SetStatusText(wxString::FromUTF8(error), 1);
         }
       });
 
