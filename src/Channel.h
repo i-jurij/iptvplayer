@@ -1,6 +1,10 @@
 #pragma once
+
+#include <cstdint>
 #include <map>
 #include <string>
+
+enum class MediaType { Live = 0, Vod = 1, Series = 2, Episode = 3 };
 
 class Channel {
 public:
@@ -25,6 +29,12 @@ public:
   const std::string &getLogo() const { return m_tvgLogo; }
   const std::string &getTvgId() const { return m_tvgId; }
   const std::string &getTvgName() const { return m_tvgName; }
+
+  MediaType getMediaType() const { return m_mediaType; }
+  void setMediaType(MediaType v) { m_mediaType = v; }
+
+  int64_t getStreamId() const { return m_streamId; }
+  void setStreamId(int64_t v) { m_streamId = v; }
 
   const std::string &getPlaylistName() const { return m_playlistName; }
   const std::string &getPlaylistId() const { return m_playlistId; }
@@ -69,4 +79,7 @@ private:
   std::string m_season;     // для VOD (пока пусто)
 
   std::map<std::string, std::string> m_attributes;
+
+  MediaType m_mediaType = MediaType::Live;
+  int64_t m_streamId = 0;
 };

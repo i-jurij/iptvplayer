@@ -193,6 +193,8 @@ std::string Playlist::toJson() const {
                     alloc);
     chObj.AddMember("season", rapidjson::Value(ch.getSeason().c_str(), alloc),
                     alloc);
+    chObj.AddMember("mediaType", static_cast<int>(ch.getMediaType()), alloc);
+    chObj.AddMember("streamId", static_cast<int64_t>(ch.getStreamId()), alloc);
 
     for (const auto &[key, value] : ch.attributes()) {
       chObj.AddMember(rapidjson::Value(key.c_str(), alloc),
@@ -295,6 +297,14 @@ bool Playlist::fromJson(const std::string &json) {
     if (chVal.HasMember("season") && chVal["season"].IsString())
       ch.setSeason(chVal["season"].GetString());
 
+    if (chVal.HasMember("mediaType") && chVal["mediaType"].IsInt()) {
+      const int mt = chVal["mediaType"].GetInt();
+      if (mt >= 0 && mt <= 3)
+        ch.setMediaType(static_cast<MediaType>(mt));
+    }
+    if (chVal.HasMember("streamId") && chVal["streamId"].IsInt64())
+      ch.setStreamId(chVal["streamId"].GetInt64());
+
     // playlistId — производный от плейлиста-владельца.
     // Старые JSON могли хранить пустое или чужое значение.
     ch.setPlaylistId(m_uniqueId);
@@ -305,7 +315,8 @@ bool Playlist::fromJson(const std::string &json) {
       if (key != "name" && key != "url" && key != "groupTitle" &&
           key != "country" && key != "language" && key != "category" &&
           key != "tvgLogo" && key != "tvg-id" && key != "tvg-name" &&
-          key != "playlistId" && key != "series" && key != "season") {
+          key != "playlistId" && key != "series" && key != "season" &&
+          key != "mediaType" && key != "streamId") {
         if (it->value.IsString()) {
           ch.attributes()[key] = it->value.GetString();
         }
