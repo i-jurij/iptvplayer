@@ -242,6 +242,16 @@
         linuxdeploy-AppImage is built only for <code>x86_64</code> and <code>aarch64</code>.
     </p>
 
+    <h3>Update your system first</h3>
+    
+    <p>It is recommended to <strong>update and upgrade your system before installing the
+            application</strong>, so that all runtime dependencies (system libraries, graphics drivers)
+        are current and compatible. The exact command depends on your package manager — for example
+        <code>sudo apt update &amp;&amp; sudo apt upgrade</code>, <code>sudo dnf upgrade --refresh</code>,
+        <code>sudo pacman -Syu</code>, <code>sudo zypper update</code>, <code>sudo apk upgrade</code>,
+        <code>sudo xbps-install -Su</code>.
+    </p>
+
     <h3>Codec for H.264 streams</h3>
 
     <p>Most IPTV streams are H.264. On many distributions <code>ffmpeg</code> and
@@ -760,6 +770,16 @@
         <code>aarch64</code>, <code>i686</code> и <code>armv7l</code>/<code>armv8l</code>/<code>armhf</code>.
         В CI проверяется только <code>x86_64</code>; остальные — best-effort.
         linuxdeploy-AppImage собирается только для <code>x86_64</code> и <code>aarch64</code>.
+    </p>
+
+    <h3>Сначала обновите систему</h3>
+    
+    <p>Рекомендуется <strong>обновить систему перед установкой приложения</strong> — чтобы все
+        рантайм-зависимости (системные библиотеки, графические драйверы) были актуальными и
+        совместимыми. Точная команда зависит от пакетного менеджера — например,
+        <code>sudo apt update &amp;&amp; sudo apt upgrade</code>, <code>sudo dnf upgrade --refresh</code>,
+        <code>sudo pacman -Syu</code>, <code>sudo zypper update</code>, <code>sudo apk upgrade</code>,
+        <code>sudo xbps-install -Su</code>.
     </p>
 
     <h3>Кодек для потоков H.264</h3>

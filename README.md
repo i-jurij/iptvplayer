@@ -61,6 +61,15 @@ Only `x86_64` is exercised in CI; everything else is best-effort.
 linuxdeploy-AppImage is built only for `x86_64` and `aarch64` (upstream
 limitation — see `populate_appdir` in `scripts/build-appimage.sh`).
 
+### Update your system first
+
+It is recommended to **update and upgrade your system before installing the
+application**, so that all runtime dependencies (system libraries, graphics
+drivers) are current and compatible. The exact command depends on your
+package manager — for example `sudo apt update && sudo apt upgrade`,
+`sudo dnf upgrade --refresh`, `sudo pacman -Syu`, `sudo zypper update`,
+`sudo apk upgrade`, `sudo xbps-install -Su`.
+
 ### From source
 
 See [Building and packaging](#building-and-packaging) below.
