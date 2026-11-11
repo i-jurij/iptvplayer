@@ -38,9 +38,11 @@ private:
   
   wxStaticText *m_headerLabel;
   wxButton *m_manualMapBtn;
+  wxButton *m_playBtn;
   void UpdateHeader();
   
   void OnManualMapping(wxCommandEvent &event);
+  void OnPlay(wxCommandEvent &event);
 
   // UI
   wxStaticText *m_dateLabel;

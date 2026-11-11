@@ -98,6 +98,13 @@ void EPGPanel::SetupUI() {
   headerSizer->Add(m_headerLabel, 1, wxALIGN_CENTER_VERTICAL | wxALL,
                    FromDIP(10));
 
+  m_playBtn = new wxButton(
+      this, wxID_ANY, wxString::FromUTF8("\xE2\x96\xB6 ") + _U("Play"));
+  m_playBtn->Enable(false);
+  m_playBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnPlay, this);
+  headerSizer->Add(m_playBtn, 0, wxALIGN_CENTER_VERTICAL | wxALL,
+                   FromDIP(10));
+
   m_manualMapBtn = new wxButton(this, wxID_ANY, _U("Manual Mapping"));
   headerSizer->Add(m_manualMapBtn, 0, wxALIGN_CENTER_VERTICAL | wxALL,
                    FromDIP(10));
@@ -188,6 +195,10 @@ void EPGPanel::SetChannel(const Channel &channel) {
   m_currentChannel = channel;
   m_currentChannelId = channel.getTvgId();
   m_currentChannelName = channel.getName();
+
+  if (m_playBtn)
+    m_playBtn->Enable(!m_currentChannel.getUrl().empty() &&
+                      m_mainFrame != nullptr);
 
   UpdateHeader();
   LoadProgramsForChannel(m_currentChannelId, m_currentDate);
@@ -423,4 +434,14 @@ void EPGPanel::Clear() {
     m_detailDesc->SetValue("");
   if (m_headerLabel)
     m_headerLabel->SetLabel(_U("No channel selected"));
+  if (m_playBtn)
+    m_playBtn->Enable(false);
+}
+
+void EPGPanel::OnPlay(wxCommandEvent &) {
+  if (!m_mainFrame)
+    return;
+  if (m_currentChannel.getUrl().empty())
+    return;
+  m_mainFrame->PlayChannel(m_currentChannel);
 }
