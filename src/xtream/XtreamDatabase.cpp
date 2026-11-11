@@ -1841,4 +1841,57 @@ XtreamDatabase::GetVodByList(ListType type, int limit) const {
   }
 }
 
+std::vector<XtreamDatabase::Series>
+XtreamDatabase::GetSeriesByList(ListType type, int limit) const {
+  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
+  std::vector<Series> out;
+  if (!m_impl->open)
+    return out;
+
+  if (limit <= 0)
+    limit = 1000;
+  if (limit > 5000)
+    limit = 5000;
+
+  try {
+    Statement stmt = m_impl->db.PrepareStatement(
+        "SELECT s.series_id, s.name, s.name_lower, s.cover, s.plot, "
+        "       s.cast_list, s.director, s.genre, s.releaseDate, "
+        "       s.rating, s.rating_5based, s.backdrop_path, "
+        "       s.youtube_trailer, s.episode_run_time, s.last_modified "
+        "FROM series s "
+        "INNER JOIN user_lists l "
+        "  ON l.media_key = 'series:' || s.series_id "
+        "WHERE l.list_type = ? "
+        "ORDER BY l.added_at DESC LIMIT ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, U8(ListTypeToString(type)));
+    stmt.Bind(2, limit);
+    ResultSet rs = stmt.ExecuteQuery();
+    while (rs.NextRow()) {
+      Series s;
+      s.seriesId = rs.GetInt64(0).GetValue();
+      s.name = std::string(rs.GetString(1).utf8_str().data());
+      s.nameLower = std::string(rs.GetString(2).utf8_str().data());
+      s.coverUrl = std::string(rs.GetString(3).utf8_str().data());
+      s.plot = std::string(rs.GetString(4).utf8_str().data());
+      s.castList = std::string(rs.GetString(5).utf8_str().data());
+      s.director = std::string(rs.GetString(6).utf8_str().data());
+      s.genre = std::string(rs.GetString(7).utf8_str().data());
+      s.releaseDate = std::string(rs.GetString(8).utf8_str().data());
+      s.rating = rs.GetDouble(9);
+      s.rating5based = rs.GetDouble(10);
+      s.backdropPath = std::string(rs.GetString(11).utf8_str().data());
+      s.youtubeTrailer = std::string(rs.GetString(12).utf8_str().data());
+      s.episodeRunTime = std::string(rs.GetString(13).utf8_str().data());
+      s.lastModified = rs.GetInt64(14).GetValue();
+      out.push_back(std::move(s));
+    }
+    return out;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetSeriesByList: %s",
+              e.GetMessage().utf8_str().data());
+    return out;
+  }
+}
 } // namespace xtream

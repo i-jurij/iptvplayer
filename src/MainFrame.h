@@ -9,6 +9,7 @@
 #include "epg/EPGPanel.h"
 #include "epg/EpgSourceManagerPanel.h"
 #include "xtream/PosterCards.h"
+#include "xtream/SeriesPanel.h"
 #include "xtream/VodInfoPanel.h"
 
 #include <wx/activityindicator.h>
@@ -142,6 +143,7 @@ public:
 
   std::vector<Channel> GetCurrentChannels() const;
   std::string GetCurrentPlaylistId() const;
+  Playlist *GetLoadedPlaylist() const;
 
   void OpenFiles(const wxArrayString &paths);
 
@@ -385,6 +387,11 @@ private:
   // Перезагрузка каналов текущего плейлиста (если это он)
   bool ReloadPlaylistIfCurrent(Playlist *pl);
 
+  wxPanel *m_seriesPage = nullptr;
+  SeriesPanel *m_seriesPanel = nullptr;
+  wxToggleButton *m_btnSeries = nullptr;
+  int m_seriesPageIdx = wxNOT_FOUND;
+  bool m_seriesPanelCreated = false;
   wxPanel *m_moviesPage = nullptr;
   PosterCards *m_moviesCards = nullptr;
   VodInfoPanel *m_moviesInfo = nullptr;
@@ -418,6 +425,12 @@ private:
   int64_t m_lastVodStreamId = 0;
   int64_t m_currentVodStreamId = 0;
   bool m_vodLoading = false;
+
+  void EnsureSeriesPanel();
+  void OnSeriesToggle(wxCommandEvent &event);
+  void HandleSeriesPageChanged(int sel);
+  void UpdateSeriesTabVisibility();
+  void ResetSeriesState();
 
   void EnsureMoviesPanel();
   void PopulateMoviesCategories();

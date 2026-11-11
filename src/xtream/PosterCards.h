@@ -34,6 +34,10 @@ public:
   // Текст, который рисуется по центру сетки, когда items пустой.
   // Пустая строка — placeholder не рисуется (базовая отрисовка).
   void SetEmptyMessage(const wxString &msg);
+  // Позиция вертикального скролла (в пикселях). Используется для
+  // восстановления при drill-down в SeriesPanel (Stage 5.4).
+  int GetScrollY() const;
+  void SetScrollY(int y);
 
   const std::string &GetMediaKey(size_t index) const;
 

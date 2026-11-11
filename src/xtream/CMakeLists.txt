@@ -15,6 +15,7 @@ add_library(player_xtream OBJECT
     PosterCards.h
     VodInfoPanel.cpp
     VodInfoPanel.h
+    SeriesPanel.h
 )
 
 target_include_directories(player_xtream PRIVATE

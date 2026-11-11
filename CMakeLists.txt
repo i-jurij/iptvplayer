@@ -226,6 +226,7 @@ set(SOURCES
     src/MainFrame_PlaylistUI.cpp
     src/MainFrame_FavoritesUI.cpp
     src/MainFrame_XtreamUI.cpp
+    src/xtream/SeriesPanel.cpp
     src/MainFrame_Playback.cpp
     src/MainFrame_Menu.cpp
     src/MainFrame_Events.cpp

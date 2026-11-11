@@ -177,6 +177,7 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
     return;
 
   UpdateMoviesTabVisibility();
+  UpdateSeriesTabVisibility();
 
   m_epgDebounceTimer.Stop();
   m_epgPendingPanel = nullptr;

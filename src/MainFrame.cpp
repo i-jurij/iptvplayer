@@ -195,6 +195,7 @@ MainFrame::MainFrame(Application *app)
         HandleFavPageChanged(sel);
         HandlePlaylistPageChanged(sel);
         HandleMoviesPageChanged(sel);
+        HandleSeriesPageChanged(sel);
         if (sel == m_epgPageIdx) {
           SetStatusText("", 0);
           SetStatusText("", 1);
@@ -304,6 +305,10 @@ std::string MainFrame::GetCurrentPlaylistId() const {
     return "";
   auto *pl = mgr->getPlaylist(static_cast<size_t>(m_loadedPlaylistIndex));
   return pl ? pl->getUniqueId() : "";
+}
+
+Playlist *MainFrame::GetLoadedPlaylist() const {
+  return GetPlaylistByIndex(m_loadedPlaylistIndex);
 }
 
 bool MainFrame::IsVideoPageActive() const {

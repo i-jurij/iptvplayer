@@ -28,7 +28,8 @@ static wxGauge *makeGauge(wxWindow *parent) {
 
 void MainFrame::ToggleHeaderGroup(wxToggleButton *active) {
   wxToggleButton *buttons[] = {m_btnPlaylists, m_btnChannels, m_btnFavorites,
-                               m_btnVideo,    m_btnEpg,      m_btnMovies};
+                               m_btnVideo,    m_btnEpg,      m_btnMovies,
+                               m_btnSeries};
 
   for (auto *b : buttons) {
     if (!b)
@@ -52,6 +53,8 @@ void MainFrame::ToggleHeaderGroup(int sel) {
     ToggleHeaderGroup(m_btnEpg);
   else if (m_moviesPageIdx != wxNOT_FOUND && sel == m_moviesPageIdx)
     ToggleHeaderGroup(m_btnMovies);
+  else if (m_seriesPageIdx != wxNOT_FOUND && sel == m_seriesPageIdx)
+    ToggleHeaderGroup(m_btnSeries);
 }
 
 void MainFrame::ToggleHeaderGroup(const wxString &name) {
@@ -191,6 +194,8 @@ void MainFrame::createMainPanel() {
   m_btnEpg = makeButton(_U("Program"), "program");
   m_btnMovies = makeButton(_U("Movies"), "movies");
   m_btnMovies->Hide();
+  m_btnSeries = makeButton(_U("Series"), "series");
+  m_btnSeries->Hide();
   wxBitmapBundle menuIcon = LoadSvgIcon("menu", this);
 
 #ifdef __WXMSW__
@@ -211,6 +216,7 @@ void MainFrame::createMainPanel() {
   headerSizer->Add(m_btnChannels, 0, wxALL, FromDIP(6));
   headerSizer->Add(m_btnFavorites, 0, wxALL, FromDIP(6));
   headerSizer->Add(m_btnMovies, 0, wxALL, FromDIP(6));
+  headerSizer->Add(m_btnSeries, 0, wxALL, FromDIP(6));
   headerSizer->Add(m_btnVideo, 0, wxALL, FromDIP(6));
   headerSizer->AddStretchSpacer(1);
   headerSizer->Add(m_btnPlaylists, 0, wxALL, FromDIP(6));
@@ -390,6 +396,7 @@ void MainFrame::createMainPanel() {
 
   m_btnEpg->Bind(wxEVT_TOGGLEBUTTON, &MainFrame::OnEpgToggle, this);
   m_btnMovies->Bind(wxEVT_TOGGLEBUTTON, &MainFrame::OnMoviesToggle, this);
+  m_btnSeries->Bind(wxEVT_TOGGLEBUTTON, &MainFrame::OnSeriesToggle, this);
 
   btnMenu->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { ShowMainMenu(); });
 

@@ -58,7 +58,7 @@ public:
   bool RemoveFromList(const std::string &mediaKey, ListType type);
   bool IsInList(const std::string &mediaKey, ListType type) const;
   std::vector<std::string> GetList(ListType type) const;
-  
+
   // ---- VOD ----
   struct VodStream {
     int64_t streamId = 0;
@@ -72,10 +72,30 @@ public:
     std::string customSid;
   };
 
+    // ---- Series ----
+  struct Series {
+    int64_t seriesId = 0;
+    std::string name;
+    std::string nameLower; // пусто → вычислит InsertSeriesBatch
+    std::string coverUrl;
+    std::string plot;
+    std::string castList;
+    std::string director;
+    std::string genre;
+    std::string releaseDate;
+    double rating = 0.0;
+    double rating5based = 0.0;
+    std::string backdropPath;
+    std::string youtubeTrailer;
+    std::string episodeRunTime;
+    int64_t lastModified = 0;
+  };
+  
   // VOD-элементы, добавленные в список (favorites/watchlist), в порядке
   // "последние добавленные сверху". JOIN user_lists × vod_streams.
   // Для типичного числа избранного (десятки) — быстро.
   std::vector<VodStream> GetVodByList(ListType type, int limit = 1000) const;
+  std::vector<Series> GetSeriesByList(ListType type, int limit = 1000) const;
 
   // Атомарно перезаписывает содержимое категории:
   //   1) DELETE FROM vod_category_map WHERE category_id = ?
@@ -101,25 +121,6 @@ public:
   bool InsertVodInfo(int64_t streamId, const std::string &infoJson,
                      int64_t fetchedAt = 0);
   std::string GetVodInfo(int64_t streamId) const;
-
-  // ---- Series ----
-  struct Series {
-    int64_t seriesId = 0;
-    std::string name;
-    std::string nameLower; // пусто → вычислит InsertSeriesBatch
-    std::string coverUrl;
-    std::string plot;
-    std::string castList;
-    std::string director;
-    std::string genre;
-    std::string releaseDate;
-    double rating = 0.0;
-    double rating5based = 0.0;
-    std::string backdropPath;
-    std::string youtubeTrailer;
-    std::string episodeRunTime;
-    int64_t lastModified = 0;
-  };
 
   // Атомарно перезаписывает содержимое категории series:
   //   1) DELETE FROM series_category_map WHERE category_id = ?

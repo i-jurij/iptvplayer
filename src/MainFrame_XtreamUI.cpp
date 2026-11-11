@@ -1147,3 +1147,72 @@ void MainFrame::ReloadMoviesView() {
   else
     SetMoviesListMode(m_moviesListMode);
 }
+
+void MainFrame::EnsureSeriesPanel() {
+  if (m_seriesPanelCreated)
+    return;
+  if (!m_notebook)
+    return;
+
+  m_seriesPanelCreated = true;
+
+  m_seriesPage = new wxPanel(m_notebook, wxID_ANY);
+  m_notebook->AddPage(m_seriesPage, "");
+  m_seriesPageIdx = m_notebook->FindPage(m_seriesPage);
+
+  auto *sizer = new wxBoxSizer(wxVERTICAL);
+  m_seriesPanel = new SeriesPanel(m_seriesPage, this);
+  sizer->Add(m_seriesPanel, 1, wxEXPAND);
+  m_seriesPage->SetSizer(sizer);
+  m_seriesPage->Layout();
+}
+
+void MainFrame::OnSeriesToggle(wxCommandEvent &) {
+  if (!m_btnSeries || !m_btnSeries->IsShown())
+    return;
+
+  EnsureSeriesPanel();
+
+  if (m_videoPanel)
+    m_videoPanel->SetTabActive(false);
+
+  ToggleHeaderGroup(m_btnSeries);
+
+  if (m_seriesPageIdx != wxNOT_FOUND)
+    m_notebook->SetSelection(m_seriesPageIdx);
+}
+
+void MainFrame::HandleSeriesPageChanged(int sel) {
+  if (m_seriesPageIdx == wxNOT_FOUND || sel != m_seriesPageIdx)
+    return;
+  if (!m_seriesPanelCreated || !m_seriesPanel)
+    return;
+
+  m_seriesPanel->OnActivated();
+}
+
+void MainFrame::UpdateSeriesTabVisibility() {
+  Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
+  const bool show = pl && pl->isXtream() && pl->hasSeries();
+
+  if (m_btnSeries) {
+    m_btnSeries->Show(show);
+    if (wxWindow *parent = m_btnSeries->GetParent())
+      parent->Layout();
+  }
+
+  if (!show) {
+    if (m_btnSeries && m_btnSeries->GetValue()) {
+      ToggleHeaderGroup(m_btnChannels);
+      if (m_channelsPageIdx != wxNOT_FOUND)
+        m_notebook->SetSelection(m_channelsPageIdx);
+    }
+    if (m_seriesPanelCreated)
+      ResetSeriesState();
+  }
+}
+
+void MainFrame::ResetSeriesState() {
+  if (m_seriesPanel)
+    m_seriesPanel->Reset();
+}

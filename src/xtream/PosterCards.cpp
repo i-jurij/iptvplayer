@@ -475,3 +475,25 @@ void PosterCards::OnMouseDown(wxMouseEvent &evt) {
 
   CardsBase::OnMouseDown(evt);
 }
+
+int PosterCards::GetScrollY() const {
+  int sx = 0, sy = 0;
+  const_cast<PosterCards *>(this)->GetViewStart(&sx, &sy);
+  int px = 1, py = 1;
+  const_cast<PosterCards *>(this)->GetScrollPixelsPerUnit(&px, &py);
+  if (py <= 0)
+    py = 1;
+  return sy * py;
+}
+
+void PosterCards::SetScrollY(int y) {
+  if (y <= 0) {
+    Scroll(-1, 0);
+    return;
+  }
+  int px = 1, py = 1;
+  GetScrollPixelsPerUnit(&px, &py);
+  if (py <= 0)
+    py = 1;
+  Scroll(-1, y / py);
+}
