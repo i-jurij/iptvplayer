@@ -10,6 +10,8 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <wx/base64.h>
+
 #include <curl/curl.h>
 
 #include <algorithm>
@@ -612,6 +614,31 @@ std::string ParseFlexibleString(const rapidjson::Value &v) {
   if (v.IsUint())
     return std::to_string(v.GetUint());
   return std::string();
+}
+
+// title/description в get_short_epg часто закодированы в base64
+// (с префиксом "base64:" или без). Пробуем декодировать; если не выходит
+// — возвращаем как есть.
+std::string DecodeBase64OrPlain(const std::string &v) {
+  if (v.empty())
+    return v;
+
+  std::string payload = v;
+  const std::string prefix = "base64:";
+  if (payload.size() >= prefix.size() &&
+      payload.compare(0, prefix.size(), prefix) == 0) {
+    payload = payload.substr(prefix.size());
+  }
+
+  if (payload.empty())
+    return std::string();
+
+  wxMemoryBuffer buf = wxBase64Decode(payload);
+  if (buf.GetDataLen() == 0)
+    return v;
+
+  return std::string(static_cast<const char *>(buf.GetData()),
+                     buf.GetDataLen());
 }
 
 // Парсит один episode-объект. seasonFallback используется, если поле
@@ -1480,5 +1507,86 @@ std::string XtreamApiClient::BuildCatchupUrl(const Playlist &pl,
   }
 
   return U8(url);
+}
+
+std::vector<XtreamApiClient::ShortEpgProgram>
+XtreamApiClient::GetShortEpg(const Playlist &pl, int64_t streamId, int limit) {
+  m_cancel.store(false);
+
+  std::vector<ShortEpgProgram> out;
+  if (streamId <= 0)
+    return out;
+  if (limit <= 0)
+    limit = 10;
+  if (limit > 100)
+    limit = 100;
+
+  const Endpoint ep = ResolveEndpoint(pl);
+  if (!ep.ok) {
+    LOG_WARN("XtreamApiClient::GetShortEpg: no endpoint for '%s'",
+             pl.getTitle().c_str());
+    return out;
+  }
+
+  const wxString apiUrl =
+      wxString::FromUTF8(ep.base) +
+      "/player_api.php?username=" + UrlEncode(wxString::FromUTF8(ep.user)) +
+      "&password=" + UrlEncode(wxString::FromUTF8(ep.pass)) +
+      "&action=get_short_epg" + "&stream_id=" +
+      wxString::Format("%lld", static_cast<long long>(streamId)) +
+      "&limit=" + wxString::Format("%d", limit);
+
+  HttpResponse resp = HttpGet(pl, U8(apiUrl), 15);
+  if (!resp.ok)
+    return out;
+
+  rapidjson::Document d;
+  if (d.Parse(resp.body.c_str()).HasParseError() || !d.IsObject())
+    return out;
+
+  if (!d.HasMember("epg_listings") || !d["epg_listings"].IsArray())
+    return out;
+
+  for (const auto &item : d["epg_listings"].GetArray()) {
+    if (!item.IsObject())
+      continue;
+
+    ShortEpgProgram p;
+    if (item.HasMember("id"))
+      p.id = ParseFlexibleString(item["id"]);
+    if (item.HasMember("epg_id"))
+      p.epgId = ParseFlexibleString(item["epg_id"]);
+    if (item.HasMember("title"))
+      p.title = DecodeBase64OrPlain(ParseFlexibleString(item["title"]));
+    if (item.HasMember("description"))
+      p.description =
+          DecodeBase64OrPlain(ParseFlexibleString(item["description"]));
+    if (item.HasMember("lang"))
+      p.lang = ParseFlexibleString(item["lang"]);
+    if (item.HasMember("channel_id"))
+      p.channelId = ParseFlexibleString(item["channel_id"]);
+
+    if (item.HasMember("start_timestamp"))
+      p.startUtc = ParseFlexibleInt64(item["start_timestamp"]);
+    if (item.HasMember("stop_timestamp"))
+      p.stopUtc = ParseFlexibleInt64(item["stop_timestamp"]);
+
+    if (item.HasMember("now_playing")) {
+      const auto &np = item["now_playing"];
+      p.nowPlaying =
+          (np.IsInt() && np.GetInt() != 0) || (np.IsBool() && np.GetBool());
+    }
+    if (item.HasMember("has_archive")) {
+      const auto &ha = item["has_archive"];
+      p.hasArchive =
+          (ha.IsInt() && ha.GetInt() != 0) || (ha.IsBool() && ha.GetBool());
+    }
+
+    out.push_back(std::move(p));
+  }
+
+  LOG_DEBUG("XtreamApiClient::GetShortEpg: stream=%lld, %zu programs",
+            static_cast<long long>(streamId), out.size());
+  return out;
 }
 } // namespace xtream

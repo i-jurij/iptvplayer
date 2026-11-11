@@ -49,7 +49,27 @@ public:
     std::string name;
   };
 
+  // get_short_epg возвращает только ~10 ближайших
+  // передач. Не заменяет XMLTV, а дополняет. Поля title/description
+  // обычно base64-encoded (с префиксом "base64:" или без) — decode
+  // уже применён.
+  struct ShortEpgProgram {
+    std::string id;
+    std::string epgId;
+    std::string title;
+    std::string description;
+    std::string lang;
+    std::string channelId;
+    int64_t startUtc = 0;
+    int64_t stopUtc = 0;
+    bool nowPlaying = false;
+    bool hasArchive = false;
+  };
   std::vector<Category> GetCategories(const Playlist &pl, CategoryType type);
+  // get_short_epg. streamId — live_streams.stream_id (не VOD!).
+  // limit 1..100 (default 10). Возвращает пустой вектор при ошибке.
+  std::vector<ShortEpgProgram> GetShortEpg(const Playlist &pl, int64_t streamId,
+                                           int limit = 10);
 
   // ---- VOD ----
   // SAX-парсинг get_vod_streams → batched INSERT в SQLite.
