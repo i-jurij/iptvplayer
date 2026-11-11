@@ -144,20 +144,28 @@ void VideoPanel::OpenUrl() {
   StartTempPlayAsync(url, -1, true, "open_url");
 }
 
-void VideoPanel::PlayChannel(const Channel &ch, const std::string &userAgent) {
+void VideoPanel::PlayChannel(const Channel &ch, const std::string &userAgent,
+                             double startPosition) {
   EnsurePlayerBackend();
   ClearTempPlaylist();
+
+  if (ch.getMediaType() == MediaType::Vod && ch.getStreamId() > 0) {
+    SetCurrentMediaKey("vod:" + std::to_string(ch.getStreamId()));
+  } else if (ch.getMediaType() == MediaType::Episode && ch.getStreamId() > 0) {
+    SetCurrentMediaKey("episode:" + std::to_string(ch.getStreamId()));
+  } else {
+    SetCurrentMediaKey("");
+  }
+
   std::string url = ch.getUrl();
   m_currentName = NormalizeFileNameForDisk(ch.getName(), 128, Display);
   m_isLoading = true;
   m_loadAttempts = 0;
   m_tempState = TempPlayState::Loading;
 
-  // ---- Сброс счётчиков EOF при старте канала ----
   m_eofFreezeCount = 0;
   m_eofLastPos = -1.0;
 
-  // ---- ОБНОВЛЯЕМ СТАТУС 1 ИМЕНЕМ КАНАЛА ----
   wxFrame *frame = dynamic_cast<wxFrame *>(wxGetTopLevelParent(this));
   if (frame && frame->GetStatusBar()) {
     frame->SetStatusText(wxString::FromUTF8(m_currentName), 1);
@@ -165,7 +173,6 @@ void VideoPanel::PlayChannel(const Channel &ch, const std::string &userAgent) {
 
   UpdateUiButtons();
 
-  // === Устанавливаем чёрный экран СИНХРОННО ===
   MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
   if (canvas) {
     canvas->SetForceBlack(true);
@@ -175,17 +182,14 @@ void VideoPanel::PlayChannel(const Channel &ch, const std::string &userAgent) {
     m_forceBlackTimer.Start(100, wxTIMER_CONTINUOUS);
   }
 
-  wxTheApp->CallAfter([this, url, userAgent]() {
-    // Применяем UA плейлиста к mpv перед loadfile. Пусто — оставляем
-    // дефолт mpv. Свойство "user-agent" у mpv применяется при
-    // следующем loadfile.
+  wxTheApp->CallAfter([this, url, userAgent, startPosition]() {
     if (!userAgent.empty()) {
       m_playerController->SetPropertyString("user-agent", userAgent);
     }
 
     bool ok = true;
     try {
-      m_playerController->PlayUrl(url);
+      m_playerController->PlayUrl(url, startPosition);
     } catch (...) {
       ok = false;
     }
@@ -193,7 +197,6 @@ void VideoPanel::PlayChannel(const Channel &ch, const std::string &userAgent) {
       LOG_ERROR("PlayChannel: PlayUrl failed");
       m_tempState = TempPlayState::Error;
       UpdateUiButtons();
-      // Сбрасываем чёрный при ошибке
       MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
       if (canvas) {
         canvas->SetForceBlack(false);
@@ -203,7 +206,7 @@ void VideoPanel::PlayChannel(const Channel &ch, const std::string &userAgent) {
       }
       return;
     }
-    Play(); // вызовет Play, флаг останется true до первого кадра
+    Play();
   });
 }
 
@@ -230,6 +233,11 @@ void VideoPanel::Pause() {
 }
 
 void VideoPanel::Stop() {
+  if (!m_currentMediaKey.empty() && m_mediaPosCallback) {
+    m_mediaPosCallback(m_currentMediaKey, m_lastProgress.timePos,
+                       m_lastProgress.duration, true);
+  }
+
   if (m_playerController)
     m_playerController->Stop();
 
@@ -521,13 +529,16 @@ void VideoPanel::Stop() {
     StartTempPlayAsync(list[0], 0, false, "load_playlist");
   }
 
-  void VideoPanel::StartTempPlayAsync(const wxString &path, int sel, bool isUrl,
+  void
+  VideoPanel::StartTempPlayAsync(const wxString &path, int sel, bool isUrl,
                                  const char *source,
                                  bool /*clearPlayNextInProgressOnFinish*/) {
     EnsurePlayerBackend();
+    SetCurrentMediaKey("");
 
     // помечаем, что началась загрузка — чтобы UI и логика были синхронизированы
     m_isLoading = true;
+
     m_loadAttempts = 0;
     m_tempState = TempPlayState::Loading;
 

@@ -327,14 +327,22 @@ void MpvBackend::HandleEvent(mpv_event *ev) {
   }
 }
 
-bool MpvBackend::PlayUrl(const std::string &url) {
+bool MpvBackend::PlayUrl(const std::string &url, double startPosition) {
   if (!m_mpv)
     return false;
+
+  if (startPosition > 0.0) {
+    const std::string startStr = std::to_string(startPosition);
+    mpv_set_option_string(m_mpv, "start", startStr.c_str());
+  } else {
+    mpv_set_option_string(m_mpv, "start", "none");
+  }
 
   m_lastUrl = url;
   const char *cmd[] = {"loadfile", m_lastUrl.c_str(), nullptr};
   int r = mpv_command(m_mpv, cmd);
-  //LOG_DEBUG("mpv loadurl '%s' -> %d", m_lastUrl.c_str(), r);
+  //LOG_DEBUG("mpv loadurl '%s' start=%.2f -> %d", m_lastUrl.c_str(),
+  //          startPosition, r);
   return r >= 0;
 }
 

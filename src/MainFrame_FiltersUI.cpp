@@ -1,4 +1,5 @@
 #include "MainFrame.h"
+#include "Playlist.h"
 #include "Utils.h"
 
 #include <wx/button.h>
@@ -16,6 +17,16 @@ void MainFrame::UpdateFilterPanelVisibility() {
   if (m_filterPanel->IsShown() == show)
     return;
   m_filterPanel->Show(show);
+
+  if (m_radioOnlyCheck) {
+    Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
+    const bool showRadio = show && pl && pl->hasRadio();
+    if (m_radioOnlyCheck->IsShown() != showRadio) {
+      m_radioOnlyCheck->Show(showRadio);
+      if (!showRadio)
+        m_radioOnlyCheck->SetValue(false);
+    }
+  }
 
   // Обновляем layout родителя, чтобы sizer пересчитал размеры
   if (wxWindow *p = m_filterPanel->GetParent()) {
@@ -75,6 +86,12 @@ void MainFrame::createChannelsFilterPanel() {
   filterSizer->Add(m_favFirst, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                    FromDIP(12));
 
+  // Radio only — видим только если в плейлисте есть Radio-категории
+  m_radioOnlyCheck = new wxCheckBox(m_filterPanel, wxID_ANY, _U("Radio only"));
+  m_radioOnlyCheck->Hide();
+  filterSizer->Add(m_radioOnlyCheck, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
+                   FromDIP(12));
+
   // Reset button
   m_resetBtn = new wxButton(m_filterPanel, wxID_ANY, _U("Reset"),
                             wxDefaultPosition, wxDefaultSize);
@@ -96,9 +113,9 @@ void MainFrame::createChannelsFilterPanel() {
   bindChoice(m_langChoice);
   bindChoice(m_sortChoice);
 
-  if (m_favFirst)
-    m_favFirst->Bind(wxEVT_CHECKBOX,
-                     [this](wxCommandEvent &) { ApplyFiltersAndSort(); });
+  if (m_radioOnlyCheck)
+    m_radioOnlyCheck->Bind(wxEVT_CHECKBOX,
+                           [this](wxCommandEvent &) { ApplyFiltersAndSort(); });
 
   if (m_resetBtn) {
     m_resetBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
@@ -112,6 +129,8 @@ void MainFrame::createChannelsFilterPanel() {
         m_sortChoice->SetSelection(0);
       if (m_favFirst)
         m_favFirst->SetValue(false);
+      if (m_radioOnlyCheck)
+        m_radioOnlyCheck->SetValue(false);
       ApplyFiltersAndSort();
     });
   }

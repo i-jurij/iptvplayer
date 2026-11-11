@@ -164,6 +164,14 @@ std::string Playlist::toJson() const {
     meta.AddMember("serverInfoJson",
                    rapidjson::Value(m_xtreamMeta.serverInfoJson.c_str(), alloc),
                    alloc);
+    meta.AddMember("baseUrl",
+                   rapidjson::Value(m_xtreamMeta.baseUrl.c_str(), alloc), alloc);
+    meta.AddMember("username",
+                   rapidjson::Value(m_xtreamMeta.username.c_str(), alloc),
+                   alloc);
+    meta.AddMember("password",
+                   rapidjson::Value(m_xtreamMeta.password.c_str(), alloc),
+                   alloc);
     doc.AddMember("xtreamMeta", meta, alloc);
   }
 
@@ -255,6 +263,12 @@ bool Playlist::fromJson(const std::string &json) {
       m_xtreamMeta.userInfoJson = m["userInfoJson"].GetString();
     if (m.HasMember("serverInfoJson") && m["serverInfoJson"].IsString())
       m_xtreamMeta.serverInfoJson = m["serverInfoJson"].GetString();
+    if (m.HasMember("baseUrl") && m["baseUrl"].IsString())
+      m_xtreamMeta.baseUrl = m["baseUrl"].GetString();
+    if (m.HasMember("username") && m["username"].IsString())
+      m_xtreamMeta.username = m["username"].GetString();
+    if (m.HasMember("password") && m["password"].IsString())
+      m_xtreamMeta.password = m["password"].GetString();
   }
 
   // Каналы

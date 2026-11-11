@@ -1,6 +1,7 @@
 #include "PlaylistManager.h"
 #include "ErrorCode.h"
 #include "EventIDs.h"
+#include "LogControl.h"
 #include "LogoCache.h"
 #include "M3UParser.h"
 #include "MainFrame.h"
@@ -66,6 +67,7 @@ static size_t WriteCallback(char *ptr, size_t size, size_t nmemb,
 PlaylistManager::PlaylistManager(const std::string &configDir)
     : m_configDir(configDir) {
   CurlGlobal::instance();
+  m_xtreamClient = std::make_unique<xtream::XtreamApiClient>();
 }
 
 PlaylistManager::~PlaylistManager() { WaitForAddFromUrl(); }
@@ -256,6 +258,46 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
   }
 
   playlist->setChannels(std::move(result.channels));
+
+  if (playlist->isXtream()) {
+    xtream::XtreamDatabase *db = GetXtreamDb(*playlist);
+    if (!db) {
+      LOG_WARN("PlaylistManager::loadPlaylistContent: cannot open xtream.db "
+               "for '%s', skipping VOD/Series categories",
+               playlist->getTitle().c_str());
+      return ErrorCode::OK;
+    }
+
+    if (m_xtreamClient) {
+      const auto vodCats = m_xtreamClient->GetCategories(
+          *playlist, xtream::XtreamApiClient::CategoryType::Vod);
+      for (const auto &c : vodCats) {
+        xtream::XtreamDatabase::Category cat;
+        cat.id = c.id;
+        cat.type = "vod";
+        cat.name = c.name;
+        db->UpsertCategory(cat);
+      }
+      playlist->setHasVod(!vodCats.empty());
+
+      const auto seriesCats = m_xtreamClient->GetCategories(
+          *playlist, xtream::XtreamApiClient::CategoryType::Series);
+      for (const auto &c : seriesCats) {
+        xtream::XtreamDatabase::Category cat;
+        cat.id = c.id;
+        cat.type = "series";
+        cat.name = c.name;
+        db->UpsertCategory(cat);
+      }
+      playlist->setHasSeries(!seriesCats.empty());
+
+      LOG_INFO("PlaylistManager: '%s' has %zu VOD categories, %zu Series "
+               "categories",
+               playlist->getTitle().c_str(), vodCats.size(),
+               seriesCats.size());
+    }
+  }
+
   return ErrorCode::OK;
 }
 
@@ -982,3 +1024,34 @@ Playlist *PlaylistManager::findByUniqueId(const std::string &uniqueId) {
   }
   return nullptr;
 }
+
+xtream::XtreamDatabase *PlaylistManager::GetXtreamDb(const Playlist &playlist) {
+  std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
+
+  if (!playlist.isXtream())
+    return nullptr;
+
+  const std::string &uuid = playlist.getUniqueId();
+  if (uuid.empty())
+    return nullptr;
+
+  if (m_xtreamDb && m_xtreamDbUuid == uuid)
+    return m_xtreamDb.get();
+
+  if (m_xtreamDb) {
+    m_xtreamDb->Close();
+    m_xtreamDb.reset();
+    m_xtreamDbUuid.clear();
+  }
+
+  m_xtreamDb = std::make_unique<xtream::XtreamDatabase>();
+  if (!m_xtreamDb->Open(wxString::FromUTF8(m_configDir.c_str()), uuid)) {
+    LOG_WARN("PlaylistManager::GetXtreamDb: cannot open db for '%s'",
+             uuid.c_str());
+    m_xtreamDb.reset();
+    return nullptr;
+  }
+  m_xtreamDbUuid = uuid;
+  return m_xtreamDb.get();
+}
+

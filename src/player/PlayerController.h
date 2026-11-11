@@ -37,7 +37,7 @@ public:
   void Detach();
 
   bool PlayFile(const std::string &path);
-  bool PlayUrl(const std::string &url);
+  bool PlayUrl(const std::string &url, double startPosition = 0.0);
 
   void Play();
   void Pause();

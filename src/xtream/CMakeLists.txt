@@ -7,6 +7,14 @@ add_library(player_xtream OBJECT
     XtreamInfo.h
     PlaylistInfoDialog.cpp
     PlaylistInfoDialog.h
+    XtreamDatabase.cpp
+    XtreamDatabase.h
+    XtreamApiClient.cpp
+    XtreamApiClient.h
+    PosterCards.cpp
+    PosterCards.h
+    VodInfoPanel.cpp
+    VodInfoPanel.h
 )
 
 target_include_directories(player_xtream PRIVATE
@@ -14,7 +22,10 @@ target_include_directories(player_xtream PRIVATE
     ${CMAKE_BINARY_DIR}
 )
 
-target_link_libraries(player_xtream PRIVATE wx_all)
+target_link_libraries(player_xtream PRIVATE
+    wx_all
+    wxsqlite3
+)
 
 if(_CURL_TARGET)
     target_link_libraries(player_xtream PRIVATE ${_CURL_TARGET})

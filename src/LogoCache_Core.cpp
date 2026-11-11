@@ -109,6 +109,8 @@ void LogoCache::ClearAll() {
   s_scaledIndex.clear();
   s_cache.clear();
   s_lru.clear();
+
+  ClearPosterMemory();
 }
 
 void LogoCache::ClearPlaylist(const std::string &p) {

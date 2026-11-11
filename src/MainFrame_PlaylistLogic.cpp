@@ -176,6 +176,8 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
   if (IsBeingDeleted())
     return;
 
+  UpdateMoviesTabVisibility();
+
   m_epgDebounceTimer.Stop();
   m_epgPendingPanel = nullptr;
 
@@ -197,6 +199,23 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
       ch.setPlaylistName(plName);
     if (ch.getPlaylistId().empty())
       ch.setPlaylistId(playlistId);
+  }
+
+  // Radio-категории по префиксу groupTitle.
+  bool hasRadio = false;
+  for (const auto &ch : m_allChannels) {
+    const wxString gt = wxString::FromUTF8(ch.getGroupTitle()).Lower();
+    if (gt.StartsWith("radio") || gt.StartsWith(wxString::FromUTF8("радио"))) {
+      hasRadio = true;
+      break;
+    }
+  }
+  if (Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex)) {
+    if (pl->hasRadio() != hasRadio) {
+      pl->setHasRadio(hasRadio);
+      if (auto *mgr = getPlaylistManager())
+        mgr->savePlaylist(pl);
+    }
   }
 
   // Ensure filter UI exists before we try to populate it

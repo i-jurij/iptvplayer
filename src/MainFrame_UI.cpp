@@ -28,7 +28,7 @@ static wxGauge *makeGauge(wxWindow *parent) {
 
 void MainFrame::ToggleHeaderGroup(wxToggleButton *active) {
   wxToggleButton *buttons[] = {m_btnPlaylists, m_btnChannels, m_btnFavorites,
-                               m_btnVideo, m_btnEpg};
+                               m_btnVideo,    m_btnEpg,      m_btnMovies};
 
   for (auto *b : buttons) {
     if (!b)
@@ -37,26 +37,21 @@ void MainFrame::ToggleHeaderGroup(wxToggleButton *active) {
   }
 }
 
-void MainFrame::ToggleHeaderGroup(int index) {
-  switch (index) {
-  case 0:
+void MainFrame::ToggleHeaderGroup(int sel) {
+  if (!m_notebook)
+    return;
+  if (sel == m_notebook->FindPage(m_playlistPanel))
     ToggleHeaderGroup(m_btnPlaylists);
-    break;
-  case 1:
+  else if (sel == m_channelsPageIdx)
     ToggleHeaderGroup(m_btnChannels);
-    break;
-  case 2:
+  else if (sel == m_favoritesPageIdx)
     ToggleHeaderGroup(m_btnFavorites);
-    break;
-  case 3:
+  else if (sel == m_videoPageIdx)
     ToggleHeaderGroup(m_btnVideo);
-    break;
-  case 4:
+  else if (m_epgPageIdx != wxNOT_FOUND && sel == m_epgPageIdx)
     ToggleHeaderGroup(m_btnEpg);
-    break;
-  default:
-    break;
-  }
+  else if (m_moviesPageIdx != wxNOT_FOUND && sel == m_moviesPageIdx)
+    ToggleHeaderGroup(m_btnMovies);
 }
 
 void MainFrame::ToggleHeaderGroup(const wxString &name) {
@@ -191,9 +186,11 @@ void MainFrame::createMainPanel() {
 
   m_btnPlaylists = makeButton(_U("Playlists"), "playlists");
   m_btnChannels = makeButton(_U("Channels"), "channels");
-  m_btnFavorites = makeButton(_U("Favorites"), "favorites");
+  m_btnFavorites = makeButton(_U("Favorites (Live)"), "favorites");
   m_btnVideo = makeButton(_U("Video"), "video");
   m_btnEpg = makeButton(_U("Program"), "program");
+  m_btnMovies = makeButton(_U("Movies"), "movies");
+  m_btnMovies->Hide();
   wxBitmapBundle menuIcon = LoadSvgIcon("menu", this);
 
 #ifdef __WXMSW__
@@ -213,6 +210,7 @@ void MainFrame::createMainPanel() {
 
   headerSizer->Add(m_btnChannels, 0, wxALL, FromDIP(6));
   headerSizer->Add(m_btnFavorites, 0, wxALL, FromDIP(6));
+  headerSizer->Add(m_btnMovies, 0, wxALL, FromDIP(6));
   headerSizer->Add(m_btnVideo, 0, wxALL, FromDIP(6));
   headerSizer->AddStretchSpacer(1);
   headerSizer->Add(m_btnPlaylists, 0, wxALL, FromDIP(6));
@@ -327,6 +325,11 @@ void MainFrame::createMainPanel() {
     SetStatusText(state, 0);
   };
 
+  m_videoPanel->SetMediaPosCallback(
+      [this](const std::string &mediaKey, double pos, double dur, bool flush) {
+        OnPlaybackProgress(mediaKey, pos, dur, flush);
+      });
+      
   m_videoPanel->m_onStreamInfo = [this](const wxString &info) {
     if (!GetStatusBar() || !IsVideoPageActive())
       return;
@@ -386,6 +389,7 @@ void MainFrame::createMainPanel() {
   });
 
   m_btnEpg->Bind(wxEVT_TOGGLEBUTTON, &MainFrame::OnEpgToggle, this);
+  m_btnMovies->Bind(wxEVT_TOGGLEBUTTON, &MainFrame::OnMoviesToggle, this);
 
   btnMenu->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { ShowMainMenu(); });
 

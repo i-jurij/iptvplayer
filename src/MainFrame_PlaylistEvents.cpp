@@ -33,8 +33,10 @@ void SelectLastPlaylistRow(wxListCtrl *list) {
   const long lastRow = list->GetItemCount() - 1;
   if (lastRow < 0)
     return;
-  list->SetItemState(lastRow, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+  list->SetItemState(lastRow, wxLIST_STATE_SELECTED | wxLIST_STATE_FOCUSED,
+                     wxLIST_STATE_SELECTED | wxLIST_STATE_FOCUSED);
   list->EnsureVisible(lastRow);
+  list->SetFocus();
 }
 
 } // namespace
@@ -350,7 +352,7 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
 
         xtream::ProbeAsync(
             apiBase, creds.user, creds.pass, uaProbe,
-            [weakThis, serverUrlCopy](bool ok, const wxString &,
+            [weakThis, serverUrlCopy, apiBase, creds](bool ok, const wxString &,
                                       const wxString &error,
                                       const std::string &userInfoJson,
                                       const std::string &serverInfoJson) {
@@ -391,6 +393,9 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
               XtreamMeta meta;
               meta.userInfoJson = userInfoJson;
               meta.serverInfoJson = serverInfoJson;
+              meta.baseUrl = apiBase.ToUTF8().data();
+              meta.username = creds.user.ToUTF8().data();
+              meta.password = creds.pass.ToUTF8().data();
               found->setXtream(true);
               found->setXtreamMeta(std::move(meta));
               mgr->savePlaylist(found);
@@ -412,7 +417,7 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
   xtream::ProbeAsync(
       serverUrl, user, pass, ua, // NEW: ua passed
       [weakThis, epgUrl, titleWx, autoUpdate,
-       ua](bool ok, const wxString &finalUrl, const wxString &error,
+       ua, serverUrl, user, pass](bool ok, const wxString &finalUrl, const wxString &error,
            const std::string &userInfoJson, const std::string &serverInfoJson) {
         auto *self = weakThis.get();
         if (!self)
@@ -451,6 +456,9 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
         XtreamMeta meta;
         meta.userInfoJson = userInfoJson;
         meta.serverInfoJson = serverInfoJson;
+        meta.baseUrl = serverUrl.ToUTF8().data();
+        meta.username = user.ToUTF8().data();
+        meta.password = pass.ToUTF8().data();
 
         ErrorCode ec = ErrorCode::OK;
         try {

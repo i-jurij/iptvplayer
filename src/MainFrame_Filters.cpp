@@ -117,11 +117,22 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
   if (m_langChoice    && selLang    > 0)
     langFilter    = m_langChoice->GetString(selLang);
 
+  const bool radioOnly =
+      m_radioOnlyCheck && m_radioOnlyCheck->IsShown() &&
+      m_radioOnlyCheck->GetValue();
+
   // Build filtered list
   std::vector<Channel> out;
   out.reserve(m_allChannels.size());
 
   for (const auto &c : m_allChannels) {
+    // Radio only (MD §Q12)
+    if (radioOnly) {
+      const wxString gt = wxString::FromUTF8(c.getGroupTitle()).Lower();
+      if (!(gt.StartsWith("radio") || gt.StartsWith(wxString::FromUTF8("радио"))))
+        continue;
+    }
+
     // Group
     if (selGroup > 0 &&
         wxString::FromUTF8(c.getGroupTitle()) != groupFilter)

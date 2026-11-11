@@ -40,7 +40,7 @@ public:
   virtual bool IsAttached() const = 0;
 
   virtual bool PlayFile(const std::string &path) = 0;
-  virtual bool PlayUrl(const std::string &url) = 0;
+  virtual bool PlayUrl(const std::string &url, double startPosition = 0.0) = 0;
   virtual void Play() = 0;
   virtual void Pause() = 0;
   virtual void Stop() = 0;

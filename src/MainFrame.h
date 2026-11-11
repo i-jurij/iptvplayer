@@ -8,13 +8,17 @@
 #include "VideoPanel.h"
 #include "epg/EPGPanel.h"
 #include "epg/EpgSourceManagerPanel.h"
+#include "xtream/PosterCards.h"
+#include "xtream/VodInfoPanel.h"
 
+#include <wx/activityindicator.h>
 #include <wx/aui/aui.h>
 #include <wx/event.h>
 #include <wx/frame.h>
 #include <wx/listctrl.h>
 #include <wx/notebook.h>
 #include <wx/simplebook.h>
+#include <wx/srchctrl.h>
 #include <wx/stattext.h>
 #include <wx/tglbtn.h>
 #include <wx/toolbar.h>
@@ -121,7 +125,7 @@ public:
   ChannelsViewState m_gridState = ChannelsViewState::Uninitialized;
   ChannelsViewState m_listState = ChannelsViewState::Uninitialized;
 
-  void PlayChannel(const Channel &ch);
+  void PlayChannel(const Channel &ch, double startPosition = 0.0);
 
   void ApplyFullscreen(bool fs);
   bool m_isFullscreen = false;
@@ -166,8 +170,14 @@ private:
   void CleanupFinishedTasks();
   
   wxToggleButton *m_btnEpg = nullptr;
+  wxToggleButton *m_btnMovies = nullptr;
   int m_epgPageIdx = wxNOT_FOUND;
   void OnEpgToggle(wxCommandEvent &event);
+  void OnMoviesToggle(wxCommandEvent &event);
+  void HandleMoviesPageChanged(int sel);
+  void UpdateMoviesTabVisibility();
+  void ResetMoviesState();
+  void OnMoviesRefreshCatalog(wxCommandEvent &event);
   void OnEpgProgress(const EpgProgressInfo &info);
 
   void CheckAndSuggestPlaylist();
@@ -257,6 +267,7 @@ private:
   wxChoice *m_langChoice{nullptr};
   wxChoice *m_sortChoice{nullptr};
   wxCheckBox *m_favFirst{nullptr};
+  wxCheckBox *m_radioOnlyCheck{nullptr};
   wxButton *m_resetBtn{nullptr};
   // Favorites filters
   wxPanel *m_favFilterPanel{nullptr};
@@ -373,6 +384,75 @@ private:
 
   // Перезагрузка каналов текущего плейлиста (если это он)
   bool ReloadPlaylistIfCurrent(Playlist *pl);
+
+  wxPanel *m_moviesPage = nullptr;
+  PosterCards *m_moviesCards = nullptr;
+  VodInfoPanel *m_moviesInfo = nullptr;
+  wxChoice *m_moviesCategoryChoice = nullptr;
+  wxSearchCtrl *m_moviesSearch = nullptr;
+  wxChoice *m_moviesSortChoice = nullptr;
+  wxTimer m_moviesSearchDebounce;
+  std::string m_moviesSearchQuery;
+  wxToggleButton *m_moviesModeAllBtn = nullptr;
+  wxToggleButton *m_moviesModeFavBtn = nullptr;
+  wxToggleButton *m_moviesModeWatchBtn = nullptr;
+  wxStaticText *m_moviesHeader = nullptr;
+  wxButton *m_moviesLoadMoreBtn = nullptr;
+  wxActivityIndicator *m_moviesActivity = nullptr;
+  int m_moviesPageIdx = wxNOT_FOUND;
+  bool m_moviesPanelCreated = false;
+  wxButton *m_moviesRefreshBtn = nullptr;
+  bool m_moviesRefreshing = false;
+  enum class MoviesListMode { All = 0, Favorites = 1, Watchlist = 2 };
+  MoviesListMode m_moviesListMode = MoviesListMode::All;
+  enum class MoviesSortMode {
+    Default = 0,
+    NameAsc = 1,
+    NameDesc = 2,
+    RatingDesc = 3
+  };
+  MoviesSortMode m_moviesSortMode = MoviesSortMode::Default;
+  static constexpr int kRecentlyAddedCategoryId = -1;
+  std::vector<int> m_moviesCategoryIds;
+  int m_currentVodCategoryId = 0;
+  int64_t m_lastVodStreamId = 0;
+  int64_t m_currentVodStreamId = 0;
+  bool m_vodLoading = false;
+
+  void EnsureMoviesPanel();
+  void PopulateMoviesCategories();
+  void LoadVodPage(bool reset);
+  void OnMoviesCategoryChanged(wxCommandEvent &event);
+  void OnMoviesSearchChanged(wxCommandEvent &event);
+  void OnMoviesSearchDebounce(wxTimerEvent &event);
+  void ApplyMoviesSearch(const std::string &queryLower);
+  void ApplyMoviesSort();
+  void OnMoviesSortChanged(wxCommandEvent &event);
+  void OnMoviesLoadMore(wxCommandEvent &event);
+  void OnMovieSelected(const std::string &mediaKey, size_t index);
+  void OnPlayVod(int64_t streamId, bool fromBeginning = false);
+  void SetMoviesListMode(MoviesListMode mode);
+  void LoadMoviesFavorites();
+  void LoadMoviesWatchlist();
+  void LoadMoviesRecentlyAdded();
+  void OnMoviesShowContextMenu(const std::string &mediaKey,
+                               const wxPoint &screenPos);
+  void ToggleMovieInList(int64_t streamId, bool favorites);
+  void ReloadMoviesView();
+  // hot position + запись в playback_positions.
+  struct HotPlaybackPos {
+    std::string mediaKey;
+    double position = 0.0;
+    double duration = 0.0;
+    wxLongLong lastWriteMs = 0;
+    bool hasData = false;
+  };
+  HotPlaybackPos m_hotPos;
+
+  void OnPlaybackProgress(const std::string &mediaKey, double pos, double dur,
+                          bool flush);
+  void FlushPlaybackPosition(bool force);
+  void ClearPlaybackPosition();
 
   EPGPanel *m_epgChannels = nullptr;
   EPGPanel *m_epgFavorites = nullptr;

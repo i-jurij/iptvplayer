@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 
 struct ProgressInfo;
@@ -69,7 +70,20 @@ public:
 
   int GetLastVolume() const { return m_lastVolume; };
 
-  void PlayChannel(const Channel &ch, const std::string &userAgent = "");
+  void PlayChannel(const Channel &ch, const std::string &userAgent = "",
+                   double startPosition = 0.0);
+
+  // mediaKey = "vod:<id>" / "episode:<id>". Пусто — не шлём
+  // callback (Live, файлы, temp playlist).
+  void SetCurrentMediaKey(const std::string &key);
+
+  // flush = true при pause/stop/error/eof; false при обычном progress
+  // (≈ каждые 100 мс). MainFrame throttle'ит запись в БД.
+  using MediaPosCallback = std::function<void(
+      const std::string &mediaKey, double pos, double dur, bool flush)>;
+  void SetMediaPosCallback(MediaPosCallback cb) {
+    m_mediaPosCallback = std::move(cb);
+  }
 
   // Drag & drop
   bool AcceptsFocus() const override { return true; }
@@ -230,6 +244,8 @@ private:
   void UpdateProgressDisplay(const ProgressInfo &info);
 
   std::string m_currentName;
+  std::string m_currentMediaKey;
+  MediaPosCallback m_mediaPosCallback;
   int m_channelSourceTab = -1;
   bool m_isChannelPlaying = false;
   bool m_isFavoritePlaying = false;

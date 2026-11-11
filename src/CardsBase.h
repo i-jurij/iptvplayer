@@ -164,6 +164,7 @@ protected:
   static int GetStarSizeForCardH(int cardH);
   virtual wxBitmap GetStarBitmap(const Channel &ch) const = 0;
   virtual void OnCardClick(size_t index, bool fav, const wxRect &rect) = 0;
+  virtual void RenderTile(size_t index);
 
   // общая отрисовка
   void DrawCardBase(wxDC &dc, size_t index, const wxRect &rect, bool hovered);
@@ -171,7 +172,9 @@ protected:
   // общая логика
   void DrawCardFrame(wxDC &dc, int index, const wxColour &color,
                      int thicknessDIP) const;
-  void UpdateLayout();
+  virtual void UpdateLayout();
+  virtual void OnPaint(wxPaintEvent &evt);
+  virtual void OnMouseDown(wxMouseEvent &event);
   int HitTestIndex(const wxPoint &pos, bool &fav, wxRect *outRect) const;
 
   void RequestLogo(size_t index);
@@ -182,11 +185,9 @@ protected:
   void OnRedrawTimer(wxTimerEvent &);
 
   // обработчики
-  void OnPaint(wxPaintEvent &event);
   void OnResize(wxSizeEvent &event);
   void OnMouseMove(wxMouseEvent &event);
   void OnMouseLeave(wxMouseEvent &event);
-  void OnMouseDown(wxMouseEvent &event);
   void OnDestroy(wxWindowDestroyEvent &event);
   void OnKeyDown(wxKeyEvent &evt);
 
@@ -213,8 +214,6 @@ protected:
 
   int m_lastScrollY = 0;
   int m_scrollDirection = 0; // -1 вверх, +1 вниз
-
-  void RenderTile(size_t index);
 
   bool RemoveChannel(const std::string &name, const std::string &playlistName);
 

@@ -88,11 +88,10 @@ bool PlayerController::PlayFile(const std::string &path) {
   return ok;
 }
 
-bool PlayerController::PlayUrl(const std::string &url) {
+bool PlayerController::PlayUrl(const std::string &url, double startPosition) {
   if (!m_backend)
     return false;
 
-  // Проверяем, прикреплен ли backend к окну
   if (!m_backend->IsAttached() && m_attachedWindow) {
     LOG_DEBUG("PlayerController: backend not attached, attaching now");
     if (!m_backend->AttachToWindow(m_attachedWindow)) {
@@ -101,7 +100,7 @@ bool PlayerController::PlayUrl(const std::string &url) {
     }
   }
 
-  bool ok = m_backend->PlayUrl(url);
+  bool ok = m_backend->PlayUrl(url, startPosition);
 
   if (!ok) {
     LOG_ERROR("PlayerController: backend player failed play url");

@@ -11,7 +11,14 @@ std::string GenerateUUID();
 struct XtreamMeta {
   std::string userInfoJson;
   std::string serverInfoJson;
+  std::string baseUrl;   // scheme://host[:port][/parent-path], без credentials
+  std::string username;
+  std::string password;
+
   bool hasUserInfo() const { return !userInfoJson.empty(); }
+  bool hasEndpoint() const {
+    return !baseUrl.empty() && !username.empty() && !password.empty();
+  }
 };
 
 class Playlist {

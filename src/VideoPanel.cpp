@@ -784,6 +784,13 @@ VideoPanel::~VideoPanel() {
   }
 }
 
+void VideoPanel::SetCurrentMediaKey(const std::string &key) {
+  if (m_currentMediaKey != key)
+    LOG_DEBUG("VideoPanel: mediaKey changed '%s' -> '%s'",
+              m_currentMediaKey.c_str(), key.c_str());
+  m_currentMediaKey = key;
+}
+
 wxString VideoPanel::FormatTime(double seconds) {
   if (seconds < 0 || std::isnan(seconds) || std::isinf(seconds))
     return "00:00:00";
@@ -799,6 +806,10 @@ wxString VideoPanel::FormatTime(double seconds) {
 
 void VideoPanel::OnProgressInfo(const ProgressInfo &info) {
   m_lastProgress = info;
+
+  if (!m_currentMediaKey.empty() && m_mediaPosCallback) {
+    m_mediaPosCallback(m_currentMediaKey, info.timePos, info.duration, false);
+  }
 
   if (!m_progress || !m_timeCurrentLabel)
     return;
@@ -862,6 +873,13 @@ void VideoPanel::UpdateProgressDisplay(const ProgressInfo &info) {
 
 void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
   PlayerState st = (PlayerState)evt.GetInt();
+
+  if ((st == PlayerState::Paused || st == PlayerState::Stopped ||
+       st == PlayerState::Error) &&
+      !m_currentMediaKey.empty() && m_mediaPosCallback) {
+    m_mediaPosCallback(m_currentMediaKey, m_lastProgress.timePos,
+                       m_lastProgress.duration, true);
+  }
 
   // ---- Обновляем внутреннее состояние всегда ----
   switch (st) {

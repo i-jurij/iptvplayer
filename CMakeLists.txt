@@ -225,6 +225,8 @@ set(SOURCES
     src/MainFrame_ChannelsViewUI.cpp
     src/MainFrame_PlaylistUI.cpp
     src/MainFrame_FavoritesUI.cpp
+    src/MainFrame_XtreamUI.cpp
+    src/MainFrame_Playback.cpp
     src/MainFrame_Menu.cpp
     src/MainFrame_Events.cpp
     src/MainFrame_PlaylistEvents.cpp
@@ -240,6 +242,7 @@ set(SOURCES
     src/LogoCache_Core.cpp
     src/LogoCache_Load.cpp
     src/LogoCache_Rescale.cpp
+    src/LogoCache_Poster.cpp
     src/CardsBase_core.cpp
     src/CardsBase_render.cpp
     src/CardsBase_cache.cpp
@@ -264,6 +267,7 @@ set(SOURCES
     src/Utils_UI.cpp
     src/SettingsDialog.cpp
     src/StarIcon.cpp
+    src/BookmarkIcon.cpp
     src/IconManager.cpp
     src/IconManager_Utils.cpp
     src/BackendFactory.cpp

@@ -3,6 +3,8 @@
 #include "M3UParser.h"
 #include "Playlist.h"
 #include <curl/curl.h>
+#include "xtream/XtreamApiClient.h"
+#include "xtream/XtreamDatabase.h"
 
 #include <future>
 #include <memory>
@@ -103,6 +105,15 @@ public:
 
   Playlist *findByUniqueId(const std::string &uniqueId);
 
+  // Ленивое открытие xtream.db для плейлиста. Возвращает nullptr, если
+  // playlist не Xtream или БД не открылась.
+  // Внутри: если m_xtreamDb открыт для другого uuid — закрывает, открывает
+  // новый. Один активный xtream.db на процесс (MVP; кэш — Phase 12).
+  xtream::XtreamDatabase *GetXtreamDb(const Playlist &playlist);
+
+  // Аксессор для UI/тестов.
+  xtream::XtreamApiClient *GetXtreamClient() { return m_xtreamClient.get(); }
+
 private:
   mutable std::mutex m_lastErrorMutex;
   mutable std::string m_lastError;
@@ -113,6 +124,11 @@ private:
   std::vector<std::unique_ptr<Playlist>> m_playlists;
   mutable std::mutex m_playlistsMutex;
   M3UParser m_parser;
+
+  std::unique_ptr<xtream::XtreamApiClient> m_xtreamClient;
+  std::unique_ptr<xtream::XtreamDatabase> m_xtreamDb;
+  std::string m_xtreamDbUuid;
+  mutable std::mutex m_xtreamDbMutex;
 
   void setError(const std::string &msg) const;
 

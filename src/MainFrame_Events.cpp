@@ -28,11 +28,14 @@ void MainFrame::onQuit(wxCommandEvent &WXUNUSED(event)) {
 }
 
 void MainFrame::OnCloseWindow(wxCloseEvent &evt) {
-  if (m_closing) { // уже в процессе закрытия — не Hide/Yield повторно
+  if (m_closing) {
     evt.Skip();
     return;
   }
   m_closing = true;
+
+  FlushPlaybackPosition(true);
+
   if (IsShown()) {
     Hide();
     Update();

@@ -52,6 +52,25 @@ public:
   static void ClearPlaylist(const std::string &playlist);
   static void ClearScaledExceptSize(
       const std::vector<std::tuple<int, int, int>> &keepSizes);
+
+  // ---- Posters ----
+  // Отдельный кэш постеров. Ключ: playlist + mediaKey + w + h + scale100.
+  // mediaKey = "vod:<id>" / "series:<id>" — не имя канала.
+  // Загрузка через IconManager::EnsureIconAsync (тот же мастер-кэш на
+  // диске, псевдо-канал = mediaKey).
+  static void GetPosterAsync(const std::string &playlist,
+                             const std::string &mediaKey,
+                             const std::string &url, int targetW, int targetH,
+                             const wxColour &bgColor, LogoCallback cb,
+                             double scaleFactor = 1.0);
+
+  static LogoBitmapPtr GetCachedPosterPtr(const std::string &key);
+  static std::string MakePosterKey(const std::string &playlist,
+                                   const std::string &mediaKey, int w, int h,
+                                   int scale100);
+  static void SetPosterCacheLimits(size_t maxPosters);
+  static void ClearPosterMemory();
+
   // Удалить из scaled-кэша только записи, соответствующие размерам в
   // removeSizes.
   // Каждый кортеж — (physW, physH, scale100), где scale100 — целое

@@ -194,6 +194,7 @@ MainFrame::MainFrame(Application *app)
         HandleChannelPageChanged(sel);
         HandleFavPageChanged(sel);
         HandlePlaylistPageChanged(sel);
+        HandleMoviesPageChanged(sel);
         if (sel == m_epgPageIdx) {
           SetStatusText("", 0);
           SetStatusText("", 1);
@@ -224,6 +225,8 @@ MainFrame::MainFrame(Application *app)
 }
 
 MainFrame::~MainFrame() {
+  FlushPlaybackPosition(true);
+
   // Отписка от прогресса EPG до разрушения GUI. Иначе колбэк с висячим
   // this остаётся в EPGManager и UAF'нет при следующем UpdateProgress
   // (в т.ч. в окне между ~MainFrame и ~EPGManager).
@@ -388,7 +391,7 @@ void MainFrame::CleanupFinishedTasks() {
       m_backgroundTasks.end());
 }
 
-void MainFrame::PlayChannel(const Channel &ch) {
+void MainFrame::PlayChannel(const Channel &ch, double startPosition) {
   if (!m_videoPanel)
     return;
 
@@ -413,7 +416,7 @@ void MainFrame::PlayChannel(const Channel &ch) {
   }
 
   // Запускаем воспроизведение
-  m_videoPanel->PlayChannel(ch, ua);
+  m_videoPanel->PlayChannel(ch, ua, startPosition);
 
   // Планируем безопасное переключение: выполняем только если токен актуален
   CallAfter([this, token]() {

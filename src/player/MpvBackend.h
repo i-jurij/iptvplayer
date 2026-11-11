@@ -38,7 +38,7 @@ public:
   bool IsAttached() const override { return m_window != nullptr; }
 
   bool PlayFile(const std::string &path) override;
-  bool PlayUrl(const std::string &url) override;
+  bool PlayUrl(const std::string &url, double startPosition = 0.0) override;
   void Play() override;
   void Pause() override;
   void Stop() override;
