@@ -133,6 +133,21 @@ std::string FormatLocalTime(time_t t, const wxString &format) {
   return std::string(buffer, len);
 }
 
+wxString FormatBytes(long long bytes) {
+  if (bytes < 0)
+    return wxString();
+  if (bytes < 1024)
+    return wxString::Format("%lld B", bytes);
+  const double kb = bytes / 1024.0;
+  if (kb < 1024.0)
+    return wxString::Format("%.1f KB", kb);
+  const double mb = kb / 1024.0;
+  if (mb < 1024.0)
+    return wxString::Format("%.1f MB", mb);
+  const double gb = mb / 1024.0;
+  return wxString::Format("%.2f GB", gb);
+}
+
 // ============================================================================
 // DPI / layout
 // ============================================================================

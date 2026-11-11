@@ -43,6 +43,10 @@ wxString UrlDecode(const wxString &s);
 
 // scheme ∈ {http, https}, case-insensitive. URL без схемы → false.
 bool IsHttpUrl(const wxString &url);
+// Полная валидация server URL: схема ∈ {http, https}, хост не пуст,
+// порт (если указан) ∈ [1, 65535]. Используется для server_info.url
+// и ручного ввода.
+bool IsValidServerUrl(const wxString &url);
 
 // true если wxURI::GetPath() не пуст и не "/".
 // Т.е. пользователь дал endpoint, а не просто host:port.

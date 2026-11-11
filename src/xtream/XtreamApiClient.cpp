@@ -29,6 +29,8 @@ namespace xtream {
 namespace {
 
 constexpr long kMaxBodyBytes = 100L * 1024 * 1024;
+constexpr long long kXtreamCacheSoftLimitBytes = 2LL * 1024 * 1024 * 1024;
+std::atomic<bool> s_xtreamSizeWarned{false};
 
 const char *CategoryEndpoint(XtreamApiClient::CategoryType t) {
   switch (t) {
@@ -1024,7 +1026,7 @@ XtreamApiClient::GetCategories(const Playlist &pl, CategoryType type) {
       continue;
     Category c;
     if (item.HasMember("category_id"))
-      c.id = static_cast<int>(item["category_id"].GetInt());
+      c.id = ParseFlexibleInt(item["category_id"]);
     if (item.HasMember("category_name") && item["category_name"].IsString())
       c.name = item["category_name"].GetString();
     if (c.id > 0)
@@ -1138,6 +1140,16 @@ bool XtreamApiClient::RefreshVodCategory(const Playlist &pl, int categoryId,
 
   db.SetMeta("has_vod", "1");
 
+  if (!s_xtreamSizeWarned.load(std::memory_order_relaxed)) {
+    const long long sz = db.FileSizeBytes();
+    if (sz > kXtreamCacheSoftLimitBytes) {
+      LOG_WARN("Xtream cache exceeded 2 GB (%.2f GB). Consider clearing in "
+               "Settings → Xtream → Clear Xtream cache.",
+               sz / (1024.0 * 1024.0 * 1024.0));
+      s_xtreamSizeWarned.store(true, std::memory_order_relaxed);
+    }
+  }
+
   if (progress)
     progress(100, "VOD: " + std::to_string(handler.TotalInserted()) +
                       " items (done)");
@@ -1248,6 +1260,16 @@ bool XtreamApiClient::RefreshSeriesCategory(
   }
 
   db.SetMeta("has_series", "1");
+
+  if (!s_xtreamSizeWarned.load(std::memory_order_relaxed)) {
+    const long long sz = db.FileSizeBytes();
+    if (sz > kXtreamCacheSoftLimitBytes) {
+      LOG_WARN("Xtream cache exceeded 2 GB (%.2f GB). Consider clearing in "
+               "Settings → Xtream → Clear Xtream cache.",
+               sz / (1024.0 * 1024.0 * 1024.0));
+      s_xtreamSizeWarned.store(true, std::memory_order_relaxed);
+    }
+  }
 
   if (progress)
     progress(100, "Series: " + std::to_string(handler.TotalInserted()) +
@@ -1588,5 +1610,9 @@ XtreamApiClient::GetShortEpg(const Playlist &pl, int64_t streamId, int limit) {
   LOG_DEBUG("XtreamApiClient::GetShortEpg: stream=%lld, %zu programs",
             static_cast<long long>(streamId), out.size());
   return out;
+}
+
+void XtreamApiClient::ResetSizeWarn() {
+  s_xtreamSizeWarned.store(false, std::memory_order_relaxed);
 }
 } // namespace xtream

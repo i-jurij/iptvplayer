@@ -178,7 +178,39 @@ void MainFrame::onPlaylistInfo(wxCommandEvent &WXUNUSED(event)) {
     return;
 
   PlaylistInfoDialog dlg(this, *pl);
+  dlg.SetUpdateSourceCallback(
+      [this](const Playlist &plRef, const wxString &suggested) {
+        onEditPlaylistWithSuggestedSource(plRef, suggested);
+      });
   dlg.ShowModal();
+}
+
+void MainFrame::onEditPlaylistWithSuggestedSource(
+    const Playlist &playlist, const wxString &suggestedSource) {
+  auto *mgr = getPlaylistManager();
+  if (!mgr)
+    return;
+
+  // Найти индекс по uuid (устойчивее, чем по title).
+  int idx = -1;
+  const auto &list = mgr->getPlaylists();
+  for (size_t i = 0; i < list.size(); ++i) {
+    if (list[i] && list[i]->getUniqueId() == playlist.getUniqueId()) {
+      idx = static_cast<int>(i);
+      break;
+    }
+  }
+  if (idx < 0)
+    return;
+
+  auto dlg = EditPlaylistDialog::CreateWithSuggestedSource(
+      this, wxString::FromUTF8(playlist.getTitle()),
+      wxString::FromUTF8(playlist.getSource()), suggestedSource,
+      wxString::FromUTF8(playlist.getUserAgent()), playlist.getAutoUpdate());
+  dlg->SetPlaylistIndex(static_cast<size_t>(idx));
+
+  if (dlg->ShowModal() == wxID_OK)
+    updatePlaylistFromDialog(idx, *dlg);
 }
 
 //====================================================================
@@ -315,6 +347,21 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
     else
       m_pendingEpgBySource.erase(srcKey);
 
+    // Stage 7.10: извлекаем creds + origin ДО add, чтобы передать
+    // isXtream=true и earlyMeta. Это даст loadPlaylistContent вызвать
+    // GetCategories и заполнить hasVod/hasSeries.
+    const UrlCredentials creds = ExtractQueryCredentials(serverUrl);
+    const wxString apiBase = GetOriginWithParentPath(serverUrl);
+    const bool canBeXtream = creds.valid && !creds.user.IsEmpty() &&
+                             !creds.pass.IsEmpty() && !apiBase.IsEmpty();
+
+    XtreamMeta earlyMeta;
+    if (canBeXtream) {
+      earlyMeta.baseUrl = apiBase.ToUTF8().data();
+      earlyMeta.username = creds.user.ToUTF8().data();
+      earlyMeta.password = creds.pass.ToUTF8().data();
+    }
+
     BeginPlaylistLoading("Xtream");
 
     std::string title = titleWx.ToUTF8().data();
@@ -323,7 +370,8 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
     ErrorCode ec = ErrorCode::OK;
     try {
       ec = mgr->addPlaylistFromUrl(serverUrl.ToUTF8().data(), title, ua,
-                                   autoUpdate);
+                                   autoUpdate, canBeXtream,
+                                   std::move(earlyMeta));
     } catch (const std::exception &e) {
       LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s", e.what());
       ec = ErrorCode::Unknown;
@@ -342,68 +390,73 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
       return;
     }
 
-    const UrlCredentials creds = ExtractQueryCredentials(serverUrl);
-    if (creds.valid && !creds.user.IsEmpty() && !creds.pass.IsEmpty()) {
-      const wxString apiBase = GetOriginWithParentPath(serverUrl);
-      if (!apiBase.IsEmpty()) {
-        wxWeakRef<MainFrame> weakThis(this);
-        const wxString serverUrlCopy = serverUrl;
-        const wxString uaProbe = dlg.GetUserAgent();
+    // Probe в параллель: только userInfoJson/serverInfoJson.
+    // hasVod/hasSeries уже заполнены loadPlaylistContent (Xtream-ветка).
+    if (canBeXtream) {
+      wxWeakRef<MainFrame> weakThis(this);
+      const wxString serverUrlCopy = serverUrl;
+      const wxString uaProbe = dlg.GetUserAgent();
 
-        xtream::ProbeAsync(
-            apiBase, creds.user, creds.pass, uaProbe,
-            [weakThis, serverUrlCopy, apiBase, creds](bool ok, const wxString &,
-                                      const wxString &error,
-                                      const std::string &userInfoJson,
-                                      const std::string &serverInfoJson) {
-              auto *self = weakThis.get();
-              if (!self)
-                return;
+      xtream::ProbeAsync(
+          apiBase, creds.user, creds.pass, uaProbe,
+          [weakThis, serverUrlCopy, apiBase,
+           creds](bool ok, const wxString &, const wxString &error,
+                  const std::string &userInfoJson,
+                  const std::string &serverInfoJson) {
+            auto *self = weakThis.get();
+            if (!self)
+              return;
 
-              if (!ok || userInfoJson.empty()) {
-                LOG_WARN("Xtream full-URL: meta probe failed for '%s': %s",
-                         serverUrlCopy.utf8_str().data(),
-                         error.utf8_str().data());
-                return;
+            if (!ok || userInfoJson.empty()) {
+              LOG_WARN("Xtream full-URL: meta probe failed for '%s': %s",
+                       serverUrlCopy.utf8_str().data(),
+                       error.utf8_str().data());
+              return;
+            }
+
+            const std::string srcKey = serverUrlCopy.utf8_str().data();
+
+            auto *mgr = self->getPlaylistManager();
+            if (!mgr) {
+              self->m_pendingXtreamMetaBySource[srcKey] =
+                  std::make_pair(userInfoJson, serverInfoJson);
+              return;
+            }
+
+            Playlist *found = nullptr;
+            for (const auto &up : mgr->getPlaylists()) {
+              if (up && up->getSource() == srcKey) {
+                found = up.get();
+                break;
               }
+            }
 
-              const std::string srcKey = serverUrlCopy.utf8_str().data();
+            if (!found) {
+              self->m_pendingXtreamMetaBySource[srcKey] =
+                  std::make_pair(userInfoJson, serverInfoJson);
+              return;
+            }
 
-              auto *mgr = self->getPlaylistManager();
-              if (!mgr) {
-                self->m_pendingXtreamMetaBySource[srcKey] =
-                    std::make_pair(userInfoJson, serverInfoJson);
-                return;
-              }
-
-              Playlist *found = nullptr;
-              for (const auto &up : mgr->getPlaylists()) {
-                if (up && up->getSource() == srcKey) {
-                  found = up.get();
-                  break;
-                }
-              }
-
-              if (!found) {
-                self->m_pendingXtreamMetaBySource[srcKey] =
-                    std::make_pair(userInfoJson, serverInfoJson);
-                return;
-              }
-
-              XtreamMeta meta;
-              meta.userInfoJson = userInfoJson;
-              meta.serverInfoJson = serverInfoJson;
+            // Merge: сохраняем endpoint (baseUrl/user/pass), установленный
+            // earlyMeta в loadPlaylistContent. Перезаписываем только
+            // userInfoJson/serverInfoJson.
+            XtreamMeta meta = found->getXtreamMeta();
+            meta.userInfoJson = userInfoJson;
+            meta.serverInfoJson = serverInfoJson;
+            if (meta.baseUrl.empty())
               meta.baseUrl = apiBase.ToUTF8().data();
+            if (meta.username.empty())
               meta.username = creds.user.ToUTF8().data();
+            if (meta.password.empty())
               meta.password = creds.pass.ToUTF8().data();
-              found->setXtream(true);
-              found->setXtreamMeta(std::move(meta));
-              mgr->savePlaylist(found);
-              LOG_INFO("Xtream full-URL: saved meta for '%s'",
-                       found->getTitle().c_str());
-              self->RefreshPlaylistView();
-            });
-      }
+
+            found->setXtream(true);
+            found->setXtreamMeta(std::move(meta));
+            mgr->savePlaylist(found);
+            LOG_INFO("Xtream full-URL: merged meta for '%s'",
+                     found->getTitle().c_str());
+            self->RefreshPlaylistView();
+          });
     }
     return;
   }
@@ -541,7 +594,7 @@ void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
         ++it;
         continue;
       }
-      XtreamMeta meta;
+      XtreamMeta meta = found->getXtreamMeta();
       meta.userInfoJson = it->second.first;
       meta.serverInfoJson = it->second.second;
       found->setXtream(true);

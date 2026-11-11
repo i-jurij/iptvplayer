@@ -87,12 +87,11 @@ Application::Application() {
 
   m_configDir = baseDir;
   wxFileName configFile(baseDir, "config.json");
-  wxFileName playlistsPath(baseDir, "");
 
   m_configManager =
       std::make_unique<ConfigManager>(configFile.GetFullPath().ToUTF8().data());
-  m_playlistManager = std::make_unique<PlaylistManager>(
-      playlistsPath.GetFullPath().ToUTF8().data());
+  m_playlistManager =
+      std::make_unique<PlaylistManager>(baseDir.ToUTF8().data());
 
   wxString favPathWx =
       configFile.GetPath() + wxFILE_SEP_PATH + "favorites.json";

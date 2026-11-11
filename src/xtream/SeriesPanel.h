@@ -54,6 +54,7 @@ public:
   void OnActivated();
   void Reset();
   void ClearPlayingState();
+  void FocusSearch();
 
   Level CurrentLevel() const { return m_level; }
   void GoToLevel(Level level);
@@ -108,6 +109,7 @@ private:
   void RebuildEpisodesBreadcrumb();
   void OnEscapeKey(wxKeyEvent &evt);
   void SetBusy(bool busy);
+  void UpdateInfoLabel();
 
   Playlist *GetCurrentPlaylist() const;
   xtream::XtreamDatabase *GetDb() const;
@@ -120,6 +122,7 @@ private:
   // Page 0 — Series list
   wxPanel *m_seriesListPage = nullptr;
   wxStaticText *m_header = nullptr;
+  wxStaticText *m_infoLabel = nullptr;
   wxChoice *m_categoryChoice = nullptr;
   wxToggleButton *m_modeAllBtn = nullptr;
   wxToggleButton *m_modeFavBtn = nullptr;

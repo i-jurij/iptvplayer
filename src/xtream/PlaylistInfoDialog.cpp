@@ -1,6 +1,7 @@
 #include "xtream/PlaylistInfoDialog.h"
 
 #include "Playlist.h"
+#include "Utils_Net.h"
 #include "Utils_Platform.h"
 #include "Utils_UI.h"
 #include "xtream/XtreamInfo.h"
@@ -14,11 +15,70 @@
 #include <wx/textctrl.h>
 
 #include <ctime>
+#include <wx/uri.h>
+
+namespace {
+
+// Собирает новый M3U source из server_info.url + server_info.port
+// + path/query исходного source. Возвращает пустую строку, если
+// server_info.url невалиден.
+wxString BuildSuggestedSource(const Playlist &playlist) {
+  if (!playlist.isXtream() || !playlist.getXtreamMeta().hasUserInfo())
+    return wxString();
+
+  const auto si =
+      xtream::ParseServerInfo(playlist.getXtreamMeta().serverInfoJson);
+  if (si.url.empty() || !IsValidServerUrl(wxString::FromUTF8(si.url)))
+    return wxString();
+
+  wxURI siUri(wxString::FromUTF8(si.url));
+
+  wxString newOrigin = siUri.GetScheme().Lower() + "://" + siUri.GetServer();
+  if (siUri.HasPort())
+    newOrigin += ":" + siUri.GetPort();
+  else if (!si.port.empty())
+    newOrigin += ":" + wxString::FromUTF8(si.port);
+
+  wxString path = siUri.GetPath();
+  if (!path.empty() && path != "/")
+    newOrigin += path;
+
+  const wxString oldSource = wxString::FromUTF8(playlist.getSource());
+  wxURI oldUri(oldSource);
+
+  wxString oldPath = oldUri.GetPath();
+  if (oldPath.empty() || oldPath == "/")
+    oldPath.clear();
+
+  wxString oldQuery = oldUri.HasQuery() ? oldUri.GetQuery() : wxString();
+
+  wxString result = newOrigin + oldPath;
+  if (!oldQuery.empty())
+    result += "?" + oldQuery;
+
+  return result;
+}
+
+// Origin без path/query.
+wxString OriginOf(const wxString &url) {
+  if (url.IsEmpty())
+    return wxString();
+  wxURI uri(url);
+  if (!uri.HasScheme() || !uri.HasServer())
+    return wxString();
+  wxString origin = uri.GetScheme().Lower() + "://" + uri.GetServer();
+  if (uri.HasPort())
+    origin += ":" + uri.GetPort();
+  return origin;
+}
+
+} // namespace
 
 PlaylistInfoDialog::PlaylistInfoDialog(wxWindow *parent,
                                        const Playlist &playlist)
     : wxDialog(parent, wxID_ANY, _U("Playlist Info"), wxDefaultPosition,
-               wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
+               wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
+      m_playlistRef(playlist) {
   BuildUi(playlist);
 }
 
@@ -108,6 +168,29 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
     const xtream::ServerInfo si = xtream::ParseServerInfo(meta.serverInfoJson);
     if (!si.url.empty() && si.url != playlist.getSource()) {
       addRow(accBox, _U("Canonical URL:"), wxString::FromUTF8(si.url));
+
+      const wxString oldSource = wxString::FromUTF8(playlist.getSource());
+      const wxString newOrigin = OriginOf(wxString::FromUTF8(si.url));
+      const wxString oldOrigin = OriginOf(oldSource);
+
+      if (!newOrigin.IsEmpty() && !oldOrigin.IsEmpty() &&
+          newOrigin != oldOrigin) {
+        const wxString suggested = BuildSuggestedSource(playlist);
+        if (!suggested.IsEmpty()) {
+          auto *btnRow = new wxBoxSizer(wxHORIZONTAL);
+          auto *btn = new wxButton(this, wxID_ANY, _U("Update source…"));
+          btn->SetToolTip(
+              _U("Server reports a different canonical address. Open the "
+                 "playlist editor with the new URL pre-filled."));
+          btn->Bind(wxEVT_BUTTON,
+                    [this, suggested](wxCommandEvent &) {
+                      if (m_onUpdateSource)
+                        m_onUpdateSource(m_playlistRef, suggested);
+                    });
+          btnRow->Add(btn, 0, wxLEFT, FromDIP(0));
+          accBox->Add(btnRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
+        }
+      }
     }
 
     mainSizer->Add(accBox, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,

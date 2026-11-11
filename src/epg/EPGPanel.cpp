@@ -20,6 +20,7 @@
 
 #include <cstring>
 #include <ctime>
+#include <VP_SvgIcon.h>
 
 // ----------------------------------------------------------------------------
 // Конструктор / Деструктор
@@ -98,8 +99,15 @@ void EPGPanel::SetupUI() {
   headerSizer->Add(m_headerLabel, 1, wxALIGN_CENTER_VERTICAL | wxALL,
                    FromDIP(10));
 
-  m_playBtn = new wxButton(
-      this, wxID_ANY, wxString::FromUTF8("\xE2\x96\xB6 ") + _U("Play"));
+  m_playBtn = new wxButton(this, wxID_ANY, "");
+  {
+    wxBitmapBundle icon = LoadSvgIcon("play", this);
+    if (icon.IsOk())
+      m_playBtn->SetBitmap(icon);
+    else
+      m_playBtn->SetLabel(_U("Play"));
+  }
+  m_playBtn->SetToolTip(_U("Play"));
   m_playBtn->Enable(false);
   m_playBtn->Bind(wxEVT_BUTTON, &EPGPanel::OnPlay, this);
   headerSizer->Add(m_playBtn, 0, wxALIGN_CENTER_VERTICAL | wxALL,
@@ -248,7 +256,8 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
     m_programGrid->AppendRows(1);
     m_programGrid->SetCellValue(0, 0, "");
     m_programGrid->SetCellValue(
-        0, 1, wxString::FromUTF8("⚠ ") + _U("No EPG channels matched"));
+        0, 1, wxString::FromUTF8("⚠ ") +
+                  _U("No EPG channels matched. Try Refresh."));
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
     return;

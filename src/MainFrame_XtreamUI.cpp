@@ -9,6 +9,7 @@
 #include "Utils_UI.h"
 #include "xtream/XtreamApiClient.h"
 #include "xtream/XtreamDatabase.h"
+#include "xtream/XtreamInfo.h"
 
 #include <wx/activityindicator.h>
 #include <wx/button.h>
@@ -69,23 +70,41 @@ void MainFrame::EnsureMoviesPanel() {
 
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  auto *headerSizer = new wxBoxSizer(wxHORIZONTAL);
+  // Line 1: заголовок + информация об аккаунте
+  auto *titleSizer = new wxBoxSizer(wxHORIZONTAL);
 
   m_moviesHeader = new wxStaticText(m_moviesPage, wxID_ANY, _U("Movies"));
   {
     wxFont f = m_moviesHeader->GetFont();
-    f.SetPointSize(f.GetPointSize() + 2);
+    f.SetPointSize(12);
     f.SetWeight(wxFONTWEIGHT_BOLD);
     m_moviesHeader->SetFont(f);
   }
-  headerSizer->Add(m_moviesHeader, 1,
-                   wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(8));
+  titleSizer->Add(m_moviesHeader, 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
+                  FromDIP(8));
+
+  m_moviesInfoLabel = new wxStaticText(m_moviesPage, wxID_ANY, "");
+  {
+    wxFont f = m_moviesInfoLabel->GetFont();
+    f.SetPointSize(f.GetPointSize() - 1);
+    m_moviesInfoLabel->SetFont(f);
+    m_moviesInfoLabel->SetForegroundColour(
+        wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
+  }
+  titleSizer->AddStretchSpacer(1);
+  titleSizer->Add(m_moviesInfoLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+                  FromDIP(8));
+
+  mainSizer->Add(titleSizer, 0, wxEXPAND | wxTOP, FromDIP(4));
+
+  // Line 2: фильтры + поиск + сортировка + refresh
+  auto *filterSizer = new wxBoxSizer(wxHORIZONTAL);
 
   m_moviesCategoryChoice = new wxChoice(m_moviesPage, wxID_ANY);
   m_moviesCategoryChoice->Bind(wxEVT_CHOICE,
                                &MainFrame::OnMoviesCategoryChanged, this);
-  headerSizer->Add(m_moviesCategoryChoice, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
-                   FromDIP(8));
+  filterSizer->Add(m_moviesCategoryChoice, 0,
+                   wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(4));
 
   m_moviesModeAllBtn = new wxToggleButton(m_moviesPage, wxID_ANY, _U("All"));
   m_moviesModeFavBtn =
@@ -106,18 +125,19 @@ void MainFrame::EnsureMoviesPanel() {
     SetMoviesListMode(MoviesListMode::Watchlist);
   });
 
-  headerSizer->Add(m_moviesModeAllBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_moviesModeAllBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(4));
-  headerSizer->Add(m_moviesModeFavBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_moviesModeFavBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(4));
-  headerSizer->Add(m_moviesModeWatchBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_moviesModeWatchBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
 
   m_moviesSearch = new wxSearchCtrl(m_moviesPage, wxID_ANY);
   m_moviesSearch->ShowCancelButton(true);
   m_moviesSearch->SetDescriptiveText(_U("Search movies"));
+  m_moviesSearch->SetMinSize(wxSize(FromDIP(320), -1));
   m_moviesSearch->Bind(wxEVT_TEXT, &MainFrame::OnMoviesSearchChanged, this);
-  headerSizer->Add(m_moviesSearch, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_moviesSearch, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
 
   m_moviesSearchDebounce.SetOwner(this);
@@ -131,23 +151,24 @@ void MainFrame::EnsureMoviesPanel() {
   m_moviesSortChoice->Append(_U("Rating \xE2\x86\x93"));
   m_moviesSortChoice->SetSelection(0);
   m_moviesSortChoice->Bind(wxEVT_CHOICE, &MainFrame::OnMoviesSortChanged, this);
-  headerSizer->Add(m_moviesSortChoice, 0,
-                   wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
-
-  m_moviesRefreshBtn =
-      new wxButton(m_moviesPage, wxID_ANY, _U("Refresh catalog"));
-
-  m_moviesRefreshBtn->Bind(wxEVT_BUTTON, &MainFrame::OnMoviesRefreshCatalog,
-                           this);
-  headerSizer->Add(m_moviesRefreshBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_moviesSortChoice, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
+
+  filterSizer->AddStretchSpacer(1);
 
   m_moviesActivity = new wxActivityIndicator(m_moviesPage, wxID_ANY);
   m_moviesActivity->Hide();
-  headerSizer->Add(m_moviesActivity, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_moviesActivity, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
 
-  mainSizer->Add(headerSizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(4));
+  m_moviesRefreshBtn =
+      new wxButton(m_moviesPage, wxID_ANY, _U("Refresh catalog"));
+  m_moviesRefreshBtn->Bind(wxEVT_BUTTON, &MainFrame::OnMoviesRefreshCatalog,
+                           this);
+  filterSizer->Add(m_moviesRefreshBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+                   FromDIP(8));
+
+  mainSizer->Add(filterSizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(4));
 
   auto *splitter =
       new wxSplitterWindow(m_moviesPage, wxID_ANY, wxDefaultPosition,
@@ -244,6 +265,8 @@ void MainFrame::PopulateMoviesCategories() {
 
   if (!m_moviesCategoryIds.empty())
     m_moviesCategoryChoice->SetSelection(0);
+
+  UpdateMoviesInfoLabel();
 }
 
 void MainFrame::OnMoviesCategoryChanged(wxCommandEvent &) {
@@ -527,15 +550,30 @@ void MainFrame::ResetMoviesState() {
   m_moviesSearchDebounce.Stop();
   m_moviesSearchQuery.clear();
 
-  if (m_moviesSortChoice)
+  if (m_moviesSortChoice) {
     m_moviesSortChoice->SetSelection(0);
+    m_moviesSortChoice->Enable(true);
+  }
   m_moviesSortMode = MoviesSortMode::Default;
 
   if (m_moviesModeAllBtn) {
+    m_moviesModeAllBtn->SetValue(true);
     m_moviesModeAllBtn->Enable(true);
+    m_moviesModeFavBtn->SetValue(false);
     m_moviesModeFavBtn->Enable(true);
+    m_moviesModeWatchBtn->SetValue(false);
     m_moviesModeWatchBtn->Enable(true);
   }
+  m_moviesListMode = MoviesListMode::All;
+
+  if (m_moviesActivity) {
+    m_moviesActivity->Stop();
+    m_moviesActivity->Hide();
+  }
+  if (m_moviesRefreshBtn)
+    m_moviesRefreshBtn->Enable(true);
+
+  m_moviesRefreshing = false;
 
   m_moviesCategoryIds.clear();
   m_currentVodCategoryId = 0;
@@ -547,6 +585,8 @@ void MainFrame::ResetMoviesState() {
     m_moviesLoadMoreBtn->Hide();
   if (m_moviesHeader)
     m_moviesHeader->SetLabel(_U("Movies"));
+  if (m_moviesInfoLabel)
+    m_moviesInfoLabel->SetLabel("");
 }
 
 void MainFrame::UpdateMoviesTabVisibility() {
@@ -1215,4 +1255,89 @@ void MainFrame::UpdateSeriesTabVisibility() {
 void MainFrame::ResetSeriesState() {
   if (m_seriesPanel)
     m_seriesPanel->Reset();
+}
+
+void MainFrame::OnXtreamCacheCleared() {
+  const bool moviesVisible = m_moviesPanelCreated && m_notebook &&
+                             m_moviesPageIdx != wxNOT_FOUND &&
+                             m_notebook->GetSelection() == m_moviesPageIdx;
+
+  const bool seriesVisible = m_seriesPanelCreated && m_notebook &&
+                             m_seriesPageIdx != wxNOT_FOUND &&
+                             m_notebook->GetSelection() == m_seriesPageIdx;
+
+  if (m_moviesPanelCreated) {
+    ResetMoviesState();
+    if (moviesVisible) {
+      PopulateMoviesCategories();
+      if (!m_moviesCategoryIds.empty()) {
+        m_currentVodCategoryId = m_moviesCategoryIds[0];
+        LoadVodPage(true);
+      }
+    }
+  }
+
+  if (m_seriesPanelCreated) {
+    ResetSeriesState();
+    if (seriesVisible && m_seriesPanel) {
+      m_seriesPanel->OnActivated();
+    }
+  }
+}
+
+wxString MainFrame::FormatAccountInfoShort(const Playlist *pl) {
+  if (!pl || !pl->isXtream() || !pl->getXtreamMeta().hasUserInfo())
+    return wxString();
+
+  const auto ui = xtream::ParseUserInfo(pl->getXtreamMeta().userInfoJson);
+  const wxString status = wxString::FromUTF8(xtream::HumanStatus(ui));
+
+  wxString result;
+  if (ui.isTrial)
+    result = _U("Trial") + _U(" \xC2\xB7 ");
+  result += status;
+
+  if (ui.hasExpDate()) {
+    result += _U(" \xC2\xB7 ");
+    const int64_t now = static_cast<int64_t>(std::time(nullptr));
+    if (xtream::IsExpiringSoon(ui.expDate, now, 3))
+      result += wxString::FromUTF8("\xE2\x9A\xA0 ");
+    result += wxString::Format(
+        _U("Expires %s"),
+        wxString::FromUTF8(xtream::FormatExpiryDate(ui.expDate)));
+  } else {
+    result += _U(" \xC2\xB7 ") + _U("Unlimited");
+  }
+
+  return result;
+}
+
+void MainFrame::UpdateMoviesInfoLabel() {
+  if (!m_moviesInfoLabel)
+    return;
+
+  Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
+  if (!pl || !pl->isXtream()) {
+    m_moviesInfoLabel->SetLabel("");
+    return;
+  }
+
+  wxString info;
+
+  const int catCount = m_moviesCategoryIds.empty()
+                           ? 0
+                           : static_cast<int>(m_moviesCategoryIds.size()) - 1;
+  if (catCount > 0)
+    info = wxString::Format(_U("%d categories"), catCount);
+
+  const wxString acc = FormatAccountInfoShort(pl);
+  if (!acc.IsEmpty()) {
+    if (!info.IsEmpty())
+      info += _U(" \xC2\xB7 ");
+    info += acc;
+  }
+
+  m_moviesInfoLabel->SetLabel(info);
+  if (wxWindow *p = m_moviesInfoLabel->GetParent())
+    p->Layout();
 }

@@ -208,6 +208,33 @@ bool IsHttpUrl(const wxString &url) {
   return scheme == "http" || scheme == "https";
 }
 
+bool IsValidServerUrl(const wxString &url) {
+  if (url.IsEmpty())
+    return false;
+
+  wxURI uri(url);
+  if (!uri.HasScheme() || !uri.HasServer())
+    return false;
+
+  const wxString server = uri.GetServer();
+  if (server.IsEmpty())
+    return false;
+
+  const wxString scheme = uri.GetScheme().Lower();
+  if (scheme != "http" && scheme != "https")
+    return false;
+
+  if (uri.HasPort()) {
+    long port = 0;
+    if (!uri.GetPort().ToLong(&port))
+      return false;
+    if (port < 1 || port > 65535)
+      return false;
+  }
+
+  return true;
+}
+
 bool HasNonTrivialPath(const wxString &url) {
   if (url.IsEmpty())
     return false;
@@ -298,6 +325,39 @@ wxString SanitizeUrlForLog(const wxString &url) {
 
   wxString result = url;
 
+  // 1) Path masking: после /movie/, /series/, /live/, /timeshift/
+  //    всё до '?' заменяется на "***".
+  {
+    static const wxString kSegments[] = {"/movie/", "/series/", "/live/",
+                                         "/timeshift/"};
+
+    const size_t qPos = result.find('?');
+    const size_t hPos = result.find('#');
+    size_t endPath = result.length();
+    if (qPos != wxString::npos)
+      endPath = qPos;
+    if (hPos != wxString::npos && hPos < endPath)
+      endPath = hPos;
+
+    const wxString pathPart = result.Left(endPath);
+
+    for (const auto &seg : kSegments) {
+      const size_t pos = pathPart.find(seg);
+      if (pos == wxString::npos)
+        continue;
+
+      const size_t pathStart = pos + seg.length();
+      if (pathStart >= pathPart.length())
+        break;
+
+      const wxString before = pathPart.Left(pathStart);
+      const wxString after = result.Mid(endPath);
+      result = before + "***" + after;
+      break;
+    }
+  }
+
+  // 2) Query masking: username=..., password=... → ***
   if (uri.HasQuery()) {
     const wxString query = uri.GetQuery();
     wxString masked;

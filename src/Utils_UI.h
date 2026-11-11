@@ -47,6 +47,9 @@ void showInfo(wxWindow *parent, const wxString &message,
 // ============================================================================
 wxString formatTimestamp(std::time_t timestamp);
 std::string FormatLocalTime(time_t t, const wxString &format);
+// Human-readable размер: "512 B", "1.2 MB", "2.35 GB".
+// bytes < 0 → пустая строка.
+wxString FormatBytes(long long bytes);
 
 // ============================================================================
 // DPI / Responsive layout

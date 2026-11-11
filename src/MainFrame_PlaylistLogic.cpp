@@ -176,6 +176,26 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
   if (IsBeingDeleted())
     return;
 
+  if (m_channelSearch) {
+    m_channelSearch->ChangeValue("");
+    m_channelSearchQuery.clear();
+  }
+  if (m_favSearch) {
+    m_favSearch->ChangeValue("");
+    m_favSearchQuery.clear();
+  }
+
+  const bool playlistChanged =
+      (playlistId != m_currentMoviesSeriesPlaylistId);
+  m_currentMoviesSeriesPlaylistId = playlistId;
+
+  if (playlistChanged) {
+    if (m_moviesPanelCreated)
+      ResetMoviesState();
+    if (m_seriesPanelCreated)
+      ResetSeriesState();
+  }
+
   UpdateMoviesTabVisibility();
   UpdateSeriesTabVisibility();
 
@@ -315,6 +335,8 @@ void MainFrame::refreshFavorites() {
     m_favHeader->SetLabel(wxString::Format(_U("Favorites: %lu channels"),
                                            (unsigned long)favChannels.size()));
   }
+
+  FillFavFilterChoices(favChannels);
 
   if (m_favList) {
     m_favList->loadChannels(favChannels);
@@ -492,9 +514,20 @@ void MainFrame::updatePlaylistFromDialog(int index,
   if (!mgr)
     return;
 
+  // Stage 7.2: warning, если новый source уже используется другим плейлистом.
+  const std::string newSource = dlg.GetSource().ToStdString();
+  Playlist *current = mgr->getPlaylist(static_cast<size_t>(index));
+  const bool ownSource = current && current->getSource() == newSource;
+  if (!ownSource && mgr->isDuplicate("", newSource)) {
+    if (wxMessageBox(
+            _U("Another playlist already uses this source URL. Continue?"),
+            _U("Duplicate Source"), wxYES_NO | wxICON_QUESTION, this) != wxYES)
+      return;
+  }
+
   ErrorCode ec = mgr->editPlaylist(
       static_cast<size_t>(index), dlg.GetTitle().ToStdString(),
-      dlg.GetSource().ToStdString(), dlg.GetUserAgent().ToStdString(),
+      newSource, dlg.GetUserAgent().ToStdString(),
       dlg.GetAutoUpdate());
   if (ec != ErrorCode::OK) {
     showError(this,

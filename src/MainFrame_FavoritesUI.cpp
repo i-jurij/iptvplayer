@@ -11,6 +11,7 @@
 #include <wx/button.h>
 #include <wx/choice.h>
 #include <wx/sizer.h>
+#include <wx/srchctrl.h>
 #include <wx/string.h>
 #include <wx/toolbar.h>
 
@@ -66,6 +67,19 @@ void MainFrame::createFavoritesUI() {
   favFilterPanel->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   wxBoxSizer *favFilterSizer = new wxBoxSizer(wxHORIZONTAL);
+
+  // Search (Stage 7.1b)
+  m_favSearch = new wxSearchCtrl(favFilterPanel, wxID_ANY);
+  m_favSearch->ShowCancelButton(true);
+  m_favSearch->SetDescriptiveText(_U("Search favorites"));
+  m_favSearch->SetMinSize(wxSize(FromDIP(240), -1));
+  m_favSearch->Bind(wxEVT_TEXT, &MainFrame::OnFavSearchChanged, this);
+  favFilterSizer->Add(m_favSearch, 0,
+                      wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(12));
+
+  m_favSearchDebounce.SetOwner(this);
+  Bind(wxEVT_TIMER, &MainFrame::OnFavSearchDebounce, this,
+       m_favSearchDebounce.GetId());
 
   m_favGroupChoice = new wxChoice(favFilterPanel, wxID_ANY);
   m_favCountryChoice = new wxChoice(favFilterPanel, wxID_ANY);
@@ -196,6 +210,10 @@ void MainFrame::createFavoritesUI() {
   bindFavChoice(m_favSortChoice);
 
   m_favFilterResetBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
+    if (m_favSearch) {
+      m_favSearch->ChangeValue("");
+      m_favSearchQuery.clear();
+    }
     if (m_favGroupChoice)
       m_favGroupChoice->SetSelection(0);
     if (m_favCountryChoice)
@@ -253,8 +271,16 @@ void MainFrame::ApplyFavoritesFiltersAndSort() {
   if (m_favLangChoice    && selLang    > 0)
     langFilter    = m_favLangChoice->GetString(selLang);
 
+  const wxString searchLower = wxString::FromUTF8(m_favSearchQuery);
+
   // --- FILTERING ---
   for (const auto &c : favList) {
+    if (!searchLower.IsEmpty()) {
+      const wxString nameLower = wxString::FromUTF8(c.getName()).Lower();
+      if (!nameLower.Contains(searchLower))
+        continue;
+    }
+
     if (selGroup > 0 &&
         wxString::FromUTF8(c.getGroupTitle()) != groupFilter)
       continue;
@@ -461,3 +487,23 @@ void MainFrame::RestoreFavoriteSelection() {
     m_epgFavorites->SetChannel(m_lastSelectedFavorite);
   }
 }
+
+void MainFrame::OnFavSearchChanged(wxCommandEvent &evt) {
+  evt.Skip();
+  m_favSearchDebounce.Stop();
+  m_favSearchDebounce.StartOnce(300);
+}
+
+void MainFrame::OnFavSearchDebounce(wxTimerEvent &) {
+  if (!m_favSearch)
+    return;
+
+  const wxString q = m_favSearch->GetValue().Trim();
+  const std::string qLower = std::string(q.Lower().utf8_str().data());
+  if (qLower == m_favSearchQuery)
+    return;
+
+  m_favSearchQuery = qLower;
+  ApplyFavoritesFiltersAndSort();
+}
+

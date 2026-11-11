@@ -110,6 +110,18 @@ public:
   // Внутри: если m_xtreamDb открыт для другого uuid — закрывает, открывает
   // новый. Один активный xtream.db на процесс (MVP; кэш — Phase 12).
   xtream::XtreamDatabase *GetXtreamDb(const Playlist &playlist);
+  // закрывает xtream.db, если открыт для этого uuid,
+  // и удаляет <configDir>/xtream/<uuid>.db + -wal + -shm.
+  // Безопасен для не-Xtream плейлистов (no-op, если файлов нет).
+  void CloseAndRemoveXtreamDb(const std::string &uuid);
+  // закрывает текущую xtream.db (если открыта) и удаляет
+  // все <configDir>/xtream/*.db, *.db-wal, *.db-shm.
+  // Возвращает FileNotFound, если директории/файлов нет.
+  // OK — если что-то удалено (даже частично).
+  ErrorCode ClearAllXtreamCaches();
+  // суммарный размер всех xtream.db (+ -wal, -shm)
+  // в <configDir>/xtream/. Возвращает 0, если файлов нет.
+  long long GetTotalXtreamCacheBytes() const;
 
   // Аксессор для UI/тестов.
   xtream::XtreamApiClient *GetXtreamClient() { return m_xtreamClient.get(); }

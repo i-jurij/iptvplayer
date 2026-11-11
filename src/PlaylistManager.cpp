@@ -8,6 +8,7 @@
 #include "Playlist.h"
 #include "Utils.h"
 #include "Utils_FsPath.h"
+#include "xtream/XtreamApiClient.h"
 
 #include <wx/app.h>
 #include <wx/event.h>
@@ -66,6 +67,12 @@ static size_t WriteCallback(char *ptr, size_t size, size_t nmemb,
 
 PlaylistManager::PlaylistManager(const std::string &configDir)
     : m_configDir(configDir) {
+  // Защита от trailing separator на входе
+  while (m_configDir.size() > 1 &&
+         (m_configDir.back() == '/' || m_configDir.back() == '\\')) {
+    m_configDir.pop_back();
+  }
+
   CurlGlobal::instance();
   m_xtreamClient = std::make_unique<xtream::XtreamApiClient>();
 }
@@ -573,6 +580,11 @@ ErrorCode PlaylistManager::removePlaylist(size_t index, bool removeSource) {
   }
 
   std::string title = pl->getTitle();
+  const std::string uuid = pl->getUniqueId();
+
+  // закрыть и удалить xtream.db до удаления файлов плейлиста.
+  CloseAndRemoveXtreamDb(uuid);
+
   namespace fs = std::filesystem;
 
   {
@@ -1055,3 +1067,137 @@ xtream::XtreamDatabase *PlaylistManager::GetXtreamDb(const Playlist &playlist) {
   return m_xtreamDb.get();
 }
 
+void PlaylistManager::CloseAndRemoveXtreamDb(const std::string &uuid) {
+  if (uuid.empty())
+    return;
+
+  std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
+
+  if (m_xtreamDb && m_xtreamDbUuid == uuid) {
+    m_xtreamDb->Close();
+    m_xtreamDb.reset();
+    m_xtreamDbUuid.clear();
+    LOG_DEBUG("PlaylistManager: closed xtream.db for '%s'", uuid.c_str());
+  }
+
+  namespace fs = std::filesystem;
+  const fs::path base = ToFsPath(m_configDir) / "xtream";
+
+  std::error_code ec;
+  if (!fs::exists(base, ec) || !fs::is_directory(base, ec))
+    return;
+
+  const std::string names[] = {
+      uuid + ".db",
+      uuid + ".db-wal",
+      uuid + ".db-shm",
+  };
+
+  for (const auto &name : names) {
+    const fs::path p = base / name;
+
+    std::error_code existEc;
+    if (!fs::exists(p, existEc))
+      continue;
+
+    std::error_code symEc;
+    if (fs::is_symlink(p, symEc)) {
+      LOG_WARN("PlaylistManager: refusing to remove symlink '%s'",
+               p.string().c_str());
+      continue;
+    }
+
+    std::error_code rmEc;
+    fs::remove(p, rmEc);
+    if (rmEc) {
+      LOG_WARN("PlaylistManager: cannot remove '%s': %s", p.string().c_str(),
+               rmEc.message().c_str());
+    } else {
+      LOG_DEBUG("PlaylistManager: removed '%s'", p.string().c_str());
+    }
+  }
+}
+
+ErrorCode PlaylistManager::ClearAllXtreamCaches() {
+  std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
+
+  if (m_xtreamDb) {
+    m_xtreamDb->Close();
+    m_xtreamDb.reset();
+    m_xtreamDbUuid.clear();
+  }
+
+  namespace fs = std::filesystem;
+  const fs::path base = ToFsPath(m_configDir) / "xtream";
+
+  std::error_code ec;
+  if (!fs::exists(base, ec) || !fs::is_directory(base, ec))
+    return ErrorCode::FileNotFound;
+
+  int removed = 0;
+  int failed = 0;
+
+  for (auto it = fs::directory_iterator(base, ec);
+       !ec && it != fs::directory_iterator(); it.increment(ec)) {
+    const fs::path &p = it->path();
+
+    std::error_code fileEc;
+    if (!it->is_regular_file(fileEc) || fileEc)
+      continue;
+
+    const std::string ext = p.extension().string();
+    if (ext != ".db" && ext != ".db-wal" && ext != ".db-shm")
+      continue;
+
+    std::error_code symEc;
+    if (fs::is_symlink(p, symEc)) {
+      LOG_WARN("PlaylistManager: refusing to remove symlink '%s'",
+               p.string().c_str());
+      continue;
+    }
+
+    std::error_code rmEc;
+    if (fs::remove(p, rmEc) && !rmEc) {
+      ++removed;
+    } else {
+      ++failed;
+      LOG_WARN("PlaylistManager: cannot remove '%s': %s", p.string().c_str(),
+               rmEc.message().c_str());
+    }
+  }
+
+  LOG_INFO("PlaylistManager: ClearAllXtreamCaches removed %d, failed %d",
+           removed, failed);
+
+  xtream::XtreamApiClient::ResetSizeWarn();
+
+  if (removed == 0)
+    return ErrorCode::FileNotFound;
+  return ErrorCode::OK;
+}
+
+long long PlaylistManager::GetTotalXtreamCacheBytes() const {
+  namespace fs = std::filesystem;
+  const fs::path base = ToFsPath(m_configDir) / "xtream";
+
+  std::error_code ec;
+  if (!fs::exists(base, ec) || !fs::is_directory(base, ec))
+    return 0;
+
+  long long total = 0;
+
+  for (auto it = fs::directory_iterator(base, ec);
+       !ec && it != fs::directory_iterator(); it.increment(ec)) {
+    const fs::path &p = it->path();
+
+    std::error_code fileEc;
+    if (!it->is_regular_file(fileEc) || fileEc)
+      continue;
+
+    const auto size = fs::file_size(p, fileEc);
+    if (!fileEc)
+      total += static_cast<long long>(size);
+  }
+
+  return total;
+}

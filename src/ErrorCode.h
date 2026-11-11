@@ -13,5 +13,8 @@ enum class ErrorCode {
   PermissionDenied,
   IoError,
   UnsafePath,
+  IncompatibleVersion,
+  ResourceLimit,
+  InvalidArgument,
   Unknown
 };

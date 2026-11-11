@@ -5,6 +5,7 @@
 #include "LogControl.h"
 #include "LogoCache.h"
 #include "MainFrame.h"
+#include "PlaylistManager.h"
 #include "Utils.h"
 
 #include <wx/dir.h>
@@ -125,6 +126,86 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
     contentSizer->Add(actionsSizer, 0, wxEXPAND | wxALL, PAD);
   }
 
+  // -------------------------
+  // Block 3: Xtream
+  // -------------------------
+  {
+    wxStaticBox *xtreamBox =
+        new wxStaticBox(scrolled, wxID_ANY, _U("Xtream"));
+    wxStaticBoxSizer *xtreamSizer =
+        new wxStaticBoxSizer(xtreamBox, wxVERTICAL);
+
+    wxStaticText *note = new wxStaticText(
+        xtreamBox, wxID_ANY,
+        _U("Playback resume and cache management for Xtream playlists."));
+    wxFont noteFont = note->GetFont();
+    noteFont.SetPointSize(noteFont.GetPointSize() - 1);
+    note->SetFont(noteFont);
+    note->SetForegroundColour(*wxLIGHT_GREY);
+    xtreamSizer->Add(note, 0, wxALL | wxEXPAND, INNER_PAD);
+
+    wxFlexGridSizer *grid = new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
+
+    grid->Add(
+        new wxStaticText(xtreamBox, wxID_ANY,
+                         _U("Mark as watched at (%):")),
+        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, INNER_PAD);
+    m_resumeCompleteSpin =
+        new wxSpinCtrl(xtreamBox, wxID_ANY, wxEmptyString,
+                       wxDefaultPosition, wxSize(FromDIP(120), -1));
+    m_resumeCompleteSpin->SetRange(80, 100);
+    m_resumeCompleteSpin->SetValue(95);
+    m_resumeCompleteSpin->SetToolTip(
+        _U("Playback is considered finished when this percentage is "
+           "reached. Range 80-100. Default 95."));
+    grid->Add(m_resumeCompleteSpin, 0, wxALIGN_LEFT);
+
+    grid->Add(
+        new wxStaticText(xtreamBox, wxID_ANY,
+                         _U("Rewind before resume (sec):")),
+        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, INNER_PAD);
+    m_resumeRewindSpin =
+        new wxSpinCtrl(xtreamBox, wxID_ANY, wxEmptyString,
+                       wxDefaultPosition, wxSize(FromDIP(120), -1));
+    m_resumeRewindSpin->SetRange(5, 30);
+    m_resumeRewindSpin->SetValue(15);
+    m_resumeRewindSpin->SetToolTip(
+        _U("When resuming playback, rewind this many seconds. "
+           "Range 5-30. Default 15."));
+    grid->Add(m_resumeRewindSpin, 0, wxALIGN_LEFT);
+
+    xtreamSizer->Add(grid, 0, wxEXPAND | wxALL, INNER_PAD);
+
+    if (m_config) {
+      m_resumeCompleteSpin->SetValue(
+          m_config->getInt("xtream_resume_complete_percent", 95));
+      m_resumeRewindSpin->SetValue(
+          m_config->getInt("xtream_resume_rewind_sec", 15));
+    }
+
+    m_xtreamCacheSizeLabel = new wxStaticText(xtreamBox, wxID_ANY, "");
+    {
+      wxFont f = m_xtreamCacheSizeLabel->GetFont();
+      f.SetPointSize(f.GetPointSize() - 1);
+      m_xtreamCacheSizeLabel->SetFont(f);
+      m_xtreamCacheSizeLabel->SetForegroundColour(*wxLIGHT_GREY);
+    }
+    xtreamSizer->Add(m_xtreamCacheSizeLabel, 0,
+                     wxLEFT | wxRIGHT | wxBOTTOM, INNER_PAD);
+    UpdateXtreamCacheSizeLabel();
+
+    m_clearXtreamCacheBtn =
+        new wxButton(xtreamBox, wxID_ANY, _U("Clear Xtream cache"));
+    m_clearXtreamCacheBtn->SetToolTip(
+        _U("Delete all locally cached Xtream data (movies, series, "
+           "playback positions, favorites, watchlist). "
+           "Catalogs will be empty until you refresh them from the server."));
+    xtreamSizer->Add(m_clearXtreamCacheBtn, 0,
+                     wxLEFT | wxRIGHT | wxBOTTOM | wxALIGN_LEFT, INNER_PAD);
+
+    contentSizer->Add(xtreamSizer, 0, wxEXPAND | wxALL, PAD);
+  }
+
   contentSizer->AddStretchSpacer(1);
 
   scrolled->SetSizer(contentSizer);
@@ -227,6 +308,9 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
                             this);
   m_reloadMissingLogosBtn->Bind(wxEVT_BUTTON,
                                 &SettingsDialog::OnReloadMissingLogos, this);
+
+  m_clearXtreamCacheBtn->Bind(wxEVT_BUTTON,
+                              &SettingsDialog::OnClearXtreamCache, this);
 }
 
 void SettingsDialog::OnApply(wxCommandEvent &WXUNUSED(event)) {
@@ -249,6 +333,10 @@ void SettingsDialog::RestoreDefaults() {
 
   if (m_noLogoCheck)
     m_noLogoCheck->SetValue(default_show_logos);
+  if (m_resumeCompleteSpin)
+    m_resumeCompleteSpin->SetValue(95);
+  if (m_resumeRewindSpin)
+    m_resumeRewindSpin->SetValue(15);
 }
 
 void SettingsDialog::OnRestoreDefaults(wxCommandEvent &WXUNUSED(event)) {
@@ -287,6 +375,12 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
 
   if (saveConfig && m_config) {
     m_config->setSetting("nologo", show ? "false" : "true");
+    if (m_resumeCompleteSpin)
+      m_config->setInt("xtream_resume_complete_percent",
+                       m_resumeCompleteSpin->GetValue());
+    if (m_resumeRewindSpin)
+      m_config->setInt("xtream_resume_rewind_sec",
+                       m_resumeRewindSpin->GetValue());
     m_config->saveSettings();
     m_mainFrame->SetStatusText(_U("Settings saved."), 0);
   }
@@ -411,3 +505,47 @@ ErrorCode SettingsDialog::ClearAllCachesSync() {
   return ec;
 }
 
+void SettingsDialog::OnClearXtreamCache(wxCommandEvent &) {
+  if (!m_mainFrame || !m_mainFrame->getPlaylistManager())
+    return;
+
+  wxMessageDialog dlg(
+      this,
+      _U("Delete all locally cached Xtream data?\n\n"
+         "Catalogs (Movies / Series) will be empty until you refresh "
+         "them from the server. Favorites, watchlist, and playback "
+         "positions will also be lost.\n\n"
+         "This cannot be undone."),
+      _U("Clear Xtream cache"), wxYES_NO | wxICON_WARNING);
+  dlg.SetYesNoLabels(_U("Delete"), _U("Cancel"));
+  if (dlg.ShowModal() != wxID_YES)
+    return;
+
+  ErrorCode ec = m_mainFrame->getPlaylistManager()->ClearAllXtreamCaches();
+
+  if (ec == ErrorCode::OK) {
+    m_mainFrame->OnXtreamCacheCleared();
+    UpdateXtreamCacheSizeLabel();
+    m_mainFrame->SetStatusText(_U("Xtream cache cleared."), 1);
+  } else if (ec == ErrorCode::FileNotFound) {
+    UpdateXtreamCacheSizeLabel();
+    m_mainFrame->SetStatusText(_U("Xtream cache: nothing to clear."), 1);
+  } else {
+    m_mainFrame->SetStatusText(_U("Failed to clear Xtream cache. See log."), 1);
+  }
+}
+
+void SettingsDialog::UpdateXtreamCacheSizeLabel() {
+  if (!m_xtreamCacheSizeLabel || !m_mainFrame)
+    return;
+
+  auto *mgr = m_mainFrame->getPlaylistManager();
+  if (!mgr)
+    return;
+
+  const long long bytes = mgr->GetTotalXtreamCacheBytes();
+  m_xtreamCacheSizeLabel->SetLabel(
+      wxString::Format(_U("Xtream cache size: %s"), FormatBytes(bytes)));
+  if (wxWindow *p = m_xtreamCacheSizeLabel->GetParent())
+    p->Layout();
+}

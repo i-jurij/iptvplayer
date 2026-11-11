@@ -7,6 +7,7 @@
 #include "UpdateOneThread.h"
 #include "Utils.h"
 #include "version.h"
+#include "xtream/SeriesPanel.h"
 
 #include <wx/dialog.h>
 #include <wx/filename.h>
@@ -267,6 +268,13 @@ void MainFrame::OnEpgToggle(wxCommandEvent &) {
 void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {
   int key = evt.GetKeyCode();
 
+  // Ctrl+F — фокус в поиск текущей вкладки (Stage 7.1b)
+  if (evt.ControlDown() && (key == 'f' || key == 'F')) {
+    FocusCurrentSearch();
+    evt.Skip(false);
+    return;
+  }
+
   // ESC – выход из fullscreen (если он активен)
   if (key == WXK_ESCAPE) {
     // TypeAheadSearch перехватывает ESC в своих виджетах и не передаёт дальше,
@@ -299,4 +307,25 @@ void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {
   }
 
   evt.Skip();
+}
+
+void MainFrame::FocusCurrentSearch() {
+  if (!m_notebook)
+    return;
+
+  const int sel = m_notebook->GetSelection();
+
+  if (sel == m_channelsPageIdx && m_channelSearch) {
+    m_channelSearch->SetFocus();
+    m_channelSearch->SelectAll();
+  } else if (sel == m_favoritesPageIdx && m_favSearch) {
+    m_favSearch->SetFocus();
+    m_favSearch->SelectAll();
+  } else if (sel == m_moviesPageIdx && m_moviesSearch) {
+    m_moviesSearch->SetFocus();
+    m_moviesSearch->SelectAll();
+  } else if (m_seriesPageIdx != wxNOT_FOUND && sel == m_seriesPageIdx &&
+             m_seriesPanel) {
+    m_seriesPanel->FocusSearch();
+  }
 }

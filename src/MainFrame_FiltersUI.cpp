@@ -5,6 +5,7 @@
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
+#include <wx/srchctrl.h>
 #include <wx/stattext.h>
 
 void MainFrame::UpdateFilterPanelVisibility() {
@@ -46,6 +47,19 @@ void MainFrame::createChannelsFilterPanel() {
   m_filterPanel->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   auto *filterSizer = new wxBoxSizer(wxHORIZONTAL);
+
+  // Search (Stage 7.1b)
+  m_channelSearch = new wxSearchCtrl(m_filterPanel, wxID_ANY);
+  m_channelSearch->ShowCancelButton(true);
+  m_channelSearch->SetDescriptiveText(_U("Search channels"));
+  m_channelSearch->SetMinSize(wxSize(FromDIP(240), -1));
+  m_channelSearch->Bind(wxEVT_TEXT, &MainFrame::OnChannelSearchChanged, this);
+  filterSizer->Add(m_channelSearch, 0,
+                   wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(12));
+
+  m_channelSearchDebounce.SetOwner(this);
+  Bind(wxEVT_TIMER, &MainFrame::OnChannelSearchDebounce, this,
+       m_channelSearchDebounce.GetId());
 
   // Group choice
   m_groupChoice = new wxChoice(m_filterPanel, wxID_ANY);
@@ -119,6 +133,10 @@ void MainFrame::createChannelsFilterPanel() {
 
   if (m_resetBtn) {
     m_resetBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
+      if (m_channelSearch) {
+        m_channelSearch->ChangeValue("");
+        m_channelSearchQuery.clear();
+      }
       if (m_groupChoice)
         m_groupChoice->SetSelection(0);
       if (m_countryChoice)

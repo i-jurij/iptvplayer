@@ -24,6 +24,10 @@ public:
   // Сбрасывает флаг отмены в начале метода. Устанавливает true —
   // отменяет текущий curl-трансфер через XFERINFO callback.
   void Cancel();
+  // сбросить флаг "уже предупредили о размере > 2 GB".
+  // Вызывается из PlaylistManager::ClearAllXtreamCaches — после очистки
+  // следующее превышение снова даст LOG_WARN.
+  static void ResetSizeWarn();
 
   // ---- Auth ----
   struct AuthResult {

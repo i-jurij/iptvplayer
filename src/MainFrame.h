@@ -114,8 +114,14 @@ public:
   // -------------------------
   // Filters / Sorting API
   void FillFilterChoices(const std::vector<Channel> &channels);
+  void FillFavFilterChoices(const std::vector<Channel> &favList);
   void ApplyFiltersAndSort(bool incremental = false);
   void ApplyFavoritesFiltersAndSort();
+  void OnChannelSearchChanged(wxCommandEvent &event);
+  void OnChannelSearchDebounce(wxTimerEvent &event);
+  void OnFavSearchChanged(wxCommandEvent &event);
+  void OnFavSearchDebounce(wxTimerEvent &event);
+  void FocusCurrentSearch();
 
   // Apply show-logo flag coming from settings dialog (true = show logos)
   void SetShowLogoFromSettings(bool show);
@@ -128,7 +134,7 @@ public:
 
   void PlayChannel(const Channel &ch, double startPosition = 0.0,
                    const std::string &mediaKey = "");
-
+  static wxString FormatAccountInfoShort(const Playlist *pl);
   void ApplyFullscreen(bool fs);
   bool m_isFullscreen = false;
 #if defined(__WXMSW__)
@@ -146,6 +152,9 @@ public:
   std::vector<Channel> GetCurrentChannels() const;
   std::string GetCurrentPlaylistId() const;
   Playlist *GetLoadedPlaylist() const;
+  // после Clear Xtream cache. Сбрасывает Movies/Series панели;
+  // если они видимы — перезагружает (пустые категории).
+  void OnXtreamCacheCleared();
 
   void OpenFiles(const wxArrayString &paths);
 
@@ -180,6 +189,7 @@ private:
   void OnMoviesToggle(wxCommandEvent &event);
   void HandleMoviesPageChanged(int sel);
   void UpdateMoviesTabVisibility();
+  void UpdateMoviesInfoLabel();
   void ResetMoviesState();
   void OnMoviesRefreshCatalog(wxCommandEvent &event);
   void OnEpgProgress(const EpgProgressInfo &info);
@@ -266,6 +276,9 @@ private:
   // ----------------------------------------------------------------
   // Filters UI (Channels page)
   wxPanel *m_filterPanel{nullptr};
+  wxSearchCtrl *m_channelSearch{nullptr};
+  std::string m_channelSearchQuery;
+  wxTimer m_channelSearchDebounce;
   wxChoice *m_groupChoice{nullptr};
   wxChoice *m_countryChoice{nullptr};
   wxChoice *m_langChoice{nullptr};
@@ -275,6 +288,9 @@ private:
   wxButton *m_resetBtn{nullptr};
   // Favorites filters
   wxPanel *m_favFilterPanel{nullptr};
+  wxSearchCtrl *m_favSearch{nullptr};
+  std::string m_favSearchQuery;
+  wxTimer m_favSearchDebounce;
   wxChoice *m_favGroupChoice{nullptr};
   wxChoice *m_favCountryChoice{nullptr};
   wxChoice *m_favLangChoice{nullptr};
@@ -361,6 +377,8 @@ private:
   void onPlaylistRightClick(wxListEvent &event);
   void onOpenPlaylist(wxCommandEvent &event);
   void onEditPlaylist(wxCommandEvent &event);
+  void onEditPlaylistWithSuggestedSource(const Playlist &playlist,
+                                         const wxString &suggestedSource);
   void onRemovePlaylist(wxCommandEvent &event);
   void onPlaylistInfo(wxCommandEvent &event);
   void onUpdatePlaylist(wxCommandEvent &event);
@@ -406,6 +424,7 @@ private:
   wxToggleButton *m_moviesModeFavBtn = nullptr;
   wxToggleButton *m_moviesModeWatchBtn = nullptr;
   wxStaticText *m_moviesHeader = nullptr;
+  wxStaticText *m_moviesInfoLabel = nullptr;
   wxButton *m_moviesLoadMoreBtn = nullptr;
   wxActivityIndicator *m_moviesActivity = nullptr;
   int m_moviesPageIdx = wxNOT_FOUND;
@@ -427,13 +446,13 @@ private:
   int64_t m_lastVodStreamId = 0;
   int64_t m_currentVodStreamId = 0;
   bool m_vodLoading = false;
+  std::string m_currentMoviesSeriesPlaylistId;
 
   void EnsureSeriesPanel();
   void OnSeriesToggle(wxCommandEvent &event);
   void HandleSeriesPageChanged(int sel);
   void UpdateSeriesTabVisibility();
   void ResetSeriesState();
-
   void EnsureMoviesPanel();
   void PopulateMoviesCategories();
   void LoadVodPage(bool reset);

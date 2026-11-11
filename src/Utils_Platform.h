@@ -16,6 +16,13 @@ inline wxString FromUTF8Tr(const char *s) {
 }
 #define _U(s) FromUTF8Tr(s)
 
+inline wxString FromUTF8TrPlural(const char *singular, const char *plural,
+                                 unsigned n) {
+  return wxGetTranslation(wxString::FromUTF8(singular),
+                          wxString::FromUTF8(plural), n);
+}
+#define _UP(singular, plural, n) FromUTF8TrPlural(singular, plural, n)
+
 // =============================================================================
 // Платформенный детект.
 // =============================================================================

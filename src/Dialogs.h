@@ -81,6 +81,10 @@ public:
     EditPlaylistDialog(wxWindow* parent, const wxString& title,
                       const wxString& source, const wxString& userAgent,
                       bool autoUpdate);
+    // pre-fill source с подсветкой необходимости проверить креды.
+    static std::unique_ptr<EditPlaylistDialog> CreateWithSuggestedSource(
+        wxWindow *parent, const wxString &title, const wxString &oldSource,
+        const wxString &newSource, const wxString &userAgent, bool autoUpdate);
 
     wxString GetTitle() const { return m_title; }
     wxString GetSource() const { return m_source; }

@@ -119,26 +119,29 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
   }
 
   {
-    wxFileName dir(xtreamDir);
-    if (!dir.DirExists()) {
-      if (!wxFileName::Mkdir(xtreamDir, 0700, wxPATH_MKDIR_FULL)) {
-        LOG_ERROR("XtreamDatabase::Open: cannot create dir '%s'",
-                  xtreamDir.utf8_str().data());
-        return false;
-      }
-    }
-    if (!dir.SetPermissions(0700)) {
-#if defined(_WIN32)
-      // На Windows SetPermissions — no-op или ограниченный chmod.
-      // Права каталога наследуются от %APPDATA% (user-only ACL).
-      LOG_WARN("XtreamDatabase: SetPermissions(0700) failed on '%s' "
-               "(ignored on Windows, ACL inherited from APPDATA)",
-               xtreamDir.utf8_str().data());
-#else
-      LOG_ERROR("XtreamDatabase: cannot set permissions 0700 on '%s'",
-                xtreamDir.utf8_str().data());
+    namespace fs = std::filesystem;
+    const fs::path fsDir = ToFsPath(xtreamDir.utf8_str().data());
+
+    std::error_code mkEc;
+    fs::create_directories(fsDir, mkEc);
+    if (mkEc) {
+      LOG_ERROR("XtreamDatabase::Open: cannot create dir '%s': %s",
+                xtreamDir.utf8_str().data(), mkEc.message().c_str());
       return false;
-#endif
+    }
+
+    std::error_code dirEc;
+    if (!fs::is_directory(fsDir, dirEc) || dirEc) {
+      LOG_ERROR("XtreamDatabase::Open: dir '%s' is not accessible: %s",
+                xtreamDir.utf8_str().data(), dirEc.message().c_str());
+      return false;
+    }
+
+    wxFileName dir(xtreamDir);
+    if (!dir.SetPermissions(0700)) {
+      LOG_WARN("XtreamDatabase: SetPermissions(0700) failed on '%s' "
+               "(continuing; create_directories already created)",
+               xtreamDir.utf8_str().data());
     }
   }
 
@@ -214,16 +217,13 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
     {
       wxFileName fn(dbPath);
       if (!fn.SetPermissions(0600)) {
-#if defined(_WIN32)
+        // Не fatal: на POSIX файл уже создан с 0600 в PrepareDbFile
+        // (O_CREAT). SetPermissions — страховка для уже существующего
+        // файла с ослабленными правами. Если chmod не поддерживается
+        // ФС — продолжаем, warning достаточен.
         LOG_WARN("XtreamDatabase: SetPermissions(0600) failed on '%s' "
-                 "(ignored on Windows, ACL inherited from APPDATA)",
+                 "(continuing; O_CREAT set 0600 at creation)",
                  dbPath.utf8_str().data());
-#else
-        LOG_ERROR("XtreamDatabase: cannot set permissions 0600 on '%s'",
-                  dbPath.utf8_str().data());
-        Close();
-        return false;
-#endif
       }
     }
 

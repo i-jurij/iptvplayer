@@ -316,8 +316,23 @@ bool Playlist::fromJson(const std::string &json) {
       if (mt >= 0 && mt <= 3)
         ch.setMediaType(static_cast<MediaType>(mt));
     }
-    if (chVal.HasMember("streamId") && chVal["streamId"].IsInt64())
-      ch.setStreamId(chVal["streamId"].GetInt64());
+    if (chVal.HasMember("streamId")) {
+      const auto &sid = chVal["streamId"];
+      if (sid.IsInt64())
+        ch.setStreamId(sid.GetInt64());
+      else if (sid.IsInt())
+        ch.setStreamId(sid.GetInt());
+      else if (sid.IsUint())
+        ch.setStreamId(static_cast<int64_t>(sid.GetUint()));
+      else if (sid.IsUint64())
+        ch.setStreamId(static_cast<int64_t>(sid.GetUint64()));
+      else if (sid.IsString()) {
+        try {
+          ch.setStreamId(std::stoll(sid.GetString()));
+        } catch (...) {
+        }
+      }
+    }
 
     // playlistId — производный от плейлиста-владельца.
     // Старые JSON могли хранить пустое или чужое значение.

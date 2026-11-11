@@ -181,16 +181,26 @@ void AddEpgSourceDialog::ShowInfoDialog() {
       list->InsertColumn(3, _U("Notes"), wxLIST_FORMAT_LEFT,
                          infoDlg.FromDIP(150));
 
+      auto getStr = [](const rapidjson::Value &obj, const char *key) {
+        if (!obj.HasMember(key) || !obj[key].IsString())
+          return wxString();
+        return wxString::FromUTF8(obj[key].GetString());
+      };
+
       int row = 0;
       for (rapidjson::SizeType i = 0; i < doc.Size(); ++i) {
         const auto &item = doc[i];
         if (!item.IsObject())
           continue;
-        long idx = list->InsertItem(
-            row, wxString::FromUTF8(item["region"].GetString()));
-        list->SetItem(idx, 1, wxString::FromUTF8(item["name"].GetString()));
-        list->SetItem(idx, 2, wxString::FromUTF8(item["url"].GetString()));
-        list->SetItem(idx, 3, wxString::FromUTF8(item["notes"].GetString()));
+
+        const wxString url = getStr(item, "url");
+        if (url.IsEmpty())
+          continue;
+
+        long idx = list->InsertItem(row, getStr(item, "region"));
+        list->SetItem(idx, 1, getStr(item, "name"));
+        list->SetItem(idx, 2, url);
+        list->SetItem(idx, 3, getStr(item, "notes"));
         ++row;
       }
 

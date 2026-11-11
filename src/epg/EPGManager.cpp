@@ -1831,16 +1831,6 @@ void EPGManager::MatchChannels(const std::vector<Channel> &playlistChannels,
     UpdateProgress(info);
   }
 
-  // Проверка наличия источников EPG
-  if (m_sources.empty()) {
-    LOG_WARN("MatchChannels: no EPG sources, skipping");
-    if (callback) {
-      SafeCallAfter([callback]() { callback(0, 0, 0, false); });
-    }
-    UpdateMatchProgress(false, 0, 0, 0, true);
-    return;
-  }
-
   if (m_cancelMatching.exchange(false)) {
     LOG_DEBUG("MatchChannels cancelled");
     UpdateMatchProgress(false, 0, 0, 0, true);
@@ -2562,8 +2552,22 @@ void EPGManager::LoadSourcesFromConfig() {
     if (item.HasMember("name") && item["name"].IsString()) {
       src.name = item["name"].GetString();
     }
-    if (item.HasMember("lastUpdate") && item["lastUpdate"].IsInt64()) {
-      src.lastUpdate = item["lastUpdate"].GetInt64();
+    if (item.HasMember("lastUpdate")) {
+      const auto &lu = item["lastUpdate"];
+      if (lu.IsInt64())
+        src.lastUpdate = lu.GetInt64();
+      else if (lu.IsInt())
+        src.lastUpdate = lu.GetInt();
+      else if (lu.IsUint())
+        src.lastUpdate = static_cast<time_t>(lu.GetUint());
+      else if (lu.IsUint64())
+        src.lastUpdate = static_cast<time_t>(lu.GetUint64());
+      else if (lu.IsString()) {
+        try {
+          src.lastUpdate = static_cast<time_t>(std::stoll(lu.GetString()));
+        } catch (...) {
+        }
+      }
     }
     if (item.HasMember("autoUpdate") && item["autoUpdate"].IsBool()) {
       src.autoUpdate = item["autoUpdate"].GetBool();

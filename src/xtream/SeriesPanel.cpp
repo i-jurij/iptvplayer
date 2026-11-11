@@ -106,22 +106,39 @@ void SeriesPanel::BuildSeriesListPage() {
 
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  auto *headerSizer = new wxBoxSizer(wxHORIZONTAL);
+  // Line 1: заголовок + информация об аккаунте
+  auto *titleSizer = new wxBoxSizer(wxHORIZONTAL);
 
   m_header = new wxStaticText(m_seriesListPage, wxID_ANY, _U("Series"));
   {
     wxFont f = m_header->GetFont();
-    f.SetPointSize(f.GetPointSize() + 2);
+    f.SetPointSize(12);
     f.SetWeight(wxFONTWEIGHT_BOLD);
     m_header->SetFont(f);
   }
-  headerSizer->Add(m_header, 1, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT,
-                   FromDIP(8));
+  titleSizer->Add(m_header, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+
+  m_infoLabel = new wxStaticText(m_seriesListPage, wxID_ANY, "");
+  {
+    wxFont f = m_infoLabel->GetFont();
+    f.SetPointSize(f.GetPointSize() - 1);
+    m_infoLabel->SetFont(f);
+    m_infoLabel->SetForegroundColour(
+        wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
+  }
+  titleSizer->AddStretchSpacer(1);
+  titleSizer->Add(m_infoLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+                  FromDIP(8));
+
+  mainSizer->Add(titleSizer, 0, wxEXPAND | wxTOP, FromDIP(4));
+
+  // Line 2: фильтры + поиск + сортировка + refresh
+  auto *filterSizer = new wxBoxSizer(wxHORIZONTAL);
 
   m_categoryChoice = new wxChoice(m_seriesListPage, wxID_ANY);
   m_categoryChoice->Bind(wxEVT_CHOICE, &SeriesPanel::OnCategoryChanged, this);
-  headerSizer->Add(m_categoryChoice, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
-                   FromDIP(8));
+  filterSizer->Add(m_categoryChoice, 0,
+                   wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(4));
 
   m_modeAllBtn = new wxToggleButton(m_seriesListPage, wxID_ANY, _U("All"));
   m_modeFavBtn =
@@ -136,19 +153,19 @@ void SeriesPanel::BuildSeriesListPage() {
   m_modeFavBtn->Bind(wxEVT_TOGGLEBUTTON, &SeriesPanel::OnModeFavorites, this);
   m_modeWatchBtn->Bind(wxEVT_TOGGLEBUTTON, &SeriesPanel::OnModeWatchlist, this);
 
-  headerSizer->Add(m_modeAllBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_modeAllBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(4));
-  headerSizer->Add(m_modeFavBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_modeFavBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(4));
-  headerSizer->Add(m_modeWatchBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_modeWatchBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
 
   m_search = new wxSearchCtrl(m_seriesListPage, wxID_ANY);
-
   m_search->ShowCancelButton(true);
   m_search->SetDescriptiveText(_U("Search series"));
+  m_search->SetMinSize(wxSize(FromDIP(320), -1));
   m_search->Bind(wxEVT_TEXT, &SeriesPanel::OnSearchChanged, this);
-  headerSizer->Add(m_search, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+  filterSizer->Add(m_search, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
 
   m_searchDebounce.SetOwner(this);
   Bind(wxEVT_TIMER, &SeriesPanel::OnSearchDebounce, this,
@@ -161,22 +178,23 @@ void SeriesPanel::BuildSeriesListPage() {
   m_sortChoice->Append(_U("Rating \xE2\x86\x93"));
   m_sortChoice->SetSelection(0);
   m_sortChoice->Bind(wxEVT_CHOICE, &SeriesPanel::OnSortChanged, this);
-  headerSizer->Add(m_sortChoice, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_sortChoice, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
+
+  filterSizer->AddStretchSpacer(1);
 
   m_activity = new wxActivityIndicator(m_seriesListPage, wxID_ANY);
   m_activity->Hide();
-  headerSizer->Add(m_activity, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_activity, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
 
   m_refreshBtn =
       new wxButton(m_seriesListPage, wxID_ANY, _U("Refresh catalog"));
-
   m_refreshBtn->Bind(wxEVT_BUTTON, &SeriesPanel::OnRefreshCatalog, this);
-  headerSizer->Add(m_refreshBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  filterSizer->Add(m_refreshBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
 
-  mainSizer->Add(headerSizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(4));
+  mainSizer->Add(filterSizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(4));
 
   m_cards = new PosterCards(m_seriesListPage);
 
@@ -423,6 +441,8 @@ void SeriesPanel::Reset() {
 
   if (m_header)
     m_header->SetLabel(_U("Series"));
+  if (m_infoLabel)
+    m_infoLabel->SetLabel("");
   if (m_seasonsBreadcrumbSizer)
     m_seasonsBreadcrumbSizer->Clear(true);
   if (m_episodesBreadcrumbSizer)
@@ -573,6 +593,8 @@ void SeriesPanel::PopulateCategories() {
 
   if (!m_categoryIds.empty())
     m_categoryChoice->SetSelection(0);
+
+  UpdateInfoLabel();
 }
 
 void SeriesPanel::LoadSeriesPage(bool reset) {
@@ -1599,4 +1621,40 @@ void SeriesPanel::PlayNextEpisode() {
   RebuildBreadcrumbs();
 
   PlayEpisode(*nextEp);
+}
+
+void SeriesPanel::FocusSearch() {
+  if (m_search) {
+    m_search->SetFocus();
+    m_search->SelectAll();
+  }
+}
+
+void SeriesPanel::UpdateInfoLabel() {
+  if (!m_infoLabel)
+    return;
+
+  Playlist *pl = GetCurrentPlaylist();
+  if (!pl || !pl->isXtream()) {
+    m_infoLabel->SetLabel("");
+    return;
+  }
+
+  wxString info;
+
+  const int catCount =
+      m_categoryIds.empty() ? 0 : static_cast<int>(m_categoryIds.size()) - 1;
+  if (catCount > 0)
+    info = wxString::Format(_U("%d categories"), catCount);
+
+  const wxString acc = MainFrame::FormatAccountInfoShort(pl);
+  if (!acc.IsEmpty()) {
+    if (!info.IsEmpty())
+      info += _U(" \xC2\xB7 ");
+    info += acc;
+  }
+
+  m_infoLabel->SetLabel(info);
+  if (wxWindow *p = m_infoLabel->GetParent())
+    p->Layout();
 }

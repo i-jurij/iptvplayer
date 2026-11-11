@@ -54,6 +54,21 @@ void MainFrame::FillFilterChoices(const std::vector<Channel> &channels) {
   m_countryChoice->SetSelection(idx == wxNOT_FOUND ? 0 : idx);
   idx = m_langChoice->FindString(selLang);
   m_langChoice->SetSelection(idx == wxNOT_FOUND ? 0 : idx);
+
+  // Stage 7.1c: скрываем пустые фильтры (только «All …» → бесполезен)
+  const bool hasGroup = !groups.empty();
+  const bool hasCountry = !countries.empty();
+  const bool hasLang = !langs.empty();
+
+  if (m_groupChoice->IsShown() != hasGroup)
+    m_groupChoice->Show(hasGroup);
+  if (m_countryChoice->IsShown() != hasCountry)
+    m_countryChoice->Show(hasCountry);
+  if (m_langChoice->IsShown() != hasLang)
+    m_langChoice->Show(hasLang);
+
+  if (m_filterPanel)
+    m_filterPanel->Layout();
 }
 
 void MainFrame::ApplyFiltersAndSort(bool incremental) {
@@ -121,12 +136,21 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
       m_radioOnlyCheck && m_radioOnlyCheck->IsShown() &&
       m_radioOnlyCheck->GetValue();
 
+  const wxString searchLower = wxString::FromUTF8(m_channelSearchQuery);
+
   // Build filtered list
   std::vector<Channel> out;
   out.reserve(m_allChannels.size());
 
   for (const auto &c : m_allChannels) {
-    // Radio only (MD §Q12)
+    // Search 
+    if (!searchLower.IsEmpty()) {
+      const wxString nameLower = wxString::FromUTF8(c.getName()).Lower();
+      if (!nameLower.Contains(searchLower))
+        continue;
+    }
+
+    // Radio only
     if (radioOnly) {
       const wxString gt = wxString::FromUTF8(c.getGroupTitle()).Lower();
       if (!(gt.StartsWith("radio") || gt.StartsWith(wxString::FromUTF8("радио"))))
@@ -232,4 +256,80 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
 
   if (m_channelCards)
     m_channelCards->SetChannels(out, m_loadedPlaylistName);
+}
+
+void MainFrame::OnChannelSearchChanged(wxCommandEvent &evt) {
+  evt.Skip();
+  m_channelSearchDebounce.Stop();
+  m_channelSearchDebounce.StartOnce(300);
+}
+
+void MainFrame::OnChannelSearchDebounce(wxTimerEvent &) {
+  if (!m_channelSearch)
+    return;
+
+  const wxString q = m_channelSearch->GetValue().Trim();
+  const std::string qLower = std::string(q.Lower().utf8_str().data());
+  if (qLower == m_channelSearchQuery)
+    return;
+
+  m_channelSearchQuery = qLower;
+  ApplyFiltersAndSort();
+}
+
+void MainFrame::FillFavFilterChoices(const std::vector<Channel> &favList) {
+  if (!m_favGroupChoice || !m_favCountryChoice || !m_favLangChoice)
+    return;
+
+  wxString selGroup = m_favGroupChoice->GetStringSelection();
+  wxString selCountry = m_favCountryChoice->GetStringSelection();
+  wxString selLang = m_favLangChoice->GetStringSelection();
+
+  m_favGroupChoice->Clear();
+  m_favCountryChoice->Clear();
+  m_favLangChoice->Clear();
+
+  m_favGroupChoice->Append(_U("All groups"));
+  m_favCountryChoice->Append(_U("All countries"));
+  m_favLangChoice->Append(_U("All languages"));
+
+  std::set<std::string> groups, countries, langs;
+  for (const auto &c : favList) {
+    if (!c.getGroupTitle().empty())
+      groups.insert(c.getGroupTitle());
+    if (!c.getCountry().empty())
+      countries.insert(c.getCountry());
+    if (!c.getLanguage().empty())
+      langs.insert(c.getLanguage());
+  }
+
+  for (const auto &g : groups)
+    m_favGroupChoice->Append(wxString::FromUTF8(g));
+  for (const auto &co : countries)
+    m_favCountryChoice->Append(wxString::FromUTF8(co));
+  for (const auto &l : langs)
+    m_favLangChoice->Append(wxString::FromUTF8(l));
+
+  int idx;
+  idx = m_favGroupChoice->FindString(selGroup);
+  m_favGroupChoice->SetSelection(idx == wxNOT_FOUND ? 0 : idx);
+  idx = m_favCountryChoice->FindString(selCountry);
+  m_favCountryChoice->SetSelection(idx == wxNOT_FOUND ? 0 : idx);
+  idx = m_favLangChoice->FindString(selLang);
+  m_favLangChoice->SetSelection(idx == wxNOT_FOUND ? 0 : idx);
+
+  // Stage 7.1c: скрываем пустые фильтры
+  const bool hasGroup = !groups.empty();
+  const bool hasCountry = !countries.empty();
+  const bool hasLang = !langs.empty();
+
+  if (m_favGroupChoice->IsShown() != hasGroup)
+    m_favGroupChoice->Show(hasGroup);
+  if (m_favCountryChoice->IsShown() != hasCountry)
+    m_favCountryChoice->Show(hasCountry);
+  if (m_favLangChoice->IsShown() != hasLang)
+    m_favLangChoice->Show(hasLang);
+
+  if (wxWindow *p = m_favGroupChoice->GetParent())
+    p->Layout();
 }

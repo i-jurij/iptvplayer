@@ -241,6 +241,18 @@ EditPlaylistDialog::EditPlaylistDialog(wxWindow* parent,
   Layout();
 }
 
+std::unique_ptr<EditPlaylistDialog>
+EditPlaylistDialog::CreateWithSuggestedSource(
+    wxWindow *parent, const wxString &title, const wxString &oldSource,
+    const wxString &newSource, const wxString &userAgent, bool autoUpdate) {
+  auto dlg = std::make_unique<EditPlaylistDialog>(parent, title, newSource,
+                                                  userAgent, autoUpdate);
+  // Tooltip на поле source — подсказка, что это новый адрес.
+  dlg->m_sourceCtrl->SetToolTip(
+      wxString::Format(_U("Old source: %s"), oldSource));
+  return dlg;
+}
+
 void EditPlaylistDialog::initializeControls() {
   m_titleCtrl = new wxTextCtrl(this, wxID_ANY, m_title);
   m_sourceCtrl = new wxTextCtrl(this, wxID_ANY, m_source);
