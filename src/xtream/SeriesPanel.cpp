@@ -1,5 +1,6 @@
 #include "xtream/SeriesPanel.h"
 
+#include "ConfigManager.h"
 #include "LogControl.h"
 #include "MainFrame.h"
 #include "Playlist.h"
@@ -76,6 +77,9 @@ wxString FormatEpisodeDate(int64_t addedUtc) {
 SeriesPanel::SeriesPanel(wxWindow *parent, MainFrame *mainFrame)
     : wxPanel(parent), m_mainFrame(mainFrame) {
   BuildUi();
+  if (m_mainFrame) {
+    m_mainFrame->m_onPlaybackEnded = [this]() { OnPlaybackEnded(); };
+  }
 }
 
 SeriesPanel::~SeriesPanel() = default;
@@ -407,6 +411,7 @@ void SeriesPanel::Reset() {
   m_currentSeasons.clear();
   m_currentEpisodes.clear();
   m_navStack.clear();
+  ClearPlayingState();
 
   if (m_seasonsCards) {
     m_seasonsCards->SetItems({});
@@ -936,13 +941,14 @@ void SeriesPanel::PlayEpisode(
     const xtream::XtreamDatabase::Episode &episode) {
   auto *pl = GetCurrentPlaylist();
   auto *client = GetClient();
-  if (!pl || !client)
+  auto *db = GetDb();
+  if (!pl || !client || !m_mainFrame)
     return;
 
   const std::string url =
       client->BuildSeriesEpisodeUrl(*pl, episode.id, episode.containerExt);
   if (url.empty()) {
-    if (m_mainFrame && !m_mainFrame->IsBeingDeleted())
+    if (!m_mainFrame->IsBeingDeleted())
       m_mainFrame->SetStatusText(_U("Cannot build episode URL."), 0);
     return;
   }
@@ -954,6 +960,30 @@ void SeriesPanel::PlayEpisode(
     streamId = 0;
   }
 
+  const std::string mediaKey = "episode:" + episode.id;
+  double startPosition = 0.0;
+  if (db) {
+    const auto saved = db->GetPlaybackPosition(mediaKey);
+    if (saved.hasPosition() && !saved.finished && saved.position >= 10.0) {
+      int rewind = 15;
+      if (auto *cfg = m_mainFrame->getConfigManager())
+        rewind = cfg->getInt("xtream_resume_rewind_sec", 15);
+      if (rewind < 5)
+        rewind = 5;
+      if (rewind > 30)
+        rewind = 30;
+      startPosition = saved.position - static_cast<double>(rewind);
+      if (startPosition < 0.0)
+        startPosition = 0.0;
+      LOG_DEBUG("SeriesPanel: resume %s from %.1f (saved %.1f)",
+                mediaKey.c_str(), startPosition, saved.position);
+    }
+  }
+
+  m_playingSeriesId = m_currentSeriesId;
+  m_playingSeason = m_currentSeasonNumber;
+  m_playingEpisodeId = episode.id;
+
   Channel ch;
   ch.setName(episode.title.empty()
                  ? ("Episode " + std::to_string(episode.episodeNum))
@@ -963,8 +993,7 @@ void SeriesPanel::PlayEpisode(
   ch.setMediaType(MediaType::Episode);
   ch.setStreamId(streamId);
 
-  if (m_mainFrame)
-    m_mainFrame->PlayChannel(ch);
+  m_mainFrame->PlayChannel(ch, startPosition, mediaKey);
 }
 
 void SeriesPanel::OnBackClicked(wxCommandEvent &) {
@@ -1480,4 +1509,94 @@ void SeriesPanel::ApplySort() {
   }
 
   m_cards->SortItems(cmp);
+}
+
+void SeriesPanel::ClearPlayingState() {
+  m_playingSeriesId = 0;
+  m_playingSeason = 0;
+  m_playingEpisodeId.clear();
+}
+
+void SeriesPanel::OnPlaybackEnded() {
+  if (m_playingEpisodeId.empty() || m_playingSeriesId <= 0)
+    return;
+
+  PlayNextEpisode();
+}
+
+void SeriesPanel::PlayNextEpisode() {
+  auto *db = GetDb();
+  if (!db || m_playingSeriesId <= 0)
+    return;
+
+  auto currentEpisodes = db->GetEpisodes(m_playingSeriesId, m_playingSeason);
+
+  // Найти текущий по id, взять следующий
+  std::string nextId;
+  int nextSeason = m_playingSeason;
+  int nextEpNum = 0;
+
+  size_t currentIdx = SIZE_MAX;
+  for (size_t i = 0; i < currentEpisodes.size(); ++i) {
+    if (currentEpisodes[i].id == m_playingEpisodeId) {
+      currentIdx = i;
+      break;
+    }
+  }
+
+  if (currentIdx != SIZE_MAX && currentIdx + 1 < currentEpisodes.size()) {
+    nextId = currentEpisodes[currentIdx + 1].id;
+    nextEpNum = currentEpisodes[currentIdx + 1].episodeNum;
+  } else {
+    // Сезон кончился — взять первый эпизод следующего сезона.
+    const auto seasons = db->GetSeasons(m_playingSeriesId);
+    bool foundCurrent = false;
+    for (const auto &s : seasons) {
+      if (foundCurrent) {
+        const auto eps = db->GetEpisodes(m_playingSeriesId, s.seasonNumber);
+        if (!eps.empty()) {
+          nextId = eps[0].id;
+          nextSeason = s.seasonNumber;
+          nextEpNum = eps[0].episodeNum;
+          break;
+        }
+      }
+      if (s.seasonNumber == m_playingSeason)
+        foundCurrent = true;
+    }
+  }
+
+  if (nextId.empty()) {
+    LOG_INFO("SeriesPanel: no next episode after %s (season %d)",
+             m_playingEpisodeId.c_str(), m_playingSeason);
+    if (m_mainFrame && !m_mainFrame->IsBeingDeleted())
+      m_mainFrame->SetStatusText(_U("Season finished."), 0);
+    ClearPlayingState();
+    return;
+  }
+
+  // Найти полный Episode объект
+  const auto nextEps = db->GetEpisodes(m_playingSeriesId, nextSeason);
+  const xtream::XtreamDatabase::Episode *nextEp = nullptr;
+  for (const auto &e : nextEps) {
+    if (e.id == nextId) {
+      nextEp = &e;
+      break;
+    }
+  }
+
+  if (!nextEp) {
+    LOG_WARN("SeriesPanel: next episode %s not found", nextId.c_str());
+    ClearPlayingState();
+    return;
+  }
+
+  LOG_INFO("SeriesPanel: auto-next %s -> %s (S%dE%d)",
+           m_playingEpisodeId.c_str(), nextId.c_str(), nextSeason, nextEpNum);
+
+  m_currentSeasonNumber = nextSeason;
+  PopulateEpisodesList(nextSeason);
+  RebuildBreadcrumbs();
+
+  PlayEpisode(*nextEp);
 }

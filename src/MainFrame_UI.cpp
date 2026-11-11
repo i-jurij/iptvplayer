@@ -335,7 +335,10 @@ void MainFrame::createMainPanel() {
       [this](const std::string &mediaKey, double pos, double dur, bool flush) {
         OnPlaybackProgress(mediaKey, pos, dur, flush);
       });
-      
+  m_videoPanel->m_onPlaybackEnded = [this]() {
+    if (m_onPlaybackEnded)
+      m_onPlaybackEnded();
+  };
   m_videoPanel->m_onStreamInfo = [this](const wxString &info) {
     if (!GetStatusBar() || !IsVideoPageActive())
       return;

@@ -53,6 +53,7 @@ public:
 
   void OnActivated();
   void Reset();
+  void ClearPlayingState();
 
   Level CurrentLevel() const { return m_level; }
   void GoToLevel(Level level);
@@ -91,6 +92,8 @@ private:
   void OnSeriesSelected(const std::string &mediaKey, size_t index);
   void OnSeasonSelected(const std::string &mediaKey, size_t index);
   void OnEpisodeActivated(wxDataViewEvent &event);
+  void OnPlaybackEnded();
+  void PlayNextEpisode();
   void OnBackClicked(wxCommandEvent &event);
 
   void DrillIntoSeries(int64_t seriesId, const wxString &seriesName);
@@ -154,6 +157,9 @@ private:
 
   // Drill-down state
   int64_t m_currentSeriesId = 0;
+  int64_t m_playingSeriesId = 0;
+  int m_playingSeason = 0;
+  std::string m_playingEpisodeId;
   wxString m_currentSeriesName;
   int m_currentSeasonNumber = 0;
   int64_t m_pendingSeriesId = 0;

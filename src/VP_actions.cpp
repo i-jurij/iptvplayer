@@ -145,11 +145,14 @@ void VideoPanel::OpenUrl() {
 }
 
 void VideoPanel::PlayChannel(const Channel &ch, const std::string &userAgent,
-                             double startPosition) {
+                             double startPosition,
+                             const std::string &mediaKey) {
   EnsurePlayerBackend();
   ClearTempPlaylist();
 
-  if (ch.getMediaType() == MediaType::Vod && ch.getStreamId() > 0) {
+  if (!mediaKey.empty()) {
+    SetCurrentMediaKey(mediaKey);
+  } else if (ch.getMediaType() == MediaType::Vod && ch.getStreamId() > 0) {
     SetCurrentMediaKey("vod:" + std::to_string(ch.getStreamId()));
   } else if (ch.getMediaType() == MediaType::Episode && ch.getStreamId() > 0) {
     SetCurrentMediaKey("episode:" + std::to_string(ch.getStreamId()));
@@ -233,6 +236,8 @@ void VideoPanel::Pause() {
 }
 
 void VideoPanel::Stop() {
+  m_stoppedByUser = true;
+
   if (!m_currentMediaKey.empty() && m_mediaPosCallback) {
     m_mediaPosCallback(m_currentMediaKey, m_lastProgress.timePos,
                        m_lastProgress.duration, true);

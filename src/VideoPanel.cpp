@@ -958,7 +958,10 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
         m_pendingTempPlay = false;
         m_pendingTempIndex = -1;
       }
+    } else if (!m_stoppedByUser && m_onPlaybackEnded) {
+      m_onPlaybackEnded();
     }
+    m_stoppedByUser = false;
     break;
   }
   default:

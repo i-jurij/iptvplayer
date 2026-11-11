@@ -71,7 +71,8 @@ public:
   int GetLastVolume() const { return m_lastVolume; };
 
   void PlayChannel(const Channel &ch, const std::string &userAgent = "",
-                   double startPosition = 0.0);
+                   double startPosition = 0.0,
+                   const std::string &mediaKey = "");
 
   // mediaKey = "vod:<id>" / "episode:<id>". Пусто — не шлём
   // callback (Live, файлы, temp playlist).
@@ -246,6 +247,14 @@ private:
   std::string m_currentName;
   std::string m_currentMediaKey;
   MediaPosCallback m_mediaPosCallback;
+
+public:
+  // вызывается при PlayerState::Stopped, если не ручной Stop()
+  // и не temp playlist. Используется для авто-перехода к следующему эпизоду.
+  std::function<void()> m_onPlaybackEnded;
+
+private:
+  bool m_stoppedByUser = false;
   int m_channelSourceTab = -1;
   bool m_isChannelPlaying = false;
   bool m_isFavoritePlaying = false;

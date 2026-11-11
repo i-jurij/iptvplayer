@@ -12,6 +12,7 @@
 #include "UpdateAllThread.h"
 #include "UpdateOneThread.h"
 #include "Utils.h"
+#include "xtream/SeriesPanel.h"
 
 #include <wx/artprov.h>
 #include <wx/aui/aui.h>
@@ -396,7 +397,8 @@ void MainFrame::CleanupFinishedTasks() {
       m_backgroundTasks.end());
 }
 
-void MainFrame::PlayChannel(const Channel &ch, double startPosition) {
+void MainFrame::PlayChannel(const Channel &ch, double startPosition,
+                            const std::string &mediaKey) {
   if (!m_videoPanel)
     return;
 
@@ -421,7 +423,12 @@ void MainFrame::PlayChannel(const Channel &ch, double startPosition) {
   }
 
   // Запускаем воспроизведение
-  m_videoPanel->PlayChannel(ch, ua, startPosition);
+  if (ch.getMediaType() != MediaType::Episode && m_seriesPanel &&
+      m_seriesPanelCreated) {
+    m_seriesPanel->ClearPlayingState();
+  }
+
+  m_videoPanel->PlayChannel(ch, ua, startPosition, mediaKey);
 
   // Планируем безопасное переключение: выполняем только если токен актуален
   CallAfter([this, token]() {

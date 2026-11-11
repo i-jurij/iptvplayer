@@ -126,7 +126,8 @@ public:
   ChannelsViewState m_gridState = ChannelsViewState::Uninitialized;
   ChannelsViewState m_listState = ChannelsViewState::Uninitialized;
 
-  void PlayChannel(const Channel &ch, double startPosition = 0.0);
+  void PlayChannel(const Channel &ch, double startPosition = 0.0,
+                   const std::string &mediaKey = "");
 
   void ApplyFullscreen(bool fs);
   bool m_isFullscreen = false;
@@ -136,6 +137,7 @@ public:
 #endif
 
   uint64_t InvalidateShowPanelToken();
+  std::function<void()> m_onPlaybackEnded;
 
   void ShowMainMenu(bool deferred = true);
 
