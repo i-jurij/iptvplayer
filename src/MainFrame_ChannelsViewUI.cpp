@@ -25,14 +25,25 @@ void MainFrame::createChannelsView() {
 
   // Заголовок
   wxBoxSizer *channelHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_channelsHeader = new wxStaticText(m_channelsPage, wxID_ANY,
-                                      _U("Playlist: - / Channels: 0"));
-  wxFont hFont = m_channelsHeader->GetFont();
-  hFont.SetPointSize(12);
-  hFont.SetWeight(wxFONTWEIGHT_BOLD);
-  m_channelsHeader->SetFont(hFont);
-  channelHeaderSizer->AddSpacer(FromDIP(6));
-  channelHeaderSizer->Add(m_channelsHeader, 1, wxALL, 0);
+  m_channelsHeader = new wxStaticText(m_channelsPage, wxID_ANY, _U("Channels"));
+  {
+    wxFont hFont = m_channelsHeader->GetFont();
+    hFont.SetPointSize(12);
+    hFont.SetWeight(wxFONTWEIGHT_BOLD);
+    m_channelsHeader->SetFont(hFont);
+  }
+  channelHeaderSizer->Add(m_channelsHeader, 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
+                          FromDIP(6));
+
+  m_channelsInfoLabel = new wxStaticText(m_channelsPage, wxID_ANY, "");
+  {
+    wxFont f = m_channelsInfoLabel->GetFont();
+    f.SetPointSize(f.GetPointSize() - 1);
+    m_channelsInfoLabel->SetFont(f);
+  }
+  channelHeaderSizer->Add(m_channelsInfoLabel, 0,
+                          wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+  channelHeaderSizer->AddStretchSpacer(1);
 
   // Toolbar
 #if defined(__WXMSW__)
@@ -66,14 +77,16 @@ void MainFrame::createChannelsView() {
   m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, _U("Show channel logo"));
 
   channelHeaderSizer->Add(m_viewToolBar, 0, wxALL, 0);
-  channelsSizer->Add(channelHeaderSizer, 0, wxEXPAND | wxALL, FromDIP(6));
+
+  channelHeaderSizer->SetMinSize(wxSize(-1, GetHeaderRowHeight()));
+  channelsSizer->Add(channelHeaderSizer, 0, wxEXPAND | wxALL, FromDIP(8));
 
   // Фильтры
   createChannelsFilterPanel();
   if (m_filterPanel) {
     m_filterPanel->Reparent(m_channelsPage);
     channelsSizer->Add(m_filterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
-                       FromDIP(6));
+                       FromDIP(8));
     UpdateFilterPanelVisibility();
   }
 

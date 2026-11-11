@@ -143,6 +143,10 @@ public:
 #endif
 
   uint64_t InvalidateShowPanelToken();
+  // Универсальная высота строки заголовка для всех панелей
+  // (Channels, Favorites, Movies, Series). Базируется на высоте
+  // toolbar в Channels. Fallback — 28 DIP.
+  int GetHeaderRowHeight() const;
   std::function<void()> m_onPlaybackEnded;
 
   void ShowMainMenu(bool deferred = true);
@@ -240,6 +244,7 @@ private:
   int m_videoPageIdx = -1;
 
   wxStaticText *m_channelsHeader{nullptr};
+  wxStaticText *m_channelsInfoLabel{nullptr};
   wxSimplebook *m_channelViewBook{nullptr};
   ChannelList *m_channelList{nullptr};
   ChannelCards *m_channelCards{nullptr};
@@ -254,6 +259,7 @@ private:
 #endif
 
   wxListCtrl *m_playlistList{nullptr};
+  wxStaticText *m_playlistsInfoLabel{nullptr};
 
   wxButton *m_infoBtn{nullptr};
   wxButton *m_openBtn{nullptr};
@@ -272,6 +278,7 @@ private:
   wxToolBar *m_favToolBar{nullptr};
 #endif
   wxStaticText *m_favHeader{nullptr};
+  wxStaticText *m_favInfoLabel{nullptr};
 
   // ----------------------------------------------------------------
   // Filters UI (Channels page)

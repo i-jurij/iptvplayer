@@ -107,15 +107,26 @@ void MainFrame::createPlaylistPanel() {
 
   // Заголовок
   auto *title = new wxStaticText(m_playlistPanel, wxID_ANY, _U("Playlists"));
-  auto titleFont = title->GetFont();
-  titleFont.SetPointSize(12);
-  titleFont.SetWeight(wxFONTWEIGHT_BOLD);
-  title->SetFont(titleFont);
-  // Заголовок (с дополнительным левым отступом)
+  {
+    auto titleFont = title->GetFont();
+    titleFont.SetPointSize(12);
+    titleFont.SetWeight(wxFONTWEIGHT_BOLD);
+    title->SetFont(titleFont);
+  }
   auto *titleRow = new wxBoxSizer(wxHORIZONTAL);
-  titleRow->AddSpacer(FromDIP(6));            // доп. отступ слева
-  titleRow->Add(title, 0, wxALL, FromDIP(6)); // прежние 6 со всех сторон
-  panelSizer->Add(titleRow, 0, wxEXPAND);
+  titleRow->Add(title, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+
+  m_playlistsInfoLabel = new wxStaticText(m_playlistPanel, wxID_ANY, "");
+  {
+    wxFont f = m_playlistsInfoLabel->GetFont();
+    f.SetPointSize(f.GetPointSize() - 1);
+    m_playlistsInfoLabel->SetFont(f);
+  }
+  titleRow->Add(m_playlistsInfoLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
+                FromDIP(8));
+  titleRow->AddStretchSpacer(1);
+  titleRow->SetMinSize(wxSize(-1, GetHeaderRowHeight()));
+  panelSizer->Add(titleRow, 0, wxEXPAND | wxALL, FromDIP(8));
 
   // Верхние кнопки
   auto *topBtnSizer = createPlaylistTopButtons();

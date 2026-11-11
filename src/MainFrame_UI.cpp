@@ -753,3 +753,12 @@ void MainFrame::showPanel(wxWindow *child) {
 }
 
 uint64_t MainFrame::InvalidateShowPanelToken() { return ++m_showPanelToken; }
+
+int MainFrame::GetHeaderRowHeight() const {
+  if (m_viewToolBar) {
+    const int h = m_viewToolBar->GetBestSize().GetHeight();
+    if (h > 0)
+      return h;
+  }
+  return FromDIP(28);
+}

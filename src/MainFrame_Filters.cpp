@@ -86,11 +86,17 @@ void MainFrame::ApplyFiltersAndSort(bool incremental) {
       m_channelCards->RefreshCards();
       LOG_DEBUG("ApplyFiltersAndSort(inc): cards refreshed");
     }
-    // Обновляем заголовок
-    wxString header = wxString::Format(_U("Playlist: %s / Channels: %zu"),
-                                       wxString::FromUTF8(m_loadedPlaylistName),
-                                       m_allChannels.size());
-    m_channelsHeader->SetLabel(header);
+    if (m_channelsInfoLabel) {
+      wxString info;
+      if (!m_loadedPlaylistName.empty()) {
+        info = wxString::Format(_U("%s \xC2\xB7 %zu channels"),
+                                wxString::FromUTF8(m_loadedPlaylistName),
+                                m_allChannels.size());
+      } else {
+        info = wxString::Format(_U("%zu channels"), m_allChannels.size());
+      }
+      m_channelsInfoLabel->SetLabel(info);
+    }
     LOG_DEBUG("ApplyFiltersAndSort(inc): header updated");
     return;
   }

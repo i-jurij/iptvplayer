@@ -27,14 +27,24 @@ void MainFrame::createFavoritesUI() {
 
   // Заголовок
   wxBoxSizer *favHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
-  m_favHeader =
-      new wxStaticText(m_favoritesPanel, wxID_ANY, _U("Favorites: 0 channels"));
-  wxFont favFont = m_favHeader->GetFont();
-  favFont.SetPointSize(12);
-  favFont.SetWeight(wxFONTWEIGHT_BOLD);
-  m_favHeader->SetFont(favFont);
-  favHeaderSizer->AddSpacer(FromDIP(6));
-  favHeaderSizer->Add(m_favHeader, 1, wxALL, 0);
+  m_favHeader = new wxStaticText(m_favoritesPanel, wxID_ANY, _U("Favorites"));
+  {
+    wxFont favFont = m_favHeader->GetFont();
+    favFont.SetPointSize(12);
+    favFont.SetWeight(wxFONTWEIGHT_BOLD);
+    m_favHeader->SetFont(favFont);
+  }
+  favHeaderSizer->Add(m_favHeader, 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
+                      FromDIP(6));
+
+  m_favInfoLabel = new wxStaticText(m_favoritesPanel, wxID_ANY, "");
+  {
+    wxFont f = m_favInfoLabel->GetFont();
+    f.SetPointSize(f.GetPointSize() - 1);
+    m_favInfoLabel->SetFont(f);
+  }
+  favHeaderSizer->Add(m_favInfoLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
+                      FromDIP(8));
   favHeaderSizer->AddStretchSpacer(1);
 
 #if defined(__WXMSW__)
@@ -60,7 +70,8 @@ void MainFrame::createFavoritesUI() {
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   favHeaderSizer->Add(m_favToolBar, 0, wxALL, 0);
 
-  favSizer->Add(favHeaderSizer, 0, wxEXPAND | wxALL, FromDIP(6));
+  favHeaderSizer->SetMinSize(wxSize(-1, GetHeaderRowHeight()));
+  favSizer->Add(favHeaderSizer, 0, wxEXPAND | wxALL, FromDIP(8));
 
   // Фильтры избранного
   wxPanel *favFilterPanel = new wxPanel(m_favoritesPanel, wxID_ANY);
@@ -114,7 +125,7 @@ void MainFrame::createFavoritesUI() {
   favFilterPanel->SetSizer(favFilterSizer);
   favFilterPanel->Layout();
   favSizer->Add(favFilterPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM,
-                FromDIP(6));
+                FromDIP(8));
 
   // Splitter
   wxSplitterWindow *favSplitter =

@@ -108,7 +108,8 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
 
   ToggleHeaderGroup(m_btnChannels);
   showPanel(m_channelList->GetParent());
-  m_channelsHeader->SetLabel(_U("Loading channels..."));
+  if (m_channelsInfoLabel)
+    m_channelsInfoLabel->SetLabel(_U("Loading…"));
 
   // --- Загрузка нового плейлиста (асинхронно) ---
   wxTheApp->CallAfter([this, pl]() {
@@ -122,10 +123,12 @@ void MainFrame::OpenPlaylistInternal(int playlistIndex) {
     const std::string playlistId = pl->getUniqueId();
     loadPlaylistChannels(channels, playlistName, playlistId);
 
-    m_channelsHeader->SetLabel(wxString::Format(
-        _U("Playlist: %s / Channels: %zu"),
-        wxString::FromUTF8(pl->getTitle()),
-        pl->getChannelCount()));
+    if (m_channelsInfoLabel) {
+      m_channelsInfoLabel->SetLabel(
+          wxString::Format(_U("%s \xC2\xB7 %zu channels"),
+                           wxString::FromUTF8(pl->getTitle()),
+                           pl->getChannelCount()));
+    }
 
     refreshFavorites();
   });
@@ -794,7 +797,8 @@ void MainFrame::onRemovePlaylist(wxCommandEvent &WXUNUSED(event)) {
     if (m_channelCards)
       m_channelCards->SetChannels({}, "empty");
 
-    m_channelsHeader->SetLabel(_U("Playlist: - / Channels: 0"));
+    if (m_channelsInfoLabel)
+      m_channelsInfoLabel->SetLabel("");
 
     m_loadedPlaylistIndex = -1;
     m_loadedPlaylistName.clear();

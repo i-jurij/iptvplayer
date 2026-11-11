@@ -32,7 +32,7 @@ public:
   void UpdateSourceList();
   void SaveSettings();
   void LoadSettings();
-  void SetMainFrame(MainFrame *mainFrame) { m_mainFrame = mainFrame; }
+  void SetMainFrame(MainFrame *mainFrame);
   void SetBusy(bool busy);
 
 private:
@@ -61,6 +61,8 @@ private:
   void OnAutoApply(wxCommandEvent &event);
 
   wxScrolledWindow *m_scrolledWindow;
+  wxStaticText *m_headerLabel = nullptr;
+  wxStaticText *m_infoLabel = nullptr;
 
   // Основные элементы управления
   wxListCtrl *m_sourceList;
@@ -105,6 +107,7 @@ private:
 
   // Методы
   void SetupUI();
+  void UpdateHeaderInfo();
   void AdjustColumnWidths();
   void CheckAvailabilityAsync(const std::string &url);
   void OnAvailabilityChecked(const std::string &url, bool available);

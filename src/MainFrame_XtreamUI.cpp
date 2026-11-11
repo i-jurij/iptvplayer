@@ -88,14 +88,13 @@ void MainFrame::EnsureMoviesPanel() {
     wxFont f = m_moviesInfoLabel->GetFont();
     f.SetPointSize(f.GetPointSize() - 1);
     m_moviesInfoLabel->SetFont(f);
-    m_moviesInfoLabel->SetForegroundColour(
-        wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
   }
-  titleSizer->AddStretchSpacer(1);
-  titleSizer->Add(m_moviesInfoLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  titleSizer->Add(m_moviesInfoLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
                   FromDIP(8));
+  titleSizer->AddStretchSpacer(1);
 
-  mainSizer->Add(titleSizer, 0, wxEXPAND | wxTOP, FromDIP(4));
+  titleSizer->SetMinSize(wxSize(-1, GetHeaderRowHeight()));
+  mainSizer->Add(titleSizer, 0, wxEXPAND | wxTOP, FromDIP(8));
 
   // Line 2: фильтры + поиск + сортировка + refresh
   auto *filterSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -168,7 +167,7 @@ void MainFrame::EnsureMoviesPanel() {
   filterSizer->Add(m_moviesRefreshBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
 
-  mainSizer->Add(filterSizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(4));
+  mainSizer->Add(filterSizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(8));
 
   auto *splitter =
       new wxSplitterWindow(m_moviesPage, wxID_ANY, wxDefaultPosition,
@@ -354,11 +353,7 @@ void MainFrame::LoadVodPage(bool reset) {
                                        : wxString());
   }
 
-  if (m_moviesHeader) {
-    const int64_t total = db->GetVodCount(m_currentVodCategoryId);
-    m_moviesHeader->SetLabel(
-        wxString::Format(_U("Movies: %lld"), static_cast<long long>(total)));
-  }
+  UpdateMoviesInfoLabel();
 
   m_moviesLoadMoreBtn->Show(page.size() == kPageSize);
   m_moviesLoadMoreBtn->Enable(true);
@@ -769,9 +764,7 @@ void MainFrame::LoadMoviesFavorites() {
       m_moviesCards->GetMediaKey(0).empty() ? _U("No favorites")
                                             : wxString());
 
-  if (m_moviesHeader)
-    m_moviesHeader->SetLabel(
-        wxString::Format(_U("Movies: Favorites (%zu)"), list.size()));
+  UpdateMoviesInfoLabel();
 
   if (m_moviesLoadMoreBtn)
     m_moviesLoadMoreBtn->Hide();
@@ -819,9 +812,7 @@ void MainFrame::LoadMoviesWatchlist() {
       m_moviesCards->GetMediaKey(0).empty() ? _U("Watchlist is empty")
                                             : wxString());
 
-  if (m_moviesHeader)
-    m_moviesHeader->SetLabel(
-        wxString::Format(_U("Movies: Watchlist (%zu)"), list.size()));
+  UpdateMoviesInfoLabel();
 
   if (m_moviesLoadMoreBtn)
     m_moviesLoadMoreBtn->Hide();
@@ -1037,11 +1028,7 @@ void MainFrame::ApplyMoviesSearch(const std::string &queryLower) {
   m_moviesCards->SetEmptyMessage(
       m_moviesCards->GetMediaKey(0).empty() ? _U("Nothing found") : wxString());
 
-  if (m_moviesHeader) {
-    m_moviesHeader->SetLabel(wxString::Format(_U("Movies: search \"%s\" (%zu)"),
-                                              wxString::FromUTF8(queryLower),
-                                              list.size()));
-  }
+  UpdateMoviesInfoLabel();
 
   if (m_moviesLoadMoreBtn)
     m_moviesLoadMoreBtn->Hide();
@@ -1100,10 +1087,7 @@ void MainFrame::LoadMoviesRecentlyAdded() {
   m_moviesCards->SetEmptyMessage(
       m_moviesCards->GetMediaKey(0).empty() ? _U("No movies") : wxString());
 
-  if (m_moviesHeader) {
-    m_moviesHeader->SetLabel(
-        wxString::Format(_U("Movies: Recently Added (%zu)"), list.size()));
-  }
+  UpdateMoviesInfoLabel();
 
   if (m_moviesLoadMoreBtn)
     m_moviesLoadMoreBtn->Hide();
@@ -1322,13 +1306,34 @@ void MainFrame::UpdateMoviesInfoLabel() {
     return;
   }
 
-  wxString info;
+  const size_t count = m_moviesCards ? m_moviesCards->GetChannels().size() : 0;
 
-  const int catCount = m_moviesCategoryIds.empty()
-                           ? 0
-                           : static_cast<int>(m_moviesCategoryIds.size()) - 1;
-  if (catCount > 0)
-    info = wxString::Format(_U("%d categories"), catCount);
+  wxString view;
+  if (!m_moviesSearchQuery.empty()) {
+    view = wxString::Format(_U("Search \"%s\""),
+                            wxString::FromUTF8(m_moviesSearchQuery));
+  } else if (m_moviesListMode == MoviesListMode::Favorites) {
+    view = _U("Favorites");
+  } else if (m_moviesListMode == MoviesListMode::Watchlist) {
+    view = _U("Watchlist");
+  } else if (m_currentVodCategoryId == kRecentlyAddedCategoryId) {
+    view = _U("Recently Added");
+  } else {
+    int idx = -1;
+    for (size_t i = 0; i < m_moviesCategoryIds.size(); ++i) {
+      if (m_moviesCategoryIds[i] == m_currentVodCategoryId) {
+        idx = static_cast<int>(i);
+        break;
+      }
+    }
+    if (idx >= 0 && m_moviesCategoryChoice &&
+        idx < static_cast<int>(m_moviesCategoryChoice->GetCount()))
+      view = m_moviesCategoryChoice->GetString(idx);
+  }
+
+  wxString info;
+  if (!view.IsEmpty())
+    info = wxString::Format(_U("%s (%zu)"), view, count);
 
   const wxString acc = FormatAccountInfoShort(pl);
   if (!acc.IsEmpty()) {

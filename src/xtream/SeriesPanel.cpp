@@ -123,14 +123,15 @@ void SeriesPanel::BuildSeriesListPage() {
     wxFont f = m_infoLabel->GetFont();
     f.SetPointSize(f.GetPointSize() - 1);
     m_infoLabel->SetFont(f);
-    m_infoLabel->SetForegroundColour(
-        wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
   }
-  titleSizer->AddStretchSpacer(1);
-  titleSizer->Add(m_infoLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
+  titleSizer->Add(m_infoLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
                   FromDIP(8));
+  titleSizer->AddStretchSpacer(1);
 
-  mainSizer->Add(titleSizer, 0, wxEXPAND | wxTOP, FromDIP(4));
+  const int headerH =
+      m_mainFrame ? m_mainFrame->GetHeaderRowHeight() : FromDIP(28);
+  titleSizer->SetMinSize(wxSize(-1, headerH));
+  mainSizer->Add(titleSizer, 0, wxEXPAND | wxTOP, FromDIP(8));
 
   // Line 2: фильтры + поиск + сортировка + refresh
   auto *filterSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -194,7 +195,7 @@ void SeriesPanel::BuildSeriesListPage() {
   filterSizer->Add(m_refreshBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT,
                    FromDIP(8));
 
-  mainSizer->Add(filterSizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(4));
+  mainSizer->Add(filterSizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(8));
 
   m_cards = new PosterCards(m_seriesListPage);
 
@@ -665,11 +666,7 @@ void SeriesPanel::LoadSeriesPage(bool reset) {
     }
   }
 
-  if (m_header) {
-    const int64_t total = db->GetSeriesCount(m_currentCategoryId);
-    m_header->SetLabel(
-        wxString::Format(_U("Series: %lld"), static_cast<long long>(total)));
-  }
+  UpdateInfoLabel();
 
   if (m_loadMoreBtn) {
     m_loadMoreBtn->Show(page.size() == kPageSize);
@@ -723,9 +720,7 @@ void SeriesPanel::LoadRecentlyAdded() {
                                                              : wxString());
   }
 
-  if (m_header)
-    m_header->SetLabel(
-        wxString::Format(_U("Series: Recently Added (%zu)"), list.size()));
+  UpdateInfoLabel();
 
   if (m_loadMoreBtn)
     m_loadMoreBtn->Hide();
@@ -1241,9 +1236,7 @@ void SeriesPanel::LoadSeriesFavorites() {
   m_cards->SetEmptyMessage(m_cards->GetMediaKey(0).empty() ? _U("No favorites")
                                                            : wxString());
 
-  if (m_header)
-    m_header->SetLabel(
-        wxString::Format(_U("Series: Favorites (%zu)"), list.size()));
+  UpdateInfoLabel();
 
   if (m_loadMoreBtn)
     m_loadMoreBtn->Hide();
@@ -1283,9 +1276,7 @@ void SeriesPanel::LoadSeriesWatchlist() {
   m_cards->SetEmptyMessage(
       m_cards->GetMediaKey(0).empty() ? _U("Watchlist is empty") : wxString());
 
-  if (m_header)
-    m_header->SetLabel(
-        wxString::Format(_U("Series: Watchlist (%zu)"), list.size()));
+  UpdateInfoLabel();
 
   if (m_loadMoreBtn)
     m_loadMoreBtn->Hide();
@@ -1450,12 +1441,7 @@ void SeriesPanel::ApplySearch(const std::string &queryLower) {
   ApplySort();
   m_cards->SetEmptyMessage(m_cards->GetMediaKey(0).empty() ? _U("Nothing found")
                                                            : wxString());
-
-  if (m_header) {
-    m_header->SetLabel(wxString::Format(_U("Series: search \"%s\" (%zu)"),
-                                        wxString::FromUTF8(queryLower),
-                                        list.size()));
-  }
+  UpdateInfoLabel();
 
   if (m_loadMoreBtn)
     m_loadMoreBtn->Hide();
@@ -1640,12 +1626,34 @@ void SeriesPanel::UpdateInfoLabel() {
     return;
   }
 
-  wxString info;
+  const size_t count = m_cards ? m_cards->GetChannels().size() : 0;
 
-  const int catCount =
-      m_categoryIds.empty() ? 0 : static_cast<int>(m_categoryIds.size()) - 1;
-  if (catCount > 0)
-    info = wxString::Format(_U("%d categories"), catCount);
+  wxString view;
+  if (!m_searchQuery.empty()) {
+    view = wxString::Format(_U("Search \"%s\""),
+                            wxString::FromUTF8(m_searchQuery));
+  } else if (m_listMode == SeriesListMode::Favorites) {
+    view = _U("Favorites");
+  } else if (m_listMode == SeriesListMode::Watchlist) {
+    view = _U("Watchlist");
+  } else if (m_currentCategoryId == kRecentlyAddedCategoryId) {
+    view = _U("Recently Added");
+  } else {
+    int idx = -1;
+    for (size_t i = 0; i < m_categoryIds.size(); ++i) {
+      if (m_categoryIds[i] == m_currentCategoryId) {
+        idx = static_cast<int>(i);
+        break;
+      }
+    }
+    if (idx >= 0 && m_categoryChoice &&
+        idx < static_cast<int>(m_categoryChoice->GetCount()))
+      view = m_categoryChoice->GetString(idx);
+  }
+
+  wxString info;
+  if (!view.IsEmpty())
+    info = wxString::Format(_U("%s (%zu)"), view, count);
 
   const wxString acc = MainFrame::FormatAccountInfoShort(pl);
   if (!acc.IsEmpty()) {

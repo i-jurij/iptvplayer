@@ -84,6 +84,37 @@ void EpgSourceManagerPanel::SetupUI() {
 
   wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
+  // ---- Заголовок + информация об источниках ----
+  {
+    auto *headerSizer = new wxBoxSizer(wxHORIZONTAL);
+
+    m_headerLabel = new wxStaticText(m_scrolledWindow, wxID_ANY, _U("Program"));
+    {
+      wxFont f = m_headerLabel->GetFont();
+      f.SetPointSize(12);
+      f.SetWeight(wxFONTWEIGHT_BOLD);
+      m_headerLabel->SetFont(f);
+    }
+    headerSizer->Add(m_headerLabel, 0,
+                     wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+
+    m_infoLabel = new wxStaticText(m_scrolledWindow, wxID_ANY, "");
+    {
+      wxFont f = m_infoLabel->GetFont();
+      f.SetPointSize(f.GetPointSize() - 1);
+      m_infoLabel->SetFont(f);
+    }
+    headerSizer->Add(m_infoLabel, 0,
+                     wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+    headerSizer->AddStretchSpacer(1);
+
+    const int headerH =
+        m_mainFrame ? m_mainFrame->GetHeaderRowHeight() : FromDIP(28);
+    headerSizer->SetMinSize(wxSize(-1, headerH));
+
+    mainSizer->Add(headerSizer, 0, wxEXPAND | wxALL, FromDIP(8));
+  }
+
   // ---- Блок "EPG Sources" ----
   wxStaticBox *sourceBox =
       new wxStaticBox(m_scrolledWindow, wxID_ANY, _U("EPG Sources"));
@@ -647,6 +678,7 @@ void EpgSourceManagerPanel::UpdateSourceList() {
 
   m_dirty = false;
   AdjustColumnWidths();
+  UpdateHeaderInfo();
 }
 
 void EpgSourceManagerPanel::CheckAvailabilityAsync(const std::string &url) {
@@ -816,6 +848,11 @@ void EpgSourceManagerPanel::OnProgressUpdate(const EpgProgressInfo &info) {
                  info.stage != EpgProgressStage::Cancelled &&
                  info.stage != EpgProgressStage::Error);
   SetBusy(isBusy);
+  if (info.stage == EpgProgressStage::Done ||
+      info.stage == EpgProgressStage::Cancelled ||
+      info.stage == EpgProgressStage::Error) {
+    UpdateHeaderInfo();
+  }
 }
 
 void EpgSourceManagerPanel::SetBusy(bool busy) {
@@ -1136,4 +1173,42 @@ void EpgSourceManagerPanel::OnEditRules(wxCommandEvent &) {
 
   dlg.CentreOnParent();
   dlg.ShowModal();
+}
+
+void EpgSourceManagerPanel::UpdateHeaderInfo() {
+  if (!m_infoLabel || !m_epgMgr)
+    return;
+
+  wxString info;
+
+  const auto sources = m_epgMgr->GetSources();
+  const size_t sourcesCount = sources.size();
+
+  size_t channelsCount = 0;
+  bool loaded = m_epgMgr->IsLoaded();
+  if (loaded) {
+    const auto channels = m_epgMgr->GetAllEpgChannels();
+    channelsCount = channels.size();
+  }
+
+  if (sourcesCount > 0)
+    info = wxString::Format(_U("%zu sources"), sourcesCount);
+
+  if (loaded) {
+    if (!info.IsEmpty())
+      info += _U(" \xC2\xB7 ");
+    info += wxString::Format(_U("%zu channels"), channelsCount);
+  }
+
+  if (sourcesCount == 0 && !loaded)
+    info = _U("No sources · No data");
+
+  m_infoLabel->SetLabel(info);
+  if (wxWindow *p = m_infoLabel->GetParent())
+    p->Layout();
+}
+
+void EpgSourceManagerPanel::SetMainFrame(MainFrame *mainFrame) {
+  m_mainFrame = mainFrame;
+  UpdateHeaderInfo();
 }

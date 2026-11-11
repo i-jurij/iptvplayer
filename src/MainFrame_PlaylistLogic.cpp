@@ -158,6 +158,10 @@ void MainFrame::addPlaylistToView(size_t index, const Playlist *playlist) {
 
 void MainFrame::updateStatusBar(size_t playlistCount) {
   SetStatusText(wxString::Format(_U("Playlists: %zu"), playlistCount), 1);
+  if (m_playlistsInfoLabel) {
+    m_playlistsInfoLabel->SetLabel(
+        wxString::Format(_U("%zu playlists"), playlistCount));
+  }
 }
 
 void MainFrame::enablePlaylistButtons(bool enable) {
@@ -205,10 +209,11 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
   if (m_epgChannels)
     m_epgChannels->Clear();
 
-  wxString header =
-      wxString::Format(_U("Playlist: %s / Channels: %zu"),
-                       title, channels.size());
-  m_channelsHeader->SetLabel(header);
+  if (m_channelsInfoLabel) {
+    m_channelsInfoLabel->SetLabel(
+        wxString::Format(_U("%s \xC2\xB7 %zu channels"), title,
+                         channels.size()));
+  }
 
   // 1) Сохраняем оригинальный список каналов. Проставляем playlistName и
   // playlistId, если они ещё не заполнены (для каналов, впервые попадающих
@@ -331,9 +336,9 @@ void MainFrame::refreshFavorites() {
 
   auto favChannels = m_application->getFavoritesManager().list();
 
-  if (m_favHeader) {
-    m_favHeader->SetLabel(wxString::Format(_U("Favorites: %lu channels"),
-                                           (unsigned long)favChannels.size()));
+  if (m_favInfoLabel) {
+    m_favInfoLabel->SetLabel(
+        wxString::Format(_U("%zu channels"), favChannels.size()));
   }
 
   FillFavFilterChoices(favChannels);
@@ -935,11 +940,12 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
       }
     }
 
-    // 3b) Обновляем заголовок (количество каналов)
-    wxString header = wxString::Format("Playlist: %s / Channels: %zu",
-                                       wxString::FromUTF8(m_loadedPlaylistName),
-                                       m_allChannels.size());
-    m_channelsHeader->SetLabel(header);
+    if (m_channelsInfoLabel) {
+      m_channelsInfoLabel->SetLabel(
+          wxString::Format(_U("%s \xC2\xB7 %zu channels"),
+                           wxString::FromUTF8(m_loadedPlaylistName),
+                           m_allChannels.size()));
+    }
     LOG_DEBUG("RemoveChannelFromPlaylist: header updated");
 
     // 3c) Удаляем карточку (если она есть)
