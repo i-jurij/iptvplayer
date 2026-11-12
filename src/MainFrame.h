@@ -418,7 +418,6 @@ private:
   SeriesPanel *m_seriesPanel = nullptr;
   wxToggleButton *m_btnSeries = nullptr;
   int m_seriesPageIdx = wxNOT_FOUND;
-  bool m_seriesPanelCreated = false;
   wxPanel *m_moviesPage = nullptr;
   PosterCards *m_moviesCards = nullptr;
   VodInfoPanel *m_moviesInfo = nullptr;

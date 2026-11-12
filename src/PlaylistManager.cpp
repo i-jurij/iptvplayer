@@ -506,6 +506,8 @@ ErrorCode PlaylistManager::updatePlaylist(size_t index) {
   std::string title;
   std::string userAgent;
   bool isUrl = false;
+  bool isXtream = false;
+  XtreamMeta xtreamMeta;
   {
     std::lock_guard<std::mutex> lock(m_playlistsMutex);
     if (index >= m_playlists.size()) {
@@ -521,10 +523,18 @@ ErrorCode PlaylistManager::updatePlaylist(size_t index) {
     title = pl->getTitle();
     userAgent = pl->getUserAgent();
     isUrl = pl->isUrl();
+    isXtream = pl->isXtream();
+    if (isXtream)
+      xtreamMeta = pl->getXtreamMeta();
   }
 
   Playlist tmp(title, src, isUrl);
   tmp.setUserAgent(userAgent);
+  if (isXtream) {
+    tmp.setXtream(true);
+    tmp.setXtreamMeta(xtreamMeta);
+  }
+
   ErrorCode ec = loadPlaylistContent(&tmp);
   if (ec != ErrorCode::OK) {
     return ec;
@@ -543,6 +553,10 @@ ErrorCode PlaylistManager::updatePlaylist(size_t index) {
     }
     pl->setChannels(tmp.getChannels());
     pl->setLastUpdate(tmp.getLastUpdate());
+    if (isXtream) {
+      pl->setHasVod(tmp.hasVod());
+      pl->setHasSeries(tmp.hasSeries());
+    }
   }
 
   return savePlaylist(nullptr, index);

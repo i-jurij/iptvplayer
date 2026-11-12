@@ -424,7 +424,7 @@ void MainFrame::PlayChannel(const Channel &ch, double startPosition,
 
   // Запускаем воспроизведение
   if (ch.getMediaType() != MediaType::Episode && m_seriesPanel &&
-      m_seriesPanelCreated) {
+      m_seriesPanel) {
     m_seriesPanel->ClearPlayingState();
   }
 

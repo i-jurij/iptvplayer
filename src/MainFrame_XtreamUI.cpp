@@ -62,11 +62,7 @@ void MainFrame::EnsureMoviesPanel() {
   if (!m_notebook)
     return;
 
-  m_moviesPanelCreated = true;
-
   m_moviesPage = new wxPanel(m_notebook, wxID_ANY);
-  m_notebook->AddPage(m_moviesPage, "");
-  m_moviesPageIdx = m_notebook->FindPage(m_moviesPage);
 
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -202,6 +198,11 @@ void MainFrame::EnsureMoviesPanel() {
         ReloadMoviesView();
       });
 
+  m_moviesCards->SetContextCallback(
+      [this](const std::string &mediaKey, const wxPoint &screenPos) {
+        OnMoviesShowContextMenu(mediaKey, screenPos);
+      });
+
   m_moviesInfo = new VodInfoPanel(splitter);
   m_moviesInfo->SetPlayCallback(
       [this](int64_t id, bool fromBeginning) {
@@ -232,6 +233,10 @@ void MainFrame::EnsureMoviesPanel() {
     m_currentVodCategoryId = m_moviesCategoryIds[0];
     LoadVodPage(true);
   }
+
+  m_notebook->AddPage(m_moviesPage, "");
+  m_moviesPageIdx = m_notebook->FindPage(m_moviesPage);
+  m_moviesPanelCreated = true;
 }
 
 void MainFrame::PopulateMoviesCategories() {
@@ -1173,22 +1178,23 @@ void MainFrame::ReloadMoviesView() {
 }
 
 void MainFrame::EnsureSeriesPanel() {
-  if (m_seriesPanelCreated)
+  if (m_seriesPanel)
     return;
   if (!m_notebook)
     return;
 
-  m_seriesPanelCreated = true;
-
   m_seriesPage = new wxPanel(m_notebook, wxID_ANY);
-  m_notebook->AddPage(m_seriesPage, "");
-  m_seriesPageIdx = m_notebook->FindPage(m_seriesPage);
+  m_seriesPanel = new SeriesPanel(m_seriesPage, this);
 
   auto *sizer = new wxBoxSizer(wxVERTICAL);
-  m_seriesPanel = new SeriesPanel(m_seriesPage, this);
   sizer->Add(m_seriesPanel, 1, wxEXPAND);
   m_seriesPage->SetSizer(sizer);
   m_seriesPage->Layout();
+
+  m_seriesPageIdx = m_notebook->GetPageCount();
+
+  m_notebook->AddPage(m_seriesPage, "");
+  m_seriesPageIdx = m_notebook->FindPage(m_seriesPage);
 }
 
 void MainFrame::OnSeriesToggle(wxCommandEvent &) {
@@ -1209,7 +1215,7 @@ void MainFrame::OnSeriesToggle(wxCommandEvent &) {
 void MainFrame::HandleSeriesPageChanged(int sel) {
   if (m_seriesPageIdx == wxNOT_FOUND || sel != m_seriesPageIdx)
     return;
-  if (!m_seriesPanelCreated || !m_seriesPanel)
+  if (!m_seriesPanel)
     return;
 
   m_seriesPanel->OnActivated();
@@ -1231,7 +1237,7 @@ void MainFrame::UpdateSeriesTabVisibility() {
       if (m_channelsPageIdx != wxNOT_FOUND)
         m_notebook->SetSelection(m_channelsPageIdx);
     }
-    if (m_seriesPanelCreated)
+    if (m_seriesPanel)
       ResetSeriesState();
   }
 }
@@ -1246,7 +1252,7 @@ void MainFrame::OnXtreamCacheCleared() {
                              m_moviesPageIdx != wxNOT_FOUND &&
                              m_notebook->GetSelection() == m_moviesPageIdx;
 
-  const bool seriesVisible = m_seriesPanelCreated && m_notebook &&
+  const bool seriesVisible = m_seriesPanel && m_notebook &&
                              m_seriesPageIdx != wxNOT_FOUND &&
                              m_notebook->GetSelection() == m_seriesPageIdx;
 
@@ -1261,7 +1267,7 @@ void MainFrame::OnXtreamCacheCleared() {
     }
   }
 
-  if (m_seriesPanelCreated) {
+  if (m_seriesPanel) {
     ResetSeriesState();
     if (seriesVisible && m_seriesPanel) {
       m_seriesPanel->OnActivated();

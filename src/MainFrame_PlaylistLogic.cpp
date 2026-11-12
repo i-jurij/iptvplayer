@@ -196,7 +196,7 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
   if (playlistChanged) {
     if (m_moviesPanelCreated)
       ResetMoviesState();
-    if (m_seriesPanelCreated)
+    if (m_seriesPanel)
       ResetSeriesState();
   }
 

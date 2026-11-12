@@ -362,26 +362,40 @@ xtream::XtreamApiClient *SeriesPanel::GetClient() const {
 
 void SeriesPanel::OnActivated() {
   Playlist *pl = GetCurrentPlaylist();
+  LOG_DEBUG("SeriesPanel::OnActivated: pl=%p isXtream=%d hasSeries=%d "
+            "activated=%d cardsNull=%d mediaKey0Empty=%d loading=%d "
+            "categories=%zu currentCat=%d",
+            (void *)pl, pl ? pl->isXtream() : 0, pl ? pl->hasSeries() : 0,
+            m_activatedOnce ? 1 : 0, m_cards ? 0 : 1,
+            (m_cards && m_cards->GetMediaKey(0).empty()) ? 1 : 0,
+            m_loading ? 1 : 0, m_categoryIds.size(), m_currentCategoryId);
+
   if (!pl || !pl->isXtream() || !pl->hasSeries())
     return;
 
   if (!m_activatedOnce) {
     m_activatedOnce = true;
     m_navStack.clear();
-    PopulateCategories();
-    if (!m_categoryIds.empty()) {
-      m_currentCategoryId = m_categoryIds[0];
-    }
-    SetSeriesListMode(m_listMode);
-    return;
   }
 
-  if (m_cards && m_cards->GetMediaKey(0).empty() && !m_loading) {
-    // панель была пуста (например, после Reset) — перезагрузить
-    PopulateCategories();
-    if (!m_categoryIds.empty()) {
-      m_currentCategoryId = m_categoryIds[0];
-      LoadSeriesPage(true);
+  // Симметрично Movies: при каждом входе, если список пуст и загрузка
+  // не идёт — перезагружаем. Так ловятся случаи, когда БД заполнилась
+  // асинхронно (loadPlaylistContent / Refresh) уже после первого входа.
+  if (!m_cards || m_cards->GetMediaKey(0).empty()) {
+    if (!m_loading) {
+      PopulateCategories();
+      LOG_DEBUG("SeriesPanel::OnActivated: after PopulateCategories, "
+                "categories=%zu currentCat=%d",
+                m_categoryIds.size(), m_currentCategoryId);
+      if (!m_categoryIds.empty()) {
+        const bool keepCurrent =
+            m_currentCategoryId > 0 &&
+            std::find(m_categoryIds.begin(), m_categoryIds.end(),
+                      m_currentCategoryId) != m_categoryIds.end();
+        if (!keepCurrent)
+          m_currentCategoryId = m_categoryIds[0];
+        LoadSeriesPage(true);
+      }
     }
   }
 }
