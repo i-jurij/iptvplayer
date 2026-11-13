@@ -82,22 +82,42 @@ bool PrepareDbFile(const wxString &dbPath) {
 
 } // namespace
 
+// Два соединения: writeDb (писатели + транзакции) и readDb (читатели).
+// writeMutex сериализует писателей и держится всю транзакцию (Begin→Commit/
+// Rollback), чтобы транзакция была атомарна на уровне всего API. readMutex
+// сериализует читателей. WAL обеспечивает snapshot isolation: читатели
+// видят только закоммиченные данные.
+// Fallback: если readDb не открылся, читатели идут через writeDb +
+// writeMutex (readOpen=false).
 struct XtreamDatabase::Impl {
-  Database db;
+  // Writers
+  Database writeDb;
+  std::recursive_mutex writeMutex;
+  bool writeInTransaction = false;
+
+  // Readers
+  Database readDb;
+  std::recursive_mutex readMutex;
+  std::atomic<bool> readOpen{false};
+
+  // Lifecycle
+  std::mutex lifecycleMutex;
+  std::atomic<bool> open{false};
+
+  // Файлы будут удалены при последнем Close(). Защищено lifecycleMutex.
+  bool deferredDelete = false;
+
   wxString path;
   std::string uuid;
-  bool open = false;
-  bool inTransaction = false;
-  mutable std::recursive_mutex mutex;
 };
 
 XtreamDatabase::XtreamDatabase() : m_impl(std::make_unique<Impl>()) {}
 XtreamDatabase::~XtreamDatabase() { Close(); }
 
 bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
+  std::lock_guard<std::mutex> lifecycle(m_impl->lifecycleMutex);
 
-  if (m_impl->open)
+  if (m_impl->open.load(std::memory_order_acquire))
     Close();
 
   if (!IsValidUuid(uuid)) {
@@ -148,8 +168,6 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
   wxString dbPath =
       xtreamDir + wxFILE_SEP_PATH + wxString::FromUTF8(uuid) + ".db";
 
-  // Избыточно по отношению к O_NOFOLLOW в PrepareDbFile, но даёт
-  // понятное сообщение в логе вместо ELOOP.
   {
     std::error_code ec;
     auto fsPath = ToFsPath(dbPath.utf8_str().data());
@@ -166,24 +184,26 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
 #endif
 
   try {
-    m_impl->db.Open(dbPath, wxEmptyString,
-                    OPEN_READWRITE | OPEN_CREATE | kWxOpenNofollow);
+    // ---- 1) Write connection ----
+    m_impl->writeDb.Open(dbPath, wxEmptyString,
+                         OPEN_READWRITE | OPEN_CREATE | kWxOpenNofollow);
     m_impl->path = dbPath;
 
-    m_impl->db.ExecuteUpdate("PRAGMA busy_timeout = 5000");
-    m_impl->db.ExecuteUpdate("PRAGMA journal_mode = WAL");
-    m_impl->db.ExecuteUpdate("PRAGMA synchronous = NORMAL");
-    m_impl->db.ExecuteUpdate("PRAGMA foreign_keys = ON");
-    m_impl->db.ExecuteUpdate("PRAGMA wal_autocheckpoint = 1000");
-    m_impl->db.ExecuteUpdate("PRAGMA cache_size = -32000");
-    m_impl->db.ExecuteUpdate("PRAGMA mmap_size = 0");
-    m_impl->db.ExecuteUpdate("PRAGMA temp_store = MEMORY");
+    m_impl->writeDb.ExecuteUpdate("PRAGMA busy_timeout = 5000");
+    m_impl->writeDb.ExecuteUpdate("PRAGMA journal_mode = WAL");
+    m_impl->writeDb.ExecuteUpdate("PRAGMA synchronous = NORMAL");
+    m_impl->writeDb.ExecuteUpdate("PRAGMA foreign_keys = ON");
+    m_impl->writeDb.ExecuteUpdate("PRAGMA wal_autocheckpoint = 1000");
+    m_impl->writeDb.ExecuteUpdate("PRAGMA cache_size = -32000");
+    m_impl->writeDb.ExecuteUpdate("PRAGMA mmap_size = 0");
+    m_impl->writeDb.ExecuteUpdate("PRAGMA temp_store = MEMORY");
 
-    m_impl->db.ExecuteUpdate("BEGIN IMMEDIATE");
+    // ---- 2) Migration (writeDb, open=false) ----
+    m_impl->writeDb.ExecuteUpdate("BEGIN IMMEDIATE");
 
     int userVersion = 0;
     {
-      Statement stmt = m_impl->db.PrepareStatement("PRAGMA user_version");
+      Statement stmt = m_impl->writeDb.PrepareStatement("PRAGMA user_version");
       StatementGuard guard(stmt);
       ResultSet rs = stmt.ExecuteQuery();
       if (rs.NextRow())
@@ -191,7 +211,7 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
     }
 
     if (userVersion > kCurrentSchemaVersion) {
-      m_impl->db.ExecuteUpdate("ROLLBACK");
+      m_impl->writeDb.ExecuteUpdate("ROLLBACK");
       LOG_ERROR("XtreamDatabase: schema version %d > supported %d", userVersion,
                 kCurrentSchemaVersion);
       Close();
@@ -201,40 +221,61 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
     if (userVersion < kCurrentSchemaVersion) {
       if (!CreateSchemaV1(/*inTransaction=*/true)) {
         try {
-          m_impl->db.ExecuteUpdate("ROLLBACK");
+          m_impl->writeDb.ExecuteUpdate("ROLLBACK");
         } catch (...) {
         }
         LOG_ERROR("XtreamDatabase: failed to create schema v1");
         Close();
         return false;
       }
-      m_impl->db.ExecuteUpdate(
+      m_impl->writeDb.ExecuteUpdate(
           wxString::Format("PRAGMA user_version = %d", kCurrentSchemaVersion));
     }
 
-    m_impl->db.ExecuteUpdate("COMMIT");
+    m_impl->writeDb.ExecuteUpdate("COMMIT");
 
+    // ---- 3) Read connection (fallback if fails) ----
+    try {
+      m_impl->readDb.Open(dbPath, wxEmptyString,
+                          OPEN_READONLY | kWxOpenNofollow);
+      m_impl->readDb.ExecuteUpdate("PRAGMA busy_timeout = 5000");
+      m_impl->readDb.ExecuteUpdate("PRAGMA query_only = ON");
+      m_impl->readDb.ExecuteUpdate("PRAGMA cache_size = -16000");
+      m_impl->readDb.ExecuteUpdate("PRAGMA temp_store = MEMORY");
+      m_impl->readDb.ExecuteUpdate("PRAGMA mmap_size = 0");
+      m_impl->readDb.ExecuteUpdate("PRAGMA synchronous = NORMAL");
+      m_impl->readOpen.store(true, std::memory_order_release);
+    } catch (const wxSQLite3::Exception &e) {
+      LOG_WARN("XtreamDatabase: readDb.Open failed (%s); falling back to "
+               "single write connection",
+               e.GetMessage().utf8_str().data());
+      if (m_impl->readDb.IsOpen()) {
+        try {
+          m_impl->readDb.Close();
+        } catch (...) {
+        }
+      }
+      m_impl->readOpen.store(false);
+    }
+
+    // ---- 4) Permissions ----
     {
       wxFileName fn(dbPath);
       if (!fn.SetPermissions(0600)) {
-        // Не fatal: на POSIX файл уже создан с 0600 в PrepareDbFile
-        // (O_CREAT). SetPermissions — страховка для уже существующего
-        // файла с ослабленными правами. Если chmod не поддерживается
-        // ФС — продолжаем, warning достаточен.
-        LOG_WARN("XtreamDatabase: SetPermissions(0600) failed on '%s' "
-                 "(continuing; O_CREAT set 0600 at creation)",
+        LOG_WARN("XtreamDatabase: SetPermissions(0600) failed on '%s'",
                  dbPath.utf8_str().data());
       }
     }
 
-    m_impl->open = true;
-    LOG_INFO("XtreamDatabase: opened '%s' (schema v%d)",
-             dbPath.utf8_str().data(), kCurrentSchemaVersion);
+    m_impl->open.store(true, std::memory_order_release);
+    LOG_INFO("XtreamDatabase: opened '%s' (schema v%d, read=%d)",
+             dbPath.utf8_str().data(), kCurrentSchemaVersion,
+             m_impl->readOpen.load() ? 1 : 0);
     return true;
   } catch (const wxSQLite3::Exception &e) {
     LOG_ERROR("XtreamDatabase::Open: %s", e.GetMessage().utf8_str().data());
     try {
-      m_impl->db.ExecuteUpdate("ROLLBACK");
+      m_impl->writeDb.ExecuteUpdate("ROLLBACK");
     } catch (...) {
     }
     Close();
@@ -242,7 +283,7 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
   } catch (const std::exception &e) {
     LOG_ERROR("XtreamDatabase::Open: %s", e.what());
     try {
-      m_impl->db.ExecuteUpdate("ROLLBACK");
+      m_impl->writeDb.ExecuteUpdate("ROLLBACK");
     } catch (...) {
     }
     Close();
@@ -250,7 +291,7 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
   } catch (...) {
     LOG_ERROR("XtreamDatabase::Open: unknown exception");
     try {
-      m_impl->db.ExecuteUpdate("ROLLBACK");
+      m_impl->writeDb.ExecuteUpdate("ROLLBACK");
     } catch (...) {
     }
     Close();
@@ -259,21 +300,54 @@ bool XtreamDatabase::Open(const wxString &configDir, const std::string &uuid) {
 }
 
 void XtreamDatabase::Close() {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (m_impl->db.IsOpen()) {
+  std::lock_guard<std::mutex> lifecycle(m_impl->lifecycleMutex);
+
+  // Stop new readers/writers from entering.
+  m_impl->open.store(false, std::memory_order_release);
+
+  // Wait for any in-progress writer/transaction, then reader.
+  std::lock_guard<std::recursive_mutex> wl(m_impl->writeMutex);
+  std::lock_guard<std::recursive_mutex> rl(m_impl->readMutex);
+
+  if (m_impl->writeInTransaction) {
+    LOG_WARN("XtreamDatabase::Close: open transaction; rolling back");
     try {
-      m_impl->db.Close();
+      m_impl->writeDb.ExecuteUpdate("ROLLBACK");
+    } catch (...) {
+    }
+    m_impl->writeInTransaction = false;
+  }
+
+  if (m_impl->readDb.IsOpen()) {
+    try {
+      m_impl->readDb.Close();
     } catch (...) {
     }
   }
-  m_impl->open = false;
-  m_impl->inTransaction = false;
+  m_impl->readOpen.store(false);
+
+  if (m_impl->writeDb.IsOpen()) {
+    try {
+      m_impl->writeDb.Close();
+    } catch (...) {
+    }
+  }
+
+  // Deferred delete: удаляем файлы только после закрытия всех соединений.
+  if (m_impl->deferredDelete && !m_impl->path.IsEmpty()) {
+    if (DeleteDbFiles(m_impl->path)) {
+      LOG_DEBUG("XtreamDatabase::Close: deleted db files for '%s'",
+                m_impl->path.utf8_str().data());
+    }
+    m_impl->path.Clear();
+    m_impl->deferredDelete = false;
+  }
+
   m_impl->path.Clear();
 }
 
 bool XtreamDatabase::IsOpen() const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  return m_impl->open;
+  return m_impl->open.load(std::memory_order_acquire);
 }
 
 // Вызывается только изнутри BEGIN IMMEDIATE (см. Open). Параметр
@@ -296,99 +370,97 @@ bool XtreamDatabase::CreateSchemaV1(bool inTransaction) {
     return false;
   }
 
-  try {
-    m_impl->db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS meta ("
-                             "key TEXT PRIMARY KEY, value TEXT)");
+  Database &db = m_impl->writeDb;
 
-    m_impl->db.ExecuteUpdate(
-        "CREATE TABLE IF NOT EXISTS categories ("
-        "id INTEGER, type TEXT, name TEXT, parent_id INTEGER, "
-        "sort_order INTEGER, PRIMARY KEY(id, type))");
-    m_impl->db.ExecuteUpdate(
+  try {
+    db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS meta ("
+                     "key TEXT PRIMARY KEY, value TEXT)");
+
+    db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS categories ("
+                     "id INTEGER, type TEXT, name TEXT, parent_id INTEGER, "
+                     "sort_order INTEGER, PRIMARY KEY(id, type))");
+    db.ExecuteUpdate(
         "CREATE INDEX IF NOT EXISTS idx_cat_type ON categories(type)");
 
-    m_impl->db.ExecuteUpdate(
-        "CREATE TABLE IF NOT EXISTS live_streams ("
-        "stream_id INTEGER PRIMARY KEY, num INTEGER, name TEXT, "
-        "stream_icon TEXT, epg_channel_id TEXT, added INTEGER, "
-        "category_id INTEGER, tv_archive INTEGER, "
-        "tv_archive_duration INTEGER, custom_sid TEXT)");
-    m_impl->db.ExecuteUpdate(
+    db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS live_streams ("
+                     "stream_id INTEGER PRIMARY KEY, num INTEGER, name TEXT, "
+                     "stream_icon TEXT, epg_channel_id TEXT, added INTEGER, "
+                     "category_id INTEGER, tv_archive INTEGER, "
+                     "tv_archive_duration INTEGER, custom_sid TEXT)");
+    db.ExecuteUpdate(
         "CREATE INDEX IF NOT EXISTS idx_live_cat ON live_streams(category_id)");
 
-    m_impl->db.ExecuteUpdate(
+    db.ExecuteUpdate(
         "CREATE TABLE IF NOT EXISTS vod_streams ("
         "stream_id INTEGER PRIMARY KEY, name TEXT, name_lower TEXT, "
         "stream_icon TEXT, rating REAL, rating_5based REAL, added INTEGER, "
         "container_extension TEXT, custom_sid TEXT)");
-    m_impl->db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_vod_name_lower ON "
-                             "vod_streams(name_lower)");
-    m_impl->db.ExecuteUpdate(
+    db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_vod_name_lower ON "
+                     "vod_streams(name_lower)");
+    db.ExecuteUpdate(
         "CREATE INDEX IF NOT EXISTS idx_vod_added ON vod_streams(added)");
 
-    m_impl->db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS vod_category_map ("
-                             "stream_id INTEGER REFERENCES "
-                             "vod_streams(stream_id) ON DELETE CASCADE, "
-                             "category_id INTEGER, "
-                             "PRIMARY KEY (stream_id, category_id))");
-    m_impl->db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_vcm_cat ON "
-                             "vod_category_map(category_id)");
+    db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS vod_category_map ("
+                     "stream_id INTEGER REFERENCES "
+                     "vod_streams(stream_id) ON DELETE CASCADE, "
+                     "category_id INTEGER, "
+                     "PRIMARY KEY (stream_id, category_id))");
+    db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_vcm_cat ON "
+                     "vod_category_map(category_id)");
 
-    m_impl->db.ExecuteUpdate(
-        "CREATE TABLE IF NOT EXISTS vod_info ("
-        "stream_id INTEGER PRIMARY KEY "
-        "REFERENCES vod_streams(stream_id) ON DELETE CASCADE, "
-        "info_json TEXT, fetched_at INTEGER)");
+    db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS vod_info ("
+                     "stream_id INTEGER PRIMARY KEY "
+                     "REFERENCES vod_streams(stream_id) ON DELETE CASCADE, "
+                     "info_json TEXT, fetched_at INTEGER)");
 
-    m_impl->db.ExecuteUpdate(
+    db.ExecuteUpdate(
         "CREATE TABLE IF NOT EXISTS series ("
         "series_id INTEGER PRIMARY KEY, name TEXT, name_lower TEXT, "
         "cover TEXT, plot TEXT, cast_list TEXT, director TEXT, genre TEXT, "
         "releaseDate TEXT, rating REAL, rating_5based REAL, "
         "backdrop_path TEXT, youtube_trailer TEXT, episode_run_time TEXT, "
         "last_modified INTEGER)");
-    m_impl->db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_series_name_lower "
-                             "ON series(name_lower)");
-    m_impl->db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_series_modified "
-                             "ON series(last_modified)");
+    db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_series_name_lower "
+                     "ON series(name_lower)");
+    db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_series_modified "
+                     "ON series(last_modified)");
 
-    m_impl->db.ExecuteUpdate(
+    db.ExecuteUpdate(
         "CREATE TABLE IF NOT EXISTS series_category_map ("
         "series_id INTEGER REFERENCES series(series_id) ON DELETE CASCADE, "
         "category_id INTEGER, "
         "PRIMARY KEY (series_id, category_id))");
-    m_impl->db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_scm_cat ON "
-                             "series_category_map(category_id)");
+    db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_scm_cat ON "
+                     "series_category_map(category_id)");
 
-    m_impl->db.ExecuteUpdate(
+    db.ExecuteUpdate(
         "CREATE TABLE IF NOT EXISTS series_seasons ("
         "series_id INTEGER REFERENCES series(series_id) ON DELETE CASCADE, "
         "season_number INTEGER, name TEXT, cover TEXT, plot TEXT, "
         "episode_count INTEGER, air_date TEXT, "
         "PRIMARY KEY(series_id, season_number))");
 
-    m_impl->db.ExecuteUpdate(
+    db.ExecuteUpdate(
         "CREATE TABLE IF NOT EXISTS series_episodes ("
         "id TEXT PRIMARY KEY, "
         "series_id INTEGER REFERENCES series(series_id) ON DELETE CASCADE, "
         "season_number INTEGER, episode_num INTEGER, title TEXT, "
         "container_extension TEXT, info_json TEXT, custom_sid TEXT, "
         "added INTEGER)");
-    m_impl->db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_ep ON "
-                             "series_episodes(series_id, season_number)");
+    db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_ep ON "
+                     "series_episodes(series_id, season_number)");
 
-    m_impl->db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS playback_positions ("
-                             "media_key TEXT PRIMARY KEY, "
-                             "position_sec REAL, duration_sec REAL, "
-                             "updated_at INTEGER, finished INTEGER DEFAULT 0)");
-    m_impl->db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_pp_updated ON "
-                             "playback_positions(updated_at)");
+    db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS playback_positions ("
+                     "media_key TEXT PRIMARY KEY, "
+                     "position_sec REAL, duration_sec REAL, "
+                     "updated_at INTEGER, finished INTEGER DEFAULT 0)");
+    db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_pp_updated ON "
+                     "playback_positions(updated_at)");
 
-    m_impl->db.ExecuteUpdate(
-        "CREATE TABLE IF NOT EXISTS user_lists ("
-        "media_key TEXT, list_type TEXT, added_at INTEGER, "
-        "PRIMARY KEY (media_key, list_type))");
-    m_impl->db.ExecuteUpdate(
+    db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS user_lists ("
+                     "media_key TEXT, list_type TEXT, added_at INTEGER, "
+                     "PRIMARY KEY (media_key, list_type))");
+    db.ExecuteUpdate(
         "CREATE INDEX IF NOT EXISTS idx_ul_type ON user_lists(list_type)");
 
     return true;
@@ -430,14 +502,24 @@ std::string ComputeNameLower(const std::string &name,
 }
 } // namespace
 
+// ---------------------------------------------------------------------------
+// Writer/reader access helpers (inline, no new public API).
+// Writer pattern: check open → writeMutex → check open → db = writeDb.
+// Reader pattern: check open → pick read/write mutex+db by readOpen flag.
+// The double open-check handles the race with Close: Close sets open=false,
+// then acquires both mutexes; if we got the mutex and open is false, we exit.
+// ---------------------------------------------------------------------------
 
 bool XtreamDatabase::SetMeta(const std::string &key, const std::string &value) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "INSERT INTO meta (key, value) VALUES (?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value");
     StatementGuard guard(stmt);
@@ -452,13 +534,18 @@ bool XtreamDatabase::SetMeta(const std::string &key, const std::string &value) {
 }
 
 std::string XtreamDatabase::GetMeta(const std::string &key) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return std::string();
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return std::string();
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
     Statement stmt =
-        m_impl->db.PrepareStatement("SELECT value FROM meta WHERE key = ?");
+        db.PrepareStatement("SELECT value FROM meta WHERE key = ?");
     StatementGuard guard(stmt);
     stmt.Bind(1, U8(key));
     ResultSet rs = stmt.ExecuteQuery();
@@ -472,12 +559,15 @@ std::string XtreamDatabase::GetMeta(const std::string &key) const {
 }
 
 bool XtreamDatabase::UpsertCategory(const Category &cat) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "INSERT INTO categories (id, type, name, parent_id, sort_order) "
         "VALUES (?, ?, ?, ?, ?) "
         "ON CONFLICT(id, type) DO UPDATE SET "
@@ -500,13 +590,18 @@ bool XtreamDatabase::UpsertCategory(const Category &cat) {
 
 std::vector<XtreamDatabase::Category>
 XtreamDatabase::GetCategories(const std::string &type) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<Category> out;
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT id, type, name, parent_id, sort_order FROM categories "
         "WHERE type = ? ORDER BY sort_order, name");
     StatementGuard guard(stmt);
@@ -530,12 +625,15 @@ XtreamDatabase::GetCategories(const std::string &type) const {
 }
 
 bool XtreamDatabase::SavePlaybackPosition(const PlaybackPosition &p) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || p.mediaKey.empty())
+  if (!m_impl->open.load(std::memory_order_acquire) || p.mediaKey.empty())
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "INSERT INTO playback_positions "
         "(media_key, position_sec, duration_sec, updated_at, finished) "
         "VALUES (?, ?, ?, ?, ?) "
@@ -561,14 +659,19 @@ bool XtreamDatabase::SavePlaybackPosition(const PlaybackPosition &p) {
 
 XtreamDatabase::PlaybackPosition
 XtreamDatabase::GetPlaybackPosition(const std::string &mediaKey) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   PlaybackPosition p;
   p.mediaKey = mediaKey;
-  if (!m_impl->open || mediaKey.empty())
+  if (!m_impl->open.load(std::memory_order_acquire) || mediaKey.empty())
     return p;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return p;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT position_sec, duration_sec, updated_at, finished "
         "FROM playback_positions WHERE media_key = ?");
     StatementGuard guard(stmt);
@@ -590,13 +693,18 @@ XtreamDatabase::GetPlaybackPosition(const std::string &mediaKey) const {
 
 std::vector<XtreamDatabase::PlaybackPosition>
 XtreamDatabase::GetRecentPlaybackPositions(int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<PlaybackPosition> out;
-  if (!m_impl->open || limit <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || limit <= 0)
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT media_key, position_sec, duration_sec, updated_at, finished "
         "FROM playback_positions ORDER BY updated_at DESC LIMIT ?");
     StatementGuard guard(stmt);
@@ -620,12 +728,15 @@ XtreamDatabase::GetRecentPlaybackPositions(int limit) const {
 }
 
 bool XtreamDatabase::AddToList(const std::string &mediaKey, ListType type) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || mediaKey.empty())
+  if (!m_impl->open.load(std::memory_order_acquire) || mediaKey.empty())
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "INSERT INTO user_lists (media_key, list_type, added_at) "
         "VALUES (?, ?, ?) "
         "ON CONFLICT(media_key, list_type) DO NOTHING");
@@ -644,12 +755,15 @@ bool XtreamDatabase::AddToList(const std::string &mediaKey, ListType type) {
 
 bool XtreamDatabase::RemoveFromList(const std::string &mediaKey,
                                     ListType type) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || mediaKey.empty())
+  if (!m_impl->open.load(std::memory_order_acquire) || mediaKey.empty())
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "DELETE FROM user_lists WHERE media_key = ? AND list_type = ?");
     StatementGuard guard(stmt);
     stmt.Bind(1, U8(mediaKey));
@@ -664,12 +778,17 @@ bool XtreamDatabase::RemoveFromList(const std::string &mediaKey,
 
 bool XtreamDatabase::IsInList(const std::string &mediaKey,
                               ListType type) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || mediaKey.empty())
+  if (!m_impl->open.load(std::memory_order_acquire) || mediaKey.empty())
     return false;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT 1 FROM user_lists WHERE media_key = ? AND list_type = ?");
     StatementGuard guard(stmt);
     stmt.Bind(1, U8(mediaKey));
@@ -683,13 +802,18 @@ bool XtreamDatabase::IsInList(const std::string &mediaKey,
 }
 
 std::vector<std::string> XtreamDatabase::GetList(ListType type) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<std::string> out;
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT media_key FROM user_lists WHERE list_type = ? "
         "ORDER BY added_at DESC");
     StatementGuard guard(stmt);
@@ -705,22 +829,66 @@ std::vector<std::string> XtreamDatabase::GetList(ListType type) const {
 }
 
 long long XtreamDatabase::FileSizeBytes() const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || m_impl->path.IsEmpty())
+  if (!m_impl->open.load(std::memory_order_acquire))
     return -1;
+  const wxString &p = m_impl->path;
+  if (p.IsEmpty())
+    return -1;
+  wxULongLong mainSz = wxFileName::GetSize(p);
+  if (mainSz == wxInvalidSize)
+    return -1;
+  long long total = static_cast<long long>(mainSz.GetValue());
+  const wxString walPath = p + "-wal";
+  if (wxFileExists(walPath)) {
+    wxULongLong walSz = wxFileName::GetSize(walPath);
+    if (walSz != wxInvalidSize)
+      total += static_cast<long long>(walSz.GetValue());
+  }
+  return total;
+}
 
-  wxULongLong size = wxFileName::GetSize(m_impl->path);
-  if (size == wxInvalidSize)
-    return -1;
-  return static_cast<long long>(size.GetValue());
+void XtreamDatabase::MarkForDeferredDelete() {
+  std::lock_guard<std::mutex> lk(m_impl->lifecycleMutex);
+  m_impl->deferredDelete = true;
+}
+
+bool XtreamDatabase::DeleteDbFiles(const wxString &dbPath) {
+  if (dbPath.IsEmpty())
+    return false;
+  bool any = false;
+  const wxString paths[] = {dbPath, dbPath + "-wal", dbPath + "-shm"};
+  for (const auto &p : paths) {
+    if (!wxFileExists(p))
+      continue;
+    // Отказываемся удалять symlink — защита от подмены.
+    std::error_code symEc;
+    if (std::filesystem::is_symlink(ToFsPath(p.utf8_str().data()), symEc) &&
+        !symEc) {
+      LOG_WARN("XtreamDatabase::DeleteDbFiles: refusing symlink '%s'",
+               p.utf8_str().data());
+      continue;
+    }
+    if (wxRemoveFile(p)) {
+      any = true;
+      LOG_DEBUG("XtreamDatabase::DeleteDbFiles: removed '%s'",
+                p.utf8_str().data());
+    } else {
+      LOG_WARN("XtreamDatabase::DeleteDbFiles: cannot remove '%s'",
+               p.utf8_str().data());
+    }
+  }
+  return any;
 }
 
 bool XtreamDatabase::InsertVodStreams(int categoryId,
                                       const std::vector<VodStream> &streams,
                                       const std::atomic<bool> &abortFlag) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   if (streams.empty())
     return true;
@@ -739,14 +907,14 @@ bool XtreamDatabase::InsertVodStreams(int categoryId,
 
   try {
     {
-      Statement del = m_impl->db.PrepareStatement(
+      Statement del = db.PrepareStatement(
           "DELETE FROM vod_category_map WHERE category_id = ?");
       StatementGuard guard(del);
       del.Bind(1, categoryId);
       del.ExecuteUpdate();
     }
 
-    Statement insStream = m_impl->db.PrepareStatement(
+    Statement insStream = db.PrepareStatement(
         "INSERT INTO vod_streams "
         "(stream_id, name, name_lower, stream_icon, rating, rating_5based, "
         " added, container_extension, custom_sid) "
@@ -759,7 +927,7 @@ bool XtreamDatabase::InsertVodStreams(int categoryId,
         "custom_sid = excluded.custom_sid");
     StatementGuard guardStream(insStream);
 
-    Statement insMap = m_impl->db.PrepareStatement(
+    Statement insMap = db.PrepareStatement(
         "INSERT INTO vod_category_map (stream_id, category_id) "
         "VALUES (?, ?) "
         "ON CONFLICT(stream_id, category_id) DO NOTHING");
@@ -813,10 +981,15 @@ bool XtreamDatabase::InsertVodStreams(int categoryId,
 std::vector<XtreamDatabase::VodStream>
 XtreamDatabase::GetVodPage(int categoryId, int64_t afterStreamId,
                            int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<VodStream> out;
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   if (limit <= 0)
     limit = 500;
@@ -824,7 +997,7 @@ XtreamDatabase::GetVodPage(int categoryId, int64_t afterStreamId,
     limit = 5000;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT s.stream_id, s.name, s.name_lower, s.stream_icon, "
         "       s.rating, s.rating_5based, s.added, "
         "       s.container_extension, s.custom_sid "
@@ -859,12 +1032,17 @@ XtreamDatabase::GetVodPage(int categoryId, int64_t afterStreamId,
 }
 
 int64_t XtreamDatabase::GetVodCount(int categoryId) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
     return 0;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return 0;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT COUNT(*) FROM vod_category_map WHERE category_id = ?");
     StatementGuard guard(stmt);
     stmt.Bind(1, categoryId);
@@ -882,12 +1060,15 @@ int64_t XtreamDatabase::GetVodCount(int categoryId) const {
 bool XtreamDatabase::InsertVodInfo(int64_t streamId,
                                    const std::string &infoJson,
                                    int64_t fetchedAt) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || streamId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || streamId <= 0)
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "INSERT INTO vod_info (stream_id, info_json, fetched_at) "
         "VALUES (?, ?, ?) "
         "ON CONFLICT(stream_id) DO UPDATE SET "
@@ -907,12 +1088,17 @@ bool XtreamDatabase::InsertVodInfo(int64_t streamId,
 }
 
 std::string XtreamDatabase::GetVodInfo(int64_t streamId) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || streamId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || streamId <= 0)
     return std::string();
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return std::string();
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT info_json FROM vod_info WHERE stream_id = ?");
     StatementGuard guard(stmt);
     stmt.Bind(1, wxLongLong(streamId));
@@ -930,9 +1116,12 @@ std::string XtreamDatabase::GetVodInfo(int64_t streamId) const {
 bool XtreamDatabase::InsertSeriesBatch(int categoryId,
                                        const std::vector<Series> &items,
                                        const std::atomic<bool> &abortFlag) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   if (items.empty())
     return true;
@@ -951,14 +1140,14 @@ bool XtreamDatabase::InsertSeriesBatch(int categoryId,
 
   try {
     {
-      Statement del = m_impl->db.PrepareStatement(
+      Statement del = db.PrepareStatement(
           "DELETE FROM series_category_map WHERE category_id = ?");
       StatementGuard guard(del);
       del.Bind(1, categoryId);
       del.ExecuteUpdate();
     }
 
-    Statement insSeries = m_impl->db.PrepareStatement(
+    Statement insSeries = db.PrepareStatement(
         "INSERT INTO series "
         "(series_id, name, name_lower, cover, plot, cast_list, director, "
         " genre, releaseDate, rating, rating_5based, backdrop_path, "
@@ -976,7 +1165,7 @@ bool XtreamDatabase::InsertSeriesBatch(int categoryId,
         "last_modified = excluded.last_modified");
     StatementGuard guardSeries(insSeries);
 
-    Statement insMap = m_impl->db.PrepareStatement(
+    Statement insMap = db.PrepareStatement(
         "INSERT INTO series_category_map (series_id, category_id) "
         "VALUES (?, ?) "
         "ON CONFLICT(series_id, category_id) DO NOTHING");
@@ -1036,10 +1225,15 @@ bool XtreamDatabase::InsertSeriesBatch(int categoryId,
 std::vector<XtreamDatabase::Series>
 XtreamDatabase::GetSeriesPage(int categoryId, int64_t afterSeriesId,
                               int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<Series> out;
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   if (limit <= 0)
     limit = 500;
@@ -1047,7 +1241,7 @@ XtreamDatabase::GetSeriesPage(int categoryId, int64_t afterSeriesId,
     limit = 5000;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT s.series_id, s.name, s.name_lower, s.cover, s.plot, "
         "       s.cast_list, s.director, s.genre, s.releaseDate, "
         "       s.rating, s.rating_5based, s.backdrop_path, "
@@ -1089,12 +1283,17 @@ XtreamDatabase::GetSeriesPage(int categoryId, int64_t afterSeriesId,
 }
 
 int64_t XtreamDatabase::GetSeriesCount(int categoryId) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
     return 0;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return 0;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT COUNT(*) FROM series_category_map WHERE category_id = ?");
     StatementGuard guard(stmt);
     stmt.Bind(1, categoryId);
@@ -1113,28 +1312,31 @@ bool XtreamDatabase::InsertSeriesInfo(int64_t seriesId,
                                       const std::vector<Season> &seasons,
                                       const std::vector<Episode> &episodes,
                                       const std::atomic<bool> &abortFlag) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || seriesId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || seriesId <= 0)
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
     {
-      Statement del = m_impl->db.PrepareStatement(
+      Statement del = db.PrepareStatement(
           "DELETE FROM series_episodes WHERE series_id = ?");
       StatementGuard guard(del);
       del.Bind(1, wxLongLong(seriesId));
       del.ExecuteUpdate();
     }
     {
-      Statement del = m_impl->db.PrepareStatement(
-          "DELETE FROM series_seasons WHERE series_id = ?");
+      Statement del =
+          db.PrepareStatement("DELETE FROM series_seasons WHERE series_id = ?");
       StatementGuard guard(del);
       del.Bind(1, wxLongLong(seriesId));
       del.ExecuteUpdate();
     }
 
     if (!seasons.empty()) {
-      Statement insSeason = m_impl->db.PrepareStatement(
+      Statement insSeason = db.PrepareStatement(
           "INSERT INTO series_seasons "
           "(series_id, season_number, name, cover, plot, episode_count, "
           " air_date) "
@@ -1163,7 +1365,7 @@ bool XtreamDatabase::InsertSeriesInfo(int64_t seriesId,
     }
 
     if (!episodes.empty()) {
-      Statement insEp = m_impl->db.PrepareStatement(
+      Statement insEp = db.PrepareStatement(
           "INSERT INTO series_episodes "
           "(id, series_id, season_number, episode_num, title, "
           " container_extension, info_json, custom_sid, added) "
@@ -1218,13 +1420,18 @@ bool XtreamDatabase::InsertSeriesInfo(int64_t seriesId,
 
 std::vector<XtreamDatabase::Season>
 XtreamDatabase::GetSeasons(int64_t seriesId) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<Season> out;
-  if (!m_impl->open || seriesId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || seriesId <= 0)
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT series_id, season_number, name, cover, plot, "
         "       episode_count, air_date "
         "FROM series_seasons WHERE series_id = ? "
@@ -1253,13 +1460,18 @@ XtreamDatabase::GetSeasons(int64_t seriesId) const {
 
 std::vector<XtreamDatabase::Episode>
 XtreamDatabase::GetEpisodes(int64_t seriesId, int seasonNumber) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<Episode> out;
-  if (!m_impl->open || seriesId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || seriesId <= 0)
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT id, series_id, season_number, episode_num, title, "
         "       container_extension, info_json, custom_sid, added "
         "FROM series_episodes "
@@ -1292,10 +1504,15 @@ XtreamDatabase::GetEpisodes(int64_t seriesId, int seasonNumber) const {
 
 std::vector<XtreamDatabase::VodStream>
 XtreamDatabase::SearchVod(const std::string &queryLower, int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<VodStream> out;
-  if (!m_impl->open || queryLower.empty())
+  if (!m_impl->open.load(std::memory_order_acquire) || queryLower.empty())
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   if (limit <= 0)
     limit = 200;
@@ -1304,7 +1521,7 @@ XtreamDatabase::SearchVod(const std::string &queryLower, int limit) const {
 
   try {
     const std::string pattern = "%" + queryLower + "%";
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT stream_id, name, name_lower, stream_icon, rating, "
         "       rating_5based, added, container_extension, custom_sid "
         "FROM vod_streams WHERE name_lower LIKE ? "
@@ -1336,10 +1553,15 @@ XtreamDatabase::SearchVod(const std::string &queryLower, int limit) const {
 
 std::vector<XtreamDatabase::Series>
 XtreamDatabase::SearchSeries(const std::string &queryLower, int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<Series> out;
-  if (!m_impl->open || queryLower.empty())
+  if (!m_impl->open.load(std::memory_order_acquire) || queryLower.empty())
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   if (limit <= 0)
     limit = 200;
@@ -1348,7 +1570,7 @@ XtreamDatabase::SearchSeries(const std::string &queryLower, int limit) const {
 
   try {
     const std::string pattern = "%" + queryLower + "%";
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT series_id, name, name_lower, cover, plot, cast_list, "
         "       director, genre, releaseDate, rating, rating_5based, "
         "       backdrop_path, youtube_trailer, episode_run_time, "
@@ -1388,10 +1610,15 @@ XtreamDatabase::SearchSeries(const std::string &queryLower, int limit) const {
 
 std::vector<XtreamDatabase::VodStream>
 XtreamDatabase::GetRecentlyAddedVod(int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<VodStream> out;
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   if (limit <= 0)
     limit = 100;
@@ -1399,7 +1626,7 @@ XtreamDatabase::GetRecentlyAddedVod(int limit) const {
     limit = 500;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT stream_id, name, name_lower, stream_icon, rating, "
         "       rating_5based, added, container_extension, custom_sid "
         "FROM vod_streams ORDER BY added DESC LIMIT ?");
@@ -1429,10 +1656,15 @@ XtreamDatabase::GetRecentlyAddedVod(int limit) const {
 
 std::vector<XtreamDatabase::Series>
 XtreamDatabase::GetRecentlyAddedSeries(int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<Series> out;
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   if (limit <= 0)
     limit = 100;
@@ -1440,7 +1672,7 @@ XtreamDatabase::GetRecentlyAddedSeries(int limit) const {
     limit = 500;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT series_id, name, name_lower, cover, plot, cast_list, "
         "       director, genre, releaseDate, rating, rating_5based, "
         "       backdrop_path, youtube_trailer, episode_run_time, "
@@ -1477,13 +1709,18 @@ XtreamDatabase::GetRecentlyAddedSeries(int limit) const {
 }
 
 XtreamDatabase::VodStream XtreamDatabase::GetVod(int64_t streamId) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   VodStream s;
-  if (!m_impl->open || streamId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || streamId <= 0)
     return s;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return s;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT stream_id, name, name_lower, stream_icon, rating, "
         "       rating_5based, added, container_extension, custom_sid "
         "FROM vod_streams WHERE stream_id = ?");
@@ -1509,13 +1746,18 @@ XtreamDatabase::VodStream XtreamDatabase::GetVod(int64_t streamId) const {
 }
 
 XtreamDatabase::Series XtreamDatabase::GetSeries(int64_t seriesId) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   Series s;
-  if (!m_impl->open || seriesId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || seriesId <= 0)
     return s;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return s;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT series_id, name, name_lower, cover, plot, cast_list, "
         "       director, genre, releaseDate, rating, rating_5based, "
         "       backdrop_path, youtube_trailer, episode_run_time, "
@@ -1550,58 +1792,72 @@ XtreamDatabase::Series XtreamDatabase::GetSeries(int64_t seriesId) const {
 }
 
 bool XtreamDatabase::BeginTransaction() {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || m_impl->inTransaction)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return false;
 
+  m_impl->writeMutex.lock();
+  if (!m_impl->open.load(std::memory_order_acquire)) {
+    m_impl->writeMutex.unlock();
+    return false;
+  }
+  if (m_impl->writeInTransaction) {
+    m_impl->writeMutex.unlock();
+    return false;
+  }
   try {
-    m_impl->db.ExecuteUpdate("BEGIN IMMEDIATE");
-    m_impl->inTransaction = true;
-    return true;
+    m_impl->writeDb.ExecuteUpdate("BEGIN IMMEDIATE");
+    m_impl->writeInTransaction = true;
+    return true; // writeMutex stays locked until Commit/Rollback
   } catch (const wxSQLite3::Exception &e) {
     LOG_ERROR("XtreamDatabase::BeginTransaction: %s",
               e.GetMessage().utf8_str().data());
+    m_impl->writeMutex.unlock();
     return false;
   }
 }
 
 bool XtreamDatabase::Commit() {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || !m_impl->inTransaction)
+  if (!m_impl->writeInTransaction)
     return false;
-
   try {
-    m_impl->db.ExecuteUpdate("COMMIT");
-    m_impl->inTransaction = false;
+    m_impl->writeDb.ExecuteUpdate("COMMIT");
+    m_impl->writeInTransaction = false;
+    m_impl->writeMutex.unlock();
     return true;
   } catch (const wxSQLite3::Exception &e) {
     LOG_ERROR("XtreamDatabase::Commit: %s", e.GetMessage().utf8_str().data());
+    // writeMutex NOT released — caller must call Rollback.
     return false;
   }
 }
 
 bool XtreamDatabase::Rollback() {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || !m_impl->inTransaction)
+  if (!m_impl->writeInTransaction)
     return false;
-
   try {
-    m_impl->db.ExecuteUpdate("ROLLBACK");
-    m_impl->inTransaction = false;
+    m_impl->writeDb.ExecuteUpdate("ROLLBACK");
+    m_impl->writeInTransaction = false;
+    m_impl->writeMutex.unlock();
     return true;
   } catch (const wxSQLite3::Exception &e) {
     LOG_ERROR("XtreamDatabase::Rollback: %s", e.GetMessage().utf8_str().data());
+    // Release anyway — transaction is dead.
+    m_impl->writeInTransaction = false;
+    m_impl->writeMutex.unlock();
     return false;
   }
 }
 
 bool XtreamDatabase::ClearVodCategoryMap(int categoryId) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
-    Statement del = m_impl->db.PrepareStatement(
+    Statement del = db.PrepareStatement(
         "DELETE FROM vod_category_map WHERE category_id = ?");
     StatementGuard guard(del);
     del.Bind(1, categoryId);
@@ -1617,15 +1873,18 @@ bool XtreamDatabase::ClearVodCategoryMap(int categoryId) {
 bool XtreamDatabase::UpsertVodBatch(int categoryId,
                                     const std::vector<VodStream> &batch,
                                     const std::atomic<bool> &abortFlag) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   if (batch.empty())
     return true;
 
   try {
-    Statement insStream = m_impl->db.PrepareStatement(
+    Statement insStream = db.PrepareStatement(
         "INSERT INTO vod_streams "
         "(stream_id, name, name_lower, stream_icon, rating, rating_5based, "
         " added, container_extension, custom_sid) "
@@ -1638,7 +1897,7 @@ bool XtreamDatabase::UpsertVodBatch(int categoryId,
         "custom_sid = excluded.custom_sid");
     StatementGuard guardStream(insStream);
 
-    Statement insMap = m_impl->db.PrepareStatement(
+    Statement insMap = db.PrepareStatement(
         "INSERT INTO vod_category_map (stream_id, category_id) "
         "VALUES (?, ?) "
         "ON CONFLICT(stream_id, category_id) DO NOTHING");
@@ -1689,37 +1948,134 @@ bool XtreamDatabase::UpsertVodBatch(int categoryId,
   }
 }
 
-bool XtreamDatabase::ClearSeriesCategoryMap(int categoryId) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || categoryId <= 0)
+bool XtreamDatabase::ClearAllVodCategoryMap() {
+  if (!m_impl->open.load(std::memory_order_acquire))
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   try {
-    Statement del = m_impl->db.PrepareStatement(
-        "DELETE FROM series_category_map WHERE category_id = ?");
-    StatementGuard guard(del);
-    del.Bind(1, categoryId);
-    del.ExecuteUpdate();
+    db.ExecuteUpdate("DELETE FROM vod_category_map");
     return true;
   } catch (const wxSQLite3::Exception &e) {
-    LOG_ERROR("XtreamDatabase::ClearSeriesCategoryMap: %s",
+    LOG_ERROR("XtreamDatabase::ClearAllVodCategoryMap: %s",
               e.GetMessage().utf8_str().data());
     return false;
   }
 }
 
-bool XtreamDatabase::UpsertSeriesBatch(int categoryId,
-                                       const std::vector<Series> &batch,
+bool XtreamDatabase::UpsertVodBatchAll(const std::vector<VodStream> &batch,
                                        const std::atomic<bool> &abortFlag) {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
-  if (!m_impl->open || categoryId <= 0)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
 
   if (batch.empty())
     return true;
 
   try {
-    Statement insSeries = m_impl->db.PrepareStatement(
+    Statement insStream = db.PrepareStatement(
+        "INSERT INTO vod_streams "
+        "(stream_id, name, name_lower, stream_icon, rating, rating_5based, "
+        " added, container_extension, custom_sid) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(stream_id) DO UPDATE SET "
+        "name = excluded.name, name_lower = excluded.name_lower, "
+        "stream_icon = excluded.stream_icon, rating = excluded.rating, "
+        "rating_5based = excluded.rating_5based, added = excluded.added, "
+        "container_extension = excluded.container_extension, "
+        "custom_sid = excluded.custom_sid");
+    StatementGuard guardStream(insStream);
+
+    Statement insMap = db.PrepareStatement(
+        "INSERT INTO vod_category_map (stream_id, category_id) "
+        "VALUES (?, ?) "
+        "ON CONFLICT(stream_id, category_id) DO NOTHING");
+    StatementGuard guardMap(insMap);
+
+    size_t i = 0;
+    for (const auto &s : batch) {
+      if ((i % 1000) == 0 && abortFlag.load()) {
+        LOG_WARN("XtreamDatabase::UpsertVodBatchAll: abort at=%zu/%zu", i,
+                 batch.size());
+        return false;
+      }
+
+      const std::string lower = ComputeNameLower(s.name, s.nameLower);
+
+      insStream.Bind(1, wxLongLong(s.streamId));
+      insStream.Bind(2, U8(s.name));
+      insStream.Bind(3, U8(lower));
+      insStream.Bind(4, U8(s.posterUrl));
+      insStream.Bind(5, s.rating);
+      insStream.Bind(6, s.rating5based);
+      insStream.Bind(7, wxLongLong(s.added));
+      insStream.Bind(8, U8(s.containerExt));
+      insStream.Bind(9, U8(s.customSid));
+      insStream.ExecuteUpdate();
+      insStream.Reset();
+
+      if (s.categoryId > 0) {
+        insMap.Bind(1, wxLongLong(s.streamId));
+        insMap.Bind(2, s.categoryId);
+        insMap.ExecuteUpdate();
+        insMap.Reset();
+      }
+
+      ++i;
+    }
+
+    return true;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::UpsertVodBatchAll: %s",
+              e.GetMessage().utf8_str().data());
+    return false;
+  } catch (const std::exception &e) {
+    LOG_ERROR("XtreamDatabase::UpsertVodBatchAll: %s", e.what());
+    return false;
+  } catch (...) {
+    LOG_ERROR("XtreamDatabase::UpsertVodBatchAll: unknown exception");
+    return false;
+  }
+}
+
+bool XtreamDatabase::ClearAllSeriesCategoryMap() {
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
+
+  try {
+    db.ExecuteUpdate("DELETE FROM series_category_map");
+    return true;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::ClearAllSeriesCategoryMap: %s",
+              e.GetMessage().utf8_str().data());
+    return false;
+  }
+}
+
+bool XtreamDatabase::UpsertSeriesBatchAll(const std::vector<Series> &batch,
+                                          const std::atomic<bool> &abortFlag) {
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
+
+  if (batch.empty())
+    return true;
+
+  try {
+    Statement insSeries = db.PrepareStatement(
         "INSERT INTO series "
         "(series_id, name, name_lower, cover, plot, cast_list, director, "
         " genre, releaseDate, rating, rating_5based, backdrop_path, "
@@ -1737,7 +2093,119 @@ bool XtreamDatabase::UpsertSeriesBatch(int categoryId,
         "last_modified = excluded.last_modified");
     StatementGuard guardSeries(insSeries);
 
-    Statement insMap = m_impl->db.PrepareStatement(
+    Statement insMap = db.PrepareStatement(
+        "INSERT INTO series_category_map (series_id, category_id) "
+        "VALUES (?, ?) "
+        "ON CONFLICT(series_id, category_id) DO NOTHING");
+    StatementGuard guardMap(insMap);
+
+    size_t i = 0;
+    for (const auto &s : batch) {
+      if ((i % 1000) == 0 && abortFlag.load()) {
+        LOG_WARN("XtreamDatabase::UpsertSeriesBatchAll: abort at=%zu/%zu", i,
+                 batch.size());
+        return false;
+      }
+
+      const std::string lower = ComputeNameLower(s.name, s.nameLower);
+
+      insSeries.Bind(1, wxLongLong(s.seriesId));
+      insSeries.Bind(2, U8(s.name));
+      insSeries.Bind(3, U8(lower));
+      insSeries.Bind(4, U8(s.coverUrl));
+      insSeries.Bind(5, U8(s.plot));
+      insSeries.Bind(6, U8(s.castList));
+      insSeries.Bind(7, U8(s.director));
+      insSeries.Bind(8, U8(s.genre));
+      insSeries.Bind(9, U8(s.releaseDate));
+      insSeries.Bind(10, s.rating);
+      insSeries.Bind(11, s.rating5based);
+      insSeries.Bind(12, U8(s.backdropPath));
+      insSeries.Bind(13, U8(s.youtubeTrailer));
+      insSeries.Bind(14, U8(s.episodeRunTime));
+      insSeries.Bind(15, wxLongLong(s.lastModified));
+      insSeries.ExecuteUpdate();
+      insSeries.Reset();
+
+      if (s.categoryId > 0) {
+        insMap.Bind(1, wxLongLong(s.seriesId));
+        insMap.Bind(2, s.categoryId);
+        insMap.ExecuteUpdate();
+        insMap.Reset();
+      }
+
+      ++i;
+    }
+
+    return true;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::UpsertSeriesBatchAll: %s",
+              e.GetMessage().utf8_str().data());
+    return false;
+  } catch (const std::exception &e) {
+    LOG_ERROR("XtreamDatabase::UpsertSeriesBatchAll: %s", e.what());
+    return false;
+  } catch (...) {
+    LOG_ERROR("XtreamDatabase::UpsertSeriesBatchAll: unknown exception");
+    return false;
+  }
+}
+
+bool XtreamDatabase::ClearSeriesCategoryMap(int categoryId) {
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
+    return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
+
+  try {
+    Statement del = db.PrepareStatement(
+        "DELETE FROM series_category_map WHERE category_id = ?");
+    StatementGuard guard(del);
+    del.Bind(1, categoryId);
+    del.ExecuteUpdate();
+    return true;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::ClearSeriesCategoryMap: %s",
+              e.GetMessage().utf8_str().data());
+    return false;
+  }
+}
+
+bool XtreamDatabase::UpsertSeriesBatch(int categoryId,
+                                       const std::vector<Series> &batch,
+                                       const std::atomic<bool> &abortFlag) {
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
+    return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
+
+  if (batch.empty())
+    return true;
+
+  try {
+    Statement insSeries = db.PrepareStatement(
+        "INSERT INTO series "
+        "(series_id, name, name_lower, cover, plot, cast_list, director, "
+        " genre, releaseDate, rating, rating_5based, backdrop_path, "
+        " youtube_trailer, episode_run_time, last_modified) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(series_id) DO UPDATE SET "
+        "name = excluded.name, name_lower = excluded.name_lower, "
+        "cover = excluded.cover, plot = excluded.plot, "
+        "cast_list = excluded.cast_list, director = excluded.director, "
+        "genre = excluded.genre, releaseDate = excluded.releaseDate, "
+        "rating = excluded.rating, rating_5based = excluded.rating_5based, "
+        "backdrop_path = excluded.backdrop_path, "
+        "youtube_trailer = excluded.youtube_trailer, "
+        "episode_run_time = excluded.episode_run_time, "
+        "last_modified = excluded.last_modified");
+    StatementGuard guardSeries(insSeries);
+
+    Statement insMap = db.PrepareStatement(
         "INSERT INTO series_category_map (series_id, category_id) "
         "VALUES (?, ?) "
         "ON CONFLICT(series_id, category_id) DO NOTHING");
@@ -1796,10 +2264,15 @@ bool XtreamDatabase::UpsertSeriesBatch(int categoryId,
 
 std::vector<XtreamDatabase::VodStream>
 XtreamDatabase::GetVodByList(ListType type, int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<VodStream> out;
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   if (limit <= 0)
     limit = 1000;
@@ -1807,7 +2280,7 @@ XtreamDatabase::GetVodByList(ListType type, int limit) const {
     limit = 5000;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT s.stream_id, s.name, s.name_lower, s.stream_icon, "
         "       s.rating, s.rating_5based, s.added, "
         "       s.container_extension, s.custom_sid "
@@ -1843,10 +2316,15 @@ XtreamDatabase::GetVodByList(ListType type, int limit) const {
 
 std::vector<XtreamDatabase::Series>
 XtreamDatabase::GetSeriesByList(ListType type, int limit) const {
-  std::lock_guard<std::recursive_mutex> lock(m_impl->mutex);
   std::vector<Series> out;
-  if (!m_impl->open)
+  if (!m_impl->open.load(std::memory_order_acquire))
     return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
 
   if (limit <= 0)
     limit = 1000;
@@ -1854,7 +2332,7 @@ XtreamDatabase::GetSeriesByList(ListType type, int limit) const {
     limit = 5000;
 
   try {
-    Statement stmt = m_impl->db.PrepareStatement(
+    Statement stmt = db.PrepareStatement(
         "SELECT s.series_id, s.name, s.name_lower, s.cover, s.plot, "
         "       s.cast_list, s.director, s.genre, s.releaseDate, "
         "       s.rating, s.rating_5based, s.backdrop_path, "

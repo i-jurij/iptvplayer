@@ -353,6 +353,16 @@ xtream::XtreamDatabase *SeriesPanel::GetDb() const {
   return mgr->GetXtreamDb(*pl);
 }
 
+std::shared_ptr<xtream::XtreamDatabase> SeriesPanel::GetDbShared() const {
+  Playlist *pl = GetCurrentPlaylist();
+  if (!pl || !pl->isXtream())
+    return nullptr;
+  auto *mgr = m_mainFrame->getPlaylistManager();
+  if (!mgr)
+    return nullptr;
+  return mgr->GetXtreamDbShared(*pl);
+}
+
 xtream::XtreamApiClient *SeriesPanel::GetClient() const {
   if (!m_mainFrame)
     return nullptr;
@@ -781,7 +791,7 @@ void SeriesPanel::DrillIntoSeries(int64_t seriesId,
   m_currentSeasons.clear();
   m_currentEpisodes.clear();
 
-  auto *db = GetDb();
+  auto db = GetDbShared();
   if (!db)
     return;
 
@@ -795,7 +805,7 @@ void SeriesPanel::DrillIntoSeries(int64_t seriesId,
     return;
   }
 
-  // Не в БД — async fetch (MD §3.34).
+  // Не в БД — async fetch.
   auto *client = GetClient();
   Playlist *pl = GetCurrentPlaylist();
   if (!client || !pl) {
@@ -824,7 +834,7 @@ void SeriesPanel::DrillIntoSeries(int64_t seriesId,
 
     wxTheApp->CallAfter([weakThis, db, seriesId, ok]() {
       auto *s = weakThis.get();
-      if (!s)
+      if (!s || s->IsBeingDeleted())
         return;
       if (s->m_pendingSeriesId != seriesId)
         return;
@@ -1109,13 +1119,9 @@ void SeriesPanel::OnRefreshCatalog(wxCommandEvent &) {
     return;
 
   Playlist *pl = GetCurrentPlaylist();
-  auto *db = GetDb();
+  auto db = GetDbShared();
   auto *client = GetClient();
   if (!pl || !db || !client)
-    return;
-
-  const auto cats = db->GetCategories("series");
-  if (cats.empty())
     return;
 
   m_refreshing = true;
@@ -1126,28 +1132,11 @@ void SeriesPanel::OnRefreshCatalog(wxCommandEvent &) {
   wxWeakRef<SeriesPanel> weakThis(this);
   MainFrame *mf = m_mainFrame;
 
-  std::thread([weakThis, mf, db, client, plCopy, cats, plUuid]() {
+  std::thread([weakThis, mf, db, client, plCopy, plUuid]() {
     std::atomic<bool> cancel{false};
-    const size_t total = cats.size();
+    const bool ok = client->RefreshAllSeries(plCopy, *db, nullptr, cancel);
 
-    for (size_t i = 0; i < total; ++i) {
-      if (!weakThis.get())
-        return;
-
-      client->RefreshSeriesCategory(plCopy, cats[i].id, *db, nullptr, cancel);
-
-      const size_t idx = i + 1;
-      wxWeakRef<MainFrame> weakMf(mf);
-      wxTheApp->CallAfter([weakMf, idx, total]() {
-        auto *m = weakMf.get();
-        if (!m || m->IsBeingDeleted())
-          return;
-        m->SetStatusText(
-            wxString::Format(_U("Series: refreshing %zu/%zu"), idx, total), 0);
-      });
-    }
-
-    wxTheApp->CallAfter([weakThis, mf, plUuid]() {
+    wxTheApp->CallAfter([weakThis, mf, plUuid, ok]() {
       auto *s = weakThis.get();
       if (!s || s->IsBeingDeleted())
         return;
@@ -1158,8 +1147,14 @@ void SeriesPanel::OnRefreshCatalog(wxCommandEvent &) {
       s->m_refreshing = false;
       s->SetBusy(false);
 
-      if (mf && !mf->IsBeingDeleted())
-        mf->SetStatusText(_U("Series: catalog refreshed."), 0);
+      if (mf && !mf->IsBeingDeleted()) {
+        mf->SetStatusText(ok ? _U("Series: catalog refreshed.")
+                             : _U("Series: catalog refresh failed."),
+                          0);
+      }
+
+      if (!ok)
+        return;
 
       s->PopulateCategories();
       if (!s->m_categoryIds.empty()) {

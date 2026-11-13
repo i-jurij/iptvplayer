@@ -77,7 +77,13 @@ PlaylistManager::PlaylistManager(const std::string &configDir)
   m_xtreamClient = std::make_unique<xtream::XtreamApiClient>();
 }
 
-PlaylistManager::~PlaylistManager() { WaitForAddFromUrl(); }
+PlaylistManager::~PlaylistManager() {
+  WaitForAddFromUrl();
+  // Release shared_ptr'ы; ~XtreamDatabase закроет соединения и (если
+  // помечено) удалит файлы.
+  std::lock_guard<std::mutex> lk(m_xtreamDbMutex);
+  m_xtreamDbs.clear();
+}
 
 void PlaylistManager::setError(const std::string &msg) const {
   setLastError(msg);
@@ -1051,9 +1057,8 @@ Playlist *PlaylistManager::findByUniqueId(const std::string &uniqueId) {
   return nullptr;
 }
 
-xtream::XtreamDatabase *PlaylistManager::GetXtreamDb(const Playlist &playlist) {
-  std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
-
+std::shared_ptr<xtream::XtreamDatabase>
+PlaylistManager::GetXtreamDbShared(const Playlist &playlist) {
   if (!playlist.isXtream())
     return nullptr;
 
@@ -1061,85 +1066,80 @@ xtream::XtreamDatabase *PlaylistManager::GetXtreamDb(const Playlist &playlist) {
   if (uuid.empty())
     return nullptr;
 
-  if (m_xtreamDb && m_xtreamDbUuid == uuid)
-    return m_xtreamDb.get();
+  std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
 
-  if (m_xtreamDb) {
-    m_xtreamDb->Close();
-    m_xtreamDb.reset();
-    m_xtreamDbUuid.clear();
-  }
+  auto it = m_xtreamDbs.find(uuid);
+  if (it != m_xtreamDbs.end())
+    return it->second;
 
-  m_xtreamDb = std::make_unique<xtream::XtreamDatabase>();
-  if (!m_xtreamDb->Open(wxString::FromUTF8(m_configDir.c_str()), uuid)) {
-    LOG_WARN("PlaylistManager::GetXtreamDb: cannot open db for '%s'",
+  auto db = std::make_shared<xtream::XtreamDatabase>();
+  if (!db->Open(wxString::FromUTF8(m_configDir.c_str()), uuid)) {
+    LOG_WARN("PlaylistManager::GetXtreamDbShared: cannot open db for '%s'",
              uuid.c_str());
-    m_xtreamDb.reset();
     return nullptr;
   }
-  m_xtreamDbUuid = uuid;
-  return m_xtreamDb.get();
+  m_xtreamDbs[uuid] = db;
+  return db;
+}
+
+xtream::XtreamDatabase *PlaylistManager::GetXtreamDb(const Playlist &playlist) {
+  auto sp = GetXtreamDbShared(playlist);
+  return sp ? sp.get() : nullptr;
 }
 
 void PlaylistManager::CloseAndRemoveXtreamDb(const std::string &uuid) {
   if (uuid.empty())
     return;
 
-  std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
-
-  if (m_xtreamDb && m_xtreamDbUuid == uuid) {
-    m_xtreamDb->Close();
-    m_xtreamDb.reset();
-    m_xtreamDbUuid.clear();
-    LOG_DEBUG("PlaylistManager: closed xtream.db for '%s'", uuid.c_str());
+  std::shared_ptr<xtream::XtreamDatabase> sp;
+  {
+    std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
+    auto it = m_xtreamDbs.find(uuid);
+    if (it != m_xtreamDbs.end()) {
+      sp = it->second;
+      m_xtreamDbs.erase(it);
+    }
   }
 
-  namespace fs = std::filesystem;
-  const fs::path base = ToFsPath(m_configDir) / "xtream";
-
-  std::error_code ec;
-  if (!fs::exists(base, ec) || !fs::is_directory(base, ec))
-    return;
-
-  const std::string names[] = {
-      uuid + ".db",
-      uuid + ".db-wal",
-      uuid + ".db-shm",
-  };
-
-  for (const auto &name : names) {
-    const fs::path p = base / name;
-
-    std::error_code existEc;
-    if (!fs::exists(p, existEc))
-      continue;
-
-    std::error_code symEc;
-    if (fs::is_symlink(p, symEc)) {
-      LOG_WARN("PlaylistManager: refusing to remove symlink '%s'",
-               p.string().c_str());
-      continue;
-    }
-
-    std::error_code rmEc;
-    fs::remove(p, rmEc);
-    if (rmEc) {
-      LOG_WARN("PlaylistManager: cannot remove '%s': %s", p.string().c_str(),
-               rmEc.message().c_str());
+  if (sp) {
+    sp->MarkForDeferredDelete();
+    if (sp.use_count() == 1) {
+      // Only we hold it — Close() synchronously (waits for writers) and
+      // deletes files.
+      sp->Close();
+      LOG_DEBUG("PlaylistManager: closed+removed xtream.db for '%s'",
+                uuid.c_str());
     } else {
-      LOG_DEBUG("PlaylistManager: removed '%s'", p.string().c_str());
+      // Workers still hold — file deletion deferred to last Close().
+      LOG_DEBUG("PlaylistManager: deferred delete xtream.db '%s' "
+                "(use_count=%ld)",
+                uuid.c_str(), static_cast<long>(sp.use_count()));
     }
+    return;
   }
+
+  // No live object — clean up leftover files from previous run.
+  const wxString dbPath = wxString::FromUTF8(m_configDir) + wxFILE_SEP_PATH +
+                          "xtream" + wxFILE_SEP_PATH +
+                          wxString::FromUTF8(uuid) + ".db";
+  xtream::XtreamDatabase::DeleteDbFiles(dbPath);
 }
 
 ErrorCode PlaylistManager::ClearAllXtreamCaches() {
-  std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
-
-  if (m_xtreamDb) {
-    m_xtreamDb->Close();
-    m_xtreamDb.reset();
-    m_xtreamDbUuid.clear();
+  // Release all live objects. If workers still hold, files are deferred.
+  std::unordered_map<std::string, std::shared_ptr<xtream::XtreamDatabase>>
+      snapshot;
+  {
+    std::lock_guard<std::mutex> lock(m_xtreamDbMutex);
+    snapshot.swap(m_xtreamDbs);
   }
+  for (auto &kv : snapshot) {
+    kv.second->MarkForDeferredDelete();
+    if (kv.second.use_count() == 1) {
+      kv.second->Close();
+    }
+  }
+  snapshot.clear();
 
   namespace fs = std::filesystem;
   const fs::path base = ToFsPath(m_configDir) / "xtream";

@@ -93,7 +93,16 @@ public:
   bool RefreshSeriesCategory(const Playlist &pl, int categoryId,
                              XtreamDatabase &db, ProgressFn progress,
                              const std::atomic<bool> &cancelFlag);
-
+  // Bulk-замена всего каталога VOD/Series за один HTTP-запрос.
+  // get_vod_streams без category_id → один массив → SAX → атомарный
+  // BEGIN IMMEDIATE → ClearAllVodCategoryMap → N× UpsertVodBatchAll →
+  // SetMeta("last_update_vod") → COMMIT. Не трогает vod_info.
+  // Разбивается на batch по 5000 внутри SAX, но транзакция одна.
+  bool RefreshAllVod(const Playlist &pl, XtreamDatabase &db,
+                     ProgressFn progress, const std::atomic<bool> &cancelFlag);
+  bool RefreshAllSeries(const Playlist &pl, XtreamDatabase &db,
+                        ProgressFn progress,
+                        const std::atomic<bool> &cancelFlag);
   // ---- VOD/Series info (DOM) ----
   // get_vod_info: сохраняет raw JSON `info` объекта в vod_info.
   // При отсутствии info — весь response. При повторном открытии UI

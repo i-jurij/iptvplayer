@@ -389,7 +389,7 @@ void MainFrame::OnMovieSelected(const std::string &mediaKey, size_t /*index*/) {
   if (!mgr)
     return;
 
-  auto *db = mgr->GetXtreamDb(*pl);
+  auto db = mgr->GetXtreamDbShared(*pl);
   if (!db)
     return;
 
@@ -621,13 +621,9 @@ void MainFrame::OnMoviesRefreshCatalog(wxCommandEvent &) {
   if (!mgr)
     return;
 
-  auto *db = mgr->GetXtreamDb(*pl);
+  auto db = mgr->GetXtreamDbShared(*pl);
   auto *client = mgr->GetXtreamClient();
   if (!db || !client)
-    return;
-
-  const auto cats = db->GetCategories("vod");
-  if (cats.empty())
     return;
 
   m_moviesRefreshing = true;
@@ -642,28 +638,11 @@ void MainFrame::OnMoviesRefreshCatalog(wxCommandEvent &) {
   const Playlist plCopy = *pl;
 
   wxWeakRef<MainFrame> weakThis(this);
-  std::thread([weakThis, db, client, plCopy, cats, plUuid]() {
+  std::thread([weakThis, db, client, plCopy, plUuid]() {
     std::atomic<bool> cancel{false};
-    const size_t total = cats.size();
+    const bool ok = client->RefreshAllVod(plCopy, *db, nullptr, cancel);
 
-    for (size_t i = 0; i < total; ++i) {
-      auto *self = weakThis.get();
-      if (!self)
-        return;
-
-      client->RefreshVodCategory(plCopy, cats[i].id, *db, nullptr, cancel);
-
-      wxTheApp->CallAfter([weakThis, i, total]() {
-        auto *s = weakThis.get();
-        if (!s || s->IsBeingDeleted())
-          return;
-        s->SetStatusText(
-            wxString::Format(_U("Movies: refreshing %zu/%zu"), i + 1, total),
-            0);
-      });
-    }
-
-    wxTheApp->CallAfter([weakThis, plUuid]() {
+    wxTheApp->CallAfter([weakThis, plUuid, ok]() {
       auto *s = weakThis.get();
       if (!s || s->IsBeingDeleted())
         return;
@@ -678,8 +657,13 @@ void MainFrame::OnMoviesRefreshCatalog(wxCommandEvent &) {
         s->m_moviesActivity->Stop();
         s->m_moviesActivity->Hide();
       }
-      s->SetStatusText(_U("Movies: catalog refreshed."), 0);
 
+      if (!ok) {
+        s->SetStatusText(_U("Movies: catalog refresh failed."), 0);
+        return;
+      }
+
+      s->SetStatusText(_U("Movies: catalog refreshed."), 0);
       s->PopulateMoviesCategories();
       if (!s->m_moviesCategoryIds.empty()) {
         s->m_currentVodCategoryId = s->m_moviesCategoryIds[0];

@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct DownloadProgress {
@@ -105,10 +106,17 @@ public:
 
   Playlist *findByUniqueId(const std::string &uniqueId);
 
-  // Ленивое открытие xtream.db для плейлиста. Возвращает nullptr, если
-  // playlist не Xtream или БД не открылась.
-  // Внутри: если m_xtreamDb открыт для другого uuid — закрывает, открывает
-  // новый. Один активный xtream.db на процесс (MVP; кэш — Phase 12).
+  // Ленивое открытие/получение xtream.db для плейлиста.
+  // Возвращает shared_ptr<XtreamDatabase>; nullptr, если playlist не Xtream
+  // или БД не открылась. Worker'ы ОБЯЗАНЫ использовать этот метод и
+  // захватывать shared_ptr в лямбду — объект переживёт смену плейлиста
+  // и CloseAndRemoveXtreamDb.
+  std::shared_ptr<xtream::XtreamDatabase>
+  GetXtreamDbShared(const Playlist &playlist);
+
+  // Deprecated: для main-thread синхронных операций. Возвращает raw из
+  // m_xtreamDbs; объект жив, пока его держит map или какой-то worker.
+  // НЕ использовать в фоновых потоках — используйте GetXtreamDbShared.
   xtream::XtreamDatabase *GetXtreamDb(const Playlist &playlist);
   // закрывает xtream.db, если открыт для этого uuid,
   // и удаляет <configDir>/xtream/<uuid>.db + -wal + -shm.
@@ -138,8 +146,12 @@ private:
   M3UParser m_parser;
 
   std::unique_ptr<xtream::XtreamApiClient> m_xtreamClient;
-  std::unique_ptr<xtream::XtreamDatabase> m_xtreamDb;
-  std::string m_xtreamDbUuid;
+  // Один экземпляр XtreamDatabase на UUID. shared_ptr позволяет worker'ам
+  // (FetchVodInfo, RefreshVodCategory, FetchSeriesInfo, RefreshSeriesCategory)
+  // держать объект живым после CloseAndRemoveXtreamDb: файл БД удаляется
+  // при последнем Close() (см. XtreamDatabase::MarkForDeferredDelete).
+  std::unordered_map<std::string, std::shared_ptr<xtream::XtreamDatabase>>
+      m_xtreamDbs;
   mutable std::mutex m_xtreamDbMutex;
 
   void setError(const std::string &msg) const;

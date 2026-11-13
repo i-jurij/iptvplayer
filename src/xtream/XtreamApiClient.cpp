@@ -231,6 +231,8 @@ public:
       m_field = Field::ContainerExtension;
     else if (key == "custom_sid")
       m_field = Field::CustomSid;
+    else if (key == "category_id")
+      m_field = Field::CategoryId;
     else
       m_field = Field::None;
     return true;
@@ -241,6 +243,8 @@ public:
       m_current.streamId = static_cast<int64_t>(v);
     else if (m_field == Field::Added)
       m_current.added = static_cast<int64_t>(v);
+    else if (m_field == Field::CategoryId)
+      m_current.categoryId = static_cast<int>(v);
     return true;
   }
 
@@ -249,6 +253,8 @@ public:
       m_current.streamId = v;
     else if (m_field == Field::Added)
       m_current.added = v;
+    else if (m_field == Field::CategoryId)
+      m_current.categoryId = v;
     return true;
   }
 
@@ -257,6 +263,8 @@ public:
       m_current.streamId = v;
     else if (m_field == Field::Added)
       m_current.added = v;
+    else if (m_field == Field::CategoryId)
+      m_current.categoryId = static_cast<int>(v);
     return true;
   }
 
@@ -351,7 +359,8 @@ private:
     Rating5based,
     Added,
     ContainerExtension,
-    CustomSid
+    CustomSid,
+    CategoryId
   };
 
   FlushFn m_flush;
@@ -418,6 +427,8 @@ public:
       m_field = Field::EpisodeRunTime;
     else if (key == "last_modified")
       m_field = Field::LastModified;
+    else if (key == "category_id")
+      m_field = Field::CategoryId;
     else
       m_field = Field::None;
     return true;
@@ -428,6 +439,8 @@ public:
       m_current.seriesId = static_cast<int64_t>(v);
     else if (m_field == Field::LastModified)
       m_current.lastModified = static_cast<int64_t>(v);
+    else if (m_field == Field::CategoryId)
+      m_current.categoryId = static_cast<int>(v);
     return true;
   }
 
@@ -436,6 +449,8 @@ public:
       m_current.seriesId = v;
     else if (m_field == Field::LastModified)
       m_current.lastModified = v;
+    else if (m_field == Field::CategoryId)
+      m_current.categoryId = v;
     return true;
   }
 
@@ -444,6 +459,8 @@ public:
       m_current.seriesId = v;
     else if (m_field == Field::LastModified)
       m_current.lastModified = v;
+    else if (m_field == Field::CategoryId)
+      m_current.categoryId = static_cast<int>(v);
     return true;
   }
 
@@ -562,7 +579,8 @@ private:
     BackdropPath,
     YoutubeTrailer,
     EpisodeRunTime,
-    LastModified
+    LastModified,
+    CategoryId
   };
 
   FlushFn m_flush;
@@ -1284,6 +1302,214 @@ bool XtreamApiClient::RefreshSeriesCategory(
 
   LOG_INFO("XtreamApiClient::RefreshSeriesCategory: category %d, %zu items",
            categoryId, handler.TotalInserted());
+  return true;
+}
+
+bool XtreamApiClient::RefreshAllVod(const Playlist &pl, XtreamDatabase &db,
+                                    XtreamApiClient::ProgressFn progress,
+                                    const std::atomic<bool> &cancelFlag) {
+  SyncMetaToDb(pl, db);
+
+  const Endpoint ep = ResolveEndpoint(pl);
+  if (!ep.ok) {
+    LOG_WARN("XtreamApiClient::RefreshAllVod: no endpoint for '%s'",
+             pl.getTitle().c_str());
+    return false;
+  }
+
+  const wxString apiUrl =
+      wxString::FromUTF8(ep.base) +
+      "/player_api.php?username=" + UrlEncode(wxString::FromUTF8(ep.user)) +
+      "&password=" + UrlEncode(wxString::FromUTF8(ep.pass)) +
+      "&action=get_vod_streams";
+
+  if (progress)
+    progress(-1, "VOD: downloading all streams");
+
+  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 300, cancelFlag);
+  if (!resp.ok) {
+    LOG_WARN("XtreamApiClient::RefreshAllVod: HTTP failed: %s",
+             resp.error.c_str());
+    return false;
+  }
+
+  if (cancelFlag.load()) {
+    LOG_INFO("XtreamApiClient::RefreshAllVod: cancelled before parse");
+    return false;
+  }
+
+  if (!db.BeginTransaction()) {
+    LOG_ERROR("XtreamApiClient::RefreshAllVod: cannot start transaction");
+    return false;
+  }
+
+  if (!db.ClearAllVodCategoryMap()) {
+    LOG_ERROR("XtreamApiClient::RefreshAllVod: ClearAllVodCategoryMap failed");
+    db.Rollback();
+    return false;
+  }
+
+  VodStreamSaxHandler handler(
+      [&db, &cancelFlag](const std::vector<XtreamDatabase::VodStream> &batch)
+          -> bool { return db.UpsertVodBatchAll(batch, cancelFlag); },
+      cancelFlag, progress);
+
+  rapidjson::Reader reader;
+  rapidjson::MemoryStream stream(resp.body.data(), resp.body.size());
+  rapidjson::ParseResult parseResult = reader.Parse(stream, handler);
+
+  if (!parseResult) {
+    LOG_ERROR("XtreamApiClient::RefreshAllVod: JSON parse error at offset %zu: "
+              "%s",
+              parseResult.Offset(),
+              rapidjson::GetParseError_En(parseResult.Code()));
+    db.Rollback();
+    return false;
+  }
+
+  if (handler.WasCancelled()) {
+    LOG_INFO("XtreamApiClient::RefreshAllVod: cancelled (inserted %zu)",
+             handler.TotalInserted());
+    db.Rollback();
+    return false;
+  }
+
+  if (handler.HasError()) {
+    LOG_ERROR("XtreamApiClient::RefreshAllVod: DB error");
+    db.Rollback();
+    return false;
+  }
+
+  db.SetMeta("last_update_vod", std::to_string(std::time(nullptr)));
+
+  if (!db.Commit()) {
+    LOG_ERROR("XtreamApiClient::RefreshAllVod: COMMIT failed");
+    db.Rollback();
+    return false;
+  }
+
+  db.SetMeta("has_vod", "1");
+
+  if (!s_xtreamSizeWarned.load(std::memory_order_relaxed)) {
+    const long long sz = db.FileSizeBytes();
+    if (sz > kXtreamCacheSoftLimitBytes) {
+      LOG_WARN("Xtream cache exceeded 2 GB (%.2f GB). Consider clearing in "
+               "Settings → Xtream → Clear Xtream cache.",
+               sz / (1024.0 * 1024.0 * 1024.0));
+      s_xtreamSizeWarned.store(true, std::memory_order_relaxed);
+    }
+  }
+
+  if (progress)
+    progress(100, "VOD: " + std::to_string(handler.TotalInserted()) +
+                      " items (all)");
+
+  LOG_INFO("XtreamApiClient::RefreshAllVod: %zu items",
+           handler.TotalInserted());
+  return true;
+}
+
+bool XtreamApiClient::RefreshAllSeries(const Playlist &pl, XtreamDatabase &db,
+                                       XtreamApiClient::ProgressFn progress,
+                                       const std::atomic<bool> &cancelFlag) {
+  SyncMetaToDb(pl, db);
+
+  const Endpoint ep = ResolveEndpoint(pl);
+  if (!ep.ok) {
+    LOG_WARN("XtreamApiClient::RefreshAllSeries: no endpoint for '%s'",
+             pl.getTitle().c_str());
+    return false;
+  }
+
+  const wxString apiUrl =
+      wxString::FromUTF8(ep.base) +
+      "/player_api.php?username=" + UrlEncode(wxString::FromUTF8(ep.user)) +
+      "&password=" + UrlEncode(wxString::FromUTF8(ep.pass)) +
+      "&action=get_series";
+
+  if (progress)
+    progress(-1, "Series: downloading all series");
+
+  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 300, cancelFlag);
+  if (!resp.ok) {
+    LOG_WARN("XtreamApiClient::RefreshAllSeries: HTTP failed: %s",
+             resp.error.c_str());
+    return false;
+  }
+
+  if (cancelFlag.load()) {
+    LOG_INFO("XtreamApiClient::RefreshAllSeries: cancelled before parse");
+    return false;
+  }
+
+  if (!db.BeginTransaction()) {
+    LOG_ERROR("XtreamApiClient::RefreshAllSeries: cannot start transaction");
+    return false;
+  }
+
+  if (!db.ClearAllSeriesCategoryMap()) {
+    LOG_ERROR(
+        "XtreamApiClient::RefreshAllSeries: ClearAllSeriesCategoryMap failed");
+    db.Rollback();
+    return false;
+  }
+
+  SeriesSaxHandler handler(
+      [&db, &cancelFlag](const std::vector<XtreamDatabase::Series> &batch)
+          -> bool { return db.UpsertSeriesBatchAll(batch, cancelFlag); },
+      cancelFlag, progress);
+
+  rapidjson::Reader reader;
+  rapidjson::MemoryStream stream(resp.body.data(), resp.body.size());
+  rapidjson::ParseResult parseResult = reader.Parse(stream, handler);
+
+  if (!parseResult) {
+    LOG_ERROR(
+        "XtreamApiClient::RefreshAllSeries: JSON parse error at offset %zu: %s",
+        parseResult.Offset(), rapidjson::GetParseError_En(parseResult.Code()));
+    db.Rollback();
+    return false;
+  }
+
+  if (handler.WasCancelled()) {
+    LOG_INFO("XtreamApiClient::RefreshAllSeries: cancelled (inserted %zu)",
+             handler.TotalInserted());
+    db.Rollback();
+    return false;
+  }
+
+  if (handler.HasError()) {
+    LOG_ERROR("XtreamApiClient::RefreshAllSeries: DB error");
+    db.Rollback();
+    return false;
+  }
+
+  db.SetMeta("last_update_series", std::to_string(std::time(nullptr)));
+
+  if (!db.Commit()) {
+    LOG_ERROR("XtreamApiClient::RefreshAllSeries: COMMIT failed");
+    db.Rollback();
+    return false;
+  }
+
+  db.SetMeta("has_series", "1");
+
+  if (!s_xtreamSizeWarned.load(std::memory_order_relaxed)) {
+    const long long sz = db.FileSizeBytes();
+    if (sz > kXtreamCacheSoftLimitBytes) {
+      LOG_WARN("Xtream cache exceeded 2 GB (%.2f GB). Consider clearing in "
+               "Settings → Xtream → Clear Xtream cache.",
+               sz / (1024.0 * 1024.0 * 1024.0));
+      s_xtreamSizeWarned.store(true, std::memory_order_relaxed);
+    }
+  }
+
+  if (progress)
+    progress(100, "Series: " + std::to_string(handler.TotalInserted()) +
+                      " items (all)");
+
+  LOG_INFO("XtreamApiClient::RefreshAllSeries: %zu items",
+           handler.TotalInserted());
   return true;
 }
 

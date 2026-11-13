@@ -112,7 +112,8 @@ private:
   void UpdateInfoLabel();
 
   Playlist *GetCurrentPlaylist() const;
-  xtream::XtreamDatabase *GetDb() const;
+  xtream::XtreamDatabase *GetDb() const;  // main-thread sync only
+  std::shared_ptr<xtream::XtreamDatabase> GetDbShared() const;  // workers
   xtream::XtreamApiClient *GetClient() const;
 
   MainFrame *m_mainFrame = nullptr;

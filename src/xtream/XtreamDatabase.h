@@ -70,6 +70,7 @@ public:
     int64_t added = 0;
     std::string containerExt;
     std::string customSid;
+    int categoryId = 0;
   };
 
     // ---- Series ----
@@ -89,6 +90,7 @@ public:
     std::string youtubeTrailer;
     std::string episodeRunTime;
     int64_t lastModified = 0;
+    int categoryId = 0;
   };
   
   // VOD-элементы, добавленные в список (favorites/watchlist), в порядке
@@ -220,9 +222,30 @@ public:
   // Не трогает series_seasons/series_episodes (они через InsertSeriesInfo).
   bool UpsertSeriesBatch(int categoryId, const std::vector<Series> &batch,
                          const std::atomic<bool> &abortFlag);
-
+  // Bulk-замена каталога VOD/Series. Вызывать внутри BeginTransaction().
+  // ClearAllVodCategoryMap: DELETE FROM vod_category_map (без WHERE).
+  // UpsertVodBatchAll: использует s.categoryId (из SAX) для map, не параметр.
+  // Заполняет vod_streams/series через ON CONFLICT DO UPDATE (не трогает
+  // vod_info/series_seasons/series_episodes).
+  bool ClearAllVodCategoryMap();
+  bool UpsertVodBatchAll(const std::vector<VodStream> &batch,
+                         const std::atomic<bool> &abortFlag);
+  bool ClearAllSeriesCategoryMap();
+  bool UpsertSeriesBatchAll(const std::vector<Series> &batch,
+                            const std::atomic<bool> &abortFlag);
   // ---- размер файла БД  ----
   long long FileSizeBytes() const;
+  // Пометить, что при Close() (или ~XtreamDatabase) нужно удалить
+  // <dbPath>.db, -wal и -shm. Используется, когда shared_ptr ещё
+  // держат worker'ы — PlaylistManager не может удалить файл синхронно.
+  // Файлы удаляются при последнем Close(). Идемпотентно.
+  void MarkForDeferredDelete();
+
+  // Удалить <dbPath> + <dbPath>-wal + <dbPath>-shm. Безопасно при
+  // отсутствии файлов. Возвращает true, если что-то удалено.
+  // Public static — используется PlaylistManager, когда соединение уже
+  // закрыто или отсутствует (например, остатки от предыдущего запуска).
+  static bool DeleteDbFiles(const wxString &dbPath);
 
 private:
   bool CreateSchemaV1(bool inTransaction);
