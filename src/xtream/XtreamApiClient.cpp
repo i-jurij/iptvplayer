@@ -72,7 +72,7 @@ size_t WriteCb(char *ptr, size_t size, size_t nmemb, void *userdata) {
 }
 
 int CancelCb(void *clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-  auto *flag = static_cast<std::atomic<bool> *>(clientp);
+  auto *flag = static_cast<const std::atomic<bool> *>(clientp);
   return (flag && flag->load()) ? 1 : 0;
 }
 
@@ -111,7 +111,8 @@ struct AttemptResult {
 };
 
 AttemptResult PerformHttpGet(const std::string &url, const std::string &ua,
-                             int timeoutSec, std::atomic<bool> &cancelFlag) {
+                             int timeoutSec,
+                             const std::atomic<bool> &cancelFlag) {
   AttemptResult r;
 
   CURL *curl = curl_easy_init();
@@ -863,6 +864,16 @@ void XtreamApiClient::SyncMetaToDb(const Playlist &pl,
 XtreamApiClient::HttpResponse XtreamApiClient::HttpGet(const Playlist &pl,
                                                        const std::string &url,
                                                        int timeoutSec) {
+  // Legacy-путь: одиночные вызовы (Auth, GetCategories, GetShortEpg).
+  // Сбрасываем общий m_cancel, чтобы Cancel() не отменял будущие вызовы.
+  m_cancel.store(false);
+  return HttpGetWithCancel(pl, url, timeoutSec, m_cancel);
+}
+
+XtreamApiClient::HttpResponse
+XtreamApiClient::HttpGetWithCancel(const Playlist &pl, const std::string &url,
+                                   int timeoutSec,
+                                   const std::atomic<bool> &cancelFlag) {
   HttpResponse result;
 
   constexpr int kMaxAttempts = 3;
@@ -870,7 +881,7 @@ XtreamApiClient::HttpResponse XtreamApiClient::HttpGet(const Playlist &pl,
   const std::string ua = pl.getUserAgent();
 
   for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
-    if (m_cancel.load()) {
+    if (cancelFlag.load()) {
       result.error = "Cancelled";
       return result;
     }
@@ -880,13 +891,13 @@ XtreamApiClient::HttpResponse XtreamApiClient::HttpGet(const Playlist &pl,
       LOG_INFO("XtreamApiClient: retry %d/%d in %d ms for %s", attempt,
                kMaxAttempts - 1, waitMs, SanitizeUrlForLog(url).c_str());
       std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
-      if (m_cancel.load()) {
+      if (cancelFlag.load()) {
         result.error = "Cancelled";
         return result;
       }
     }
 
-    AttemptResult ar = PerformHttpGet(url, ua, timeoutSec, m_cancel);
+    AttemptResult ar = PerformHttpGet(url, ua, timeoutSec, cancelFlag);
 
     // HTML / не-JSON на 2xx → без retry
     if (ar.ok && ar.httpCode >= 200 && ar.httpCode < 300 &&
@@ -1040,8 +1051,6 @@ bool XtreamApiClient::RefreshVodCategory(const Playlist &pl, int categoryId,
                                          XtreamDatabase &db,
                                          XtreamApiClient::ProgressFn progress,
                                          const std::atomic<bool> &cancelFlag) {
-  m_cancel.store(false);
-
   if (categoryId <= 0) {
     LOG_WARN("XtreamApiClient::RefreshVodCategory: invalid categoryId");
     return false;
@@ -1066,7 +1075,7 @@ bool XtreamApiClient::RefreshVodCategory(const Playlist &pl, int categoryId,
   if (progress)
     progress(-1, "VOD: downloading");
 
-  HttpResponse resp = HttpGet(pl, U8(apiUrl), 60);
+  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 60, cancelFlag);
   if (!resp.ok) {
     LOG_WARN("XtreamApiClient::RefreshVodCategory: HTTP failed for "
              "category %d: %s",
@@ -1162,8 +1171,6 @@ bool XtreamApiClient::RefreshVodCategory(const Playlist &pl, int categoryId,
 bool XtreamApiClient::RefreshSeriesCategory(
     const Playlist &pl, int categoryId, XtreamDatabase &db,
     XtreamApiClient::ProgressFn progress, const std::atomic<bool> &cancelFlag) {
-  m_cancel.store(false);
-
   if (categoryId <= 0) {
     LOG_WARN("XtreamApiClient::RefreshSeriesCategory: invalid categoryId");
     return false;
@@ -1187,7 +1194,7 @@ bool XtreamApiClient::RefreshSeriesCategory(
   if (progress)
     progress(-1, "Series: downloading");
 
-  HttpResponse resp = HttpGet(pl, U8(apiUrl), 60);
+  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 60, cancelFlag);
   if (!resp.ok) {
     LOG_WARN("XtreamApiClient::RefreshSeriesCategory: HTTP failed for "
              "category %d: %s",
@@ -1283,7 +1290,6 @@ bool XtreamApiClient::RefreshSeriesCategory(
 bool XtreamApiClient::FetchVodInfo(const Playlist &pl, int64_t streamId,
                                    XtreamDatabase &db, std::string &outJson,
                                    const std::atomic<bool> &cancelFlag) {
-  m_cancel.store(false);
   outJson.clear();
 
   if (streamId <= 0)
@@ -1305,7 +1311,7 @@ bool XtreamApiClient::FetchVodInfo(const Playlist &pl, int64_t streamId,
       "&action=get_vod_info&vod_id=" +
       wxString::Format("%lld", static_cast<long long>(streamId));
 
-  HttpResponse resp = HttpGet(pl, U8(apiUrl), 30);
+  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 30, cancelFlag);
   if (!resp.ok) {
     LOG_WARN("XtreamApiClient::FetchVodInfo: HTTP failed for %lld: %s",
              static_cast<long long>(streamId), resp.error.c_str());
@@ -1344,8 +1350,6 @@ bool XtreamApiClient::FetchSeriesInfo(const Playlist &pl, int64_t seriesId,
                                       XtreamDatabase &db,
                                       XtreamApiClient::ProgressFn progress,
                                       const std::atomic<bool> &cancelFlag) {
-  m_cancel.store(false);
-
   if (seriesId <= 0)
     return false;
 
@@ -1368,7 +1372,7 @@ bool XtreamApiClient::FetchSeriesInfo(const Playlist &pl, int64_t seriesId,
   if (progress)
     progress(-1, "Series info: downloading");
 
-  HttpResponse resp = HttpGet(pl, U8(apiUrl), 60);
+  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 60, cancelFlag);
   if (!resp.ok) {
     LOG_WARN("XtreamApiClient::FetchSeriesInfo: HTTP failed for %lld: %s",
              static_cast<long long>(seriesId), resp.error.c_str());

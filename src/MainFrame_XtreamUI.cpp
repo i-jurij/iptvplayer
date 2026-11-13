@@ -421,11 +421,10 @@ void MainFrame::OnMovieSelected(const std::string &mediaKey, size_t /*index*/) {
     if (!ok || info.empty())
       return;
 
-    auto *self = weakThis.get();
-    if (!self)
-      return;
-
-    wxTheApp->CallAfter([self, db, streamId, info, plUuid, plTitle]() {
+    wxTheApp->CallAfter([weakThis, db, streamId, info, plUuid, plTitle]() {
+      auto *self = weakThis.get();
+      if (!self || self->IsBeingDeleted())
+        return;
       Playlist *cur = self->GetPlaylistByIndex(self->m_loadedPlaylistIndex);
       if (!cur || cur->getUniqueId() != plUuid)
         return;
@@ -654,38 +653,37 @@ void MainFrame::OnMoviesRefreshCatalog(wxCommandEvent &) {
 
       client->RefreshVodCategory(plCopy, cats[i].id, *db, nullptr, cancel);
 
-      auto *selfAfter = weakThis.get();
-      if (!selfAfter)
-        return;
-      wxTheApp->CallAfter([selfAfter, i, total]() {
-        selfAfter->SetStatusText(
+      wxTheApp->CallAfter([weakThis, i, total]() {
+        auto *s = weakThis.get();
+        if (!s || s->IsBeingDeleted())
+          return;
+        s->SetStatusText(
             wxString::Format(_U("Movies: refreshing %zu/%zu"), i + 1, total),
             0);
       });
     }
 
-    auto *self = weakThis.get();
-    if (!self)
-      return;
-
-    wxTheApp->CallAfter([self, plUuid]() {
-      Playlist *cur = self->GetPlaylistByIndex(self->m_loadedPlaylistIndex);
+    wxTheApp->CallAfter([weakThis, plUuid]() {
+      auto *s = weakThis.get();
+      if (!s || s->IsBeingDeleted())
+        return;
+      Playlist *cur = s->GetPlaylistByIndex(s->m_loadedPlaylistIndex);
       if (!cur || cur->getUniqueId() != plUuid)
         return;
 
-      self->m_moviesRefreshing = false;
-      if (self->m_moviesRefreshBtn)
-        self->m_moviesRefreshBtn->Enable(true);
-      if (self->m_moviesActivity) {
-        self->m_moviesActivity->Stop();
-        self->m_moviesActivity->Hide();
+      s->m_moviesRefreshing = false;
+      if (s->m_moviesRefreshBtn)
+        s->m_moviesRefreshBtn->Enable(true);
+      if (s->m_moviesActivity) {
+        s->m_moviesActivity->Stop();
+        s->m_moviesActivity->Hide();
       }
-      self->SetStatusText(_U("Movies: catalog refreshed."), 0);
+      s->SetStatusText(_U("Movies: catalog refreshed."), 0);
 
-      self->PopulateMoviesCategories();
-      if (!self->m_moviesCategoryIds.empty()) {
-        self->m_currentVodCategoryId = self->m_moviesCategoryIds[0];
-        self->LoadVodPage(true);
+      s->PopulateMoviesCategories();
+      if (!s->m_moviesCategoryIds.empty()) {
+        s->m_currentVodCategoryId = s->m_moviesCategoryIds[0];
+        s->LoadVodPage(true);
       }
     });
   }).detach();

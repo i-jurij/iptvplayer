@@ -1136,27 +1136,20 @@ void SeriesPanel::OnRefreshCatalog(wxCommandEvent &) {
 
       client->RefreshSeriesCategory(plCopy, cats[i].id, *db, nullptr, cancel);
 
-      auto *self = weakThis.get();
-      if (!self)
-        return;
-
-      MainFrame *mfCopy = mf;
       const size_t idx = i + 1;
-      wxTheApp->CallAfter([mfCopy, idx, total]() {
-        if (!mfCopy || mfCopy->IsBeingDeleted())
+      wxWeakRef<MainFrame> weakMf(mf);
+      wxTheApp->CallAfter([weakMf, idx, total]() {
+        auto *m = weakMf.get();
+        if (!m || m->IsBeingDeleted())
           return;
-        mfCopy->SetStatusText(
+        m->SetStatusText(
             wxString::Format(_U("Series: refreshing %zu/%zu"), idx, total), 0);
       });
     }
 
-    auto *self = weakThis.get();
-    if (!self)
-      return;
-
     wxTheApp->CallAfter([weakThis, mf, plUuid]() {
       auto *s = weakThis.get();
-      if (!s)
+      if (!s || s->IsBeingDeleted())
         return;
       Playlist *cur = s->GetCurrentPlaylist();
       if (!cur || cur->getUniqueId() != plUuid)

@@ -141,6 +141,13 @@ public:
   HttpResponse HttpGet(const Playlist &pl, const std::string &url,
                        int timeoutSec = 30);
 
+  // Как HttpGet, но использует переданный cancelFlag для отмены HTTP-трансфера
+  // вместо общего m_cancel. Позволяет параллельным операциям (refresh/fetch)
+  // не сбрасывать флаг друг друга.
+  HttpResponse HttpGetWithCancel(const Playlist &pl, const std::string &url,
+                                 int timeoutSec,
+                                 const std::atomic<bool> &cancelFlag);
+
 private:
   // base + credentials, извлечённые из XtreamMeta или source.
   struct Endpoint {
