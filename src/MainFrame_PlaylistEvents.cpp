@@ -332,151 +332,31 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
     return;
 
   auto *mgr = getPlaylistManager();
-  const wxString serverUrl = dlg.GetServerUrl();
-  const wxString user = dlg.GetUsername();
-  const wxString pass = dlg.GetPassword();
+  if (!mgr)
+    return;
+
+  const wxString server = dlg.GetProbeServer();
+  const wxString user = dlg.GetProbeUser();
+  const wxString pass = dlg.GetProbePass();
   const wxString epgUrl = dlg.GetEpgUrl();
   const wxString titleWx = dlg.GetTitle();
+  const wxString ua = dlg.GetUserAgent();
   const bool autoUpdate = dlg.GetAutoUpdate();
 
-  if (serverUrl.IsEmpty())
+  if (server.IsEmpty())
     return;
 
-  // Full URL (get.php?... или playlist.m3u) — используем как есть.
-  if (HasNonTrivialPath(serverUrl)) {
-    const std::string srcKey = serverUrl.ToUTF8().data();
-    if (!epgUrl.IsEmpty())
-      m_pendingEpgBySource[srcKey] = epgUrl;
-    else
-      m_pendingEpgBySource.erase(srcKey);
-
-    // Stage 7.10: извлекаем creds + origin ДО add, чтобы передать
-    // isXtream=true и earlyMeta. Это даст loadPlaylistContent вызвать
-    // GetCategories и заполнить hasVod/hasSeries.
-    const UrlCredentials creds = ExtractQueryCredentials(serverUrl);
-    const wxString apiBase = GetOriginWithParentPath(serverUrl);
-    const bool canBeXtream = creds.valid && !creds.user.IsEmpty() &&
-                             !creds.pass.IsEmpty() && !apiBase.IsEmpty();
-
-    XtreamMeta earlyMeta;
-    if (canBeXtream) {
-      earlyMeta.baseUrl = apiBase.ToUTF8().data();
-      earlyMeta.username = creds.user.ToUTF8().data();
-      earlyMeta.password = creds.pass.ToUTF8().data();
-    }
-
-    BeginPlaylistLoading("Xtream");
-
-    std::string title = titleWx.ToUTF8().data();
-    const std::string ua = dlg.GetUserAgent().ToUTF8().data();
-
-    ErrorCode ec = ErrorCode::OK;
-    try {
-      ec = mgr->addPlaylistFromUrl(serverUrl.ToUTF8().data(), title, ua,
-                                   autoUpdate, canBeXtream,
-                                   std::move(earlyMeta));
-    } catch (const std::exception &e) {
-      LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s", e.what());
-      ec = ErrorCode::Unknown;
-    } catch (...) {
-      LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw unknown");
-      ec = ErrorCode::Unknown;
-    }
-
-    if (ec != ErrorCode::OK) {
-      m_pendingEpgBySource.erase(srcKey);
-      m_progressTimer.Stop();
-      SetStatusText(_U("Failed to start playlist loading."), 0);
-      showError(this,
-                wxString::Format(_U("Failed to start playlist loading:\n\n%s"),
-                                 wxString::FromUTF8(mgr->getLastError())));
-      return;
-    }
-
-    // Probe в параллель: только userInfoJson/serverInfoJson.
-    // hasVod/hasSeries уже заполнены loadPlaylistContent (Xtream-ветка).
-    if (canBeXtream) {
-      wxWeakRef<MainFrame> weakThis(this);
-      const wxString serverUrlCopy = serverUrl;
-      const wxString uaProbe = dlg.GetUserAgent();
-
-      xtream::ProbeAsync(
-          apiBase, creds.user, creds.pass, uaProbe,
-          [weakThis, serverUrlCopy, apiBase,
-           creds](bool ok, const wxString &, const wxString &error,
-                  const std::string &userInfoJson,
-                  const std::string &serverInfoJson) {
-            auto *self = weakThis.get();
-            if (!self)
-              return;
-
-            if (!ok || userInfoJson.empty()) {
-              LOG_WARN("Xtream full-URL: meta probe failed for '%s': %s",
-                       serverUrlCopy.utf8_str().data(),
-                       error.utf8_str().data());
-              return;
-            }
-
-            const std::string srcKey = serverUrlCopy.utf8_str().data();
-
-            auto *mgr = self->getPlaylistManager();
-            if (!mgr) {
-              self->m_pendingXtreamMetaBySource[srcKey] =
-                  std::make_pair(userInfoJson, serverInfoJson);
-              return;
-            }
-
-            Playlist *found = nullptr;
-            for (const auto &up : mgr->getPlaylists()) {
-              if (up && up->getSource() == srcKey) {
-                found = up.get();
-                break;
-              }
-            }
-
-            if (!found) {
-              self->m_pendingXtreamMetaBySource[srcKey] =
-                  std::make_pair(userInfoJson, serverInfoJson);
-              return;
-            }
-
-            // Merge: сохраняем endpoint (baseUrl/user/pass), установленный
-            // earlyMeta в loadPlaylistContent. Перезаписываем только
-            // userInfoJson/serverInfoJson.
-            XtreamMeta meta = found->getXtreamMeta();
-            meta.userInfoJson = userInfoJson;
-            meta.serverInfoJson = serverInfoJson;
-            if (meta.baseUrl.empty())
-              meta.baseUrl = apiBase.ToUTF8().data();
-            if (meta.username.empty())
-              meta.username = creds.user.ToUTF8().data();
-            if (meta.password.empty())
-              meta.password = creds.pass.ToUTF8().data();
-
-            found->setXtream(true);
-            found->setXtreamMeta(std::move(meta));
-            mgr->savePlaylist(found);
-            LOG_INFO("Xtream full-URL: merged meta for '%s'",
-                     found->getTitle().c_str());
-            self->RefreshPlaylistView();
-          });
-    }
-    return;
-  }
-
-  // Bare server — probe credentials + format in background, then add.
   SetStatusText(_U("Checking Xtream server..."), 0);
 
-  const wxString ua = dlg.GetUserAgent(); // NEW
-
   wxWeakRef<MainFrame> weakThis(this);
-  xtream::ProbeAsync(
-      serverUrl, user, pass, ua, // NEW: ua passed
-      [weakThis, epgUrl, titleWx, autoUpdate,
-       ua, serverUrl, user, pass](bool ok, const wxString &finalUrl, const wxString &error,
-           const std::string &userInfoJson, const std::string &serverInfoJson) {
+  xtream::DialProbeAsync(
+      server, user, pass, ua,
+      [weakThis, epgUrl, titleWx, autoUpdate, ua, server, user,
+       pass](bool ok, const wxString &finalUrl, const wxString &error,
+             const std::string &userInfoJson, const std::string &serverInfoJson,
+             bool isM3u) {
         auto *self = weakThis.get();
-        if (!self)
+        if (!self || self->IsBeingDeleted())
           return;
 
         if (!ok) {
@@ -486,40 +366,40 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
           return;
         }
 
-        LOG_DEBUG("Xtream probe: user_info=%zu bytes, server_info=%zu bytes",
-                  userInfoJson.size(), serverInfoJson.size());
-
         auto *mgr = self->getPlaylistManager();
         if (!mgr) {
           self->SetStatusText(_U("PlaylistManager not available."), 0);
           return;
         }
 
-        const std::string srcKey = finalUrl.ToUTF8().data();
+        const std::string srcKey = finalUrl.utf8_str().data();
         if (!epgUrl.IsEmpty())
           self->m_pendingEpgBySource[srcKey] = epgUrl;
         else
           self->m_pendingEpgBySource.erase(srcKey);
 
-        // NEW: short status line before add
-        self->SetStatusText(_U("Xtream: server ready, loading playlist..."), 0);
-
-        self->BeginPlaylistLoading("Xtream");
+        self->SetStatusText(
+            isM3u ? _U("M3U: loading playlist...")
+                  : _U("Xtream: server ready, loading playlist..."),
+            0);
+        self->BeginPlaylistLoading(isM3u ? "M3U" : "Xtream");
 
         std::string title = titleWx.ToUTF8().data();
         const std::string uaStr = ua.ToUTF8().data();
 
         XtreamMeta meta;
-        meta.userInfoJson = userInfoJson;
-        meta.serverInfoJson = serverInfoJson;
-        meta.baseUrl = serverUrl.ToUTF8().data();
-        meta.username = user.ToUTF8().data();
-        meta.password = pass.ToUTF8().data();
+        if (!isM3u) {
+          meta.userInfoJson = userInfoJson;
+          meta.serverInfoJson = serverInfoJson;
+          meta.baseUrl = xtream::StripPhpSuffix(server).ToUTF8().data();
+          meta.username = user.ToUTF8().data();
+          meta.password = pass.ToUTF8().data();
+        }
 
         ErrorCode ec = ErrorCode::OK;
         try {
           ec = mgr->addPlaylistFromUrl(finalUrl.ToUTF8().data(), title, uaStr,
-                                       autoUpdate, /*isXtream=*/true,
+                                       autoUpdate, /*isXtream=*/!isM3u,
                                        std::move(meta));
         } catch (const std::exception &e) {
           LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s",
@@ -531,7 +411,7 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
         }
 
         if (ec != ErrorCode::OK) {
-          self->m_pendingEpgBySource.erase(srcKey); // NEW: cleanup
+          self->m_pendingEpgBySource.erase(srcKey);
           self->m_progressTimer.Stop();
           self->SetStatusText(_U("Failed to start playlist loading."), 0);
           showError(self, wxString::Format(

@@ -18,6 +18,9 @@ public:
   wxString GetUserAgent() const; // пустое поле → xtream::DefaultUserAgent()
   wxString GetEpgUrl() const; // авто-ген xmltv если пусто и creds есть
   bool GetAutoUpdate() const;
+  wxString GetProbeServer() const { return m_probeServer; }
+  wxString GetProbeUser() const { return m_probeUser; }
+  wxString GetProbePass() const { return m_probePass; }
 
 private:
   void OnOK(wxCommandEvent &);
@@ -33,4 +36,9 @@ private:
   wxTextCtrl *m_epgUrlCtrl = nullptr;
   wxCheckBox *m_autoUpdateCheck = nullptr;
   wxStaticText *m_errorLabel = nullptr;
+  // Нормализованные значения, вычисляются в OnOK. Используются MainFrame
+  // после успешного ShowModal → onAddXtreamPlaylist → DialProbeAsync.
+  wxString m_probeServer;
+  wxString m_probeUser;
+  wxString m_probePass;
 };

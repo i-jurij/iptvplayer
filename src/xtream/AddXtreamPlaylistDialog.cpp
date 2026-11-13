@@ -169,20 +169,33 @@ void AddXtreamPlaylistDialog::OnOK(wxCommandEvent &event) {
     ShowInlineError(_U("Invalid host."));
     return;
   }
+
   if (server.Lower().Contains("panel_api.php")) {
     ShowInlineError(_U("Reseller panel endpoint, not for playback."));
     return;
   }
 
-  if (!HasNonTrivialPath(server)) {
-    if (GetUsername().IsEmpty()) {
-      ShowInlineError(_U("Please enter Username."));
-      return;
-    }
-    if (GetPassword().IsEmpty()) {
-      ShowInlineError(_U("Please enter Password."));
-      return;
-    }
+  const wxString path = uri.GetPath().Lower();
+  if (path.EndsWith(".ts") || path.EndsWith(".mp4") || path.EndsWith(".mkv") ||
+      path.EndsWith(".avi") || path.EndsWith(".mp3")) {
+    ShowInlineError(_U("This looks like a stream URL (video/audio file). "
+                       "Use the server address (http://host:port) instead."));
+    return;
+  }
+
+  // Creds: query > input fields.
+  const UrlCredentials qc = ExtractQueryCredentials(server);
+  m_probeServer = server;
+  m_probeUser = (qc.valid && !qc.user.IsEmpty()) ? qc.user : GetUsername();
+  m_probePass = (qc.valid && !qc.pass.IsEmpty()) ? qc.pass : GetPassword();
+
+  if (m_probeUser.IsEmpty()) {
+    ShowInlineError(_U("Please enter Username."));
+    return;
+  }
+  if (m_probePass.IsEmpty()) {
+    ShowInlineError(_U("Please enter Password."));
+    return;
   }
 
   event.Skip();
@@ -231,18 +244,18 @@ wxString AddXtreamPlaylistDialog::GetEpgUrl() const {
   if (server.IsEmpty())
     return wxString();
 
-  if (HasNonTrivialPath(server)) {
-    const UrlCredentials creds = ExtractQueryCredentials(server);
-    if (creds.valid && !creds.user.IsEmpty() && !creds.pass.IsEmpty())
-      return xtream::BuildXmltv(GetOrigin(server), creds.user, creds.pass);
-    return wxString();
-  }
-
-  const wxString user = GetUsername();
-  const wxString pass = GetPassword();
+  const UrlCredentials qc = ExtractQueryCredentials(server);
+  const wxString user =
+      (qc.valid && !qc.user.IsEmpty()) ? qc.user : GetUsername();
+  const wxString pass =
+      (qc.valid && !qc.pass.IsEmpty()) ? qc.pass : GetPassword();
   if (user.IsEmpty() || pass.IsEmpty())
     return wxString();
-  return xtream::BuildXmltv(server, user, pass);
+
+  const wxString base = xtream::StripPhpSuffix(server);
+  if (base.IsEmpty())
+    return wxString();
+  return xtream::BuildXmltv(base, user, pass);
 }
 
 bool AddXtreamPlaylistDialog::GetAutoUpdate() const {

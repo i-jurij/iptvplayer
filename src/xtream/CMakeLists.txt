@@ -3,6 +3,8 @@ add_library(player_xtream OBJECT
     XtreamUrl.h
     AddXtreamPlaylistDialog.cpp
     AddXtreamPlaylistDialog.h
+    PlaylistDetector.cpp
+    PlaylistDetector.h
     XtreamInfo.cpp
     XtreamInfo.h
     PlaylistInfoDialog.cpp

@@ -1,8 +1,9 @@
 #include "xtream/XtreamUrl.h"
-
 #include "LogControl.h"
 #include "Utils_Net.h"
+#include "Utils_Platform.h"
 #include "version.h"
+#include "xtream/PlaylistDetector.h"
 
 #include <curl/curl.h>
 #include <rapidjson/document.h>
@@ -310,6 +311,27 @@ ProbeResult DoProbe(const wxString &baseUrl, const wxString &user,
   return result;
 }
 
+// Только Stage 2: получить get.php URL. Используется, когда Stage 1 (auth)
+// уже пройден (sniffing вернул XtreamAuth).
+AttemptResult TryGetPhpOnly(const wxString &base, const wxString &user,
+                            const wxString &pass, const wxString &ua) {
+  AttemptResult r;
+  for (xtream::Format fmt :
+       {xtream::Format::M3uPlusTs, xtream::Format::M3uPlusHls}) {
+    const wxString m3uUrl = xtream::BuildM3u(base, user, pass, fmt);
+    FetchResult mr = FetchPrefix(m3uUrl, 4096, 8, ua);
+    const char *fmtName =
+        (fmt == xtream::Format::M3uPlusTs) ? "m3u_plus/ts" : "m3u_plus/hls";
+    LOG_DEBUG("Xtream dial-probe: %s HTTP %ld", fmtName, mr.httpCode);
+    if (mr.ok && mr.httpCode == 200 && LooksLikeM3u(mr.body)) {
+      r.ok = true;
+      r.finalUrl = m3uUrl;
+      return r;
+    }
+  }
+  r.error = "Server did not return a valid M3U playlist";
+  return r;
+}
 } // namespace
 
 namespace xtream {
@@ -347,6 +369,132 @@ void ProbeAsync(const wxString &baseUrl, const wxString &user,
         callback(r.ok, r.finalUrl, r.error, r.userInfoJson, r.serverInfoJson);
     });
   }).detach();
+}
+
+void DialProbeAsync(const wxString &inputUrl, const wxString &user,
+                    const wxString &pass, const wxString &ua,
+                    DialProbeCallback callback) {
+  const wxString uaEff = ua.IsEmpty() ? DefaultUserAgent() : ua;
+
+  DetectContentAsync(
+      inputUrl, uaEff,
+      [inputUrl, user, pass, uaEff, callback](const Detection &det) {
+        switch (det.kind) {
+        case DetectionKind::XtreamAuth: {
+          const wxString base = StripPhpSuffix(inputUrl);
+          std::thread([base, user, pass, uaEff, det, callback]() {
+            AttemptResult r = TryGetPhpOnly(base, user, pass, uaEff);
+            auto deliver = [r, det, callback]() {
+              if (r.ok)
+                callback(true, r.finalUrl, "", det.userInfoJson,
+                         det.serverInfoJson, /*isM3u=*/false);
+              else
+                callback(false, "", wxString::FromUTF8(r.error), "", "", false);
+            };
+            if (wxTheApp)
+              wxTheApp->CallAfter(deliver);
+            else
+              deliver();
+          }).detach();
+          return;
+        }
+
+        case DetectionKind::M3U: {
+          // M3U по содержимому. Если в query есть creds — это может быть
+          // get.php URL: пробуем как Xtream (meta+VOD/Series), при ошибке
+          // probe откатываемся на M3U-only.
+          const wxString wxUrl =
+              det.finalUrl.IsEmpty() ? inputUrl : det.finalUrl;
+          const UrlCredentials creds = ExtractQueryCredentials(wxUrl);
+          if (creds.valid && !creds.user.IsEmpty() && !creds.pass.IsEmpty()) {
+            const wxString base = StripPhpSuffix(wxUrl);
+            ProbeAsync(base, creds.user, creds.pass, uaEff,
+                       [callback, wxUrl](bool ok, const wxString &probeFinalUrl,
+                                         const wxString & /*error*/,
+                                         const std::string &ui,
+                                         const std::string &si) {
+                         if (ok)
+                           callback(true, probeFinalUrl, "", ui, si, false);
+                         else
+                           callback(true, wxUrl, "", "", "", true);
+                       });
+            return;
+          }
+          callback(true, wxUrl, "", "", "", true);
+          return;
+        }
+
+        case DetectionKind::JsonOther:
+          callback(false, "",
+                   _U("Server returned JSON, but not a Xtream auth "
+                      "endpoint (no user_info)."),
+                   "", "", false);
+          return;
+
+        case DetectionKind::Html:
+          callback(false, "",
+                   _U("Server returned an HTML page, not a playlist."), "", "",
+                   false);
+          return;
+
+        case DetectionKind::BinaryStream:
+          callback(false, "",
+                   _U("This URL points to a media stream, not a playlist. "
+                      "Use the server address (http://host:port) instead."),
+                   "", "", false);
+          return;
+
+        case DetectionKind::Empty:
+        case DetectionKind::HttpError:
+        case DetectionKind::NetworkError:
+        case DetectionKind::Unknown:
+        default: {
+          // Fallback: full probe (bare server отдаёт 404/empty на "/").
+          const wxString base = StripPhpSuffix(inputUrl);
+          ProbeAsync(base, user, pass, uaEff,
+                     [callback](bool ok, const wxString &finalUrl,
+                                const wxString &error,
+                                const std::string &userInfoJson,
+                                const std::string &serverInfoJson) {
+                       callback(ok, finalUrl, error, userInfoJson,
+                                serverInfoJson, false);
+                     });
+          return;
+        }
+        }
+      });
+}
+
+wxString StripPhpSuffix(const wxString &url) {
+  if (url.IsEmpty())
+    return url;
+
+  wxURI uri(url);
+  if (!uri.HasScheme() || !uri.HasServer())
+    return url;
+
+  wxString origin = uri.GetScheme().Lower() + "://" + uri.GetServer();
+  if (uri.HasPort())
+    origin += ":" + uri.GetPort();
+
+  wxString path = uri.GetPath();
+  while (!path.IsEmpty() && path.EndsWith("/"))
+    path.RemoveLast();
+
+  if (!path.IsEmpty()) {
+    const size_t lastSlash = path.rfind('/');
+    const wxString lastSegment =
+        (lastSlash == wxString::npos) ? path : path.Mid(lastSlash + 1);
+    if (lastSegment.Lower().EndsWith(".php")) {
+      if (lastSlash == wxString::npos || lastSlash == 0) {
+        path.clear();
+      } else {
+        path = path.Left(lastSlash);
+      }
+    }
+  }
+
+  return origin + path;
 }
 
 } // namespace xtream
