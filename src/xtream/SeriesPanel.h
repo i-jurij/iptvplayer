@@ -120,6 +120,8 @@ private:
   wxSimplebook *m_book = nullptr;
   Level m_level = Level::SeriesList;
 
+  uint64_t m_playbackListenerId = 0;
+
   // Page 0 — Series list
   wxPanel *m_seriesListPage = nullptr;
   wxStaticText *m_header = nullptr;

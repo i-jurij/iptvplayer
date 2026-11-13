@@ -78,8 +78,8 @@ PlaylistInfoDialog::PlaylistInfoDialog(wxWindow *parent,
                                        const Playlist &playlist)
     : wxDialog(parent, wxID_ANY, _U("Playlist Info"), wxDefaultPosition,
                wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
-      m_playlistRef(playlist) {
-  BuildUi(playlist);
+      m_playlistCopy(playlist) {
+  BuildUi(m_playlistCopy);
 }
 
 void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
@@ -185,7 +185,7 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
           btn->Bind(wxEVT_BUTTON,
                     [this, suggested](wxCommandEvent &) {
                       if (m_onUpdateSource)
-                        m_onUpdateSource(m_playlistRef, suggested);
+                        m_onUpdateSource(m_playlistCopy, suggested);
                     });
           btnRow->Add(btn, 0, wxLEFT, FromDIP(0));
           accBox->Add(btnRow, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));

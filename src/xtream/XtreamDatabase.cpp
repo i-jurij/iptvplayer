@@ -500,6 +500,20 @@ std::string ComputeNameLower(const std::string &name,
     return std::string();
   return std::string(wxString::FromUTF8(name).Lower().utf8_str().data());
 }
+
+// Экранирует % _ \ для LIKE-запроса. SQLite по умолчанию использует
+// '\' как escape (совместимо с ESCAPE '\' в SQL).
+std::string EscapeLikePattern(const std::string &s) {
+  std::string out;
+  out.reserve(s.size() * 2);
+  for (char c : s) {
+    if (c == '%' || c == '_' || c == '\\')
+      out += '\\';
+    out += c;
+  }
+  return out;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -1520,11 +1534,11 @@ XtreamDatabase::SearchVod(const std::string &queryLower, int limit) const {
     limit = 1000;
 
   try {
-    const std::string pattern = "%" + queryLower + "%";
+    const std::string pattern = "%" + EscapeLikePattern(queryLower) + "%";
     Statement stmt = db.PrepareStatement(
         "SELECT stream_id, name, name_lower, stream_icon, rating, "
         "       rating_5based, added, container_extension, custom_sid "
-        "FROM vod_streams WHERE name_lower LIKE ? "
+        "FROM vod_streams WHERE name_lower LIKE ? ESCAPE '\\' "
         "ORDER BY added DESC LIMIT ?");
     StatementGuard guard(stmt);
     stmt.Bind(1, U8(pattern));
@@ -1569,13 +1583,13 @@ XtreamDatabase::SearchSeries(const std::string &queryLower, int limit) const {
     limit = 1000;
 
   try {
-    const std::string pattern = "%" + queryLower + "%";
+    const std::string pattern = "%" + EscapeLikePattern(queryLower) + "%";
     Statement stmt = db.PrepareStatement(
         "SELECT series_id, name, name_lower, cover, plot, cast_list, "
         "       director, genre, releaseDate, rating, rating_5based, "
         "       backdrop_path, youtube_trailer, episode_run_time, "
         "       last_modified "
-        "FROM series WHERE name_lower LIKE ? "
+        "FROM series WHERE name_lower LIKE ? ESCAPE '\\' "
         "ORDER BY last_modified DESC LIMIT ?");
     StatementGuard guard(stmt);
     stmt.Bind(1, U8(pattern));

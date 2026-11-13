@@ -1,10 +1,9 @@
 #pragma once
+#include "Playlist.h"
 
 #include <wx/dialog.h>
 
 #include <functional>
-
-class Playlist;
 
 class PlaylistInfoDialog : public wxDialog {
 public:
@@ -24,5 +23,8 @@ public:
 private:
   void BuildUi(const Playlist &playlist);
   UpdateSourceCallback m_onUpdateSource;
-  const Playlist &m_playlistRef;
+  // Снимок Playlist на момент открытия. Раньше хранилась ссылка на аргумент
+  // конструктора, но m_playlists (std::vector<unique_ptr<Playlist>>) может
+  // реаллоцироваться во время ShowModal (async add), инвалидируя ссылку.
+  Playlist m_playlistCopy;
 };

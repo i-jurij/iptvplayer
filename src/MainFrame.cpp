@@ -227,6 +227,7 @@ MainFrame::MainFrame(Application *app)
 }
 
 MainFrame::~MainFrame() {
+  m_onPlaybackEndedListeners.clear();
   FlushPlaybackPosition(true);
 
   // Отписка от прогресса EPG до разрушения GUI. Иначе колбэк с висячим

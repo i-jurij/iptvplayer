@@ -15,6 +15,24 @@ constexpr double kMinPositionSec = 10.0;
 
 } // namespace
 
+uint64_t MainFrame::AddPlaybackEndedListener(std::function<void()> cb) {
+  if (!cb)
+    return 0;
+  const uint64_t id = ++m_nextPlaybackEndedListenerId;
+  m_onPlaybackEndedListeners.emplace_back(id, std::move(cb));
+  return id;
+}
+
+void MainFrame::RemovePlaybackEndedListener(uint64_t id) {
+  if (id == 0)
+    return;
+  m_onPlaybackEndedListeners.erase(
+      std::remove_if(m_onPlaybackEndedListeners.begin(),
+                     m_onPlaybackEndedListeners.end(),
+                     [id](const auto &kv) { return kv.first == id; }),
+      m_onPlaybackEndedListeners.end());
+}
+
 void MainFrame::OnPlaybackProgress(const std::string &mediaKey, double pos,
                                    double dur, bool flush) {
   if (mediaKey.empty())
@@ -91,4 +109,7 @@ void MainFrame::FlushPlaybackPosition(bool force) {
   }
 }
 
+// Сброс in-memory трекера. НЕ трогает БД (см. FlushPlaybackPosition).
+// Вызывается перед стартом нового воспроизведения, чтобы
+// OnPlaybackProgress не флашнул старый mediaKey с новой позицией.
 void MainFrame::ClearPlaybackPosition() { m_hotPos = HotPlaybackPos{}; }

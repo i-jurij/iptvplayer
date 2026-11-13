@@ -147,7 +147,12 @@ public:
   // (Channels, Favorites, Movies, Series). Базируется на высоте
   // toolbar в Channels. Fallback — 28 DIP.
   int GetHeaderRowHeight() const;
-  std::function<void()> m_onPlaybackEnded;
+  // Multi-listener для события «воспроизведение закончилось».
+  // Раньше был single std::function — SeriesPanel его перезаписывал,
+  // и другие панели (Movies/VOD) не могли добавить свой обработчик.
+  // Возвращает id для RemovePlaybackEndedListener.
+  uint64_t AddPlaybackEndedListener(std::function<void()> cb);
+  void RemovePlaybackEndedListener(uint64_t id);
 
   void ShowMainMenu(bool deferred = true);
 
@@ -395,6 +400,9 @@ private:
   void onFavoriteSelected(const Channel &ch, size_t index, const wxRect &rect);
 
   std::atomic<uint64_t> m_showPanelToken{0};
+  std::vector<std::pair<uint64_t, std::function<void()>>>
+      m_onPlaybackEndedListeners;
+  uint64_t m_nextPlaybackEndedListenerId = 0;
 
   void OpenPlaylistInternal(int playlistIndex);
   void OpenPlaylistByModelIndex(int playlistIndex);

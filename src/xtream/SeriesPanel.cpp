@@ -78,11 +78,21 @@ SeriesPanel::SeriesPanel(wxWindow *parent, MainFrame *mainFrame)
     : wxPanel(parent), m_mainFrame(mainFrame) {
   BuildUi();
   if (m_mainFrame) {
-    m_mainFrame->m_onPlaybackEnded = [this]() { OnPlaybackEnded(); };
+    wxWeakRef<SeriesPanel> weakThis(this);
+    m_playbackListenerId = m_mainFrame->AddPlaybackEndedListener([weakThis]() {
+      auto *s = weakThis.get();
+      if (s)
+        s->OnPlaybackEnded();
+    });
   }
 }
 
-SeriesPanel::~SeriesPanel() = default;
+SeriesPanel::~SeriesPanel() {
+  if (m_mainFrame && m_playbackListenerId != 0) {
+    m_mainFrame->RemovePlaybackEndedListener(m_playbackListenerId);
+    m_playbackListenerId = 0;
+  }
+}
 
 void SeriesPanel::BuildUi() {
   auto *sizer = new wxBoxSizer(wxVERTICAL);
@@ -527,6 +537,9 @@ bool SeriesPanel::PopAndRestore() {
   const Level target = static_cast<Level>(s.level);
 
   if (target == Level::SeriesList) {
+    // SeriesList: сброс — список показывает все сериалы, s.seriesId/
+    // s.seriesName не нужны (они относятся к drill-down, из которого
+    // возвращаемся).
     m_currentSeriesId = 0;
     m_currentSeriesName.clear();
     m_currentSeasonNumber = 0;
@@ -693,6 +706,10 @@ void SeriesPanel::LoadSeriesPage(bool reset) {
   UpdateInfoLabel();
 
   if (m_loadMoreBtn) {
+    // known: если в категории ровно N * kPageSize элементов, кнопка
+    // показывается на границе. Следующий клик вернёт пустую страницу
+    // и скроет кнопку — 1 лишний round-trip. Приемлемо, экономим лишний
+    // SQL-запрос (COUNT) на каждую страницу.
     m_loadMoreBtn->Show(page.size() == kPageSize);
     m_loadMoreBtn->Enable(true);
   }

@@ -336,8 +336,13 @@ void MainFrame::createMainPanel() {
         OnPlaybackProgress(mediaKey, pos, dur, flush);
       });
   m_videoPanel->m_onPlaybackEnded = [this]() {
-    if (m_onPlaybackEnded)
-      m_onPlaybackEnded();
+    // Копия: callback может добавить/удалить listener (защита от инвалидации
+    // итераторов, если такое случится в будущем).
+    auto listeners = m_onPlaybackEndedListeners;
+    for (auto &kv : listeners) {
+      if (kv.second)
+        kv.second();
+    }
   };
   m_videoPanel->m_onStreamInfo = [this](const wxString &info) {
     if (!GetStatusBar() || !IsVideoPageActive())

@@ -89,8 +89,15 @@ AddXtreamPlaylistDialog::AddXtreamPlaylistDialog(wxWindow *parent)
   m_uaCombo->SetValue(xtream::DefaultUserAgent());
   m_uaCombo->Bind(wxEVT_COMBOBOX, [this, presets](wxCommandEvent &evt) {
     const int sel = evt.GetSelection();
-    if (sel >= 0 && sel < static_cast<int>(presets.size()))
+    if (sel < 0 || sel >= static_cast<int>(presets.size()))
+      return;
+    // wxEVT_COMBOBOX срабатывает даже если selection не изменился
+    // (например, пользователь отредактировал текст, потом кликнул тот же
+    // preset). Восстанавливаем UA, если текст отличается.
+    if (m_uaCombo->GetValue() != presets[sel].ua) {
       m_uaCombo->SetValue(presets[sel].ua);
+      m_uaCombo->SetSelection(sel);
+    }
   });
   addRow(optBox, optSizer, _U("User Agent:"), m_uaCombo);
 
