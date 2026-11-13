@@ -306,7 +306,7 @@ void VodInfoPanel::UpdatePoster() {
   const std::string mediaKey = "vod:" + std::to_string(m_streamId);
 
   auto cached = LogoCache::GetCachedPosterPtr(LogoCache::MakePosterKey(
-      m_playlistName, mediaKey, physW, physH, scale100));
+      m_playlistName, mediaKey, m_posterUrl, physW, physH, scale100));
 
   if (cached && cached->IsOk()) {
     wxImage img = cached->ConvertToImage();
@@ -314,7 +314,13 @@ void VodInfoPanel::UpdatePoster() {
       img.Rescale(sz.x, sz.y, wxIMAGE_QUALITY_HIGH);
       m_posterBitmap = wxBitmap(img);
       m_poster->SetBitmap(m_posterBitmap);
+      return;
     }
+    // Fallback: cached валиден, но ConvertToImage вернул невалидный образ.
+    // Показываем bitmap напрямую (размер уже совпадает — он в ключе).
+    m_posterBitmap = *cached;
+    m_poster->SetBitmap(m_posterBitmap);
+    Layout();
     return;
   }
 

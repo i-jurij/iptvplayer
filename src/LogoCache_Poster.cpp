@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
+#include <functional>
 #include <list>
 #include <mutex>
 #include <unordered_map>
@@ -77,11 +79,15 @@ wxBitmap ScalePosterToTarget(const wxBitmap &master, int targetW, int targetH,
 } // namespace
 
 std::string LogoCache::MakePosterKey(const std::string &playlist,
-                                     const std::string &mediaKey, int w, int h,
+                                     const std::string &mediaKey,
+                                     const std::string &posterUrl, int w, int h,
                                      int scale100) {
   std::string id = playlist.empty() ? mediaKey : playlist + "|" + mediaKey;
-  return "P|" + id + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" +
-         std::to_string(scale100);
+  const std::size_t urlHash = std::hash<std::string>{}(posterUrl);
+  char hashBuf[20];
+  std::snprintf(hashBuf, sizeof(hashBuf), "%016zx", urlHash);
+  return "P|" + id + "|" + hashBuf + "|" + std::to_string(w) + "x" +
+         std::to_string(h) + "|" + std::to_string(scale100);
 }
 
 LogoCache::LogoBitmapPtr LogoCache::GetCachedPosterPtr(const std::string &key) {
@@ -136,7 +142,7 @@ void LogoCache::GetPosterAsync(const std::string &playlist,
   const int scale100 =
       std::max(100, static_cast<int>(std::round(scaleFactor * 100.0)));
   const std::string key =
-      MakePosterKey(playlist, mediaKey, targetW, targetH, scale100);
+      MakePosterKey(playlist, mediaKey, url, targetW, targetH, scale100);
 
   {
     std::lock_guard<std::mutex> lock(s_posterMutex);

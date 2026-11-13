@@ -259,8 +259,9 @@ void PosterCards::RenderTile(size_t index) {
     const int physH = std::max(1, static_cast<int>(std::round(m_logoH * cs)));
     const int scale100 =
         std::max(100, static_cast<int>(std::round(cs * 100.0)));
+    const std::string mediaKey = item.mediaKey;
     const std::string key = LogoCache::MakePosterKey(
-        m_playlistName, item.mediaKey, physW, physH, scale100);
+        m_playlistName, mediaKey, item.posterUrl, physW, physH, scale100);
 
     auto cached = LogoCache::GetCachedPosterPtr(key);
     if (cached && cached->IsOk()) {
@@ -271,15 +272,26 @@ void PosterCards::RenderTile(size_t index) {
       drewPoster = true;
     } else if (m_requestedPosters.insert(key).second) {
       LogoCache::GetPosterAsync(
-          m_playlistName, item.mediaKey, item.posterUrl, physW, physH, posterBg,
-          [this, key, index](LogoCache::LogoBitmapPtr bmp) {
+          m_playlistName, mediaKey, item.posterUrl, physW, physH, posterBg,
+          [this, key, mediaKey](LogoCache::LogoBitmapPtr bmp) {
             if (this->IsBeingDeleted())
               return;
             m_requestedPosters.erase(key);
             if (!bmp || !bmp->IsOk())
               return;
-            RenderTile(index);
-            MarkCardDirty(static_cast<int>(index));
+            // SortItems/SetItems могли изменить порядок m_items между
+            // fetch и callback. Ищем актуальный индекс по mediaKey.
+            int idx = -1;
+            for (size_t i = 0; i < m_items.size(); ++i) {
+              if (m_items[i].mediaKey == mediaKey) {
+                idx = static_cast<int>(i);
+                break;
+              }
+            }
+            if (idx < 0)
+              return;
+            RenderTile(static_cast<size_t>(idx));
+            MarkCardDirty(idx);
           },
           cs);
     }

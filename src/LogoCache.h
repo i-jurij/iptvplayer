@@ -66,7 +66,8 @@ public:
 
   static LogoBitmapPtr GetCachedPosterPtr(const std::string &key);
   static std::string MakePosterKey(const std::string &playlist,
-                                   const std::string &mediaKey, int w, int h,
+                                   const std::string &mediaKey,
+                                   const std::string &posterUrl, int w, int h,
                                    int scale100);
   static void SetPosterCacheLimits(size_t maxPosters);
   static void ClearPosterMemory();
