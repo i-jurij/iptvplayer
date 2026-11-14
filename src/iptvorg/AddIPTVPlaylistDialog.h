@@ -85,8 +85,8 @@ private:
                     const std::string &errorText);
 
   bool BuildPlaylistUrl(FilterType filterType, const wxString &code,
+                        const wxString &name,
                         wxString &outUrl, wxString &outTitle);
-  wxString GetDisplayName(const wxString &code);
   void UpdateList(const wxString &filterText);
 };
 

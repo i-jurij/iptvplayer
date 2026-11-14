@@ -200,6 +200,7 @@ void AddIPTVPlaylistDialog::OnDataLoaded(
     const std::vector<Category> &categories, const std::string &errorText) {
 
   m_allDisplayItems.clear();
+  m_allNames.clear();
   m_allCodes.clear();
 
   if (!success) {
@@ -319,14 +320,32 @@ void AddIPTVPlaylistDialog::OnRefresh(wxCommandEvent &) {
 }
 
 void AddIPTVPlaylistDialog::OnOK(wxCommandEvent &event) {
-  if (m_selectedCode.IsEmpty()) {
+  const int row = m_dataViewList->GetSelectedRow();
+  if (row < 0) {
     wxMessageBox(_U("Please select a value from the list."), _U("Error"),
                  wxOK | wxICON_ERROR, this);
     return;
   }
+  wxDataViewItem item = m_dataViewList->RowToItem(row);
+  if (!item.IsOk()) {
+    wxMessageBox(_U("Please select a value from the list."), _U("Error"),
+                 wxOK | wxICON_ERROR, this);
+    return;
+  }
+  const size_t idx = static_cast<size_t>(m_dataViewList->GetItemData(item));
+  if (idx >= m_allCodes.size() || m_allCodes[idx].IsEmpty()) {
+    wxMessageBox(_U("Please select a valid value."), _U("Error"),
+                 wxOK | wxICON_ERROR, this);
+    return;
+  }
+
+  const wxString code = m_allCodes[idx];
+  const wxString name = (idx < m_allNames.size() && !m_allNames[idx].IsEmpty())
+                            ? m_allNames[idx]
+                            : code;
 
   wxString url, title;
-  if (!BuildPlaylistUrl(m_filterType, m_selectedCode, url, title)) {
+  if (!BuildPlaylistUrl(m_filterType, code, name, url, title)) {
     wxMessageBox(_U("Failed to build playlist URL."), _U("Error"),
                  wxOK | wxICON_ERROR, this);
     return;
@@ -334,7 +353,6 @@ void AddIPTVPlaylistDialog::OnOK(wxCommandEvent &event) {
 
   m_selectedUrl = url;
   m_selectedTitle = title;
-
   event.Skip();
 }
 
@@ -348,35 +366,25 @@ void AddIPTVPlaylistDialog::OnCancel(wxCommandEvent &) {
 // ------------------------------------------------------------------
 bool AddIPTVPlaylistDialog::BuildPlaylistUrl(FilterType filterType,
                                              const wxString &code,
+                                             const wxString &name,
                                              wxString &outUrl,
                                              wxString &outTitle) {
   wxString codeLower = code.Lower();
-  // URL-пути (countries/..., languages/..., categories/...) — часть
-  // внешнего API iptv-org.github.io, не переводятся.
   wxString baseUrl = "https://iptv-org.github.io/iptv/";
 
   switch (filterType) {
-    case FilterType::Country:
-      outUrl = baseUrl + "countries/" + codeLower + ".m3u";
-      outTitle = _U("IPTV ") + GetDisplayName(code);
-      return true;
-    case FilterType::Language:
-      outUrl = baseUrl + "languages/" + codeLower + ".m3u";
-      outTitle = _U("IPTV ") + GetDisplayName(code);
-      return true;
-    case FilterType::Category:
-      outUrl = baseUrl + "categories/" + codeLower + ".m3u";
-      outTitle = _U("IPTV ") + GetDisplayName(code);
-      return true;
+  case FilterType::Country:
+    outUrl = baseUrl + "countries/" + codeLower + ".m3u";
+    outTitle = _U("IPTV ") + name;
+    return true;
+  case FilterType::Language:
+    outUrl = baseUrl + "languages/" + codeLower + ".m3u";
+    outTitle = _U("IPTV ") + name;
+    return true;
+  case FilterType::Category:
+    outUrl = baseUrl + "categories/" + codeLower + ".m3u";
+    outTitle = _U("IPTV ") + name;
+    return true;
   }
   return false;
-}
-
-wxString AddIPTVPlaylistDialog::GetDisplayName(const wxString &code) {
-  // No network. Uses cached list from OnDataLoaded.
-  for (size_t i = 0; i < m_allCodes.size(); ++i) {
-    if (m_allCodes[i].IsSameAs(code, false))
-      return m_allNames[i];
-  }
-  return code;
 }
