@@ -35,6 +35,9 @@ public:
   bool IsOpen() const;
 
   bool CreateTables();
+  bool BeginBulkImport();
+  bool EndBulkImport();
+  bool EnsureProgramsIndex();
 
   bool BeginTransaction();
   bool CommitTransaction();

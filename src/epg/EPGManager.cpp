@@ -1194,93 +1194,88 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     return false;
   }
 
-  // Батч-импорт: лимит по программам (~300 мс на батч).
-  constexpr size_t kMaxProgramsPerBatch = 30000;
+  // Bulk-import: одна транзакция на весь импорт.
+  // BeginBulkImport: DROP INDEX + PRAGMA (synchronous=OFF,
+  // locking_mode=EXCLUSIVE, cache_size=-16000). EndBulkImport: CREATE INDEX
+  // + PRAGMA restore + wal_checkpoint. Само-восстановление индекса при
+  // крэше — в EPGDatabase::Open (EnsureProgramsIndex).
   const size_t total = newChannels.size();
   size_t committedChannels = 0;
-  bool anyBatchCommitted = false;
   bool cancelled = false;
   bool fatalError = false;
 
-  for (size_t start = 0; start < total;) {
-    if (m_downloadProgress.abort.load()) {
-      cancelled = true;
-      break;
+  // m_dbMutex держим всю bulk-фазу: BeginBulkImport + BeginTransaction
+  // парны с EndBulkImport + Commit/Rollback. WAL snapshot даёт читателям
+  // старые данные во время импорта, но здесь только один writer.
+  {
+    std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
+    if (!m_db || !m_db->IsOpen()) {
+      setLastError("Database closed before import");
+      return false;
+    }
+    if (!m_db->EnsureProgramsIndex()) {
+      LOG_WARN("EPGManager::ParseAndMerge: EnsureProgramsIndex failed "
+               "(continuing anyway)");
+    }
+    if (!m_db->BeginBulkImport()) {
+      LOG_ERROR("EPGManager::ParseAndMerge: BeginBulkImport failed");
+      return false;
+    }
+    if (!m_db->BeginTransaction()) {
+      LOG_ERROR("EPGManager::ParseAndMerge: BeginTransaction failed");
+      m_db->EndBulkImport();
+      return false;
     }
 
-    size_t end = start;
-    size_t progs = 0;
-    while (end < total && progs < kMaxProgramsPerBatch) {
-      progs += newChannels[end].programs.size();
-      ++end;
-    }
-    if (end == start)
-      end = start + 1;
-
-    bool batchOk = true;
-    {
-      std::lock_guard<std::recursive_mutex> dbLock(m_dbMutex);
-      if (!m_db || !m_db->IsOpen()) {
-        setLastError("Database closed during import");
+    constexpr size_t kProgressEvery = 5000;
+    for (size_t i = 0; i < total; ++i) {
+      if (m_downloadProgress.abort.load()) {
+        cancelled = true;
+        break;
+      }
+      const auto &ch = newChannels[i];
+      if (!m_db->InsertOrUpdateChannel(ch) ||
+          !m_db->InsertPrograms(ch.id, ch.programs)) {
+        LOG_ERROR("EPGManager::ParseAndMerge: insert failed for channel %s "
+                  "(at=%zu/%zu)",
+                  ch.id.c_str(), i, total);
         fatalError = true;
         break;
       }
-      if (!m_db->BeginTransaction()) {
-        LOG_ERROR("BeginTransaction failed for batch [%zu..%zu)", start, end);
-        batchOk = false;
-      } else {
-        for (size_t i = start; i < end; ++i) {
-          const auto &ch = newChannels[i];
-          if (!m_db->InsertOrUpdateChannel(ch) ||
-              !m_db->InsertPrograms(ch.id, ch.programs)) {
-            LOG_ERROR("Failed to insert channel %s (batch [%zu..%zu))",
-                      ch.id.c_str(), start, end);
-            batchOk = false;
-            break;
-          }
-        }
-        if (batchOk) {
-          if (!m_db->CommitTransaction()) {
-            LOG_ERROR("CommitTransaction failed for batch [%zu..%zu)", start,
-                      end);
-            m_db->RollbackTransaction();
-            batchOk = false;
-          } else {
-            anyBatchCommitted = true;
-            committedChannels = end;
-          }
-        } else {
-          m_db->RollbackTransaction();
-        }
+      committedChannels = i + 1;
+      if ((i + 1) % kProgressEvery == 0 || i + 1 == total) {
+        const int percent =
+            static_cast<int>((committedChannels * 100) / total);
+        UpdateProgress({EpgProgressStage::Saving, percent,
+                        _U("Saving to database").ToStdString()});
       }
-    }  // lock отпущен
+    }
 
-    if (!batchOk)
-      break;
+    if (cancelled || fatalError) {
+      m_db->RollbackTransaction();
+      m_db->EndBulkImport();
+      if (cancelled) {
+        setLastError("Cancelled during import");
+        LOG_WARN("EPGManager: import cancelled, transaction rolled back");
+      } else {
+        setLastError("Failed to insert data into database");
+      }
+      return false;
+    }
 
-    const int percent =
-        static_cast<int>((committedChannels * 100) / total);
-    UpdateProgress({EpgProgressStage::Saving, percent,
-                    _U("Saving to database").ToStdString()});
+    if (!m_db->CommitTransaction()) {
+      LOG_ERROR("EPGManager::ParseAndMerge: CommitTransaction failed");
+      m_db->RollbackTransaction();
+      m_db->EndBulkImport();
+      setLastError("Failed to commit import transaction");
+      return false;
+    }
 
-    start = end;
-  }
-
-  if (cancelled) {
-    setLastError("Cancelled during import");
-    LOG_WARN("EPGManager: import cancelled, %zu/%zu channels committed",
-             committedChannels, total);
-    return false;
-  }
-  if (fatalError || !anyBatchCommitted) {
-    if (getLastError().empty())
-      setLastError("Failed to insert data into database");
-    return false;
-  }
-  if (committedChannels < total) {
-    LOG_WARN("EPGManager: partial import from %s (%zu/%zu channels)",
-             SanitizeUrlForLog(sourceUrl).c_str(), committedChannels, total);
-  }
+    if (!m_db->EndBulkImport()) {
+      LOG_WARN("EPGManager::ParseAndMerge: EndBulkImport returned false "
+               "(data committed; index will self-heal on next Open)");
+    }
+  }  // dbLock
 
   const time_t newLastUpdate = EpgTime::GetCurrentUtcEpoch();
 

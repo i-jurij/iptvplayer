@@ -138,6 +138,14 @@ bool EPGDatabase::Open(const wxString &dbPath) {
       }
     }
 
+    // Self-heal: если в прошлой сессии bulk-import был прерван между
+    // BeginBulkImport (DROP INDEX) и EndBulkImport (CREATE INDEX),
+    // индекс отсутствует. Восстанавливаем до возврата наружу.
+    if (!EnsureProgramsIndex()) {
+      LOG_WARN("EPGDatabase: EnsureProgramsIndex failed; continuing without "
+               "guaranteed index");
+    }
+
     return true;
   } catch (wxSQLite3::Exception &e) {
     LOG_ERROR("EPGDatabase::Open exception: %s",
@@ -227,6 +235,97 @@ bool EPGDatabase::TableExists(const std::string &tableName) {
     rs.Finalize();
     return exists;
   } catch (...) {
+    return false;
+  }
+}
+
+// ------------------------------------------------------------------
+// Bulk-import
+// ------------------------------------------------------------------
+bool EPGDatabase::BeginBulkImport() {
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  if (!m_isOpen)
+    return false;
+  try {
+    // DROP INDEX вне транзакции — экономит время на каждый INSERT.
+    // При крэше до EndBulkImport индекс отсутствует; Open() вызовет
+    // EnsureProgramsIndex() при следующем запуске.
+    m_db.ExecuteUpdate("DROP INDEX IF EXISTS idx_programs_channel_start");
+    m_db.ExecuteUpdate("PRAGMA synchronous = OFF");
+    m_db.ExecuteUpdate("PRAGMA locking_mode = EXCLUSIVE");
+    m_db.ExecuteUpdate("PRAGMA cache_size = -16000");
+    return true;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::BeginBulkImport exception: %s",
+              e.GetMessage().ToUTF8().data());
+    // Best-effort откат PRAGMA.
+    try {
+      m_db.ExecuteUpdate("PRAGMA locking_mode = NORMAL");
+      m_db.ExecuteUpdate("PRAGMA synchronous = NORMAL");
+    } catch (...) {
+    }
+    return false;
+  }
+}
+
+bool EPGDatabase::EndBulkImport() {
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  if (!m_isOpen)
+    return false;
+  try {
+    m_db.ExecuteUpdate(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_channel_start "
+        "ON programs(channel_id, start_time)");
+    m_db.ExecuteUpdate("PRAGMA locking_mode = NORMAL");
+    m_db.ExecuteUpdate("PRAGMA synchronous = NORMAL");
+    // Восстановить cache_size из Open().
+    m_db.ExecuteUpdate("PRAGMA cache_size = -131072");
+
+    // wal_checkpoint — best-effort (busy=1/2 не критично).
+    try {
+      Statement stmt = m_db.PrepareStatement("PRAGMA wal_checkpoint(TRUNCATE)");
+      ResultSet rs = stmt.ExecuteQuery();
+      (void)rs;
+      rs.Finalize();
+    } catch (...) {
+    }
+    return true;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::EndBulkImport exception: %s",
+              e.GetMessage().ToUTF8().data());
+    // PRAGMA restore даже при ошибке CREATE INDEX: индекс восстановит
+    // EnsureProgramsIndex() при следующем Open().
+    try {
+      m_db.ExecuteUpdate("PRAGMA locking_mode = NORMAL");
+      m_db.ExecuteUpdate("PRAGMA synchronous = NORMAL");
+    } catch (...) {
+    }
+    return false;
+  }
+}
+
+bool EPGDatabase::EnsureProgramsIndex() {
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  if (!m_isOpen)
+    return false;
+  try {
+    Statement stmt = m_db.PrepareStatement(
+        "SELECT 1 FROM sqlite_master WHERE type='index' "
+        "AND name='idx_programs_channel_start'");
+    ResultSet rs = stmt.ExecuteQuery();
+    const bool exists = rs.NextRow();
+    rs.Finalize();
+    if (exists)
+      return true;
+    LOG_WARN("EPGDatabase: idx_programs_channel_start missing; recreating "
+             "(likely a previous bulk-import was interrupted)");
+    m_db.ExecuteUpdate(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_channel_start "
+        "ON programs(channel_id, start_time)");
+    return true;
+  } catch (wxSQLite3::Exception &e) {
+    LOG_ERROR("EPGDatabase::EnsureProgramsIndex exception: %s",
+              e.GetMessage().ToUTF8().data());
     return false;
   }
 }
