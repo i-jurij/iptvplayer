@@ -4,6 +4,18 @@
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
 
+namespace {
+// CONNECT_TIMEOUT_SEC = 15s:
+//   covers DNS (1–5s) + TCP connect (1–5s) + TLS handshake (1–3s) on a
+//   poor-but-working network, plus ~2–3s slack, while capping a dead
+//   endpoint at 15s instead of curl's default 300s.
+//
+// TOTAL_TIMEOUT_SEC = 60s:
+//   upper bound for "slow but alive" (e.g. EDGE 5–10 KB/s × 200 KB ≈ 20–40s). 
+constexpr long kIptvOrgConnectTimeoutSec = 15;
+constexpr long kIptvOrgTotalTimeoutSec = 60;
+} // namespace
+
 IPTVOrgMetadataManager::IPTVOrgMetadataManager(PlaylistManager *playlistMgr)
     : m_playlistMgr(playlistMgr) {}
 
@@ -20,8 +32,8 @@ bool IPTVOrgMetadataManager::FetchJson(const std::string &url,
 
   DownloadProgress prog;
   prog.externalCancel    = cancel;
-  prog.connectTimeoutSec = 15;
-  prog.totalTimeoutSec   = 60;
+  prog.connectTimeoutSec = kIptvOrgConnectTimeoutSec;
+  prog.totalTimeoutSec = kIptvOrgTotalTimeoutSec;
 
   ErrorCode ec = m_playlistMgr->downloadUrl(url, outContent, "", &prog);
   if (ec != ErrorCode::OK) {

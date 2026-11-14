@@ -199,8 +199,6 @@ void AddIPTVPlaylistDialog::OnDataLoaded(
     const std::vector<Language> &languages,
     const std::vector<Category> &categories, const std::string &errorText) {
 
-  auto uiStart = std::chrono::steady_clock::now();
-
   m_allDisplayItems.clear();
   m_allCodes.clear();
 
