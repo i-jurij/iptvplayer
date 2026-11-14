@@ -7,10 +7,10 @@
 #include "xtream/XtreamDatabase.h"
 
 #include <atomic>
-#include <future>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -22,13 +22,11 @@ struct DownloadProgress {
   double lastDownloadedBytes = 0.0;
   bool stalled = false;
 
-  // --- Optional advanced options; consumed only when progress != nullptr ---
-  // External cancel flag, checked on each curl progress tick.
-  // Lifetime contract: caller guarantees the pointed-to atomic outlives
-  // the downloadUrl call. Null (default) means "no external cancel".
+  // Optional external cancel flag; checked on each curl progress tick.
+  // nullptr = no external cancel. Pointer must outlive the call.
   std::atomic<bool> *externalCancel = nullptr;
 
-  // curl timeouts (seconds). 0 means "do not set / keep current behaviour".
+  // curl timeouts (seconds). 0 = keep current behaviour.
   long connectTimeoutSec = 0;
   long totalTimeoutSec = 0;
 };
@@ -110,7 +108,13 @@ public:
 
   bool isDuplicate(const std::string &title, const std::string &source) const;
 
-  void WaitForAddFromUrl();
+  // Called from UI thread when worker posts SUCCESS event.
+  // Pops a completed job, inserts playlist into m_playlists, saves to disk.
+  ErrorCode CommitActiveAddFromUrlJob();
+
+  // Signal pending add-from-url worker to abort (curl progress tick).
+  // Does NOT wait. Safe from any thread.
+  void CancelPendingAddFromUrl();
 
   std::string getLastError() const;
   void setLastError(const std::string &msg) const;
@@ -149,14 +153,24 @@ private:
   mutable std::mutex m_lastErrorMutex;
   mutable std::string m_lastError;
 
-  std::future<void> m_addFromUrlFuture;
+  // Detached worker state. Worker holds shared_ptr<AddFromUrlJob>, accesses
+  // only job fields (never `this`). ~PlaylistManager signals cancel and
+  // returns immediately; thread dies with process.
+  struct AddFromUrlJob;
+  std::shared_ptr<AddFromUrlJob> m_activeAddFromUrlJob;
+  mutable std::mutex m_addFromUrlJobMutex;
+
+  static void RunAddFromUrlWorker(std::shared_ptr<AddFromUrlJob> job);
+  static void PostAddFromUrlEvent(int eventId,
+                                  std::shared_ptr<AddFromUrlJob> job,
+                                  const std::string &errorMsg);
 
   std::string m_configDir;
   std::vector<std::unique_ptr<Playlist>> m_playlists;
   mutable std::mutex m_playlistsMutex;
   M3UParser m_parser;
 
-  std::unique_ptr<xtream::XtreamApiClient> m_xtreamClient;
+  std::shared_ptr<xtream::XtreamApiClient> m_xtreamClient;
   // Один экземпляр XtreamDatabase на UUID. shared_ptr позволяет worker'ам
   // (FetchVodInfo, RefreshVodCategory, FetchSeriesInfo, RefreshSeriesCategory)
   // держать объект живым после CloseAndRemoveXtreamDb: файл БД удаляется

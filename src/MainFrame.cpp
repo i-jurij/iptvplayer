@@ -230,6 +230,13 @@ MainFrame::~MainFrame() {
   m_onPlaybackEndedListeners.clear();
   FlushPlaybackPosition(true);
 
+  // Cancel any add-from-url worker BEFORE app shuts down. Reduces the window
+  // where a worker could call wxTheApp->CallAfter after wxTheApp dies.
+  if (m_application) {
+    if (auto *mgr = m_application->getPlaylistManager())
+      mgr->CancelPendingAddFromUrl();
+  }
+
   // Отписка от прогресса EPG до разрушения GUI. Иначе колбэк с висячим
   // this остаётся в EPGManager и UAF'нет при следующем UpdateProgress
   // (в т.ч. в окне между ~MainFrame и ~EPGManager).

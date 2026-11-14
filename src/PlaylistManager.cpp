@@ -74,13 +74,15 @@ PlaylistManager::PlaylistManager(const std::string &configDir)
   }
 
   CurlGlobal::instance();
-  m_xtreamClient = std::make_unique<xtream::XtreamApiClient>();
+  m_xtreamClient = std::make_shared<xtream::XtreamApiClient>();
 }
 
 PlaylistManager::~PlaylistManager() {
-  WaitForAddFromUrl();
-  // Release shared_ptr'ы; ~XtreamDatabase закроет соединения и (если
-  // помечено) удалит файлы.
+  // Signal cancel; do NOT wait. Worker is detached and touches only its own
+  // shared_ptr<AddFromUrlJob>. On process exit, OS reclaims everything;
+  // even if curl is stuck in connect(), the process exits.
+  CancelPendingAddFromUrl();
+
   std::lock_guard<std::mutex> lk(m_xtreamDbMutex);
   m_xtreamDbs.clear();
 }
@@ -245,10 +247,21 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
   }
 
   std::string content;
-  bool ok = playlist->isUrl()
-                ? (downloadUrl(playlist->getSource(), content,
-                               playlist->getUserAgent()) == ErrorCode::OK)
-                : readFile(playlist->getSource(), content);
+  bool ok = false;
+  if (playlist->isUrl()) {
+    // Bounded network call: without timeouts curl defaults to 300 s on
+    // connect and unlimited on transfer, which can hang Update and the
+    // process exit. 30 s connect covers slow-but-alive networks; 600 s total
+    // covers large playlists on slow links, while leaving the stall detector
+    // (30 s with no bytes) as the effective upper bound on a dead server.
+    DownloadProgress prog;
+    prog.connectTimeoutSec = 30;
+    prog.totalTimeoutSec = 600;
+    ok = (downloadUrl(playlist->getSource(), content,
+                      playlist->getUserAgent(), &prog) == ErrorCode::OK);
+  } else {
+    ok = readFile(playlist->getSource(), content);
+  }
 
   if (!ok)
     return ErrorCode::FileNotFound;
@@ -426,14 +439,118 @@ PlaylistManager::derivePlaylistTitleFromUrl(const std::string &url) const {
 }
 
 namespace {
-void PostAddFromUrlEvent(int eventId, const std::string &errorMsg = "") {
+// Same body as PlaylistManager::downloadUrl, but errors go through out-param
+// instead of setLastError — safe to call from detached workers.
+ErrorCode DownloadUrlNoThis(const std::string &url, std::string &content,
+                            const std::string &userAgent,
+                            DownloadProgress *progress,
+                            std::string &errorOut) {
+  CurlGlobal::instance();
+
+  CurlSession sess;
+  if (!sess.get()) {
+    errorOut = "Failed to initialize CURL";
+    return ErrorCode::CurlInitError;
+  }
+
+  ApplyCurlCaBundle(sess.get());
+
+  content.clear();
+  content.reserve(256 * 1024);
+
+  curl_easy_setopt(sess.get(), CURLOPT_URL, url.c_str());
+  curl_easy_setopt(sess.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
+  curl_easy_setopt(sess.get(), CURLOPT_WRITEDATA, &content);
+  curl_easy_setopt(sess.get(), CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(sess.get(), CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(sess.get(), CURLOPT_SSL_VERIFYHOST, 2L);
+  curl_easy_setopt(sess.get(), CURLOPT_MAXFILESIZE, 100 * 1024 * 1024L);
+
+  if (!userAgent.empty())
+    curl_easy_setopt(sess.get(), CURLOPT_USERAGENT, userAgent.c_str());
+
+  if (progress) {
+    curl_easy_setopt(sess.get(), CURLOPT_XFERINFOFUNCTION, ProgressCallback);
+    curl_easy_setopt(sess.get(), CURLOPT_XFERINFODATA, progress);
+    curl_easy_setopt(sess.get(), CURLOPT_NOPROGRESS, 0L);
+    progress->lastProgressTime = std::chrono::steady_clock::now();
+    progress->lastDownloadedBytes = 0.0;
+
+    if (progress->connectTimeoutSec > 0)
+      curl_easy_setopt(sess.get(), CURLOPT_CONNECTTIMEOUT,
+                       progress->connectTimeoutSec);
+    if (progress->totalTimeoutSec > 0)
+      curl_easy_setopt(sess.get(), CURLOPT_TIMEOUT,
+                       progress->totalTimeoutSec);
+  }
+
+  CURLcode rc = curl_easy_perform(sess.get());
+  if (rc != CURLE_OK) {
+    errorOut = "CURL error: " + std::string(curl_easy_strerror(rc));
+    return ErrorCode::NetworkError;
+  }
+
+  long http = 0;
+  curl_easy_getinfo(sess.get(), CURLINFO_RESPONSE_CODE, &http);
+  if (http != 200) {
+    errorOut = "HTTP error: " + std::to_string(http);
+    return ErrorCode::HttpError;
+  }
+
+  if (progress && progress->abort.load()) {
+    errorOut = "Download aborted by user or stalled";
+    return ErrorCode::NetworkError;
+  }
+
+  return ErrorCode::OK;
+}
+} // namespace
+
+struct PlaylistManager::AddFromUrlJob {
+  std::atomic<bool> cancelled{false};
+  std::atomic<bool> done{false};
+
+  std::string url;
+  std::string title;
+  std::string userAgent;
+  bool autoUpdate = true;
+  bool isXtream = false;
+  XtreamMeta xtreamMeta;
+  std::string configDir;
+
+  // Xtream-only: pre-opened shared resources (worker never touches `this`).
+  std::shared_ptr<xtream::XtreamApiClient> xtreamClient;
+  std::shared_ptr<xtream::XtreamDatabase> xtreamDb;
+
+  // Result.
+  bool success = false;
+  bool hasVod = false;
+  bool hasSeries = false;
+  std::string errorMsg;
+  std::vector<Channel> channels;
+};
+
+void PlaylistManager::CancelPendingAddFromUrl() {
+  std::lock_guard<std::mutex> lk(m_addFromUrlJobMutex);
+  if (m_activeAddFromUrlJob) {
+    m_activeAddFromUrlJob->cancelled.store(true, std::memory_order_release);
+    m_activeAddFromUrlJob.reset();
+  }
+}
+
+void PlaylistManager::PostAddFromUrlEvent(
+    int eventId, std::shared_ptr<AddFromUrlJob> job,
+    const std::string &errorMsg) {
+  if (!job || job->cancelled.load(std::memory_order_acquire))
+    return;
+
   if (!wxTheApp)
     return;
-  wxTheApp->CallAfter([eventId, errorMsg]() {
-    fprintf(stderr, "[MARK] D0: CallAfter eventId=%d err='%s'\n", eventId,
-            errorMsg.c_str());
-    fflush(stderr);
-
+  wxTheApp->CallAfter([eventId, job, errorMsg]() {
+    if (!job || job->cancelled.load(std::memory_order_acquire))
+      return;
+    if (!wxTheApp)
+      return;
     wxWindow *top = wxTheApp->GetTopWindow();
     if (!top)
       return;
@@ -443,82 +560,204 @@ void PostAddFromUrlEvent(int eventId, const std::string &errorMsg = "") {
     top->GetEventHandler()->ProcessEvent(evt);
   });
 }
-} // namespace
+
+void PlaylistManager::RunAddFromUrlWorker(
+    std::shared_ptr<AddFromUrlJob> job) {
+  // 1) Download (no `this`).
+  std::string content;
+  DownloadProgress prog;
+  prog.externalCancel    = &job->cancelled;
+  prog.connectTimeoutSec = 30;
+  prog.totalTimeoutSec   = 600;
+
+  std::string err;
+  ErrorCode ec = DownloadUrlNoThis(job->url, content, job->userAgent, &prog,
+                                   err);
+
+  if (job->cancelled.load(std::memory_order_acquire)) {
+    job->done.store(true, std::memory_order_release);
+    return;
+  }
+  if (ec != ErrorCode::OK) {
+    job->success  = false;
+    job->errorMsg = "Failed to load playlist: " + err;
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+    return;
+  }
+
+  // 2) Reject JSON (Xtream API endpoint misuse) — same detection as before.
+  {
+    size_t i = 0;
+    if (content.size() >= 3 &&
+        static_cast<unsigned char>(content[0]) == 0xEF &&
+        static_cast<unsigned char>(content[1]) == 0xBB &&
+        static_cast<unsigned char>(content[2]) == 0xBF)
+      i = 3;
+    while (i < content.size() &&
+           (content[i] == ' ' || content[i] == '\t' ||
+            content[i] == '\r' || content[i] == '\n'))
+      ++i;
+    if (i < content.size() &&
+        (content[i] == '{' || content[i] == '[')) {
+      job->success  = false;
+      job->errorMsg = "Server returned JSON (Xtream API). "
+                      "Use get.php for M3U playlists.";
+      job->done.store(true, std::memory_order_release);
+      PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+      return;
+    }
+  }
+
+  // 3) Parse (M3UParser is stateless — local instance is safe).
+  M3UParser parser;
+  auto result = parser.parse(content);
+  if (!result.success || result.channels.empty()) {
+    job->success  = false;
+    job->errorMsg = result.success
+                        ? std::string("Parser returned empty channel list")
+                        : result.error;
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+    return;
+  }
+  if (job->cancelled.load(std::memory_order_acquire)) {
+    job->done.store(true, std::memory_order_release);
+    return;
+  }
+
+  // 4) Xtream categories — writes into shared DB, sets flags on job.
+  if (job->isXtream && job->xtreamClient && job->xtreamDb) {
+    Playlist tmp(job->title, job->url, true);
+    tmp.setXtream(true);
+    tmp.setXtreamMeta(job->xtreamMeta);
+
+    const auto vodCats = job->xtreamClient->GetCategories(
+        tmp, xtream::XtreamApiClient::CategoryType::Vod);
+    for (const auto &c : vodCats) {
+      xtream::XtreamDatabase::Category cat;
+      cat.id = c.id; cat.type = "vod"; cat.name = c.name;
+      job->xtreamDb->UpsertCategory(cat);
+    }
+    job->hasVod = !vodCats.empty();
+
+    const auto seriesCats = job->xtreamClient->GetCategories(
+        tmp, xtream::XtreamApiClient::CategoryType::Series);
+    for (const auto &c : seriesCats) {
+      xtream::XtreamDatabase::Category cat;
+      cat.id = c.id; cat.type = "series"; cat.name = c.name;
+      job->xtreamDb->UpsertCategory(cat);
+    }
+    job->hasSeries = !seriesCats.empty();
+  }
+  if (job->cancelled.load(std::memory_order_acquire)) {
+    job->done.store(true, std::memory_order_release);
+    return;
+  }
+
+  // 5) Hand result to UI thread; commit is done there.
+  job->channels = std::move(result.channels);
+  job->success  = true;
+  job->done.store(true, std::memory_order_release);
+  PostAddFromUrlEvent(ID_ADD_FROM_URL_SUCCESS, job, "");
+}
+
+ErrorCode PlaylistManager::CommitActiveAddFromUrlJob() {
+  std::shared_ptr<AddFromUrlJob> job;
+  {
+    std::lock_guard<std::mutex> lk(m_addFromUrlJobMutex);
+    job = m_activeAddFromUrlJob;
+    if (!job) {
+      setLastError("No job ready to commit");
+      return ErrorCode::Unknown;
+    }
+    if (!job->done.load(std::memory_order_acquire)) {
+      setLastError("Job not complete");
+      return ErrorCode::Unknown;
+    }
+    m_activeAddFromUrlJob.reset();
+  }
+  if (!job->success) {
+    setLastError(job->errorMsg);
+    return ErrorCode::Unknown;
+  }
+
+  // Duplicate check under lock.
+  {
+    std::lock_guard<std::mutex> lock(m_playlistsMutex);
+    for (const auto &existing : m_playlists) {
+      if (existing->getSource() == job->url) {
+        setLastError("Duplicate playlist: " + job->title);
+        return ErrorCode::DUPLICATE;
+      }
+    }
+  }
+
+  auto pl = std::make_unique<Playlist>(job->title, job->url, true);
+  pl->setUserAgent(job->userAgent);
+  pl->setAutoUpdate(job->autoUpdate);
+  if (job->isXtream) {
+    pl->setXtream(true);
+    pl->setXtreamMeta(job->xtreamMeta);
+    pl->setHasVod(job->hasVod);
+    pl->setHasSeries(job->hasSeries);
+  }
+  pl->setChannels(std::move(job->channels));
+
+  size_t newIndex = 0;
+  {
+    std::lock_guard<std::mutex> lock(m_playlistsMutex);
+    m_playlists.push_back(std::move(pl));
+    newIndex = m_playlists.size() - 1;
+  }
+
+  return savePlaylist(nullptr, newIndex);
+}
 
 ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
                                               std::string &title,
                                               const std::string &userAgent,
                                               bool autoUpdate, bool isXtream,
                                               XtreamMeta xtreamMeta) {
-  fprintf(stderr, "[MARK] B0: enter addPlaylistFromUrl url='%s'\n",
-          url.c_str());
-  fflush(stderr);
-
-  if (title.empty()) {
+  if (title.empty())
     title = derivePlaylistTitleFromUrl(url);
-  }
 
-  auto playlist = std::make_unique<Playlist>(title, url, true);
-  playlist->setUserAgent(userAgent);
-  playlist->setAutoUpdate(autoUpdate);
+  auto job = std::make_shared<AddFromUrlJob>();
+  job->url        = url;
+  job->title      = title;
+  job->userAgent  = userAgent;
+  job->autoUpdate = autoUpdate;
+  job->isXtream   = isXtream;
+  job->configDir  = m_configDir;
+  if (isXtream)
+    job->xtreamMeta = std::move(xtreamMeta);
 
   if (isXtream) {
-    playlist->setXtream(true);
-    if (xtreamMeta.hasUserInfo())
-      playlist->setXtreamMeta(std::move(xtreamMeta));
+    Playlist tmp(title, url, true);
+    tmp.setXtream(true);
+    tmp.setXtreamMeta(job->xtreamMeta);
+    job->xtreamClient = m_xtreamClient;
+    job->xtreamDb     = GetXtreamDbShared(tmp);
   }
 
-  if (m_addFromUrlFuture.valid()) {
-    m_addFromUrlFuture.wait();
+  {
+    std::lock_guard<std::mutex> lk(m_addFromUrlJobMutex);
+    if (m_activeAddFromUrlJob)
+      m_activeAddFromUrlJob->cancelled.store(true, std::memory_order_release);
+    m_activeAddFromUrlJob = job;
   }
 
-  fprintf(stderr, "[MARK] B1: before std::async\n");
-  fflush(stderr);
   try {
-    m_addFromUrlFuture = std::async(
-        std::launch::async, [this, pl = std::move(playlist)]() mutable {
-          fprintf(stderr, "[MARK] C0: async thread started\n");
-          fflush(stderr);
-
-          ErrorCode ec = loadPlaylistContent(pl.get());
-          if (ec != ErrorCode::OK) {
-            setLastError("Failed to load playlist: " + getLastError());
-            PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, getLastError());
-            return;
-          }
-
-          size_t newIndex = 0;
-          {
-            std::lock_guard<std::mutex> lock(m_playlistsMutex);
-            for (const auto &existing : m_playlists) {
-              if (existing->getSource() == pl->getSource()) {
-                setLastError("Duplicate playlist: " + pl->getTitle());
-                PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, getLastError());
-                return;
-              }
-            }
-            m_playlists.push_back(std::move(pl));
-            newIndex = m_playlists.size() - 1;
-          }
-
-          ec = savePlaylist(nullptr, newIndex);
-          if (ec != ErrorCode::OK) {
-            setLastError("Failed to save playlist: " + getLastError());
-            PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, getLastError());
-            return;
-          }
-
-          PostAddFromUrlEvent(ID_ADD_FROM_URL_SUCCESS);
-        });
+    std::thread([job]() { RunAddFromUrlWorker(job); }).detach();
   } catch (const std::system_error &e) {
+    {
+      std::lock_guard<std::mutex> lk(m_addFromUrlJobMutex);
+      if (m_activeAddFromUrlJob == job)
+        m_activeAddFromUrlJob.reset();
+    }
     setLastError(std::string("Cannot start download thread: ") + e.what());
     return ErrorCode::NetworkError;
-  } catch (const std::exception &e) {
-    setLastError(std::string("Cannot start download: ") + e.what());
-    return ErrorCode::Unknown;
   }
-  fprintf(stderr, "[MARK] B2: after std::async\n");
-  fflush(stderr);
 
   return ErrorCode::OK;
 }
@@ -679,7 +918,6 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
                                         const std::string &userAgent,
                                         bool autoUpdate) {
   setLastError("");
-  bool sourceChanged = false;
   std::string oldTitle;
   {
     std::lock_guard<std::mutex> lock(m_playlistsMutex);
@@ -693,31 +931,10 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
       return ErrorCode::Unknown;
     }
     oldTitle = pl->getTitle();
-    sourceChanged = (pl->getSource() != source);
     pl->setTitle(title);
     pl->setSource(source);
     pl->setUserAgent(userAgent);
     pl->setAutoUpdate(autoUpdate);
-  }
-
-  if (sourceChanged) {
-    Playlist tmp(title, source, true);
-    tmp.setUserAgent(userAgent);
-    ErrorCode ec = loadPlaylistContent(&tmp);
-    if (ec != ErrorCode::OK)
-      return ec;
-    {
-      std::lock_guard<std::mutex> lock(m_playlistsMutex);
-      if (index >= m_playlists.size()) {
-        setLastError("Invalid playlist index (after load)");
-        return ErrorCode::InvalidIndex;
-      }
-      Playlist *pl = m_playlists[index].get();
-      if (pl) {
-        pl->setChannels(tmp.getChannels());
-        pl->setLastUpdate(tmp.getLastUpdate());
-      }
-    }
   }
 
   ErrorCode ec = savePlaylist(nullptr, index);
@@ -1056,12 +1273,6 @@ std::string PlaylistManager::getLastError() const {
 void PlaylistManager::setLastError(const std::string &msg) const {
   std::lock_guard<std::mutex> lock(m_lastErrorMutex);
   m_lastError = msg;
-}
-
-void PlaylistManager::WaitForAddFromUrl() {
-  if (m_addFromUrlFuture.valid()) {
-    m_addFromUrlFuture.wait();
-  }
 }
 
 Playlist *PlaylistManager::findByUniqueId(const std::string &uniqueId) {

@@ -519,10 +519,27 @@ void MainFrame::updatePlaylistFromDialog(int index,
   if (!mgr)
     return;
 
-  // Stage 7.2: warning, если новый source уже используется другим плейлистом.
-  const std::string newSource = dlg.GetSource().ToStdString();
   Playlist *current = mgr->getPlaylist(static_cast<size_t>(index));
-  const bool ownSource = current && current->getSource() == newSource;
+  if (!current) {
+    showError(this, _U("Playlist not found"));
+    return;
+  }
+
+  const std::string newTitle = dlg.GetTitle().ToStdString();
+  const std::string newSource = dlg.GetSource().ToStdString();
+  const std::string newUserAgent = dlg.GetUserAgent().ToStdString();
+  const bool newAutoUpdate = dlg.GetAutoUpdate();
+
+  // No-op: user opened the dialog, changed nothing, pressed OK.
+  // Skip save and EPG mapping invalidation.
+  if (current->getTitle() == newTitle && current->getSource() == newSource &&
+      current->getUserAgent() == newUserAgent &&
+      current->getAutoUpdate() == newAutoUpdate) {
+    return;
+  }
+
+  // Stage 7.2: warning, если новый source уже используется другим плейлистом.
+  const bool ownSource = current->getSource() == newSource;
   if (!ownSource && mgr->isDuplicate("", newSource)) {
     if (wxMessageBox(
             _U("Another playlist already uses this source URL. Continue?"),
@@ -530,23 +547,12 @@ void MainFrame::updatePlaylistFromDialog(int index,
       return;
   }
 
-  ErrorCode ec = mgr->editPlaylist(
-      static_cast<size_t>(index), dlg.GetTitle().ToStdString(),
-      newSource, dlg.GetUserAgent().ToStdString(),
-      dlg.GetAutoUpdate());
+  ErrorCode ec = mgr->editPlaylist(static_cast<size_t>(index), newTitle,
+                                   newSource, newUserAgent, newAutoUpdate);
   if (ec != ErrorCode::OK) {
-    showError(this,
-              wxString::Format(_U("Failed to save playlist:\n%s"),
-                               wxString::FromUTF8(mgr->getLastError())));
+    showError(this, wxString::Format(_U("Failed to save playlist:\n%s"),
+                                     wxString::FromUTF8(mgr->getLastError())));
     return;
-  }
-
-  // Объявляем app и pl
-  Application *app = static_cast<Application *>(wxTheApp);
-  Playlist *pl = mgr->getPlaylist(static_cast<size_t>(index));
-  if (app && app->GetEPGManager() && pl) {
-    app->GetEPGManager()->InvalidatePlaylistMapping(pl->getUniqueId());
-    m_lastMappingLoadedPlaylistId.clear();
   }
 
   savePlaylistsToConfig();
@@ -554,12 +560,41 @@ void MainFrame::updatePlaylistFromDialog(int index,
 
   std::string warning = mgr->getLastError();
   if (!warning.empty()) {
-    wxMessageBox(
-        wxString::Format(_U("Playlist saved, but:\n\n%s"),
-                         wxString::FromUTF8(warning)),
-        _U("Warning"), wxOK | wxICON_WARNING, this);
+    wxMessageBox(wxString::Format(_U("Playlist saved, but:\n\n%s"),
+                                  wxString::FromUTF8(warning)),
+                 _U("Warning"), wxOK | wxICON_WARNING, this);
   } else {
     showInfo(this, _U("Playlist saved."));
+  }
+
+  if (!ownSource) {
+    // Source changed: invalidate EPG mapping and launch an async update to
+    // fetch channels from the new URL (same mechanism as Update button).
+    Application *app = static_cast<Application *>(wxTheApp);
+    Playlist *pl = mgr->getPlaylist(static_cast<size_t>(index));
+    if (app && app->GetEPGManager() && pl) {
+      app->GetEPGManager()->InvalidatePlaylistMapping(pl->getUniqueId());
+      m_lastMappingLoadedPlaylistId.clear();
+    }
+
+    if (m_updateBtn)
+      m_updateBtn->Enable(false);
+    if (m_updateAllBtn)
+      m_updateAllBtn->Enable(false);
+
+    UpdateOneThread *thread =
+        new UpdateOneThread(this, mgr, static_cast<size_t>(index));
+    if (thread->Create() != wxTHREAD_NO_ERROR ||
+        thread->Run() != wxTHREAD_NO_ERROR) {
+      delete thread;
+      if (m_updateBtn)
+        m_updateBtn->Enable(true);
+      if (m_updateAllBtn)
+        m_updateAllBtn->Enable(true);
+      showError(this, _U("Unable to start update thread."));
+    } else {
+      SetStatusText(_U("Updating channels from new source..."), 0);
+    }
   }
 }
 

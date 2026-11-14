@@ -432,38 +432,54 @@ void MainFrame::BeginPlaylistLoading(const wxString &sourceLabel) {
 void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
   m_progressTimer.Stop();
 
-  // Обрабатываем все pending-записи: для каждой ищем плейлист с matching
-  // source. Не найденные (маловероятно, но возможно при гонке) остаются
-  // в map и будут обработаны при следующем успехе.
+  auto *mgr = getPlaylistManager();
+  if (!mgr)
+    return;
+
+  ErrorCode ec = mgr->CommitActiveAddFromUrlJob();
+  if (ec == ErrorCode::DUPLICATE) {
+    SetStatusText(_U("Duplicate playlist not added."), 0);
+    wxLogWarning(wxString::FromUTF8(mgr->getLastError()));
+    return;
+  }
+  if (ec != ErrorCode::OK) {
+    // "No job ready" = cancelled between SUCCESS posting and dispatch.
+    // "Job not complete" = a newer job (retry) replaced the old one, so this
+    // SUCCESS event belongs to a stale worker. Both are normal — silent.
+    const std::string errMsg = mgr->getLastError();
+    if (errMsg.find("No job ready") != std::string::npos ||
+        errMsg.find("Job not complete") != std::string::npos) {
+      LOG_DEBUG("onAddFromUrlSuccess: stale/cancelled job, nothing to commit");
+      return;
+    }
+    SetStatusText(_U("Failed to finalize playlist."), 0);
+    showError(this,
+              wxString::Format(_U("Failed to finalize playlist:\n\n%s"),
+                               wxString::FromUTF8(errMsg)));
+    return;
+  }
+
   if (m_application && !m_pendingEpgBySource.empty()) {
-    auto *mgr = getPlaylistManager();
-    if (mgr) {
-      auto it = m_pendingEpgBySource.begin();
-      while (it != m_pendingEpgBySource.end()) {
-        Playlist *found = nullptr;
-        for (const auto &up : mgr->getPlaylists()) {
-          if (up && up->getSource() == it->first) {
-            found = up.get();
-            break;
-          }
+    auto it = m_pendingEpgBySource.begin();
+    while (it != m_pendingEpgBySource.end()) {
+      Playlist *found = nullptr;
+      for (const auto &up : mgr->getPlaylists()) {
+        if (up && up->getSource() == it->first) {
+          found = up.get();
+          break;
         }
-        if (!found) {
-          ++it;
-          continue;
-        }
-        const wxString epgUrl = it->second;
-        RegisterEpgSourceForPlaylist(
-            epgUrl, wxString::FromUTF8(found->getTitle()));
-        if (EPGManager *epg = m_application->GetEPGManager())
-          epg->SetEpgSourceOwner(epgUrl.ToUTF8().data(),
-                                 found->getUniqueId());
-        it = m_pendingEpgBySource.erase(it);
       }
+      if (!found) { ++it; continue; }
+      const wxString epgUrl = it->second;
+      RegisterEpgSourceForPlaylist(
+          epgUrl, wxString::FromUTF8(found->getTitle()));
+      if (EPGManager *epg = m_application->GetEPGManager())
+        epg->SetEpgSourceOwner(epgUrl.ToUTF8().data(), found->getUniqueId());
+      it = m_pendingEpgBySource.erase(it);
     }
   }
 
-  if (auto *mgr = getPlaylistManager();
-      mgr && !m_pendingXtreamMetaBySource.empty()) {
+  if (!m_pendingXtreamMetaBySource.empty()) {
     auto it = m_pendingXtreamMetaBySource.begin();
     while (it != m_pendingXtreamMetaBySource.end()) {
       Playlist *found = nullptr;
@@ -473,10 +489,7 @@ void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
           break;
         }
       }
-      if (!found) {
-        ++it;
-        continue;
-      }
+      if (!found) { ++it; continue; }
       XtreamMeta meta = found->getXtreamMeta();
       meta.userInfoJson = it->second.first;
       meta.serverInfoJson = it->second.second;
@@ -495,11 +508,16 @@ void MainFrame::onAddFromUrlSuccess(wxCommandEvent &WXUNUSED(event)) {
   SetStatusText(_U("Playlist added from URL."), 0);
 }
 
-void MainFrame::onAddFromUrlError(wxCommandEvent &WXUNUSED(event)) {
+void MainFrame::onAddFromUrlError(wxCommandEvent &ev) {
   m_progressTimer.Stop();
 
-  auto *mgr = getPlaylistManager();
-  const std::string lastError = mgr->getLastError();
+  // Error text travels in the event (worker does not call setLastError).
+  const std::string lastError = ev.GetString().ToStdString();
+
+  // Clear any still-active job (worker may have posted error but job is
+  // still registered as active).
+  if (auto *mgr = getPlaylistManager())
+    mgr->CancelPendingAddFromUrl();
 
   if (lastError.find("Duplicate") != std::string::npos) {
     SetStatusText(_U("Duplicate playlist not added."), 0);
@@ -545,6 +563,8 @@ void MainFrame::onProgressTimeout(wxTimerEvent &WXUNUSED(event)) {
       mgr->addPlaylistFromUrl(url, title, userAgent);
     }
   } else {
+    if (auto *mgr = getPlaylistManager())
+      mgr->CancelPendingAddFromUrl();
     showError(this, _U("Playlist loading canceled."));
   }
 }
