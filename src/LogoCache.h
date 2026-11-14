@@ -54,7 +54,9 @@ public:
       const std::vector<std::tuple<int, int, int>> &keepSizes);
 
   // ---- Posters ----
-  // Отдельный кэш постеров. Ключ: playlist + mediaKey + w + h + scale100.
+  // Отдельный кэш постеров. Ключ: playlist + mediaKey + hash(posterUrl)
+  // + w + h + scale100. Хэш URL гарантирует инвалидацию при смене постера
+  // сервером для того же mediaKey (RefreshVodCategory / FetchVodInfo).
   // mediaKey = "vod:<id>" / "series:<id>" — не имя канала.
   // Загрузка через IconManager::EnsureIconAsync (тот же мастер-кэш на
   // диске, псевдо-канал = mediaKey).
