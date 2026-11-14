@@ -68,6 +68,11 @@ MainFrame::MainFrame(Application *app)
       m_playlistPanel(nullptr), m_playlistList(nullptr), m_updateBtn(nullptr), m_editBtn(nullptr),
       m_removeBtn(nullptr), m_selectedPlaylistIndex(-1),
       m_loadedPlaylistIndex(-1), m_progressTimer(this, wxNewId()) {
+  // Publish this to the shared handle so detached Update threads can safely
+  // resolve us (null under mutex after ~MainFrame).
+  m_frameHandle = std::make_shared<FrameHandle>();
+  m_frameHandle->frame = this;
+
   const int minW = 800;
   const int minH = 600;
 
@@ -227,6 +232,13 @@ MainFrame::MainFrame(Application *app)
 }
 
 MainFrame::~MainFrame() {
+  // FIRST: null this from the shared handle. Pending CallAfter lambdas
+  // (posted by Update threads) will see frame == nullptr and skip — no UAF.
+  if (m_frameHandle) {
+    std::lock_guard<std::mutex> lk(m_frameHandle->mutex);
+    m_frameHandle->frame = nullptr;
+  }
+
   m_onPlaybackEndedListeners.clear();
   FlushPlaybackPosition(true);
 
@@ -328,6 +340,10 @@ bool MainFrame::IsVideoPageActive() const {
 
 PlaylistManager *MainFrame::getPlaylistManager() const {
   return m_application ? m_application->getPlaylistManager() : nullptr;
+}
+
+std::shared_ptr<PlaylistManager> MainFrame::getPlaylistManagerShared() const {
+  return m_application ? m_application->getPlaylistManagerShared() : nullptr;
 }
 
 ConfigManager *MainFrame::getConfigManager() const {

@@ -30,6 +30,7 @@ public:
 
     ConfigManager*   getConfigManager()   const noexcept;
     PlaylistManager* getPlaylistManager() const noexcept;
+    std::shared_ptr<PlaylistManager> getPlaylistManagerShared() const noexcept;
     GUIManager*      getGUIManager()      const noexcept;
     FavoritesManager &getFavoritesManager() { return *m_favoritesManager; }
     EPGManager *GetEPGManager() const { return m_epgManager.get(); }
@@ -42,7 +43,7 @@ public:
     std::unique_ptr<EPGManager> m_epgManager;
     
     std::unique_ptr<ConfigManager>   m_configManager;
-    std::unique_ptr<PlaylistManager> m_playlistManager;
+    std::shared_ptr<PlaylistManager> m_playlistManager;
     std::unique_ptr<GUIManager>      m_guiManager;
     std::unique_ptr<FavoritesManager> m_favoritesManager;
 };

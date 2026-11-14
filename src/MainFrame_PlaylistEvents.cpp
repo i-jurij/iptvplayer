@@ -752,8 +752,9 @@ void MainFrame::onUpdatePlaylist(wxCommandEvent &WXUNUSED(event)) {
   if (auto *sizer = GetSizer())
     sizer->Layout();
 
-  UpdateOneThread *thread = new UpdateOneThread(this, getPlaylistManager(),
-                                                static_cast<std::size_t>(sel));
+  UpdateOneThread *thread =
+      new UpdateOneThread(this, getPlaylistManagerShared(),
+                          static_cast<std::size_t>(sel));
   if (thread->Create() != wxTHREAD_NO_ERROR ||
       thread->Run() != wxTHREAD_NO_ERROR) {
     delete thread;
@@ -802,7 +803,8 @@ void MainFrame::onUpdateAllPlaylists(wxCommandEvent &WXUNUSED(event)) {
   if (auto *sizer = GetSizer())
     sizer->Layout();
 
-  UpdateAllThread *thread = new UpdateAllThread(this, getPlaylistManager());
+  UpdateAllThread *thread =
+      new UpdateAllThread(this, getPlaylistManagerShared());
   if (thread->Create() != wxTHREAD_NO_ERROR ||
       thread->Run() != wxTHREAD_NO_ERROR) {
     delete thread;

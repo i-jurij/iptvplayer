@@ -26,6 +26,8 @@
 #include <wx/wx.h>
 
 #include <future>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -45,6 +47,17 @@ class AddPlaylistUrlDialog;
 class EditPlaylistDialog;
 class UpdateOneThread;
 class UpdateAllThread;
+
+class MainFrame;
+
+// Shared between MainFrame and detached Update threads.
+// MainFrame nulls `frame` at the start of its destructor; threads read it
+// under `mutex` before touching MainFrame. The struct outlives MainFrame as
+// long as some thread still holds the shared_ptr.
+struct FrameHandle {
+  std::mutex mutex;
+  MainFrame *frame = nullptr;
+};
 
 enum class ChannelsViewState { Uninitialized, Initializing, Ready, Paused };
 
@@ -73,6 +86,7 @@ public:
   ~MainFrame() override;
 
   Application *getApplication() const { return m_application; }
+  std::shared_ptr<FrameHandle> getFrameHandle() const { return m_frameHandle; }
 
   bool isClosing() const { return m_closing; }
   void SetApplication(Application *app) { m_application = app; }
@@ -94,6 +108,7 @@ public:
   void handlePlaylistExport(const wxString &exportPath, int playlistIndex);
 
   PlaylistManager *getPlaylistManager() const;
+  std::shared_ptr<PlaylistManager> getPlaylistManagerShared() const;
   Playlist *GetPlaylistByIndex(int idx) const;
   ConfigManager *getConfigManager() const;
   ChannelCards *GetChannelCards();
@@ -230,6 +245,7 @@ private:
   enum { ID_VIEW_LIST = wxID_HIGHEST + 1, ID_VIEW_GRID };
 
   Application *m_application{nullptr};
+  std::shared_ptr<FrameHandle> m_frameHandle;
 
   bool m_startInGrid = false;
 

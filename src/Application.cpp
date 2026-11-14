@@ -91,7 +91,7 @@ Application::Application() {
   m_configManager =
       std::make_unique<ConfigManager>(configFile.GetFullPath().ToUTF8().data());
   m_playlistManager =
-      std::make_unique<PlaylistManager>(baseDir.ToUTF8().data());
+      std::make_shared<PlaylistManager>(baseDir.ToUTF8().data());
 
   wxString favPathWx =
       configFile.GetPath() + wxFILE_SEP_PATH + "favorites.json";
@@ -284,6 +284,11 @@ int Application::OnExit() { return wxApp::OnExit(); }
 
 PlaylistManager *Application::getPlaylistManager() const noexcept {
   return m_playlistManager.get();
+}
+
+std::shared_ptr<PlaylistManager>
+Application::getPlaylistManagerShared() const noexcept {
+  return m_playlistManager;
 }
 
 ConfigManager *Application::getConfigManager() const noexcept {

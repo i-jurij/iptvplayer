@@ -583,7 +583,8 @@ void MainFrame::updatePlaylistFromDialog(int index,
       m_updateAllBtn->Enable(false);
 
     UpdateOneThread *thread =
-        new UpdateOneThread(this, mgr, static_cast<size_t>(index));
+        new UpdateOneThread(this, getPlaylistManagerShared(),
+                            static_cast<size_t>(index));
     if (thread->Create() != wxTHREAD_NO_ERROR ||
         thread->Run() != wxTHREAD_NO_ERROR) {
       delete thread;
@@ -629,7 +630,7 @@ void MainFrame::startAutoUpdateFromSavedPlaylists() {
 
   // Запускаем UpdateAllThread с конкретным списком индексов
   UpdateAllThread *thread =
-      new UpdateAllThread(this, getPlaylistManager(), autoIndices);
+      new UpdateAllThread(this, getPlaylistManagerShared(), autoIndices);
   if (thread->Create() != wxTHREAD_NO_ERROR ||
       thread->Run() != wxTHREAD_NO_ERROR) {
     delete thread;
