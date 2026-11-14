@@ -9,15 +9,26 @@ IPTVOrgMetadataManager::IPTVOrgMetadataManager(PlaylistManager *playlistMgr)
 
 bool IPTVOrgMetadataManager::FetchJson(const std::string &url,
                                        std::string &outContent,
-                                       std::string *errorText) {
+                                       std::string *errorText,
+                                       std::atomic<bool> *cancel) {
   if (!m_playlistMgr) {
     LOG_ERROR("IPTVOrgMetadataManager: PlaylistManager is null");
     if (errorText)
       *errorText = "Download failed: internal error (no PlaylistManager)";
     return false;
   }
-  ErrorCode ec = m_playlistMgr->downloadUrl(url, outContent, "");
+
+  DownloadProgress prog;
+  prog.externalCancel    = cancel;
+  prog.connectTimeoutSec = 15;
+  prog.totalTimeoutSec   = 60;
+
+  ErrorCode ec = m_playlistMgr->downloadUrl(url, outContent, "", &prog);
   if (ec != ErrorCode::OK) {
+    if (cancel && cancel->load(std::memory_order_acquire)) {
+      if (errorText) *errorText = "Cancelled";
+      return false;
+    }
     std::string lastErr = m_playlistMgr->getLastError();
     LOG_ERROR("IPTVOrgMetadataManager: Failed to download %s, error: %s",
               url.c_str(), lastErr.c_str());
@@ -139,57 +150,115 @@ bool IPTVOrgMetadataManager::ParseCategories(const std::string &json,
 }
 
 bool IPTVOrgMetadataManager::FetchCountries(std::vector<Country> &out,
-                                            std::string *errorText) {
-  if (m_countriesLoaded) {
-    out = m_cachedCountries;
-    return true;
+                                            std::string *errorText,
+                                            std::atomic<bool> *cancel) {
+  const uint64_t gen = m_generation.load(std::memory_order_acquire);
+  {
+    std::lock_guard<std::mutex> lk(m_cacheMutex);
+    if (m_countriesLoaded) {
+      out = m_cachedCountries;
+      return true;
+    }
   }
   std::string json;
   if (!FetchJson("https://iptv-org.github.io/api/countries.json", json,
-                 errorText))
+                 errorText, cancel))
     return false;
-  if (!ParseCountries(json, m_cachedCountries, errorText))
+  if (cancel && cancel->load(std::memory_order_acquire))
     return false;
-  m_countriesLoaded = true;
-  out = m_cachedCountries;
+
+  std::vector<Country> parsed;
+  if (!ParseCountries(json, parsed, errorText))
+    return false;
+
+  {
+    std::lock_guard<std::mutex> lk(m_cacheMutex);
+    if (m_generation.load(std::memory_order_acquire) == gen) {
+      m_cachedCountries = std::move(parsed);
+      m_countriesLoaded = true;
+      out = m_cachedCountries;
+    } else {
+      out = std::move(parsed);
+    }
+  }
   return true;
 }
 
 bool IPTVOrgMetadataManager::FetchLanguages(std::vector<Language> &out,
-                                            std::string *errorText) {
-  if (m_languagesLoaded) {
-    out = m_cachedLanguages;
-    return true;
+                                            std::string *errorText,
+                                            std::atomic<bool> *cancel) {
+  const uint64_t gen = m_generation.load(std::memory_order_acquire);
+  {
+    std::lock_guard<std::mutex> lk(m_cacheMutex);
+    if (m_languagesLoaded) {
+      out = m_cachedLanguages;
+      return true;
+    }
   }
   std::string json;
   if (!FetchJson("https://iptv-org.github.io/api/languages.json", json,
-                 errorText))
+                 errorText, cancel))
     return false;
-  if (!ParseLanguages(json, m_cachedLanguages, errorText))
+  if (cancel && cancel->load(std::memory_order_acquire))
     return false;
-  m_languagesLoaded = true;
-  out = m_cachedLanguages;
+
+  std::vector<Language> parsed;
+  if (!ParseLanguages(json, parsed, errorText))
+    return false;
+
+  {
+    std::lock_guard<std::mutex> lk(m_cacheMutex);
+    if (m_generation.load(std::memory_order_acquire) == gen) {
+      m_cachedLanguages = std::move(parsed);
+      m_languagesLoaded = true;
+      out = m_cachedLanguages;
+    } else {
+      out = std::move(parsed);
+    }
+  }
   return true;
 }
 
 bool IPTVOrgMetadataManager::FetchCategories(std::vector<Category> &out,
-                                             std::string *errorText) {
-  if (m_categoriesLoaded) {
-    out = m_cachedCategories;
-    return true;
+                                             std::string *errorText,
+                                             std::atomic<bool> *cancel) {
+  const uint64_t gen = m_generation.load(std::memory_order_acquire);
+  {
+    std::lock_guard<std::mutex> lk(m_cacheMutex);
+    if (m_categoriesLoaded) {
+      out = m_cachedCategories;
+      return true;
+    }
   }
   std::string json;
   if (!FetchJson("https://iptv-org.github.io/api/categories.json", json,
-                 errorText))
+                 errorText, cancel))
     return false;
-  if (!ParseCategories(json, m_cachedCategories, errorText))
+  if (cancel && cancel->load(std::memory_order_acquire))
     return false;
-  m_categoriesLoaded = true;
-  out = m_cachedCategories;
+
+  std::vector<Category> parsed;
+  if (!ParseCategories(json, parsed, errorText))
+    return false;
+
+  {
+    std::lock_guard<std::mutex> lk(m_cacheMutex);
+    if (m_generation.load(std::memory_order_acquire) == gen) {
+      m_cachedCategories = std::move(parsed);
+      m_categoriesLoaded = true;
+      out = m_cachedCategories;
+    } else {
+      out = std::move(parsed);
+    }
+  }
   return true;
 }
 
 void IPTVOrgMetadataManager::InvalidateCache() {
+  // Bump BEFORE taking the mutex: a fetch that observed the old gen and is
+  // about to lock will not store stale data.
+  m_generation.fetch_add(1, std::memory_order_acq_rel);
+  std::lock_guard<std::mutex> lk(m_cacheMutex);
   m_countriesLoaded = false;
   m_languagesLoaded = false;
   m_categoriesLoaded = false;

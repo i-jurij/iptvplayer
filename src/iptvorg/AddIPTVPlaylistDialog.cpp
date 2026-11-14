@@ -9,6 +9,7 @@
 #include <wx/stattext.h>
 
 #include <chrono>
+#include <memory>
 #include <string>
 #include <thread>
 #include <utility>
@@ -19,16 +20,22 @@ AddIPTVPlaylistDialog::AddIPTVPlaylistDialog(wxWindow *parent,
                wxDefaultPosition, wxSize(600, 450),
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       m_playlistMgr(playlistMgr),
-      m_metadataMgr(new IPTVOrgMetadataManager(playlistMgr)) {
+      m_metadataMgr(std::make_shared<IPTVOrgMetadataManager>(playlistMgr)),
+      m_pollTimer(this, wxNewId()) {
+  Bind(wxEVT_TIMER, &AddIPTVPlaylistDialog::OnFetchPoll, this,
+       m_pollTimer.GetId());
   InitializeUI();
 }
 
 AddIPTVPlaylistDialog::~AddIPTVPlaylistDialog() {
-  m_cancelled = true;
-  while (m_loading) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  // No waiting: worker does not touch `this`. Signal cancel; worker finishes
+  // independently (curl aborts on next progress tick via externalCancel).
+  m_pollTimer.Stop();
+  if (m_currentFetch) {
+    m_currentFetch->cancelled.store(true, std::memory_order_release);
+    m_currentFetch.reset();
   }
-  delete m_metadataMgr;
+  m_metadataMgr.reset();
 }
 
 void AddIPTVPlaylistDialog::InitializeUI() {
@@ -117,69 +124,70 @@ void AddIPTVPlaylistDialog::PopulateFilterTypes() {
 // Асинхронная загрузка
 // ------------------------------------------------------------------
 void AddIPTVPlaylistDialog::StartAsyncFetch(FilterType filterType) {
-  if (m_loading) {
-    LOG_DEBUG("AddIPTVPlaylistDialog: Already loading, ignoring request");
-    return;
+  // Cancel any in-flight fetch. Its results will be discarded.
+  if (m_currentFetch) {
+    m_currentFetch->cancelled.store(true, std::memory_order_release);
+    m_currentFetch.reset();
   }
 
-  LOG_DEBUG("StartAsyncFetch: started for %d", static_cast<int>(filterType));
-
-  // Очищаем список и показываем "Loading..."
   m_allDisplayItems.clear();
+  m_allNames.clear();
   m_allCodes.clear();
+  m_allDisplayItems.push_back(_U("Loading..."));
+  m_allNames.push_back(wxEmptyString);
+  m_allCodes.push_back(wxEmptyString);
   UpdateList(wxEmptyString);
 
-  m_cancelled = false;
-  m_loading = true;
+  auto token = std::make_shared<FetchToken>();
+  token->filterType = filterType;
+  m_currentFetch = token;
 
-  IPTVOrgMetadataManager *metadataMgr = m_metadataMgr;
+  auto mgr = m_metadataMgr;
+  std::atomic<bool> *cancelFlag = &token->cancelled;
 
-  std::thread([this, filterType, metadataMgr]() {
-    auto start = std::chrono::steady_clock::now();
-
-    std::vector<Country> countries;
-    std::vector<Language> languages;
-    std::vector<Category> categories;
-    bool success = false;
-    std::string errorText;
-
+  std::thread([token, mgr, filterType, cancelFlag]() {
+    std::string err;
+    bool ok = false;
     switch (filterType) {
-      case FilterType::Country:
-        success = metadataMgr->FetchCountries(countries, &errorText);
-        break;
-      case FilterType::Language:
-        success = metadataMgr->FetchLanguages(languages, &errorText);
-        break;
-      case FilterType::Category:
-        success = metadataMgr->FetchCategories(categories, &errorText);
-        break;
+    case FilterType::Country:
+      ok = mgr->FetchCountries(token->countries, &err, cancelFlag);
+      break;
+    case FilterType::Language:
+      ok = mgr->FetchLanguages(token->languages, &err, cancelFlag);
+      break;
+    case FilterType::Category:
+      ok = mgr->FetchCategories(token->categories, &err, cancelFlag);
+      break;
     }
-
-    auto end = std::chrono::steady_clock::now();
-    auto elapsed =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-            .count();
-    LOG_DEBUG("Thread: fetch+parse for %d took %lld ms",
-              static_cast<int>(filterType), elapsed);
-
-    if (m_cancelled) {
-      m_loading = false;
-      return;
+    if (!cancelFlag->load(std::memory_order_acquire)) {
+      token->success = ok;
+      token->errorText = std::move(err);
+    } else {
+      token->success = false;
     }
-
-    wxTheApp->CallAfter(
-        [this, filterType, success, countries = std::move(countries),
-         languages = std::move(languages), categories = std::move(categories),
-         errorText = std::move(errorText)]() {
-          if (m_cancelled) {
-            m_loading = false;
-            return;
-          }
-          OnDataLoaded(filterType, success, countries, languages, categories,
-                       errorText);
-          m_loading = false;
-        });
+    token->done.store(true, std::memory_order_release);
   }).detach();
+
+  m_pollTimer.Start(50);
+}
+
+void AddIPTVPlaylistDialog::OnFetchPoll(wxTimerEvent &) {
+  auto token = m_currentFetch;
+  if (!token) {
+    m_pollTimer.Stop();
+    return;
+  }
+  if (!token->done.load(std::memory_order_acquire))
+    return;
+
+  m_pollTimer.Stop();
+  m_currentFetch.reset();
+
+  if (token->cancelled.load(std::memory_order_acquire))
+    return;
+
+  OnDataLoaded(token->filterType, token->success, token->countries,
+               token->languages, token->categories, token->errorText);
 }
 
 // ------------------------------------------------------------------
@@ -190,9 +198,6 @@ void AddIPTVPlaylistDialog::OnDataLoaded(
     const std::vector<Country> &countries,
     const std::vector<Language> &languages,
     const std::vector<Category> &categories, const std::string &errorText) {
-
-  if (m_cancelled)
-    return;
 
   auto uiStart = std::chrono::steady_clock::now();
 
@@ -208,29 +213,26 @@ void AddIPTVPlaylistDialog::OnDataLoaded(
                              wxString::FromUTF8(errorText));
     }
     m_allDisplayItems.push_back(msg);
-    m_allCodes.push_back("");
+    m_allNames.push_back(wxEmptyString);
+    m_allCodes.push_back(wxEmptyString);
   } else {
+    auto add = [this](const wxString &name, const wxString &code) {
+      m_allNames.push_back(name);
+      m_allCodes.push_back(code);
+      m_allDisplayItems.push_back(name + " (" + code + ")");
+    };
     switch (filterType) {
       case FilterType::Country:
-        for (const auto &c : countries) {
-          m_allDisplayItems.push_back(wxString::FromUTF8(c.name) + " (" +
-                                      wxString::FromUTF8(c.code) + ")");
-          m_allCodes.push_back(wxString::FromUTF8(c.code));
-        }
+        for (const auto &c : countries)
+          add(wxString::FromUTF8(c.name), wxString::FromUTF8(c.code));
         break;
       case FilterType::Language:
-        for (const auto &l : languages) {
-          m_allDisplayItems.push_back(wxString::FromUTF8(l.name) + " (" +
-                                      wxString::FromUTF8(l.code) + ")");
-          m_allCodes.push_back(wxString::FromUTF8(l.code));
-        }
+        for (const auto &l : languages)
+          add(wxString::FromUTF8(l.name), wxString::FromUTF8(l.code));
         break;
       case FilterType::Category:
-        for (const auto &c : categories) {
-          m_allDisplayItems.push_back(wxString::FromUTF8(c.name) + " (" +
-                                      wxString::FromUTF8(c.id) + ")");
-          m_allCodes.push_back(wxString::FromUTF8(c.id));
-        }
+        for (const auto &c : categories)
+          add(wxString::FromUTF8(c.name), wxString::FromUTF8(c.id));
         break;
     }
   }
@@ -238,13 +240,6 @@ void AddIPTVPlaylistDialog::OnDataLoaded(
   // Обновляем список с учётом текущего текста поиска
   wxString currentFilter = m_searchCtrl->GetValue();
   UpdateList(currentFilter);
-
-  auto uiEnd = std::chrono::steady_clock::now();
-  auto uiElapsed =
-      std::chrono::duration_cast<std::chrono::milliseconds>(uiEnd - uiStart)
-          .count();
-  LOG_DEBUG("OnDataLoaded: UI update for %d took %lld ms",
-            static_cast<int>(filterType), uiElapsed);
 }
 
 // ------------------------------------------------------------------
@@ -271,15 +266,15 @@ void AddIPTVPlaylistDialog::UpdateList(const wxString &filterText) {
   // Выбираем первую строку, если есть
   if (m_dataViewList->GetItemCount() > 0) {
     m_dataViewList->SelectRow(0);
-    // Обновим m_selectedCode
     wxDataViewItem item = m_dataViewList->RowToItem(0);
     if (item.IsOk()) {
-      wxUIntPtr ptr = m_dataViewList->GetItemData(item);
-      if (ptr != 0) {
-        size_t idx = static_cast<size_t>(ptr);
-        if (idx < m_allCodes.size())
-          m_selectedCode = m_allCodes[idx];
-      }
+      size_t idx = static_cast<size_t>(m_dataViewList->GetItemData(item));
+      if (idx < m_allCodes.size())
+        m_selectedCode = m_allCodes[idx];
+      else
+        m_selectedCode.Clear();
+    } else {
+      m_selectedCode.Clear();
     }
   } else {
     m_selectedCode.Clear();
@@ -300,12 +295,9 @@ void AddIPTVPlaylistDialog::OnSearchText(wxCommandEvent &event) {
 void AddIPTVPlaylistDialog::OnSelectionChanged(wxDataViewEvent &event) {
   wxDataViewItem item = event.GetItem();
   if (item.IsOk()) {
-    wxUIntPtr ptr = m_dataViewList->GetItemData(item);
-    if (ptr != 0) {
-      size_t idx = static_cast<size_t>(ptr);
-      if (idx < m_allCodes.size())
-        m_selectedCode = m_allCodes[idx];
-    }
+    size_t idx = static_cast<size_t>(m_dataViewList->GetItemData(item));
+    if (idx < m_allCodes.size())
+      m_selectedCode = m_allCodes[idx];
   }
   event.Skip();
 }
@@ -349,7 +341,7 @@ void AddIPTVPlaylistDialog::OnOK(wxCommandEvent &event) {
 }
 
 void AddIPTVPlaylistDialog::OnCancel(wxCommandEvent &) {
-  m_cancelled = true;
+  // Destructor will signal cancel; worker aborts on next curl tick.
   EndModal(wxID_CANCEL);
 }
 
@@ -368,53 +360,25 @@ bool AddIPTVPlaylistDialog::BuildPlaylistUrl(FilterType filterType,
   switch (filterType) {
     case FilterType::Country:
       outUrl = baseUrl + "countries/" + codeLower + ".m3u";
-      outTitle = _U("IPTV ") + GetDisplayName(FilterType::Country, code);
+      outTitle = _U("IPTV ") + GetDisplayName(code);
       return true;
     case FilterType::Language:
       outUrl = baseUrl + "languages/" + codeLower + ".m3u";
-      outTitle = _U("IPTV ") + GetDisplayName(FilterType::Language, code);
+      outTitle = _U("IPTV ") + GetDisplayName(code);
       return true;
     case FilterType::Category:
       outUrl = baseUrl + "categories/" + codeLower + ".m3u";
-      outTitle = _U("IPTV ") + GetDisplayName(FilterType::Category, code);
+      outTitle = _U("IPTV ") + GetDisplayName(code);
       return true;
   }
   return false;
 }
 
-wxString AddIPTVPlaylistDialog::GetDisplayName(FilterType filterType,
-                                               const wxString &code) {
-  switch (filterType) {
-    case FilterType::Country: {
-      std::vector<Country> countries;
-      if (m_metadataMgr->FetchCountries(countries)) {
-        for (const auto &c : countries) {
-          if (wxString::FromUTF8(c.code).IsSameAs(code, false))
-            return wxString::FromUTF8(c.name);
-        }
-      }
-      break;
-    }
-    case FilterType::Language: {
-      std::vector<Language> languages;
-      if (m_metadataMgr->FetchLanguages(languages)) {
-        for (const auto &l : languages) {
-          if (wxString::FromUTF8(l.code).IsSameAs(code, false))
-            return wxString::FromUTF8(l.name);
-        }
-      }
-      break;
-    }
-    case FilterType::Category: {
-      std::vector<Category> categories;
-      if (m_metadataMgr->FetchCategories(categories)) {
-        for (const auto &c : categories) {
-          if (wxString::FromUTF8(c.id).IsSameAs(code, false))
-            return wxString::FromUTF8(c.name);
-        }
-      }
-      break;
-    }
+wxString AddIPTVPlaylistDialog::GetDisplayName(const wxString &code) {
+  // No network. Uses cached list from OnDataLoaded.
+  for (size_t i = 0; i < m_allCodes.size(); ++i) {
+    if (m_allCodes[i].IsSameAs(code, false))
+      return m_allNames[i];
   }
   return code;
 }

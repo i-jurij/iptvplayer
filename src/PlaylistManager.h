@@ -6,6 +6,7 @@
 #include "xtream/XtreamApiClient.h"
 #include "xtream/XtreamDatabase.h"
 
+#include <atomic>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -20,6 +21,16 @@ struct DownloadProgress {
   std::chrono::steady_clock::time_point lastProgressTime;
   double lastDownloadedBytes = 0.0;
   bool stalled = false;
+
+  // --- Optional advanced options; consumed only when progress != nullptr ---
+  // External cancel flag, checked on each curl progress tick.
+  // Lifetime contract: caller guarantees the pointed-to atomic outlives
+  // the downloadUrl call. Null (default) means "no external cancel".
+  std::atomic<bool> *externalCancel = nullptr;
+
+  // curl timeouts (seconds). 0 means "do not set / keep current behaviour".
+  long connectTimeoutSec = 0;
+  long totalTimeoutSec = 0;
 };
 
 class CurlGlobal {

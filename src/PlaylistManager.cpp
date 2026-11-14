@@ -143,6 +143,14 @@ static int ProgressCallback(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
     return -1; // прервать загрузку
   }
 
+  // внешний cancel (например, из AddIPTVPlaylistDialog::FetchToken).
+  // Безопасно при nullptr — просто поле не установлено вызывающим.
+  if (prog->externalCancel &&
+      prog->externalCancel->load(std::memory_order_acquire)) {
+    prog->abort = true;
+    return -1;
+  }
+
   // Проверка зависания (если прогресс не меняется >30 сек)
   auto now = std::chrono::steady_clock::now();
   if (prog->lastDownloadedBytes == dlnow) {
@@ -191,13 +199,21 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
   if (!userAgent.empty())
     curl_easy_setopt(sess.get(), CURLOPT_USERAGENT, userAgent.c_str());
 
-  // Прогресс
+  // Прогресс + опциональные таймауты (задаются вызывающим через progress).
   if (progress) {
     curl_easy_setopt(sess.get(), CURLOPT_XFERINFOFUNCTION, ProgressCallback);
     curl_easy_setopt(sess.get(), CURLOPT_XFERINFODATA, progress);
     curl_easy_setopt(sess.get(), CURLOPT_NOPROGRESS, 0L);
     progress->lastProgressTime = std::chrono::steady_clock::now();
     progress->lastDownloadedBytes = 0.0;
+
+    // применяются только если вызывающий установил ненулевые значения.
+    if (progress->connectTimeoutSec > 0)
+      curl_easy_setopt(sess.get(), CURLOPT_CONNECTTIMEOUT,
+                       progress->connectTimeoutSec);
+    if (progress->totalTimeoutSec > 0)
+      curl_easy_setopt(sess.get(), CURLOPT_TIMEOUT,
+                       progress->totalTimeoutSec);
   }
 
   CURLcode rc = curl_easy_perform(sess.get());
