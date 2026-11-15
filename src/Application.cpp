@@ -149,6 +149,12 @@ bool Application::OnInit() {
   signal(SIGABRT, IptvplayerCrashHandler);
   signal(SIGBUS, IptvplayerCrashHandler);
   signal(SIGFPE, IptvplayerCrashHandler);
+
+  // Streaming JSON (HttpGetStreaming) uses pipe: if reader closes early
+  // (parse error / cancel), writer's write() would raise SIGPIPE and kill
+  // the process. Ignore it; write() then returns EPIPE, curl gets
+  // CURLE_WRITE_ERROR, writer thread exits cleanly.
+  signal(SIGPIPE, SIG_IGN);
 #else
   // На Windows обрабатываем только SIGABRT: SIGBUS отсутствует,
   // а SIGSEGV/SIGFPE через signal() работают нестабильно.

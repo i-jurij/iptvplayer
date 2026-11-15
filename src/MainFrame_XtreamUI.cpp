@@ -522,16 +522,37 @@ void MainFrame::HandleMoviesPageChanged(int sel) {
   if (!pl || !pl->isXtream() || !pl->hasVod())
     return;
 
-  if (m_moviesCards && m_moviesCards->GetMediaKey(0).empty()) {
-    PopulateMoviesCategories();
-    if (!m_moviesCategoryIds.empty()) {
-      m_currentVodCategoryId = m_moviesCategoryIds[0];
-      LoadVodPage(true);
+  if (!m_moviesCards || !m_moviesCards->GetMediaKey(0).empty())
+    return;
+
+  // one-shot auto-refresh. If the catalog has never been
+  // downloaded (no "last_update_vod" meta), kick off a refresh once per
+  // playlist session. User can retry manually via "Refresh catalog".
+  if (!m_moviesAutoRefreshStarted) {
+    auto *mgr = getPlaylistManager();
+    if (mgr) {
+      auto *db = mgr->GetXtreamDb(*pl);
+      if (db && db->GetMeta("last_update_vod").empty()) {
+        m_moviesAutoRefreshStarted = true;
+        wxCommandEvent dummy;
+        OnMoviesRefreshCatalog(dummy);
+        return; // callback handles categories + page load
+      }
     }
+  }
+
+  // Catalog previously downloaded (or auto-refresh already attempted).
+  // Show what's in the DB; empty categories show "Empty category" via
+  // LoadVodPage.
+  PopulateMoviesCategories();
+  if (!m_moviesCategoryIds.empty()) {
+    m_currentVodCategoryId = m_moviesCategoryIds[0];
+    LoadVodPage(true);
   }
 }
 
 void MainFrame::ResetMoviesState() {
+  m_moviesAutoRefreshStarted = false;
   if (m_moviesInfo)
     m_moviesInfo->Clear();
   if (m_moviesCards) {
@@ -634,15 +655,23 @@ void MainFrame::OnMoviesRefreshCatalog(wxCommandEvent &) {
     m_moviesActivity->Start();
   }
 
+  // Stage 8.4: placeholder for the empty-cards case (first-time auto-refresh
+  // or manual refresh before any data). If cards already present — leave
+  // them as-is, no flicker.
+  const bool hadCards =
+      m_moviesCards && !m_moviesCards->GetMediaKey(0).empty();
+  if (!hadCards && m_moviesCards)
+    m_moviesCards->SetEmptyMessage(_U("Loading catalog…"));
+
   const std::string plUuid = pl->getUniqueId();
   const Playlist plCopy = *pl;
 
   wxWeakRef<MainFrame> weakThis(this);
-  std::thread([weakThis, db, client, plCopy, plUuid]() {
+  std::thread([weakThis, db, client, plCopy, plUuid, hadCards]() {
     std::atomic<bool> cancel{false};
     const bool ok = client->RefreshAllVod(plCopy, *db, nullptr, cancel);
 
-    wxTheApp->CallAfter([weakThis, plUuid, ok]() {
+    wxTheApp->CallAfter([weakThis, plUuid, ok, hadCards]() {
       auto *s = weakThis.get();
       if (!s || s->IsBeingDeleted())
         return;
@@ -660,6 +689,11 @@ void MainFrame::OnMoviesRefreshCatalog(wxCommandEvent &) {
 
       if (!ok) {
         s->SetStatusText(_U("Movies: catalog refresh failed."), 0);
+        // Stage 8.4: error placeholder only when there were no cards
+        // (otherwise user still sees previous data — silent fail).
+        if (!hadCards && s->m_moviesCards)
+          s->m_moviesCards->SetEmptyMessage(
+              _U("Failed to load catalog. Use \"Refresh catalog\" to retry."));
         return;
       }
 

@@ -3,6 +3,8 @@
 #include "Playlist.h"
 #include "xtream/XtreamDatabase.h"
 
+#include <rapidjson/reader.h>   // rapidjson::ParseResult
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -10,6 +12,23 @@
 #include <vector>
 
 namespace xtream {
+
+// Результат streaming GET: диагностика + ParseResult.
+// Ok() == true только если парсинг завершён без ошибок, HTTP 2xx,
+// curl без ошибок и cancelFlag не был установлен.
+struct HttpStreamResult {
+  rapidjson::ParseResult parse; // IsError() == любая ошибка (parse/network/cancel)
+  long httpCode = 0;
+  int curlCode = 0;             // CURLcode; 0 == CURLE_OK
+  std::string curlError;
+  std::string contentType;
+  bool cancelled = false;       // cancelFlag был установлен во время transfer
+
+  bool Ok() const {
+    return !parse.IsError() && curlCode == 0 && httpCode >= 200 &&
+           httpCode < 300 && !cancelled;
+  }
+};
 
 class XtreamApiClient {
 public:
@@ -156,6 +175,22 @@ public:
   HttpResponse HttpGetWithCancel(const Playlist &pl, const std::string &url,
                                  int timeoutSec,
                                  const std::atomic<bool> &cancelFlag);
+
+  // Streaming GET через pipe + rapidjson::FileReadStream.
+  // handler парсит поток инкрементально (SAX). Память O(1) от размера JSON.
+  // Одна попытка (без retry) — caller решает по HttpStreamResult.
+  //
+  // Cancellation:
+  //  * curl writer: CURLOPT_XFERINFOFUNCTION → abort transfer
+  //  * SAX reader: handler сам проверяет cancelFlag (уже реализовано в
+  //    VodStreamSaxHandler/SeriesSaxHandler каждые 1000 записей)
+  // При раннем закрытии pipe reader'ом writer получит EPIPE (SIGPIPE
+  // игнорируется глобально в Application::OnInit).
+  template <typename Handler>
+  HttpStreamResult HttpGetStreaming(const Playlist &pl, const std::string &url,
+                                    int timeoutSec,
+                                    const std::atomic<bool> &cancelFlag,
+                                    Handler &handler);
 
 private:
   // base + credentials, извлечённые из XtreamMeta или source.

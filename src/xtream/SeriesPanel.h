@@ -147,6 +147,9 @@ private:
   bool m_loading = false;
   bool m_activatedOnce = false;
   bool m_refreshing = false;
+  // one-shot auto-refresh per playlist session. Set when
+  // OnActivated triggers initial catalog load; reset in Reset().
+  bool m_seriesAutoRefreshStarted = false;
 
   // Page 1 — Seasons
   wxPanel *m_seasonsPage = nullptr;

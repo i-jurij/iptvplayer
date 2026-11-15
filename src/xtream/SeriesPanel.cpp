@@ -398,25 +398,37 @@ void SeriesPanel::OnActivated() {
     m_navStack.clear();
   }
 
-  // Симметрично Movies: при каждом входе, если список пуст и загрузка
-  // не идёт — перезагружаем. Так ловятся случаи, когда БД заполнилась
-  // асинхронно (loadPlaylistContent / Refresh) уже после первого входа.
-  if (!m_cards || m_cards->GetMediaKey(0).empty()) {
-    if (!m_loading) {
-      PopulateCategories();
-      LOG_DEBUG("SeriesPanel::OnActivated: after PopulateCategories, "
-                "categories=%zu currentCat=%d",
-                m_categoryIds.size(), m_currentCategoryId);
-      if (!m_categoryIds.empty()) {
-        const bool keepCurrent =
-            m_currentCategoryId > 0 &&
-            std::find(m_categoryIds.begin(), m_categoryIds.end(),
-                      m_currentCategoryId) != m_categoryIds.end();
-        if (!keepCurrent)
-          m_currentCategoryId = m_categoryIds[0];
-        LoadSeriesPage(true);
-      }
+  if (m_cards && !m_cards->GetMediaKey(0).empty())
+    return;
+
+  if (m_loading)
+    return;
+
+  // one-shot auto-refresh per playlist session, if catalog has
+  // never been downloaded (no "last_update_series" meta).
+  if (!m_seriesAutoRefreshStarted) {
+    auto *db = GetDb();
+    if (db && db->GetMeta("last_update_series").empty()) {
+      m_seriesAutoRefreshStarted = true;
+      wxCommandEvent dummy;
+      OnRefreshCatalog(dummy);
+      return; // callback handles categories + page load
     }
+  }
+
+  // Catalog previously downloaded (or auto-refresh already attempted).
+  PopulateCategories();
+  LOG_DEBUG("SeriesPanel::OnActivated: after PopulateCategories, "
+            "categories=%zu currentCat=%d",
+            m_categoryIds.size(), m_currentCategoryId);
+  if (!m_categoryIds.empty()) {
+    const bool keepCurrent =
+        m_currentCategoryId > 0 &&
+        std::find(m_categoryIds.begin(), m_categoryIds.end(),
+                  m_currentCategoryId) != m_categoryIds.end();
+    if (!keepCurrent)
+      m_currentCategoryId = m_categoryIds[0];
+    LoadSeriesPage(true);
   }
 }
 
@@ -428,6 +440,7 @@ void SeriesPanel::Reset() {
   m_activatedOnce = false;
   m_loading = false;
   m_refreshing = false;
+  m_seriesAutoRefreshStarted = false;
 
   if (m_cards) {
     m_cards->SetItems({});
@@ -1144,16 +1157,22 @@ void SeriesPanel::OnRefreshCatalog(wxCommandEvent &) {
   m_refreshing = true;
   SetBusy(true);
 
+  // Stage 8.4: placeholder for the empty-cards case. If cards already
+  // present — leave them, no flicker.
+  const bool hadCards = m_cards && !m_cards->GetMediaKey(0).empty();
+  if (!hadCards && m_cards)
+    m_cards->SetEmptyMessage(_U("Loading catalog…"));
+
   const std::string plUuid = pl->getUniqueId();
   const Playlist plCopy = *pl;
   wxWeakRef<SeriesPanel> weakThis(this);
   MainFrame *mf = m_mainFrame;
 
-  std::thread([weakThis, mf, db, client, plCopy, plUuid]() {
+  std::thread([weakThis, mf, db, client, plCopy, plUuid, hadCards]() {
     std::atomic<bool> cancel{false};
     const bool ok = client->RefreshAllSeries(plCopy, *db, nullptr, cancel);
 
-    wxTheApp->CallAfter([weakThis, mf, plUuid, ok]() {
+    wxTheApp->CallAfter([weakThis, mf, plUuid, ok, hadCards]() {
       auto *s = weakThis.get();
       if (!s || s->IsBeingDeleted())
         return;
@@ -1170,8 +1189,13 @@ void SeriesPanel::OnRefreshCatalog(wxCommandEvent &) {
                           0);
       }
 
-      if (!ok)
+      if (!ok) {
+        // Error placeholder only when there were no cards.
+        if (!hadCards && s->m_cards)
+          s->m_cards->SetEmptyMessage(
+              _U("Failed to load catalog. Use \"Refresh catalog\" to retry."));
         return;
+      }
 
       s->PopulateCategories();
       if (!s->m_categoryIds.empty()) {

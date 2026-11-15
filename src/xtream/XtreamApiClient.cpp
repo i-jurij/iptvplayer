@@ -5,6 +5,7 @@
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
+#include <rapidjson/filereadstream.h>   // rapidjson::FileReadStream (HttpGetStreaming)
 #include <rapidjson/memorystream.h>
 #include <rapidjson/reader.h>
 #include <rapidjson/stringbuffer.h>
@@ -13,6 +14,13 @@
 #include <wx/base64.h>
 
 #include <curl/curl.h>
+
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -74,6 +82,74 @@ size_t WriteCb(char *ptr, size_t size, size_t nmemb, void *userdata) {
 int CancelCb(void *clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
   auto *flag = static_cast<const std::atomic<bool> *>(clientp);
   return (flag && flag->load()) ? 1 : 0;
+}
+
+// ---- pipe helpers (POSIX / Windows) ----
+int PipeCreate(int fds[2]) {
+#if defined(_WIN32)
+  return _pipe(fds, 65536, _O_BINARY);
+#else
+  return pipe(fds);
+#endif
+}
+
+FILE *PipeFdopenRead(int fd) {
+#if defined(_WIN32)
+  return _fdopen(fd, "rb");
+#else
+  return fdopen(fd, "rb");
+#endif
+}
+
+long long PipeWriteFd(int fd, const void *buf, size_t n) {
+#if defined(_WIN32)
+  return static_cast<long long>(_write(fd, buf, static_cast<unsigned int>(n)));
+#else
+  return static_cast<long long>(write(fd, buf, n));
+#endif
+}
+
+void PipeCloseFd(int fd) {
+#if defined(_WIN32)
+  _close(fd);
+#else
+  close(fd);
+#endif
+}
+
+// CURLOPT_WRITEFUNCTION: пишет в pipe. Блокируется при полном pipe —
+// это желаемый backpressure, не баг. При EPIPE (reader закрыл pipe)
+// возвращает 0 → curl → CURLE_WRITE_ERROR → writer thread выходит.
+size_t PipeWriteCb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+  int fd = *static_cast<int *>(userdata);
+  const size_t total = size * nmemb;
+  const long long written = PipeWriteFd(fd, ptr, total);
+  if (written < 0)
+    return 0;
+  return static_cast<size_t>(written);
+}
+
+// Retry-политика для HttpGetStreaming (согласована с HttpGetWithCancel).
+// Не retry: cancel пользователя, битый JSON, DB error.
+// Retry: 5xx и transient network (timeout / connect / recv / send).
+bool IsStreamingRetryable(const HttpStreamResult &r) {
+  if (r.cancelled)
+    return false;
+  if (r.parse.IsError())
+    return false;
+  if (r.httpCode >= 500)
+    return true;
+  switch (static_cast<CURLcode>(r.curlCode)) {
+  case CURLE_OPERATION_TIMEDOUT:
+  case CURLE_COULDNT_CONNECT:
+  case CURLE_COULDNT_RESOLVE_HOST:
+  case CURLE_SEND_ERROR:
+  case CURLE_RECV_ERROR:
+  case CURLE_PARTIAL_FILE:
+    return true;
+  default:
+    return false;
+  }
 }
 
 bool LooksLikeNonJson(const std::string &body, const std::string &contentType) {
@@ -949,6 +1025,103 @@ XtreamApiClient::HttpGetWithCancel(const Playlist &pl, const std::string &url,
   return result;
 }
 
+template <typename Handler>
+HttpStreamResult XtreamApiClient::HttpGetStreaming(
+    const Playlist &pl, const std::string &url, int timeoutSec,
+    const std::atomic<bool> &cancelFlag, Handler &handler) {
+  HttpStreamResult result;
+
+  int fds[2] = {-1, -1};
+  if (PipeCreate(fds) != 0) {
+    result.curlError = "pipe() failed";
+    return result;
+  }
+
+  const std::string ua = pl.getUserAgent();
+
+  // Writer thread: curl → pipe (blocking write).
+  // Захват по ссылке безопасен: join() ниже гарантирует, что writer
+  // завершится до выхода из функции.
+  std::thread writer([&, fdsWrite = fds[1]]() {
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+      result.curlError = "CURL init failed";
+      PipeCloseFd(fdsWrite);
+      return;
+    }
+
+    ApplyCurlCaBundle(curl);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeoutSec));
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE, 100L * 1024 * 1024);
+    if (!ua.empty())
+      curl_easy_setopt(curl, CURLOPT_USERAGENT, ua.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, PipeWriteCb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &fdsWrite);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CancelCb);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &cancelFlag);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+
+    const CURLcode rc = curl_easy_perform(curl);
+
+    long httpCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+    result.httpCode = httpCode;
+
+    char *ct = nullptr;
+    curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &ct);
+    if (ct)
+      result.contentType = ct;
+
+    result.curlCode = static_cast<int>(rc);
+    if (rc != CURLE_OK)
+      result.curlError = curl_easy_strerror(rc);
+
+    if (rc == CURLE_ABORTED_BY_CALLBACK)
+      result.cancelled = cancelFlag.load();
+
+    curl_easy_cleanup(curl);
+    PipeCloseFd(fdsWrite); // EOF для reader
+  });
+
+  // Reader (текущий поток): SAX через FileReadStream.
+  FILE *fp = PipeFdopenRead(fds[0]);
+  if (!fp) {
+    PipeCloseFd(fds[0]);
+    writer.join();
+    result.curlError = "fdopen() failed";
+    return result;
+  }
+
+  char buf[64 * 1024];
+  rapidjson::FileReadStream is(fp, buf, sizeof(buf));
+  rapidjson::Reader reader;
+  result.parse = reader.Parse(is, handler);
+
+  fclose(fp);   // closes fds[0] → writer gets EPIPE (SIGPIPE ignored)
+  writer.join(); // writer exits via CURLE_WRITE_ERROR or after EOF
+
+  return result;
+}
+
+// Explicit instantiation: оба handler'а определены в anon namespace выше
+// и используются в RefreshAllVod / RefreshAllSeries ниже в этой TU.
+// Явная инстанциация не обязательна (определение видно), но фиксирует
+// намерение и ловит ошибки компиляции для известных типов.
+template HttpStreamResult XtreamApiClient::HttpGetStreaming<VodStreamSaxHandler>(
+    const Playlist &, const std::string &, int, const std::atomic<bool> &,
+    VodStreamSaxHandler &);
+template HttpStreamResult
+XtreamApiClient::HttpGetStreaming<SeriesSaxHandler>(
+    const Playlist &, const std::string &, int, const std::atomic<bool> &,
+    SeriesSaxHandler &);
+
 XtreamApiClient::AuthResult XtreamApiClient::Auth(const Playlist &pl) {
   m_cancel.store(false);
 
@@ -1326,65 +1499,105 @@ bool XtreamApiClient::RefreshAllVod(const Playlist &pl, XtreamDatabase &db,
   if (progress)
     progress(-1, "VOD: downloading all streams");
 
-  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 300, cancelFlag);
-  if (!resp.ok) {
-    LOG_WARN("XtreamApiClient::RefreshAllVod: HTTP failed: %s",
-             resp.error.c_str());
-    return false;
-  }
+  // Retry-loop: до kMaxAttempts полных попыток (новая транзакция +
+  // streaming + SAX + Commit). Между попытками — откат + backoff 2/4 сек
+  // + jitter(0–500). Не retry: cancel пользователя, parse error, DB error,
+  // не-retryable HTTP/network. Retry: 5xx + transient network (см.
+  // IsStreamingRetryable).
+  constexpr int kMaxAttempts = 3;
+  constexpr int kBackoffMs[kMaxAttempts - 1] = {2000, 4000};
 
-  if (cancelFlag.load()) {
-    LOG_INFO("XtreamApiClient::RefreshAllVod: cancelled before parse");
-    return false;
-  }
+  bool committed = false;
+  size_t totalInserted = 0;
+  HttpStreamResult lastResult;
 
-  if (!db.BeginTransaction()) {
-    LOG_ERROR("XtreamApiClient::RefreshAllVod: cannot start transaction");
-    return false;
-  }
+  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    if (attempt > 0) {
+      const int waitMs = kBackoffMs[attempt - 1] + JitterMs();
+      LOG_INFO("XtreamApiClient::RefreshAllVod: retry %d/%d in %d ms",
+               attempt, kMaxAttempts - 1, waitMs);
+      std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
+      if (cancelFlag.load()) {
+        LOG_INFO("XtreamApiClient::RefreshAllVod: cancelled during retry");
+        return false;
+      }
+    }
 
-  if (!db.ClearAllVodCategoryMap()) {
-    LOG_ERROR("XtreamApiClient::RefreshAllVod: ClearAllVodCategoryMap failed");
+    // BeginTransaction / ClearAllVodCategoryMap — не retryable ошибки
+    // (это состояние БД, не сети).
+    if (!db.BeginTransaction()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllVod: cannot start transaction");
+      return false;
+    }
+    if (!db.ClearAllVodCategoryMap()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllVod: ClearAllVodCategoryMap "
+                "failed");
+      db.Rollback();
+      return false;
+    }
+
+    VodStreamSaxHandler handler(
+        [&db, &cancelFlag](const std::vector<XtreamDatabase::VodStream> &batch)
+            -> bool { return db.UpsertVodBatchAll(batch, cancelFlag); },
+        cancelFlag, progress);
+
+    lastResult = HttpGetStreaming(pl, U8(apiUrl), 300, cancelFlag, handler);
+
+    // Успех: HTTP 2xx, curl OK, SAX дочитал, DB flush не падал.
+    if (lastResult.Ok() && !handler.WasCancelled() && !handler.HasError()) {
+      db.SetMeta("last_update_vod", std::to_string(std::time(nullptr)));
+      if (!db.Commit()) {
+        LOG_ERROR("XtreamApiClient::RefreshAllVod: COMMIT failed");
+        db.Rollback();
+        return false;
+      }
+      totalInserted = handler.TotalInserted();
+      committed = true;
+      break;
+    }
+
+    // Failure: откат перед классификацией.
     db.Rollback();
-    return false;
+
+    // Не-retryable: cancel / parse error / DB error / curl-abort.
+    if (lastResult.cancelled || handler.WasCancelled()) {
+      LOG_INFO("XtreamApiClient::RefreshAllVod: cancelled (inserted %zu)",
+               handler.TotalInserted());
+      return false;
+    }
+    if (handler.HasError()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllVod: DB error (inserted %zu)",
+                handler.TotalInserted());
+      return false;
+    }
+    if (lastResult.parse.IsError()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllVod: parse error at offset %zu: "
+                "%s (httpCode=%ld)",
+                lastResult.parse.Offset(),
+                rapidjson::GetParseError_En(lastResult.parse.Code()),
+                lastResult.httpCode);
+      return false;
+    }
+    if (!IsStreamingRetryable(lastResult)) {
+      LOG_WARN("XtreamApiClient::RefreshAllVod: non-retryable failure "
+               "(httpCode=%ld, curlCode=%d: %s)",
+               lastResult.httpCode, lastResult.curlCode,
+               lastResult.curlError.c_str());
+      return false;
+    }
+
+    LOG_WARN("XtreamApiClient::RefreshAllVod: attempt %d/%d failed "
+             "(httpCode=%ld, curlCode=%d: %s); will retry",
+             attempt + 1, kMaxAttempts, lastResult.httpCode,
+             lastResult.curlCode, lastResult.curlError.c_str());
+    // Цикл продолжается.
   }
 
-  VodStreamSaxHandler handler(
-      [&db, &cancelFlag](const std::vector<XtreamDatabase::VodStream> &batch)
-          -> bool { return db.UpsertVodBatchAll(batch, cancelFlag); },
-      cancelFlag, progress);
-
-  rapidjson::Reader reader;
-  rapidjson::MemoryStream stream(resp.body.data(), resp.body.size());
-  rapidjson::ParseResult parseResult = reader.Parse(stream, handler);
-
-  if (!parseResult) {
-    LOG_ERROR("XtreamApiClient::RefreshAllVod: JSON parse error at offset %zu: "
-              "%s",
-              parseResult.Offset(),
-              rapidjson::GetParseError_En(parseResult.Code()));
-    db.Rollback();
-    return false;
-  }
-
-  if (handler.WasCancelled()) {
-    LOG_INFO("XtreamApiClient::RefreshAllVod: cancelled (inserted %zu)",
-             handler.TotalInserted());
-    db.Rollback();
-    return false;
-  }
-
-  if (handler.HasError()) {
-    LOG_ERROR("XtreamApiClient::RefreshAllVod: DB error");
-    db.Rollback();
-    return false;
-  }
-
-  db.SetMeta("last_update_vod", std::to_string(std::time(nullptr)));
-
-  if (!db.Commit()) {
-    LOG_ERROR("XtreamApiClient::RefreshAllVod: COMMIT failed");
-    db.Rollback();
+  if (!committed) {
+    LOG_WARN("XtreamApiClient::RefreshAllVod: failed after %d attempts "
+             "(httpCode=%ld, curlCode=%d: %s)",
+             kMaxAttempts, lastResult.httpCode, lastResult.curlCode,
+             lastResult.curlError.c_str());
     return false;
   }
 
@@ -1401,11 +1614,9 @@ bool XtreamApiClient::RefreshAllVod(const Playlist &pl, XtreamDatabase &db,
   }
 
   if (progress)
-    progress(100, "VOD: " + std::to_string(handler.TotalInserted()) +
-                      " items (all)");
+    progress(100, "VOD: " + std::to_string(totalInserted) + " items (all)");
 
-  LOG_INFO("XtreamApiClient::RefreshAllVod: %zu items",
-           handler.TotalInserted());
+  LOG_INFO("XtreamApiClient::RefreshAllVod: %zu items", totalInserted);
   return true;
 }
 
@@ -1430,65 +1641,96 @@ bool XtreamApiClient::RefreshAllSeries(const Playlist &pl, XtreamDatabase &db,
   if (progress)
     progress(-1, "Series: downloading all series");
 
-  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 300, cancelFlag);
-  if (!resp.ok) {
-    LOG_WARN("XtreamApiClient::RefreshAllSeries: HTTP failed: %s",
-             resp.error.c_str());
-    return false;
-  }
+  // Retry-loop — см. RefreshAllVod (те же kMaxAttempts/backoff/IsRetryable).
+  constexpr int kMaxAttempts = 3;
+  constexpr int kBackoffMs[kMaxAttempts - 1] = {2000, 4000};
 
-  if (cancelFlag.load()) {
-    LOG_INFO("XtreamApiClient::RefreshAllSeries: cancelled before parse");
-    return false;
-  }
+  bool committed = false;
+  size_t totalInserted = 0;
+  HttpStreamResult lastResult;
 
-  if (!db.BeginTransaction()) {
-    LOG_ERROR("XtreamApiClient::RefreshAllSeries: cannot start transaction");
-    return false;
-  }
+  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    if (attempt > 0) {
+      const int waitMs = kBackoffMs[attempt - 1] + JitterMs();
+      LOG_INFO("XtreamApiClient::RefreshAllSeries: retry %d/%d in %d ms",
+               attempt, kMaxAttempts - 1, waitMs);
+      std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
+      if (cancelFlag.load()) {
+        LOG_INFO("XtreamApiClient::RefreshAllSeries: cancelled during retry");
+        return false;
+      }
+    }
 
-  if (!db.ClearAllSeriesCategoryMap()) {
-    LOG_ERROR(
-        "XtreamApiClient::RefreshAllSeries: ClearAllSeriesCategoryMap failed");
+    if (!db.BeginTransaction()) {
+      LOG_ERROR(
+          "XtreamApiClient::RefreshAllSeries: cannot start transaction");
+      return false;
+    }
+    if (!db.ClearAllSeriesCategoryMap()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllSeries: ClearAllSeriesCategoryMap "
+                "failed");
+      db.Rollback();
+      return false;
+    }
+
+    SeriesSaxHandler handler(
+        [&db, &cancelFlag](const std::vector<XtreamDatabase::Series> &batch)
+            -> bool { return db.UpsertSeriesBatchAll(batch, cancelFlag); },
+        cancelFlag, progress);
+
+    lastResult = HttpGetStreaming(pl, U8(apiUrl), 300, cancelFlag, handler);
+
+    if (lastResult.Ok() && !handler.WasCancelled() && !handler.HasError()) {
+      db.SetMeta("last_update_series", std::to_string(std::time(nullptr)));
+      if (!db.Commit()) {
+        LOG_ERROR("XtreamApiClient::RefreshAllSeries: COMMIT failed");
+        db.Rollback();
+        return false;
+      }
+      totalInserted = handler.TotalInserted();
+      committed = true;
+      break;
+    }
+
     db.Rollback();
-    return false;
+
+    if (lastResult.cancelled || handler.WasCancelled()) {
+      LOG_INFO("XtreamApiClient::RefreshAllSeries: cancelled (inserted %zu)",
+               handler.TotalInserted());
+      return false;
+    }
+    if (handler.HasError()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllSeries: DB error (inserted %zu)",
+                handler.TotalInserted());
+      return false;
+    }
+    if (lastResult.parse.IsError()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllSeries: parse error at offset "
+                "%zu: %s (httpCode=%ld)",
+                lastResult.parse.Offset(),
+                rapidjson::GetParseError_En(lastResult.parse.Code()),
+                lastResult.httpCode);
+      return false;
+    }
+    if (!IsStreamingRetryable(lastResult)) {
+      LOG_WARN("XtreamApiClient::RefreshAllSeries: non-retryable failure "
+               "(httpCode=%ld, curlCode=%d: %s)",
+               lastResult.httpCode, lastResult.curlCode,
+               lastResult.curlError.c_str());
+      return false;
+    }
+
+    LOG_WARN("XtreamApiClient::RefreshAllSeries: attempt %d/%d failed "
+             "(httpCode=%ld, curlCode=%d: %s); will retry",
+             attempt + 1, kMaxAttempts, lastResult.httpCode,
+             lastResult.curlCode, lastResult.curlError.c_str());
   }
 
-  SeriesSaxHandler handler(
-      [&db, &cancelFlag](const std::vector<XtreamDatabase::Series> &batch)
-          -> bool { return db.UpsertSeriesBatchAll(batch, cancelFlag); },
-      cancelFlag, progress);
-
-  rapidjson::Reader reader;
-  rapidjson::MemoryStream stream(resp.body.data(), resp.body.size());
-  rapidjson::ParseResult parseResult = reader.Parse(stream, handler);
-
-  if (!parseResult) {
-    LOG_ERROR(
-        "XtreamApiClient::RefreshAllSeries: JSON parse error at offset %zu: %s",
-        parseResult.Offset(), rapidjson::GetParseError_En(parseResult.Code()));
-    db.Rollback();
-    return false;
-  }
-
-  if (handler.WasCancelled()) {
-    LOG_INFO("XtreamApiClient::RefreshAllSeries: cancelled (inserted %zu)",
-             handler.TotalInserted());
-    db.Rollback();
-    return false;
-  }
-
-  if (handler.HasError()) {
-    LOG_ERROR("XtreamApiClient::RefreshAllSeries: DB error");
-    db.Rollback();
-    return false;
-  }
-
-  db.SetMeta("last_update_series", std::to_string(std::time(nullptr)));
-
-  if (!db.Commit()) {
-    LOG_ERROR("XtreamApiClient::RefreshAllSeries: COMMIT failed");
-    db.Rollback();
+  if (!committed) {
+    LOG_WARN("XtreamApiClient::RefreshAllSeries: failed after %d attempts "
+             "(httpCode=%ld, curlCode=%d: %s)",
+             kMaxAttempts, lastResult.httpCode, lastResult.curlCode,
+             lastResult.curlError.c_str());
     return false;
   }
 
@@ -1505,11 +1747,9 @@ bool XtreamApiClient::RefreshAllSeries(const Playlist &pl, XtreamDatabase &db,
   }
 
   if (progress)
-    progress(100, "Series: " + std::to_string(handler.TotalInserted()) +
-                      " items (all)");
+    progress(100, "Series: " + std::to_string(totalInserted) + " items (all)");
 
-  LOG_INFO("XtreamApiClient::RefreshAllSeries: %zu items",
-           handler.TotalInserted());
+  LOG_INFO("XtreamApiClient::RefreshAllSeries: %zu items", totalInserted);
   return true;
 }
 

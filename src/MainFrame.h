@@ -461,6 +461,11 @@ private:
   bool m_moviesPanelCreated = false;
   wxButton *m_moviesRefreshBtn = nullptr;
   bool m_moviesRefreshing = false;
+  // one-shot auto-refresh per playlist session.
+  // Set when HandleMoviesPageChanged triggers initial catalog load;
+  // reset in ResetMoviesState (playlist switch) and in loadPlaylistChannels
+  // when playlist changes.
+  bool m_moviesAutoRefreshStarted = false;
   enum class MoviesListMode { All = 0, Favorites = 1, Watchlist = 2 };
   MoviesListMode m_moviesListMode = MoviesListMode::All;
   enum class MoviesSortMode {
