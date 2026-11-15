@@ -157,6 +157,14 @@ public:
                                     const std::string &episodeId,
                                     const std::string &containerExt) const;
 
+  // Live URL. canonical: {base}/live/{user}/{pass}/{stream_id}.ts[?sid=..]
+  // legacy:    {base}/{user}/{pass}/{stream_id}[?sid=..]
+  // Некоторые старые прокси (xTeVe/Threadfin) и провайдеры не знают /live/.
+  // legacy = false → canonical. legacy = true → legacy.
+  std::string BuildLiveUrl(const Playlist &pl, int64_t streamId,
+                           const std::string &customSid = "",
+                           bool legacy = false) const;
+
   // startUtc — UTC epoch (Xtream convention), durationMin — минуты.
   // path-style: {base}/timeshift/{u}/{p}/{dur}/{start}/{id}.ts
   // query-style: {base}/streaming/timeshift.php?username=..&password=..

@@ -2315,6 +2315,39 @@ XtreamApiClient::BuildSeriesEpisodeUrl(const Playlist &pl,
   return U8(url);
 }
 
+std::string XtreamApiClient::BuildLiveUrl(const Playlist &pl, int64_t streamId,
+                                          const std::string &customSid,
+                                          bool legacy) const {
+  if (streamId <= 0) {
+    LOG_WARN("XtreamApiClient::BuildLiveUrl: invalid streamId");
+    return std::string();
+  }
+
+  const Endpoint ep = ResolveEndpoint(pl);
+  if (!ep.ok) {
+    LOG_WARN("XtreamApiClient::BuildLiveUrl: no endpoint for '%s'",
+             pl.getTitle().c_str());
+    return std::string();
+  }
+
+  const wxString wxUser = UrlEncode(wxString::FromUTF8(ep.user));
+  const wxString wxPass = UrlEncode(wxString::FromUTF8(ep.pass));
+  const wxString wxId =
+      wxString::Format("%lld", static_cast<long long>(streamId));
+
+  wxString url = wxString::FromUTF8(ep.base);
+  if (legacy) {
+    url += "/" + wxUser + "/" + wxPass + "/" + wxId;
+  } else {
+    url += "/live/" + wxUser + "/" + wxPass + "/" + wxId + ".ts";
+  }
+
+  if (!customSid.empty())
+    url += "?sid=" + UrlEncode(wxString::FromUTF8(customSid));
+
+  return U8(url);
+}
+
 std::string XtreamApiClient::BuildCatchupUrl(const Playlist &pl,
                                              int64_t streamId, int64_t startUtc,
                                              int durationMin,

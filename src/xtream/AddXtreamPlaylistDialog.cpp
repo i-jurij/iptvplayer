@@ -105,14 +105,6 @@ AddXtreamPlaylistDialog::AddXtreamPlaylistDialog(wxWindow *parent)
   m_epgUrlCtrl->SetHint(_U("Auto if empty"));
   addRow(optBox, optSizer, _U("EPG URL:"), m_epgUrlCtrl);
 
-  m_autoUpdateCheck =
-      new wxCheckBox(optBox, wxID_ANY, _U("Auto-update on startup"));
-  m_autoUpdateCheck->SetValue(true);
-  m_autoUpdateCheck->SetToolTip(
-      _U("Playlist will be re-downloaded from its source "
-         "every time the application starts."));
-  optSizer->Add(m_autoUpdateCheck, 0, wxALL, FromDIP(5));
-
   m_errorLabel = new wxStaticText(this, wxID_ANY, "");
   m_errorLabel->SetForegroundColour(*wxRED);
   m_errorLabel->Hide();
@@ -263,8 +255,4 @@ wxString AddXtreamPlaylistDialog::GetEpgUrl() const {
   if (base.IsEmpty())
     return wxString();
   return xtream::BuildXmltv(base, user, pass);
-}
-
-bool AddXtreamPlaylistDialog::GetAutoUpdate() const {
-  return m_autoUpdateCheck->GetValue();
 }

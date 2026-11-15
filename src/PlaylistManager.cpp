@@ -8,6 +8,7 @@
 #include "Playlist.h"
 #include "Utils.h"
 #include "Utils_FsPath.h"
+#include "Utils_Net.h"
 #include "xtream/XtreamApiClient.h"
 
 #include <wx/app.h>
@@ -240,10 +241,227 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
   return ErrorCode::OK;
 }
 
+PlaylistManager::LiveRefreshResult
+PlaylistManager::RefreshLiveCatalog(const Playlist &playlist) {
+  LiveRefreshResult result;
+  result.code = ErrorCode::Unknown;
+
+  if (!playlist.isXtream()) {
+    setLastError("RefreshLiveCatalog: not Xtream playlist");
+    return result;
+  }
+  if (!m_xtreamClient) {
+    setLastError("RefreshLiveCatalog: XtreamApiClient not initialized");
+    return result;
+  }
+
+  xtream::XtreamDatabase *db = GetXtreamDb(playlist);
+  if (!db) {
+    setLastError("RefreshLiveCatalog: cannot open xtream.db");
+    return result;
+  }
+
+  std::atomic<bool> cancel{false};
+  if (!m_xtreamClient->RefreshAllLive(const_cast<Playlist &>(playlist), *db,
+                                      nullptr, cancel)) {
+    setLastError("RefreshLiveCatalog: RefreshAllLive failed");
+    result.code = ErrorCode::NetworkError;
+    return result;
+  }
+
+  auto streams = db->GetAllLiveStreams();
+  if (streams.empty()) {
+    LOG_INFO("PlaylistManager::RefreshLiveCatalog: '%s' has no live streams "
+             "(VOD-only provider)",
+             playlist.getTitle().c_str());
+    result.code = ErrorCode::OK;
+    return result;
+  }
+
+  bool legacy = false;
+  {
+    const std::string probeUrl = m_xtreamClient->BuildLiveUrl(
+        playlist, streams.front().streamId, streams.front().customSid, false);
+    UrlAvailabilityResult probe =
+        CheckUrlAvailability(probeUrl, "", 5, 1024 * 1024);
+    if (!probe.available) {
+      LOG_INFO("RefreshLiveCatalog: '/live/' format unavailable for '%s'; "
+               "using legacy format",
+               playlist.getTitle().c_str());
+      legacy = true;
+    }
+  }
+
+  const auto liveCats = m_xtreamClient->GetCategories(
+      playlist, xtream::XtreamApiClient::CategoryType::Live);
+  std::unordered_map<int, std::string> liveCatName;
+  liveCatName.reserve(liveCats.size());
+  for (const auto &c : liveCats) {
+    liveCatName[c.id] = c.name;
+    xtream::XtreamDatabase::Category cat;
+    cat.id = c.id;
+    cat.type = "live";
+    cat.name = c.name;
+    db->UpsertCategory(cat);
+  }
+
+  result.channels.reserve(streams.size());
+  const std::string plTitle = playlist.getTitle();
+  const std::string plId = playlist.getUniqueId();
+
+  for (const auto &s : streams) {
+    const std::string url = m_xtreamClient->BuildLiveUrl(
+        playlist, s.streamId, s.customSid, legacy);
+    if (url.empty())
+      continue;
+
+    Channel ch;
+    ch.setName(s.name);
+    ch.setUrl(url);
+    ch.setTvgId(s.epgChannelId);
+    ch.setLogo(s.posterUrl);
+    ch.setPlaylistName(plTitle);
+    ch.setPlaylistId(plId);
+    ch.setStreamId(s.streamId);
+    ch.setMediaType(MediaType::Live);
+
+    auto catIt = liveCatName.find(s.categoryId);
+    if (catIt != liveCatName.end())
+      ch.setGroupTitle(catIt->second);
+
+    result.channels.push_back(std::move(ch));
+  }
+
+  result.code = ErrorCode::OK;
+  LOG_INFO("PlaylistManager::RefreshLiveCatalog: '%s' → %zu channels "
+           "(legacy=%d)",
+           plTitle.c_str(), result.channels.size(), legacy ? 1 : 0);
+  return result;
+}
+
+ErrorCode PlaylistManager::RefreshXtreamCatalog(Playlist *playlist) {
+  if (!playlist || !playlist->isXtream()) {
+    setLastError("RefreshXtreamCatalog: not Xtream playlist");
+    return ErrorCode::InvalidArgument;
+  }
+
+  auto liveRes = RefreshLiveCatalog(*playlist);
+  if (liveRes.code != ErrorCode::OK)
+    return liveRes.code;
+  playlist->setChannels(std::move(liveRes.channels));
+
+  if (!m_xtreamClient) {
+    setLastError("RefreshXtreamCatalog: XtreamApiClient not initialized");
+    return ErrorCode::Unknown;
+  }
+
+  xtream::XtreamDatabase *db = GetXtreamDb(*playlist);
+  if (!db) {
+    setLastError("RefreshXtreamCatalog: cannot open xtream.db");
+    return ErrorCode::Unknown;
+  }
+
+  std::atomic<bool> cancel{false};
+
+  if (!m_xtreamClient->RefreshAllVod(*playlist, *db, nullptr, cancel)) {
+    LOG_WARN("RefreshXtreamCatalog: RefreshAllVod failed for '%s'",
+             playlist->getTitle().c_str());
+  }
+  if (!m_xtreamClient->RefreshAllSeries(*playlist, *db, nullptr, cancel)) {
+    LOG_WARN("RefreshXtreamCatalog: RefreshAllSeries failed for '%s'",
+             playlist->getTitle().c_str());
+  }
+
+  const auto vodCats = m_xtreamClient->GetCategories(
+      *playlist, xtream::XtreamApiClient::CategoryType::Vod);
+  for (const auto &c : vodCats) {
+    xtream::XtreamDatabase::Category cat;
+    cat.id = c.id;
+    cat.type = "vod";
+    cat.name = c.name;
+    db->UpsertCategory(cat);
+  }
+  playlist->setHasVod(!vodCats.empty());
+
+  const auto seriesCats = m_xtreamClient->GetCategories(
+      *playlist, xtream::XtreamApiClient::CategoryType::Series);
+  for (const auto &c : seriesCats) {
+    xtream::XtreamDatabase::Category cat;
+    cat.id = c.id;
+    cat.type = "series";
+    cat.name = c.name;
+    db->UpsertCategory(cat);
+  }
+  playlist->setHasSeries(!seriesCats.empty());
+
+  LOG_INFO("PlaylistManager::RefreshXtreamCatalog: '%s' done "
+           "(live=%zu, hasVod=%d, hasSeries=%d)",
+           playlist->getTitle().c_str(), playlist->getChannelCount(),
+           playlist->hasVod() ? 1 : 0, playlist->hasSeries() ? 1 : 0);
+  return ErrorCode::OK;
+}
+
 ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
   if (!playlist) {
     setLastError("Invalid playlist pointer");
     return ErrorCode::InvalidIndex;
+  }
+
+  // Xtream: no-op по сети. Заполняем m_channels из существующего
+  // live_streams (если БД уже наполнена прошлыми refresh'ами).
+  // Lazy RefreshAllLive — из MainFrame при первом входе на Channels.
+  if (playlist->isXtream()) {
+    xtream::XtreamDatabase *db = GetXtreamDb(*playlist);
+    if (!db) {
+      LOG_WARN("loadPlaylistContent: cannot open xtream.db for '%s'",
+               playlist->getTitle().c_str());
+      return ErrorCode::OK;
+    }
+    auto streams = db->GetAllLiveStreams();
+    if (!streams.empty() && m_xtreamClient) {
+      std::vector<Channel> channels;
+      channels.reserve(streams.size());
+      const std::string plTitle = playlist->getTitle();
+      const std::string plId = playlist->getUniqueId();
+
+      const auto liveCats = db->GetCategories("live");
+      std::unordered_map<int, std::string> liveCatName;
+      liveCatName.reserve(liveCats.size());
+      for (const auto &c : liveCats)
+        liveCatName[c.id] = c.name;
+
+      for (const auto &s : streams) {
+        const std::string url =
+            m_xtreamClient->BuildLiveUrl(*playlist, s.streamId, s.customSid);
+        if (url.empty())
+          continue;
+        Channel ch;
+        ch.setName(s.name);
+        ch.setUrl(url);
+        ch.setTvgId(s.epgChannelId);
+        ch.setLogo(s.posterUrl);
+        ch.setPlaylistName(plTitle);
+        ch.setPlaylistId(plId);
+        ch.setStreamId(s.streamId);
+        ch.setMediaType(MediaType::Live);
+        auto catIt = liveCatName.find(s.categoryId);
+        if (catIt != liveCatName.end())
+          ch.setGroupTitle(catIt->second);
+        channels.push_back(std::move(ch));
+      }
+      playlist->setChannels(std::move(channels));
+    }
+
+    const auto vodCats = db->GetCategories("vod");
+    const auto seriesCats = db->GetCategories("series");
+    playlist->setHasVod(!vodCats.empty());
+    playlist->setHasSeries(!seriesCats.empty());
+
+    LOG_INFO("PlaylistManager: '%s' loaded from cache (%zu live, hasVod=%d, "
+             "hasSeries=%d)",
+             playlist->getTitle().c_str(), playlist->getChannelCount(),
+             playlist->hasVod() ? 1 : 0, playlist->hasSeries() ? 1 : 0);
+    return ErrorCode::OK;
   }
 
   std::string content;
@@ -766,6 +984,7 @@ ErrorCode PlaylistManager::updatePlaylist(size_t index) {
   std::string src;
   std::string title;
   std::string userAgent;
+  std::string uuid;
   bool isUrl = false;
   bool isXtream = false;
   XtreamMeta xtreamMeta;
@@ -783,6 +1002,7 @@ ErrorCode PlaylistManager::updatePlaylist(size_t index) {
     src = pl->getSource();
     title = pl->getTitle();
     userAgent = pl->getUserAgent();
+    uuid = pl->getUniqueId();
     isUrl = pl->isUrl();
     isXtream = pl->isXtream();
     if (isXtream)
@@ -790,13 +1010,17 @@ ErrorCode PlaylistManager::updatePlaylist(size_t index) {
   }
 
   Playlist tmp(title, src, isUrl);
+  // Prerequisite для 9.3: Xtream tmp должен использовать тот же uuid, что
+  // и pl (RefreshXtreamCatalog пишет в DB по uuid).
+  tmp.setUniqueId(uuid);
   tmp.setUserAgent(userAgent);
   if (isXtream) {
     tmp.setXtream(true);
     tmp.setXtreamMeta(xtreamMeta);
   }
 
-  ErrorCode ec = loadPlaylistContent(&tmp);
+  ErrorCode ec = isXtream ? RefreshXtreamCatalog(&tmp)
+                          : loadPlaylistContent(&tmp);
   if (ec != ErrorCode::OK) {
     return ec;
   }
@@ -830,6 +1054,10 @@ PlaylistManager::getAutoUpdateIndices(bool includeAll) const {
   for (size_t i = 0; i < m_playlists.size(); ++i) {
     const Playlist *p = m_playlists[i].get();
     if (!p)
+      continue;
+    // Xtream обновляется lazy (при входе на вкладки) и вручную
+    // («Update playlist»). Startup auto-update — только для M3U.
+    if (p->isXtream())
       continue;
     if (includeAll || p->getAutoUpdate())
       indices.push_back(i);

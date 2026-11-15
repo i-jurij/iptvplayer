@@ -341,7 +341,8 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
   const wxString epgUrl = dlg.GetEpgUrl();
   const wxString titleWx = dlg.GetTitle();
   const wxString ua = dlg.GetUserAgent();
-  const bool autoUpdate = dlg.GetAutoUpdate();
+  // Xtream: startup auto-update не используется (9.3 — lazy при входе
+  // на вкладки + ручное «Update playlist» + 9.8 timer).
 
   if (server.IsEmpty())
     return;
@@ -351,7 +352,7 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
   wxWeakRef<MainFrame> weakThis(this);
   xtream::DialProbeAsync(
       server, user, pass, ua,
-      [weakThis, epgUrl, titleWx, autoUpdate, ua, server, user,
+      [weakThis, epgUrl, titleWx, ua, server, user,
        pass](bool ok, const wxString &finalUrl, const wxString &error,
              const std::string &userInfoJson, const std::string &serverInfoJson,
              bool isM3u) {
@@ -399,7 +400,8 @@ void MainFrame::onAddXtreamPlaylist(wxCommandEvent &WXUNUSED(event)) {
         ErrorCode ec = ErrorCode::OK;
         try {
           ec = mgr->addPlaylistFromUrl(finalUrl.ToUTF8().data(), title, uaStr,
-                                       autoUpdate, /*isXtream=*/!isM3u,
+                                       /*autoUpdate=*/false,
+                                       /*isXtream=*/!isM3u,
                                        std::move(meta));
         } catch (const std::exception &e) {
           LOG_ERROR("onAddXtreamPlaylist: addPlaylistFromUrl threw: %s",

@@ -2648,4 +2648,45 @@ XtreamDatabase::GetLiveStreamIdByTvgId(const std::string &tvgId) const {
   }
 }
 
+std::vector<XtreamDatabase::LiveStream>
+XtreamDatabase::GetAllLiveStreams() const {
+  std::vector<LiveStream> out;
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  try {
+    Statement stmt = db.PrepareStatement(
+        "SELECT stream_id, num, name, stream_icon, epg_channel_id, added, "
+        "       category_id, tv_archive, tv_archive_duration, custom_sid "
+        "FROM live_streams ORDER BY num, stream_id");
+    StatementGuard guard(stmt);
+    ResultSet rs = stmt.ExecuteQuery();
+    while (rs.NextRow()) {
+      LiveStream s;
+      s.streamId = rs.GetInt64(0).GetValue();
+      s.num = rs.GetInt(1);
+      s.name = std::string(rs.GetString(2).utf8_str().data());
+      s.posterUrl = std::string(rs.GetString(3).utf8_str().data());
+      s.epgChannelId = std::string(rs.GetString(4).utf8_str().data());
+      s.added = rs.GetInt64(5).GetValue();
+      s.categoryId = rs.GetInt(6);
+      s.tvArchive = rs.GetInt(7);
+      s.tvArchiveDuration = rs.GetInt(8);
+      s.customSid = std::string(rs.GetString(9).utf8_str().data());
+      out.push_back(std::move(s));
+    }
+    return out;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetAllLiveStreams: %s",
+              e.GetMessage().utf8_str().data());
+    return out;
+  }
+}
+
 } // namespace xtream

@@ -272,6 +272,10 @@ public:
   // (fallback на get_short_epg для каналов без XMLTV).
   int64_t GetLiveStreamIdByTvgId(const std::string &tvgId) const;
 
+  // Все live-каналы из live_streams (без JOIN с category_map).
+  // ORDER BY num, stream_id — natural server order (как M3U).
+  std::vector<LiveStream> GetAllLiveStreams() const;
+
   // ---- размер файла БД  ----
   long long FileSizeBytes() const;
   // Пометить, что при Close() (или ~XtreamDatabase) нужно удалить

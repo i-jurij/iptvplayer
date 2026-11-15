@@ -258,6 +258,9 @@ void MainFrame::HandleChannelPageChanged(int sel) {
       m_channelCards->SetFocusIgnoringChildren();
     }
     RestoreChannelSelection();
+
+    // lazy Live refresh для Xtream при первом входе на Channels.
+    TriggerLiveLazyRefreshIfNeeded();
   } else {
     if (m_epgChannels)
       m_epgChannels->SetActive(false);

@@ -62,6 +62,14 @@ private:
 
 class PlaylistManager {
 public:
+  // Результат RefreshLiveCatalog: каналы для Playlist::setChannels.
+  // code == OK: успех (channels может быть пустым — VOD-only провайдер).
+  // code != OK: ошибка (network, DB); channels невалиден.
+  struct LiveRefreshResult {
+    ErrorCode code = ErrorCode::Unknown;
+    std::vector<Channel> channels;
+  };
+
   explicit PlaylistManager(const std::string &configDir = "");
   ~PlaylistManager();
 
@@ -149,7 +157,17 @@ public:
   // Аксессор для UI/тестов.
   xtream::XtreamApiClient *GetXtreamClient() { return m_xtreamClient.get(); }
 
+  // Только Live: RefreshAllLive + GetAllLiveStreams + GetCategories(live) →
+  // channels. Возвращает данные (не мутирует playlist). Вызывается из
+  // MainFrame lazy trigger при первом входе на Channels (фоновый поток).
+  LiveRefreshResult RefreshLiveCatalog(const Playlist &playlist);
+
 private:
+  // Полный рефреш Xtream-каталога: RefreshAllLive + RefreshAllVod +
+  // RefreshAllSeries + категории. Мутирует playlist->setChannels() и
+  // setHasVod/setHasSeries. Вызывается из updatePlaylist (фоновый поток
+  // UpdateOneThread).
+  ErrorCode RefreshXtreamCatalog(Playlist *playlist);
   mutable std::mutex m_lastErrorMutex;
   mutable std::string m_lastError;
 

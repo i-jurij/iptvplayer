@@ -1291,6 +1291,98 @@ void MainFrame::OnXtreamCacheCleared() {
   }
 }
 
+void MainFrame::OnLiveRefreshCatalog(wxCommandEvent &) {
+  if (m_liveRefreshing)
+    return;
+
+  Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
+  if (!pl || !pl->isXtream())
+    return;
+
+  auto *mgr = getPlaylistManager();
+  if (!mgr)
+    return;
+
+  m_liveRefreshing = true;
+  SetStatusText(_U("Channels: loading live channels…"), 0);
+  if (m_channelsInfoLabel)
+    m_channelsInfoLabel->SetLabel(_U("Loading live channels…"));
+
+  const std::string plUuid = pl->getUniqueId();
+  const Playlist plCopy = *pl;
+
+  wxWeakRef<MainFrame> weakThis(this);
+  std::thread([weakThis, mgr, plCopy, plUuid]() {
+    auto res = mgr->RefreshLiveCatalog(plCopy);
+
+    wxTheApp->CallAfter([weakThis, plUuid,
+                         res = std::move(res)]() mutable {
+      auto *s = weakThis.get();
+      if (!s || s->IsBeingDeleted())
+        return;
+      Playlist *cur = s->GetPlaylistByIndex(s->m_loadedPlaylistIndex);
+      if (!cur || cur->getUniqueId() != plUuid)
+        return;
+
+      s->m_liveRefreshing = false;
+
+      if (res.code != ErrorCode::OK) {
+        s->SetStatusText(_U("Channels: live refresh failed."), 0);
+        if (s->m_channelsInfoLabel)
+          s->m_channelsInfoLabel->SetLabel(
+              _U("Failed to load live channels."));
+        return;
+      }
+
+      if (res.channels.empty()) {
+        s->SetStatusText(
+            _U("No live channels (VOD-only provider)."), 0);
+        if (s->m_channelsInfoLabel)
+          s->m_channelsInfoLabel->SetLabel(
+              _U("No live channels (VOD-only provider)"));
+        cur->setChannels({});
+        s->m_allChannels.clear();
+        s->ApplyFiltersAndSort();
+        return;
+      }
+
+      cur->setChannels(std::move(res.channels));
+      s->loadPlaylistChannels(cur->getChannels(),
+                              wxString::FromUTF8(cur->getTitle()), plUuid);
+      s->SetStatusText(_U("Channels: live channels loaded."), 0);
+    });
+  }).detach();
+}
+
+void MainFrame::TriggerLiveLazyRefreshIfNeeded() {
+  if (m_liveRefreshing)
+    return;
+  if (!m_channelsPage || !m_channelsInfoLabel)
+    return;
+
+  Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
+  if (!pl || !pl->isXtream())
+    return;
+
+  auto *mgr = getPlaylistManager();
+  if (!mgr)
+    return;
+
+  if (m_liveAutoRefreshStarted)
+    return;
+
+  auto *db = mgr->GetXtreamDb(*pl);
+  if (!db)
+    return;
+
+  if (!db->GetMeta("last_update_live").empty())
+    return;
+
+  m_liveAutoRefreshStarted = true;
+  wxCommandEvent dummy;
+  OnLiveRefreshCatalog(dummy);
+}
+
 wxString MainFrame::FormatAccountInfoShort(const Playlist *pl) {
   if (!pl || !pl->isXtream() || !pl->getXtreamMeta().hasUserInfo())
     return wxString();

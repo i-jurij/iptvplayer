@@ -483,6 +483,12 @@ private:
   bool m_vodLoading = false;
   std::string m_currentMoviesSeriesPlaylistId;
 
+  // one-shot lazy Live refresh per playlist session (Channels tab).
+  bool m_liveAutoRefreshStarted = false;
+  bool m_liveRefreshing = false;
+  void OnLiveRefreshCatalog(wxCommandEvent &event);
+  void TriggerLiveLazyRefreshIfNeeded();
+
   void EnsureSeriesPanel();
   void OnSeriesToggle(wxCommandEvent &event);
   void HandleSeriesPageChanged(int sel);

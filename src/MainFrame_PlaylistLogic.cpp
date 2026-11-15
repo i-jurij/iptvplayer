@@ -198,6 +198,8 @@ void MainFrame::loadPlaylistChannels(const std::vector<Channel> &channels,
       ResetMoviesState();
     if (m_seriesPanel)
       ResetSeriesState();
+    m_liveAutoRefreshStarted = false;
+    m_liveRefreshing = false;
   }
 
   UpdateMoviesTabVisibility();
