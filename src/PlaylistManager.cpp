@@ -949,18 +949,26 @@ ErrorCode PlaylistManager::CommitActiveAddFromUrlJob() {
     return ErrorCode::Unknown;
   }
 
+  // для Xtream source = meta.baseUrl (без creds).
+  // Используется и в duplicate-check, и в Playlist: иначе второй add
+  // того же Xtream (source уже baseUrl в БД, job->url = get.php?) не
+  // поймается как дубликат.
+  std::string effectiveSource = job->url;
+  if (job->isXtream && !job->xtreamMeta.baseUrl.empty())
+    effectiveSource = job->xtreamMeta.baseUrl;
+
   // Duplicate check under lock.
   {
     std::lock_guard<std::mutex> lock(m_playlistsMutex);
     for (const auto &existing : m_playlists) {
-      if (existing->getSource() == job->url) {
+      if (existing->getSource() == effectiveSource) {
         setLastError("Duplicate playlist: " + job->title);
         return ErrorCode::DUPLICATE;
       }
     }
   }
 
-  auto pl = std::make_unique<Playlist>(job->title, job->url, true);
+  auto pl = std::make_unique<Playlist>(job->title, effectiveSource, true);
   pl->setUserAgent(job->userAgent);
   pl->setAutoUpdate(job->autoUpdate);
   if (job->isXtream) {
@@ -1214,6 +1222,35 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
     pl->setAutoUpdate(autoUpdate);
   }
 
+  // Xtream — source = meta.baseUrl. Если baseUrl изменился,
+  // сбросить meta last_update_* чтобы lazy refresh сработал при следующем
+  // входе на вкладки (Channels / Movies / Series). Сетевой перезагрузки НЕ
+  // делаем.
+  {
+    Playlist *pl = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(m_playlistsMutex);
+      if (index < m_playlists.size())
+        pl = m_playlists[index].get();
+    }
+    if (pl && pl->isXtream()) {
+      XtreamMeta meta = pl->getXtreamMeta();
+      if (meta.baseUrl != source) {
+        meta.baseUrl = source;
+        pl->setXtreamMeta(std::move(meta));
+        xtream::XtreamDatabase *db = GetXtreamDb(*pl);
+        if (db) {
+          db->SetMeta("last_update_live", "");
+          db->SetMeta("last_update_vod", "");
+          db->SetMeta("last_update_series", "");
+          LOG_INFO("editPlaylist: Xtream '%s' baseUrl changed; lazy refresh "
+                   "scheduled on next tab entry",
+                   pl->getTitle().c_str());
+        }
+      }
+    }
+  }
+
   ErrorCode ec = savePlaylist(nullptr, index);
   if (ec != ErrorCode::OK)
     return ec;
@@ -1363,6 +1400,11 @@ ErrorCode PlaylistManager::loadPlaylists() {
         if (pl->getUniqueId().empty()) {
           pl->setUniqueId(GenerateUUID());
           savePlaylist(pl.get()); // фиксируем ID на диске
+        }
+
+        // нормализация source для Xtream. source = meta.baseUrl (без creds).
+        if (pl->isXtream() && !pl->getXtreamMeta().baseUrl.empty()) {
+          pl->setSource(pl->getXtreamMeta().baseUrl);
         }
 
         m_playlists.push_back(std::move(pl));

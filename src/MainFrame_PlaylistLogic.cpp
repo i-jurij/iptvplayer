@@ -570,8 +570,7 @@ void MainFrame::updatePlaylistFromDialog(int index,
   }
 
   if (!ownSource) {
-    // Source changed: invalidate EPG mapping and launch an async update to
-    // fetch channels from the new URL (same mechanism as Update button).
+    // Source changed: invalidate EPG mapping.
     Application *app = static_cast<Application *>(wxTheApp);
     Playlist *pl = mgr->getPlaylist(static_cast<size_t>(index));
     if (app && app->GetEPGManager() && pl) {
@@ -579,24 +578,35 @@ void MainFrame::updatePlaylistFromDialog(int index,
       m_lastMappingLoadedPlaylistId.clear();
     }
 
-    if (m_updateBtn)
-      m_updateBtn->Enable(false);
-    if (m_updateAllBtn)
-      m_updateAllBtn->Enable(false);
-
-    UpdateOneThread *thread =
-        new UpdateOneThread(this, getPlaylistManagerShared(),
-                            static_cast<size_t>(index));
-    if (thread->Create() != wxTHREAD_NO_ERROR ||
-        thread->Run() != wxTHREAD_NO_ERROR) {
-      delete thread;
+    // Xtream — editPlaylist уже сбросил last_update_*. Lazy refresh
+    // сработает при следующем входе на вкладки (Channels / Movies / Series).
+    // Сетевой перезагрузки из edit НЕ делаем — в отличие от M3U (плоский
+    // список, быстрый; без перезагрузки source-change бесполезен).
+    const bool isXtream = pl && pl->isXtream();
+    if (!isXtream) {
       if (m_updateBtn)
-        m_updateBtn->Enable(true);
+        m_updateBtn->Enable(false);
       if (m_updateAllBtn)
-        m_updateAllBtn->Enable(true);
-      showError(this, _U("Unable to start update thread."));
+        m_updateAllBtn->Enable(false);
+
+      UpdateOneThread *thread =
+          new UpdateOneThread(this, getPlaylistManagerShared(),
+                              static_cast<size_t>(index));
+      if (thread->Create() != wxTHREAD_NO_ERROR ||
+          thread->Run() != wxTHREAD_NO_ERROR) {
+        delete thread;
+        if (m_updateBtn)
+          m_updateBtn->Enable(true);
+        if (m_updateAllBtn)
+          m_updateAllBtn->Enable(true);
+        showError(this, _U("Unable to start update thread."));
+      } else {
+        SetStatusText(_U("Updating channels from new source..."), 0);
+      }
     } else {
-      SetStatusText(_U("Updating channels from new source..."), 0);
+      SetStatusText(
+          _U("Xtream source updated. Catalog will refresh on next tab entry."),
+          0);
     }
   }
 }

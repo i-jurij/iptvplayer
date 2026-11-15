@@ -267,7 +267,7 @@ void EditPlaylistDialog::setupLayout() {
 
   mainSizer->Add(createInputField(_U("Title:"), m_titleCtrl), 0,
                  wxEXPAND | wxALL, FromDIP(10));
-  mainSizer->Add(createInputField(_U("Source:"), m_sourceCtrl), 0,
+  mainSizer->Add(createInputField(_U("URL / Path:"), m_sourceCtrl), 0,
                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
   mainSizer->Add(createInputField(_U("User Agent:"), m_userAgentCtrl), 0,
                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
