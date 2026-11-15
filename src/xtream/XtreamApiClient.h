@@ -122,6 +122,13 @@ public:
   bool RefreshAllSeries(const Playlist &pl, XtreamDatabase &db,
                         ProgressFn progress,
                         const std::atomic<bool> &cancelFlag);
+  // get_live_streams без category_id → один массив → SAX → атомарный
+  // BEGIN IMMEDIATE → ClearAllLiveCategoryMap → N× UpsertLiveBatchAll →
+  // SetMeta("last_update_live") → COMMIT. Retry: 3 попытки на 5xx/transient
+  // network (IsStreamingRetryable).
+  bool RefreshAllLive(const Playlist &pl, XtreamDatabase &db,
+                      ProgressFn progress,
+                      const std::atomic<bool> &cancelFlag);
   // ---- VOD/Series info (DOM) ----
   // get_vod_info: сохраняет raw JSON `info` объекта в vod_info.
   // При отсутствии info — весь response. При повторном открытии UI

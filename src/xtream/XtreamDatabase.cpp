@@ -390,6 +390,16 @@ bool XtreamDatabase::CreateSchemaV1(bool inTransaction) {
     db.ExecuteUpdate(
         "CREATE INDEX IF NOT EXISTS idx_live_cat ON live_streams(category_id)");
 
+    // Many-to-many map live_streams ↔ categories.
+    // По образцу vod_category_map / series_category_map.
+    db.ExecuteUpdate("CREATE TABLE IF NOT EXISTS live_category_map ("
+                     "stream_id INTEGER REFERENCES "
+                     "live_streams(stream_id) ON DELETE CASCADE, "
+                     "category_id INTEGER, "
+                     "PRIMARY KEY (stream_id, category_id))");
+    db.ExecuteUpdate("CREATE INDEX IF NOT EXISTS idx_lcm_cat ON "
+                     "live_category_map(category_id)");
+
     db.ExecuteUpdate(
         "CREATE TABLE IF NOT EXISTS vod_streams ("
         "stream_id INTEGER PRIMARY KEY, name TEXT, name_lower TEXT, "
@@ -2386,4 +2396,256 @@ XtreamDatabase::GetSeriesByList(ListType type, int limit) const {
     return out;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Live (I9.1)
+// ---------------------------------------------------------------------------
+
+bool XtreamDatabase::ClearAllLiveCategoryMap() {
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
+
+  try {
+    db.ExecuteUpdate("DELETE FROM live_category_map");
+    return true;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::ClearAllLiveCategoryMap: %s "
+              "(if this DB was created before I9, delete it to recreate "
+              "with live_category_map)",
+              e.GetMessage().utf8_str().data());
+    return false;
+  }
+}
+
+bool XtreamDatabase::UpsertLiveBatchAll(
+    const std::vector<LiveStream> &batch,
+    const std::atomic<bool> &abortFlag) {
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  std::lock_guard<std::recursive_mutex> lock(m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return false;
+  Database &db = m_impl->writeDb;
+
+  if (batch.empty())
+    return true;
+
+  try {
+    Statement insStream = db.PrepareStatement(
+        "INSERT INTO live_streams "
+        "(stream_id, num, name, stream_icon, epg_channel_id, added, "
+        " category_id, tv_archive, tv_archive_duration, custom_sid) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(stream_id) DO UPDATE SET "
+        "num = excluded.num, name = excluded.name, "
+        "stream_icon = excluded.stream_icon, "
+        "epg_channel_id = excluded.epg_channel_id, "
+        "added = excluded.added, category_id = excluded.category_id, "
+        "tv_archive = excluded.tv_archive, "
+        "tv_archive_duration = excluded.tv_archive_duration, "
+        "custom_sid = excluded.custom_sid");
+    StatementGuard guardStream(insStream);
+
+    Statement insMap = db.PrepareStatement(
+        "INSERT INTO live_category_map (stream_id, category_id) "
+        "VALUES (?, ?) "
+        "ON CONFLICT(stream_id, category_id) DO NOTHING");
+    StatementGuard guardMap(insMap);
+
+    size_t i = 0;
+    for (const auto &s : batch) {
+      if ((i % 1000) == 0 && abortFlag.load()) {
+        LOG_WARN("XtreamDatabase::UpsertLiveBatchAll: abort at=%zu/%zu", i,
+                 batch.size());
+        return false;
+      }
+
+      insStream.Bind(1, wxLongLong(s.streamId));
+      insStream.Bind(2, s.num);
+      insStream.Bind(3, U8(s.name));
+      insStream.Bind(4, U8(s.posterUrl));
+      insStream.Bind(5, U8(s.epgChannelId));
+      insStream.Bind(6, wxLongLong(s.added));
+      insStream.Bind(7, s.categoryId);
+      insStream.Bind(8, s.tvArchive);
+      insStream.Bind(9, s.tvArchiveDuration);
+      insStream.Bind(10, U8(s.customSid));
+      insStream.ExecuteUpdate();
+      insStream.Reset();
+
+      if (s.categoryId > 0) {
+        insMap.Bind(1, wxLongLong(s.streamId));
+        insMap.Bind(2, s.categoryId);
+        insMap.ExecuteUpdate();
+        insMap.Reset();
+      }
+
+      ++i;
+    }
+
+    return true;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::UpsertLiveBatchAll: %s",
+              e.GetMessage().utf8_str().data());
+    return false;
+  } catch (const std::exception &e) {
+    LOG_ERROR("XtreamDatabase::UpsertLiveBatchAll: %s", e.what());
+    return false;
+  } catch (...) {
+    LOG_ERROR("XtreamDatabase::UpsertLiveBatchAll: unknown exception");
+    return false;
+  }
+}
+
+std::vector<XtreamDatabase::LiveStream>
+XtreamDatabase::GetLivePage(int categoryId, int64_t afterStreamId,
+                            int limit) const {
+  std::vector<LiveStream> out;
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
+    return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  if (limit <= 0)
+    limit = 500;
+  if (limit > 5000)
+    limit = 5000;
+
+  try {
+    Statement stmt = db.PrepareStatement(
+        "SELECT s.stream_id, s.num, s.name, s.stream_icon, s.epg_channel_id, "
+        "       s.added, s.category_id, s.tv_archive, s.tv_archive_duration, "
+        "       s.custom_sid "
+        "FROM live_streams s "
+        "JOIN live_category_map m ON s.stream_id = m.stream_id "
+        "WHERE m.category_id = ? AND s.stream_id > ? "
+        "ORDER BY s.stream_id LIMIT ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, categoryId);
+    stmt.Bind(2, wxLongLong(afterStreamId));
+    stmt.Bind(3, limit);
+    ResultSet rs = stmt.ExecuteQuery();
+    while (rs.NextRow()) {
+      LiveStream s;
+      s.streamId = rs.GetInt64(0).GetValue();
+      s.num = rs.GetInt(1);
+      s.name = std::string(rs.GetString(2).utf8_str().data());
+      s.posterUrl = std::string(rs.GetString(3).utf8_str().data());
+      s.epgChannelId = std::string(rs.GetString(4).utf8_str().data());
+      s.added = rs.GetInt64(5).GetValue();
+      s.categoryId = rs.GetInt(6);
+      s.tvArchive = rs.GetInt(7);
+      s.tvArchiveDuration = rs.GetInt(8);
+      s.customSid = std::string(rs.GetString(9).utf8_str().data());
+      out.push_back(std::move(s));
+    }
+    return out;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetLivePage: %s",
+              e.GetMessage().utf8_str().data());
+    return out;
+  }
+}
+
+int64_t XtreamDatabase::GetLiveCount(int categoryId) const {
+  if (!m_impl->open.load(std::memory_order_acquire) || categoryId <= 0)
+    return 0;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return 0;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  try {
+    Statement stmt = db.PrepareStatement(
+        "SELECT COUNT(*) FROM live_category_map WHERE category_id = ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, categoryId);
+    ResultSet rs = stmt.ExecuteQuery();
+    if (rs.NextRow())
+      return rs.GetInt64(0).GetValue();
+    return 0;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetLiveCount: %s",
+              e.GetMessage().utf8_str().data());
+    return 0;
+  }
+}
+
+XtreamDatabase::LiveStream XtreamDatabase::GetLive(int64_t streamId) const {
+  LiveStream s;
+  if (!m_impl->open.load(std::memory_order_acquire) || streamId <= 0)
+    return s;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return s;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  try {
+    Statement stmt = db.PrepareStatement(
+        "SELECT stream_id, num, name, stream_icon, epg_channel_id, added, "
+        "       category_id, tv_archive, tv_archive_duration, custom_sid "
+        "FROM live_streams WHERE stream_id = ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, wxLongLong(streamId));
+    ResultSet rs = stmt.ExecuteQuery();
+    if (rs.NextRow()) {
+      s.streamId = rs.GetInt64(0).GetValue();
+      s.num = rs.GetInt(1);
+      s.name = std::string(rs.GetString(2).utf8_str().data());
+      s.posterUrl = std::string(rs.GetString(3).utf8_str().data());
+      s.epgChannelId = std::string(rs.GetString(4).utf8_str().data());
+      s.added = rs.GetInt64(5).GetValue();
+      s.categoryId = rs.GetInt(6);
+      s.tvArchive = rs.GetInt(7);
+      s.tvArchiveDuration = rs.GetInt(8);
+      s.customSid = std::string(rs.GetString(9).utf8_str().data());
+    }
+    return s;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetLive: %s",
+              e.GetMessage().utf8_str().data());
+    return s;
+  }
+}
+
+int64_t
+XtreamDatabase::GetLiveStreamIdByTvgId(const std::string &tvgId) const {
+  if (!m_impl->open.load(std::memory_order_acquire) || tvgId.empty())
+    return 0;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return 0;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  try {
+    Statement stmt = db.PrepareStatement(
+        "SELECT stream_id FROM live_streams WHERE epg_channel_id = ? "
+        "LIMIT 1");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, U8(tvgId));
+    ResultSet rs = stmt.ExecuteQuery();
+    if (rs.NextRow())
+      return rs.GetInt64(0).GetValue();
+    return 0;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetLiveStreamIdByTvgId: %s",
+              e.GetMessage().utf8_str().data());
+    return 0;
+  }
+}
+
 } // namespace xtream

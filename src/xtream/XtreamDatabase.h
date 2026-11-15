@@ -92,6 +92,23 @@ public:
     int64_t lastModified = 0;
     int categoryId = 0;
   };
+
+  // ---- Live ----
+  // Соответствует таблице live_streams. categoryId заполняется SAX handler'ом
+  // (get_live_streams → category_id) и используется UpsertLiveBatchAll
+  // для live_category_map.
+  struct LiveStream {
+    int64_t streamId = 0;
+    int num = 0;
+    std::string name;
+    std::string posterUrl;    // stream_icon
+    std::string epgChannelId; // epg_channel_id (для матчинга с XMLTV)
+    int64_t added = 0;
+    int categoryId = 0;
+    int tvArchive = 0;
+    int tvArchiveDuration = 0;
+    std::string customSid;
+  };
   
   // VOD-элементы, добавленные в список (favorites/watchlist), в порядке
   // "последние добавленные сверху". JOIN user_lists × vod_streams.
@@ -233,6 +250,28 @@ public:
   bool ClearAllSeriesCategoryMap();
   bool UpsertSeriesBatchAll(const std::vector<Series> &batch,
                             const std::atomic<bool> &abortFlag);
+
+  // ---- Live batch API для SAX ----
+  // Bulk-замена каталога Live. Вызывать внутри BeginTransaction().
+  // ClearAllLiveCategoryMap: DELETE FROM live_category_map (без WHERE).
+  // UpsertLiveBatchAll: использует s.categoryId (из SAX) для map, не параметр.
+  // Заполняет live_streams через ON CONFLICT(stream_id) DO UPDATE.
+  bool ClearAllLiveCategoryMap();
+  bool UpsertLiveBatchAll(const std::vector<LiveStream> &batch,
+                          const std::atomic<bool> &abortFlag);
+
+  // Keyset pagination: stream_id > afterStreamId, ORDER BY stream_id
+  // LIMIT limit. afterStreamId = 0 — с начала. limit клампится в [1, 5000].
+  std::vector<LiveStream> GetLivePage(int categoryId, int64_t afterStreamId,
+                                      int limit) const;
+  int64_t GetLiveCount(int categoryId) const;
+  LiveStream GetLive(int64_t streamId) const;
+
+  // EPG mapping: stream_id по epg_channel_id.
+  // 0 если epg_channel_id пуст или не найден. Используется в 9.4
+  // (fallback на get_short_epg для каналов без XMLTV).
+  int64_t GetLiveStreamIdByTvgId(const std::string &tvgId) const;
+
   // ---- размер файла БД  ----
   long long FileSizeBytes() const;
   // Пометить, что при Close() (или ~XtreamDatabase) нужно удалить

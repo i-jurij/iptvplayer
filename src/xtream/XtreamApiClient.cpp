@@ -367,6 +367,22 @@ public:
     case Field::CustomSid:
       m_current.customSid = val;
       break;
+    case Field::StreamId:
+    case Field::Added:
+    case Field::CategoryId: {
+      // Некоторые панели присылают числа строкой. Не теряем запись.
+      int64_t n = 0;
+      try { n = std::stoll(val); } catch (...) { n = 0; }
+      Uint64(static_cast<uint64_t>(n));
+      break;
+    }
+    case Field::Rating:
+    case Field::Rating5based: {
+      double d = 0.0;
+      try { d = std::stod(val); } catch (...) { d = 0.0; }
+      Double(d);
+      break;
+    }
     default:
       break;
     }
@@ -581,6 +597,22 @@ public:
     case Field::EpisodeRunTime:
       m_current.episodeRunTime = val;
       break;
+    case Field::SeriesId:
+    case Field::LastModified:
+    case Field::CategoryId: {
+      // Некоторые панели присылают числа строкой. Не теряем запись.
+      int64_t n = 0;
+      try { n = std::stoll(val); } catch (...) { n = 0; }
+      Uint64(static_cast<uint64_t>(n));
+      break;
+    }
+    case Field::Rating:
+    case Field::Rating5based: {
+      double d = 0.0;
+      try { d = std::stod(val); } catch (...) { d = 0.0; }
+      Double(d);
+      break;
+    }
     default:
       break;
     }
@@ -665,6 +697,198 @@ private:
 
   std::vector<XtreamDatabase::Series> m_batch;
   XtreamDatabase::Series m_current;
+  Field m_field = Field::None;
+
+  bool m_error = false;
+  bool m_cancelled = false;
+  size_t m_totalInserted = 0;
+};
+
+// SAX handler для get_live_streams: массив объектов.
+// Поля Xtream: stream_id, num, name, stream_icon, epg_channel_id, added,
+// category_id, tv_archive (0/1/bool/string), tv_archive_duration, custom_sid.
+// Числовые поля, пришедшие строкой, конвертируются (см. String()).
+class LiveStreamSaxHandler
+    : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>,
+                                          LiveStreamSaxHandler> {
+public:
+  using FlushFn =
+      std::function<bool(const std::vector<XtreamDatabase::LiveStream> &)>;
+
+  static constexpr size_t kBatchSize = 5000;
+
+  LiveStreamSaxHandler(FlushFn flush, const std::atomic<bool> &cancel,
+                       XtreamApiClient::ProgressFn progress)
+      : m_flush(std::move(flush)), m_cancel(cancel),
+        m_progress(std::move(progress)) {
+    m_batch.reserve(kBatchSize);
+  }
+
+  bool StartObject() {
+    m_current = XtreamDatabase::LiveStream{};
+    m_field = Field::None;
+    return true;
+  }
+
+  bool Key(const char *str, rapidjson::SizeType len, bool) {
+    const std::string key(str, len);
+    if (key == "stream_id")
+      m_field = Field::StreamId;
+    else if (key == "name")
+      m_field = Field::Name;
+    else if (key == "stream_icon")
+      m_field = Field::StreamIcon;
+    else if (key == "epg_channel_id")
+      m_field = Field::EpgChannelId;
+    else if (key == "added")
+      m_field = Field::Added;
+    else if (key == "category_id")
+      m_field = Field::CategoryId;
+    else if (key == "num")
+      m_field = Field::Num;
+    else if (key == "tv_archive")
+      m_field = Field::TvArchive;
+    else if (key == "tv_archive_duration")
+      m_field = Field::TvArchiveDuration;
+    else if (key == "custom_sid")
+      m_field = Field::CustomSid;
+    else
+      m_field = Field::None;
+    return true;
+  }
+
+  bool Int64(int64_t v) {
+    if (m_field == Field::StreamId)
+      m_current.streamId = v;
+    else if (m_field == Field::Added)
+      m_current.added = v;
+    else if (m_field == Field::CategoryId)
+      m_current.categoryId = static_cast<int>(v);
+    else if (m_field == Field::Num)
+      m_current.num = static_cast<int>(v);
+    else if (m_field == Field::TvArchive)
+      m_current.tvArchive = (v != 0) ? 1 : 0;
+    else if (m_field == Field::TvArchiveDuration)
+      m_current.tvArchiveDuration = static_cast<int>(v);
+    return true;
+  }
+
+  bool Uint64(uint64_t v) { return Int64(static_cast<int64_t>(v)); }
+  bool Int(int v) { return Int64(v); }
+  bool Uint(unsigned v) { return Int64(static_cast<int64_t>(v)); }
+
+  bool Bool(bool b) {
+    if (m_field == Field::TvArchive)
+      m_current.tvArchive = b ? 1 : 0;
+    return true;
+  }
+
+  bool String(const char *str, rapidjson::SizeType len, bool) {
+    const std::string val(str, len);
+    switch (m_field) {
+    case Field::Name:
+      m_current.name = val;
+      break;
+    case Field::StreamIcon:
+      m_current.posterUrl = val;
+      break;
+    case Field::EpgChannelId:
+      m_current.epgChannelId = val;
+      break;
+    case Field::CustomSid:
+      m_current.customSid = val;
+      break;
+    case Field::StreamId:
+    case Field::Added:
+    case Field::CategoryId:
+    case Field::Num:
+    case Field::TvArchive:
+    case Field::TvArchiveDuration: {
+      // Числовое поле пришло строкой. Не теряем запись.
+      int64_t n = 0;
+      try { n = std::stoll(val); } catch (...) { n = 0; }
+      Int64(n);
+      break;
+    }
+    default:
+      break;
+    }
+    return true;
+  }
+
+  bool EndObject(rapidjson::SizeType) {
+    if (m_current.streamId <= 0)
+      return true;
+
+    m_batch.push_back(std::move(m_current));
+    m_current = XtreamDatabase::LiveStream{};
+
+    if ((m_batch.size() % 1000) == 0 && m_cancel.load()) {
+      m_cancelled = true;
+      return false;
+    }
+
+    if (m_batch.size() >= kBatchSize && !FlushBatch())
+      return false;
+
+    return true;
+  }
+
+  bool EndArray(rapidjson::SizeType) {
+    if (!FlushBatch())
+      return false;
+    return true;
+  }
+
+  bool HasError() const { return m_error; }
+  bool WasCancelled() const { return m_cancelled; }
+  size_t TotalInserted() const { return m_totalInserted; }
+
+private:
+  bool FlushBatch() {
+    if (m_batch.empty())
+      return true;
+
+    if (m_cancel.load()) {
+      m_cancelled = true;
+      return false;
+    }
+
+    if (!m_flush(m_batch)) {
+      m_error = true;
+      return false;
+    }
+
+    m_totalInserted += m_batch.size();
+    m_batch.clear();
+
+    if (m_progress) {
+      m_progress(-1, "Live: " + std::to_string(m_totalInserted) + " items");
+    }
+
+    return true;
+  }
+
+  enum class Field {
+    None,
+    StreamId,
+    Name,
+    StreamIcon,
+    EpgChannelId,
+    Added,
+    CategoryId,
+    Num,
+    TvArchive,
+    TvArchiveDuration,
+    CustomSid
+  };
+
+  FlushFn m_flush;
+  const std::atomic<bool> &m_cancel;
+  XtreamApiClient::ProgressFn m_progress;
+
+  std::vector<XtreamDatabase::LiveStream> m_batch;
+  XtreamDatabase::LiveStream m_current;
   Field m_field = Field::None;
 
   bool m_error = false;
@@ -1121,6 +1345,10 @@ template HttpStreamResult
 XtreamApiClient::HttpGetStreaming<SeriesSaxHandler>(
     const Playlist &, const std::string &, int, const std::atomic<bool> &,
     SeriesSaxHandler &);
+template HttpStreamResult
+XtreamApiClient::HttpGetStreaming<LiveStreamSaxHandler>(
+    const Playlist &, const std::string &, int, const std::atomic<bool> &,
+    LiveStreamSaxHandler &);
 
 XtreamApiClient::AuthResult XtreamApiClient::Auth(const Playlist &pl) {
   m_cancel.store(false);
@@ -1750,6 +1978,138 @@ bool XtreamApiClient::RefreshAllSeries(const Playlist &pl, XtreamDatabase &db,
     progress(100, "Series: " + std::to_string(totalInserted) + " items (all)");
 
   LOG_INFO("XtreamApiClient::RefreshAllSeries: %zu items", totalInserted);
+  return true;
+}
+
+bool XtreamApiClient::RefreshAllLive(const Playlist &pl, XtreamDatabase &db,
+                                     XtreamApiClient::ProgressFn progress,
+                                     const std::atomic<bool> &cancelFlag) {
+  SyncMetaToDb(pl, db);
+
+  const Endpoint ep = ResolveEndpoint(pl);
+  if (!ep.ok) {
+    LOG_WARN("XtreamApiClient::RefreshAllLive: no endpoint for '%s'",
+             pl.getTitle().c_str());
+    return false;
+  }
+
+  const wxString apiUrl =
+      wxString::FromUTF8(ep.base) +
+      "/player_api.php?username=" + UrlEncode(wxString::FromUTF8(ep.user)) +
+      "&password=" + UrlEncode(wxString::FromUTF8(ep.pass)) +
+      "&action=get_live_streams";
+
+  if (progress)
+    progress(-1, "Live: downloading all streams");
+
+  // Retry-loop — тот же паттерн, что в RefreshAllVod/RefreshAllSeries.
+  constexpr int kMaxAttempts = 3;
+  constexpr int kBackoffMs[kMaxAttempts - 1] = {2000, 4000};
+
+  bool committed = false;
+  size_t totalInserted = 0;
+  HttpStreamResult lastResult;
+
+  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    if (attempt > 0) {
+      const int waitMs = kBackoffMs[attempt - 1] + JitterMs();
+      LOG_INFO("XtreamApiClient::RefreshAllLive: retry %d/%d in %d ms",
+               attempt, kMaxAttempts - 1, waitMs);
+      std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
+      if (cancelFlag.load()) {
+        LOG_INFO("XtreamApiClient::RefreshAllLive: cancelled during retry");
+        return false;
+      }
+    }
+
+    if (!db.BeginTransaction()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllLive: cannot start transaction");
+      return false;
+    }
+    if (!db.ClearAllLiveCategoryMap()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllLive: ClearAllLiveCategoryMap "
+                "failed");
+      db.Rollback();
+      return false;
+    }
+
+    LiveStreamSaxHandler handler(
+        [&db, &cancelFlag](const std::vector<XtreamDatabase::LiveStream> &batch)
+            -> bool { return db.UpsertLiveBatchAll(batch, cancelFlag); },
+        cancelFlag, progress);
+
+    lastResult = HttpGetStreaming(pl, U8(apiUrl), 300, cancelFlag, handler);
+
+    if (lastResult.Ok() && !handler.WasCancelled() && !handler.HasError()) {
+      db.SetMeta("last_update_live", std::to_string(std::time(nullptr)));
+      if (!db.Commit()) {
+        LOG_ERROR("XtreamApiClient::RefreshAllLive: COMMIT failed");
+        db.Rollback();
+        return false;
+      }
+      totalInserted = handler.TotalInserted();
+      committed = true;
+      break;
+    }
+
+    db.Rollback();
+
+    if (lastResult.cancelled || handler.WasCancelled()) {
+      LOG_INFO("XtreamApiClient::RefreshAllLive: cancelled (inserted %zu)",
+               handler.TotalInserted());
+      return false;
+    }
+    if (handler.HasError()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllLive: DB error (inserted %zu)",
+                handler.TotalInserted());
+      return false;
+    }
+    if (lastResult.parse.IsError()) {
+      LOG_ERROR("XtreamApiClient::RefreshAllLive: parse error at offset %zu: "
+                "%s (httpCode=%ld)",
+                lastResult.parse.Offset(),
+                rapidjson::GetParseError_En(lastResult.parse.Code()),
+                lastResult.httpCode);
+      return false;
+    }
+    if (!IsStreamingRetryable(lastResult)) {
+      LOG_WARN("XtreamApiClient::RefreshAllLive: non-retryable failure "
+               "(httpCode=%ld, curlCode=%d: %s)",
+               lastResult.httpCode, lastResult.curlCode,
+               lastResult.curlError.c_str());
+      return false;
+    }
+
+    LOG_WARN("XtreamApiClient::RefreshAllLive: attempt %d/%d failed "
+             "(httpCode=%ld, curlCode=%d: %s); will retry",
+             attempt + 1, kMaxAttempts, lastResult.httpCode,
+             lastResult.curlCode, lastResult.curlError.c_str());
+  }
+
+  if (!committed) {
+    LOG_WARN("XtreamApiClient::RefreshAllLive: failed after %d attempts "
+             "(httpCode=%ld, curlCode=%d: %s)",
+             kMaxAttempts, lastResult.httpCode, lastResult.curlCode,
+             lastResult.curlError.c_str());
+    return false;
+  }
+
+  db.SetMeta("has_live", "1");
+
+  if (!s_xtreamSizeWarned.load(std::memory_order_relaxed)) {
+    const long long sz = db.FileSizeBytes();
+    if (sz > kXtreamCacheSoftLimitBytes) {
+      LOG_WARN("Xtream cache exceeded 2 GB (%.2f GB). Consider clearing in "
+               "Settings → Xtream → Clear Xtream cache.",
+               sz / (1024.0 * 1024.0 * 1024.0));
+      s_xtreamSizeWarned.store(true, std::memory_order_relaxed);
+    }
+  }
+
+  if (progress)
+    progress(100, "Live: " + std::to_string(totalInserted) + " items (all)");
+
+  LOG_INFO("XtreamApiClient::RefreshAllLive: %zu items", totalInserted);
   return true;
 }
 
