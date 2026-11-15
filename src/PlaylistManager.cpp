@@ -339,6 +339,55 @@ PlaylistManager::RefreshLiveCatalog(const Playlist &playlist) {
   return result;
 }
 
+int PlaylistManager::GetCatchupStyle(const Playlist &playlist) {
+  const std::string uuid = playlist.getUniqueId();
+  if (uuid.empty())
+    return 1;
+
+  xtream::XtreamDatabase *db = GetXtreamDb(playlist);
+  if (!db || !m_xtreamClient)
+    return 1;
+
+  // Читаем сохранённый стиль из meta.
+  const std::string cached = db->GetMeta("catchup_style");
+  if (cached == "1" || cached == "2")
+    return std::stoi(cached);
+
+  // Проба: первый live-канал с tv_archive.
+  auto streams = db->GetAllLiveStreams();
+  const xtream::XtreamDatabase::LiveStream *probe = nullptr;
+  for (const auto &s : streams) {
+    if (s.tvArchive > 0 && s.tvArchiveDuration > 0) {
+      probe = &s;
+      break;
+    }
+  }
+  if (!probe)
+    return 1;
+
+  const time_t now = std::time(nullptr);
+  const int64_t startUtc = static_cast<int64_t>(now) - 3600;
+  const int durationMin = 60;
+
+  auto tryUrl = [&](bool queryStyle) -> bool {
+    const std::string url = m_xtreamClient->BuildCatchupUrl(
+        playlist, probe->streamId, startUtc, durationMin, queryStyle);
+    if (url.empty())
+      return false;
+    UrlAvailabilityResult r = CheckUrlAvailability(url, "", 3, 1024 * 1024);
+    return r.available;
+  };
+
+  int style = 1;
+  if (!tryUrl(false) && tryUrl(true))
+    style = 2;
+
+  db->SetMeta("catchup_style", std::to_string(style));
+  LOG_INFO("PlaylistManager::GetCatchupStyle: '%s' → %s", uuid.c_str(),
+           style == 2 ? "query" : "path");
+  return style;
+}
+
 ErrorCode PlaylistManager::RefreshXtreamCatalog(Playlist *playlist) {
   if (!playlist || !playlist->isXtream()) {
     setLastError("RefreshXtreamCatalog: not Xtream playlist");

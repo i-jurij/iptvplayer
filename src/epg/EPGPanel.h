@@ -1,6 +1,10 @@
 #ifndef EPGPANEL_H
 #define EPGPANEL_H
 
+#include "Channel.h"
+#include "EPGData.h"
+#include "EPGManager.h"
+
 #include <wx/button.h>
 #include <wx/gauge.h>
 #include <wx/grid.h>
@@ -9,9 +13,8 @@
 #include <wx/textctrl.h>
 #include <wx/timer.h>
 
-#include "Channel.h"
-#include "EPGData.h"
-#include "EPGManager.h"
+#include <atomic>
+#include <memory>
 
 class MainFrame;
 
@@ -60,6 +63,26 @@ private:
   time_t m_currentDate;
   std::vector<EpgProgram> m_currentPrograms;
   EPGManager *m_epgManager;
+
+  // async EPG request tracking.
+  // m_pendingRequestId — монотонный счётчик. Callback применяет результат
+  // только если id совпадает (защита от stale callbacks при быстром
+  // переключении каналов/дат).
+  // m_pendingCancelFlag — cancel-флаг текущего фонового запроса. Новый
+  // LoadProgramsForChannel или ~EPGPanel устанавливает *flag = true → curl
+  // abort (быстрое завершение).
+  uint64_t m_pendingRequestId = 0;
+  std::shared_ptr<std::atomic<bool>> m_pendingCancelFlag;
+
+  // Заполняет grid полученными программами (после async).
+  // m_currentPrograms обновляется; grid НЕ очищается (caller очистил).
+  void RenderPrograms(const std::vector<EpgProgram> &programs);
+
+  // кнопка Play — live или catch-up в зависимости от выбранной
+  // программы. Disabled для будущих и для прошедших вне окна архива.
+  void UpdatePlayButtonState();
+  bool IsProgramInArchive(const EpgProgram &prog) const;
+  int64_t GetCurrentChannelArchiveDuration() const;
 
   bool m_isActive;
   void SetupUI();

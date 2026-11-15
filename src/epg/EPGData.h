@@ -27,6 +27,10 @@ struct EpgProgram {
   std::string category;
   time_t startTime = 0;
   time_t stopTime = 0;
+  // provider reports archive availability (get_short_epg.has_archive).
+  // XMLTV programs always have hasArchive=false (source doesn't provide it).
+  // Used in Catch-up UI.
+  bool hasArchive = false;
 
   bool IsCurrent() const;
 };

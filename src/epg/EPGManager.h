@@ -77,6 +77,23 @@ public:
   // с ограниченным временем жизни, оборачивайте их в wxWeakRef.
   static bool SafeCallAfter(std::function<void()> fn);
 
+  // async EPG с fallback на get_short_epg.
+  // Логика:
+  //   1) epg.db (XMLTV) — приоритет. Если программы есть → callback сразу.
+  //   2) Только для date == today. Для других дат → callback с пустым.
+  //   3) In-memory кэш get_short_epg (TTL 15 мин, лимит 200 каналов LRU).
+  //   4) Async fetch get_short_epg в фоне (curl cancel через cancelFlag).
+  //      → кэш → callback через SafeCallAfter (main thread).
+  // cancelFlag: shared_ptr<atomic<bool>>. Caller устанавливает *flag = true
+  // для отмены (новый запрос / закрытие панели). Callback НЕ вызывается
+  // после отмены.
+  using ProgramsCallback =
+      std::function<void(const std::vector<EpgProgram> &)>;
+  void RequestProgramsForChannelAsync(
+      const std::string &playlistId, const std::string &tvgId,
+      const std::string &channelName, time_t date,
+      std::shared_ptr<std::atomic<bool>> cancelFlag, ProgramsCallback cb);
+
   bool LoadFromFile(const std::string &filePath);
   void SetDbPath(const std::string &path);
   bool OpenDatabase();
@@ -297,6 +314,17 @@ private:
   mutable std::unordered_map<std::string, std::string> m_epgNameCache;
   mutable std::mutex m_epgNameCacheMutex;
   void UpdateEpgNameCache();
+
+  // in-memory кэш get_short_epg (по stream_id).
+  struct ShortEpgCacheEntry {
+    std::vector<EpgProgram> programs;
+    std::chrono::steady_clock::time_point expiresAt;
+    std::chrono::steady_clock::time_point lastAccess;
+  };
+  std::unordered_map<int64_t, ShortEpgCacheEntry> m_shortEpgCache;
+  std::mutex m_shortEpgCacheMutex;
+  static constexpr int kShortEpgTtlMinutes = 15;
+  static constexpr size_t kShortEpgMaxChannels = 200;
 
   // Пороги матчинга
   int m_fuzzyThreshold = 85;

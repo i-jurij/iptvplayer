@@ -162,6 +162,15 @@ public:
   // MainFrame lazy trigger при первом входе на Channels (фоновый поток).
   LiveRefreshResult RefreshLiveCatalog(const Playlist &playlist);
 
+  // стиль Catch-up URL для плейлиста.
+  // 1 — path-style (/timeshift/...), 2 — query-style
+  // (/streaming/timeshift.php?...).
+  // Читается из XtreamDatabase.meta["catchup_style"], при отсутствии —
+  // проба (CheckUrlAvailability, 3 сек), результат пишется в meta.
+  // Persistent: переживает рестарт. Сброс — только через
+  // «Clear Xtream cache» (удаляет БД).
+  int GetCatchupStyle(const Playlist &playlist);
+
 private:
   // Полный рефреш Xtream-каталога: RefreshAllLive + RefreshAllVod +
   // RefreshAllSeries + категории. Мутирует playlist->setChannels() и

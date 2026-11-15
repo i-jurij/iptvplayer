@@ -4,6 +4,7 @@
 #include "../HashUtils.h"
 #include "../LogControl.h"
 #include "../PlaylistManager.h"
+#include "xtream/XtreamDatabase.h"
 #include "Application.h"
 #include "EPGParserExpat.h"
 #include "EventIDs.h"
@@ -1349,6 +1350,134 @@ EPGManager::GetProgramsForChannel(const std::string &tvgId,
     return result;
 
   return m_db->GetProgramsForChannel(channelId, startOfDay, endOfDay);
+}
+
+void EPGManager::RequestProgramsForChannelAsync(
+    const std::string &playlistId, const std::string &tvgId,
+    const std::string &channelName, time_t date,
+    std::shared_ptr<std::atomic<bool>> cancelFlag, ProgramsCallback cb) {
+  if (!cb)
+    return;
+
+  // 1) epg.db (XMLTV) — приоритет.
+  auto fromDb = GetProgramsForChannel(tvgId, channelName, date);
+  if (!fromDb.empty()) {
+    cb(fromDb);
+    return;
+  }
+
+  // 2) Только для today.
+  const time_t today = EpgTime::GetStartOfDay(EpgTime::GetCurrentUtcEpoch());
+  const time_t reqStart = EpgTime::GetStartOfDay(date);
+  if (reqStart <= 0 || reqStart != today) {
+    cb({});
+    return;
+  }
+
+  // 3) Xtream-плейлист.
+  if (playlistId.empty() || playlistId == FAVORITES_PLAYLIST_ID) {
+    cb({});
+    return;
+  }
+  Playlist *pl = m_playlistManager
+                     ? m_playlistManager->findByUniqueId(playlistId)
+                     : nullptr;
+  if (!pl || !pl->isXtream()) {
+    cb({});
+    return;
+  }
+  auto *client = m_playlistManager->GetXtreamClient();
+  if (!client) {
+    cb({});
+    return;
+  }
+
+  // 4) tvgId → streamId (XtreamDatabase, не EPGDatabase).
+  if (tvgId.empty()) {
+    cb({});
+    return;
+  }
+  int64_t streamId = 0;
+  if (auto dbShared = m_playlistManager->GetXtreamDbShared(*pl)) {
+    streamId = dbShared->GetLiveStreamIdByTvgId(tvgId);
+  }
+  if (streamId <= 0) {
+    cb({});
+    return;
+  }
+
+  // 5) In-memory кэш.
+  {
+    std::lock_guard<std::mutex> lock(m_shortEpgCacheMutex);
+    auto it = m_shortEpgCache.find(streamId);
+    const auto now = std::chrono::steady_clock::now();
+    if (it != m_shortEpgCache.end() && it->second.expiresAt > now) {
+      it->second.lastAccess = now;
+      auto cached = it->second.programs;
+      cb(cached);
+      return;
+    }
+  }
+
+  // 6) Async fetch (curl cancel через *cancelFlag).
+  if (!cancelFlag)
+    cancelFlag = std::make_shared<std::atomic<bool>>(false);
+
+  const Playlist plCopy = *pl;
+  const std::string tvgIdCopy = tvgId;
+  wxWeakRef<EPGManager> weakThis(this);
+
+  std::thread([weakThis, client, plCopy, streamId, tvgIdCopy, cancelFlag,
+               cb]() {
+    if (cancelFlag->load())
+      return;
+
+    auto shortProgs =
+        client->GetShortEpg(plCopy, streamId, *cancelFlag, 10);
+    if (cancelFlag->load())
+      return;
+
+    std::vector<EpgProgram> out;
+    out.reserve(shortProgs.size());
+    for (const auto &p : shortProgs) {
+      EpgProgram e;
+      e.channelId = tvgIdCopy;
+      e.title = p.title;
+      e.description = p.description;
+      e.startTime = static_cast<time_t>(p.startUtc);
+      e.stopTime = static_cast<time_t>(p.stopUtc);
+      e.hasArchive = p.hasArchive;
+      out.push_back(std::move(e));
+    }
+
+    SafeCallAfter([weakThis, streamId, out, cb]() {
+      auto *self = weakThis.get();
+      if (!self)
+        return;
+
+      {
+        std::lock_guard<std::mutex> lock(self->m_shortEpgCacheMutex);
+        const auto now = std::chrono::steady_clock::now();
+        auto &entry = self->m_shortEpgCache[streamId];
+        entry.programs = out;
+        entry.expiresAt =
+            now + std::chrono::minutes(EPGManager::kShortEpgTtlMinutes);
+        entry.lastAccess = now;
+        while (self->m_shortEpgCache.size() >
+               EPGManager::kShortEpgMaxChannels) {
+          auto oldest = self->m_shortEpgCache.begin();
+          for (auto it = std::next(self->m_shortEpgCache.begin());
+               it != self->m_shortEpgCache.end(); ++it) {
+            if (it->second.lastAccess < oldest->second.lastAccess)
+              oldest = it;
+          }
+          self->m_shortEpgCache.erase(oldest);
+        }
+      }
+
+      cb(out);
+    });
+  }).detach();
 }
 
 EpgProgram EPGManager::GetCurrentProgram(const std::string &tvgId) const {

@@ -91,7 +91,10 @@ public:
   std::vector<Category> GetCategories(const Playlist &pl, CategoryType type);
   // get_short_epg. streamId — live_streams.stream_id (не VOD!).
   // limit 1..100 (default 10). Возвращает пустой вектор при ошибке.
+  // cancelFlag — per-call cancel (через HttpGetWithCancel).
+  // Не сбрасывает общий m_cancel — параллельные операции не задеты.
   std::vector<ShortEpgProgram> GetShortEpg(const Playlist &pl, int64_t streamId,
+                                           const std::atomic<bool> &cancelFlag,
                                            int limit = 10);
 
   // ---- VOD ----

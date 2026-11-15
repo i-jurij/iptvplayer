@@ -2395,9 +2395,8 @@ std::string XtreamApiClient::BuildCatchupUrl(const Playlist &pl,
 }
 
 std::vector<XtreamApiClient::ShortEpgProgram>
-XtreamApiClient::GetShortEpg(const Playlist &pl, int64_t streamId, int limit) {
-  m_cancel.store(false);
-
+XtreamApiClient::GetShortEpg(const Playlist &pl, int64_t streamId,
+                             const std::atomic<bool> &cancelFlag, int limit) {
   std::vector<ShortEpgProgram> out;
   if (streamId <= 0)
     return out;
@@ -2421,7 +2420,7 @@ XtreamApiClient::GetShortEpg(const Playlist &pl, int64_t streamId, int limit) {
       wxString::Format("%lld", static_cast<long long>(streamId)) +
       "&limit=" + wxString::Format("%d", limit);
 
-  HttpResponse resp = HttpGet(pl, U8(apiUrl), 15);
+  HttpResponse resp = HttpGetWithCancel(pl, U8(apiUrl), 15, cancelFlag);
   if (!resp.ok)
     return out;
 

@@ -36,7 +36,10 @@ EPGPanel::EPGPanel(wxWindow *parent, MainFrame *mainFrame)
   SetupUI();
 }
 
-EPGPanel::~EPGPanel() = default;
+EPGPanel::~EPGPanel() {
+  if (m_pendingCancelFlag)
+    *m_pendingCancelFlag = true;
+}
 
 void EPGPanel::UpdateHeader() {
   wxString label;
@@ -214,6 +217,11 @@ void EPGPanel::SetChannel(const Channel &channel) {
 
 void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
                                       time_t date) {
+  // Отменить предыдущий pending-запрос.
+  if (m_pendingCancelFlag)
+    *m_pendingCancelFlag = true;
+  m_pendingCancelFlag.reset();
+
   // Очистка сетки
   m_programGrid->ClearGrid();
   if (m_programGrid->GetNumberRows() > 0)
@@ -221,6 +229,9 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
 
   m_detailTitle->SetLabel("");
   m_detailDesc->SetValue("");
+  m_currentPrograms.clear();
+
+  UpdateDateLabel();
 
   if (!m_epgManager) {
     LOG_ERROR("EPGPanel: EPGManager is null");
@@ -263,9 +274,42 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
     return;
   }
 
-  // Получаем программы
-  auto programs = m_epgManager->GetProgramsForChannel(
-      channelId, m_currentChannelName, date);
+  // 9.4: async запрос. epg.db приоритет → кэш get_short_epg → fetch.
+  const uint64_t reqId = ++m_pendingRequestId;
+  m_pendingCancelFlag = std::make_shared<std::atomic<bool>>(false);
+  auto cancelFlag = m_pendingCancelFlag;
+
+  std::string playlistId;
+  if (m_mainFrame)
+    playlistId = m_mainFrame->GetCurrentPlaylistId();
+
+  const std::string reqChannelId = channelId;
+  const std::string reqChannelName = m_currentChannelName;
+  const time_t reqDate = date;
+
+  wxWeakRef<EPGPanel> weakThis(this);
+  m_epgManager->RequestProgramsForChannelAsync(
+      playlistId, reqChannelId, reqChannelName, reqDate, cancelFlag,
+      [weakThis, reqId, reqChannelId, reqDate](
+          const std::vector<EpgProgram> &programs) {
+        auto *self = weakThis.get();
+        if (!self || self->IsBeingDeleted())
+          return;
+        if (self->m_pendingRequestId != reqId)
+          return;
+        if (self->m_currentChannelId != reqChannelId)
+          return;
+        if (self->m_currentDate != reqDate)
+          return;
+        self->RenderPrograms(programs);
+      });
+}
+
+void EPGPanel::RenderPrograms(const std::vector<EpgProgram> &programs) {
+  // Grid уже очищен в LoadProgramsForChannel.
+  if (m_programGrid->GetNumberRows() > 0)
+    m_programGrid->DeleteRows(0, m_programGrid->GetNumberRows());
+
   m_currentPrograms = programs;
 
   if (programs.empty()) {
@@ -274,10 +318,9 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
     m_programGrid->SetCellValue(0, 1, _U("No programs for this date"));
     m_programGrid->SetCellValue(0, 2, "");
     AdjustProgramColumns();
+    UpdateHeader();
     return;
   }
-
-  UpdateDateLabel();
 
   int row = 0;
   for (const auto &prog : programs) {
@@ -299,15 +342,80 @@ void EPGPanel::LoadProgramsForChannel(const std::string &channelId,
   int currentRow = -1;
   for (size_t i = 0; i < m_currentPrograms.size(); ++i) {
     if (m_currentPrograms[i].IsCurrent()) {
-      currentRow = (int)i;
+      currentRow = static_cast<int>(i);
       break;
     }
   }
-  if (currentRow != -1) {
+  if (currentRow != -1)
     SelectProgramRow(currentRow);
-  }
-  
+
+  UpdatePlayButtonState();
   UpdateHeader();
+}
+
+void EPGPanel::UpdatePlayButtonState() {
+  if (!m_playBtn)
+    return;
+
+  // Нет канала / MainFrame — нельзя играть.
+  if (!m_mainFrame || m_currentChannel.getUrl().empty()) {
+    m_playBtn->Enable(false);
+    return;
+  }
+
+  const int row = m_programGrid ? m_programGrid->GetGridCursorRow() : -1;
+  if (row < 0 || row >= static_cast<int>(m_currentPrograms.size())) {
+    // Нет выбора — default live.
+    m_playBtn->Enable(true);
+    return;
+  }
+
+  const EpgProgram &prog = m_currentPrograms[row];
+  const time_t now = std::time(nullptr);
+
+  if (prog.stopTime < now) {
+    // Прошедшая — только если в архиве.
+    m_playBtn->Enable(IsProgramInArchive(prog));
+    return;
+  }
+
+  if (prog.startTime > now) {
+    // Будущая — ни live, ни archive.
+    m_playBtn->Enable(false);
+    return;
+  }
+
+  // Текущая — live.
+  m_playBtn->Enable(true);
+}
+
+bool EPGPanel::IsProgramInArchive(const EpgProgram &prog) const {
+  const time_t now = std::time(nullptr);
+  if (prog.stopTime >= now)
+    return false;
+  const int64_t dur = GetCurrentChannelArchiveDuration();
+  if (dur <= 0)
+    return false;
+  return prog.startTime >= (now - dur * 3600);
+}
+
+int64_t EPGPanel::GetCurrentChannelArchiveDuration() const {
+  if (!m_mainFrame)
+    return 0;
+  Playlist *pl = m_mainFrame->GetLoadedPlaylist();
+  if (!pl || !pl->isXtream())
+    return 0;
+  auto *mgr = m_mainFrame->getPlaylistManager();
+  if (!mgr)
+    return 0;
+  xtream::XtreamDatabase *db = mgr->GetXtreamDb(*pl);
+  if (!db)
+    return 0;
+  const int64_t sid = m_currentChannel.getStreamId();
+  if (sid <= 0)
+    return 0;
+  auto live = db->GetLive(sid);
+  return live.tvArchiveDuration > 0 ? live.tvArchiveDuration : 0;
 }
 
 // ----------------------------------------------------------------------------
@@ -352,6 +460,7 @@ void EPGPanel::OnProgramSelected(wxGridEvent &event) {
   const EpgProgram &prog = m_currentPrograms[row];
   m_detailTitle->SetLabel(wxString::FromUTF8(prog.title));
   m_detailDesc->SetValue(wxString::FromUTF8(prog.description));
+  UpdatePlayButtonState();
 }
 
 // ----------------------------------------------------------------------------
@@ -424,9 +533,15 @@ void EPGPanel::SelectProgramRow(int row) {
     m_detailTitle->SetLabel(wxString::FromUTF8(prog.title));
     m_detailDesc->SetValue(wxString::FromUTF8(prog.description));
   }
+  UpdatePlayButtonState();
 }
 
 void EPGPanel::Clear() {
+  if (m_pendingCancelFlag)
+    *m_pendingCancelFlag = true;
+  m_pendingCancelFlag.reset();
+  m_pendingRequestId++;
+
   m_currentChannel = Channel();
   m_currentChannelId.clear();
   m_currentChannelName.clear();
@@ -452,5 +567,34 @@ void EPGPanel::OnPlay(wxCommandEvent &) {
     return;
   if (m_currentChannel.getUrl().empty())
     return;
+
+  // если выбрана прошедшая программа и она в архиве — catch-up URL. Иначе — live.
+  const int row = m_programGrid ? m_programGrid->GetGridCursorRow() : -1;
+  if (row >= 0 && row < static_cast<int>(m_currentPrograms.size())) {
+    const EpgProgram &prog = m_currentPrograms[row];
+    if (IsProgramInArchive(prog)) {
+      Playlist *pl = m_mainFrame->GetLoadedPlaylist();
+      auto *mgr = m_mainFrame->getPlaylistManager();
+      if (pl && pl->isXtream() && mgr) {
+        auto *client = mgr->GetXtreamClient();
+        if (client) {
+          const int style = mgr->GetCatchupStyle(*pl);
+          const int durationMin = static_cast<int>(
+              std::max<int64_t>(1, (prog.stopTime - prog.startTime) / 60));
+          const std::string url = client->BuildCatchupUrl(
+              *pl, m_currentChannel.getStreamId(),
+              static_cast<int64_t>(prog.startTime), durationMin, style == 2);
+          if (!url.empty()) {
+            Channel ch = m_currentChannel;
+            ch.setUrl(url);
+            m_mainFrame->PlayChannel(ch);
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  // Live
   m_mainFrame->PlayChannel(m_currentChannel);
 }
