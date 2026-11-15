@@ -566,7 +566,7 @@ deps_upgrade_with_prompt() {
         deps_upgrade || warn "deps_upgrade failed, continuing"
         log "If kernel, systemd or glibc were upgraded, a reboot is required"
         log "before building - the current session still uses the old libraries."
-        if ask "Reboot now? [Y/n]:" y; then
+        if ask "Reboot now? [y/N]:" n; then
             log "Rebooting. Rerun this command after login."
             _IPTV_CLEANUP_DONE=1
             $SUDO reboot
