@@ -48,7 +48,7 @@ Pick the artifact that matches your system:
 | :--- | :--- |
 | `iptvplayer-linux-<arch>-<version>-sharun.AppImage` | Any Linux, including old glibc, musl systems (Alpine, Void-musl), NixOS without FHS |
 | `iptvplayer_<version>_<distro>_<deb-arch>.deb` | Ubuntu 24.04+, Debian 13+ |
-| `iptvplayer-<version>-1.<distro>.<rpm-arch>.rpm` | Fedora 44+, Rocky 10+, RHEL 10 (with EPEL), OracleLinux R10, AlmaLinux 10, Alt p11, Rosa 13, OpenSuse Leap 16, OpenMandriva 6.0, Mageia 10 |
+| `iptvplayer-<version>-1.<distro>.<rpm-arch>.rpm` | Fedora, RHEL and RHEL-compatible distributions (Rocky Linux, AlmaLinux, CentOS Stream, Oracle Linux), ALT, ROSA, openSUSE Leap, OpenMandriva, Mageia. Built on Rocky Linux 9 (EL9); needs a distro at the same or newer EL level. |
 | `iptvplayer-<version>-1-<distro>-<arch>.pkg.tar.zst` | Arch Linux, CachyOS, EndeavourOS (current glibc) |
 | `iptvplayer-<version>-1-<distro>-<arch>-compat.pkg.tar.zst` | Manjaro, Garuda, UBLinux (glibc 2.42+) |
 
