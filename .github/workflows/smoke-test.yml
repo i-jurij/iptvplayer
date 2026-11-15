@@ -527,12 +527,9 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          # Release may contain RPMs built for multiple distros with the same
-          # Name/Version/Release. Installing them together conflicts; select
-          # only the one matching pkg_distro.
           pkgs=()
           for f in dist/*.rpm; do
-            [[ "$(basename "$f")" == *"-${PKG_DISTRO}."* ]] && pkgs+=("$f")
+            [[ "$(basename "$f")" == *".${PKG_DISTRO}."* ]] && pkgs+=("$f")
           done
           (( ${#pkgs[@]} > 0 )) || { echo "::error::no .rpm for $PKG_DISTRO in dist/"; ls dist/; exit 1; }
           echo "[i] installing: ${pkgs[*]}"
