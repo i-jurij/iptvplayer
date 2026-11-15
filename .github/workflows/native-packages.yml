@@ -7,7 +7,7 @@ on:
         description: 'JSON-массив имён таргетов'
         required: false
         type: string
-        default: '["ubuntu-24.04","debian-13","rocky-10"]'
+        default: '["ubuntu-24.04","debian-13","rocky-9"]'
     secrets:
       GPG_PRIVATE_KEY:
         required: false
@@ -20,10 +20,10 @@ on:
         required: true
         type: choice
         options:
-          - '["ubuntu-24.04","debian-13","rocky-10"]'
+          - '["ubuntu-24.04","debian-13","rocky-9"]'
           - '["ubuntu-24.04"]'
           - '["debian-13"]'
-          - '["rocky-10"]'
+          - '["rocky-9"]'
 
 permissions:
   contents: read
@@ -46,7 +46,7 @@ jobs:
           ALL='{
             "ubuntu-24.04": {"family":"deb","container":"ubuntu:24.04","pkgmgr":"apt"},
             "debian-13":    {"family":"deb","container":"debian:13","pkgmgr":"apt"},
-            "rocky-10":     {"family":"rpm","container":"rockylinux/rockylinux:10","pkgmgr":"dnf"}
+            "rocky-9":      {"family":"rpm","container":"rockylinux/rockylinux:9","pkgmgr":"dnf"}
           }'
 
           MATRIX=$(jq -cn --argjson targets "$TARGETS" --argjson all "$ALL" '
