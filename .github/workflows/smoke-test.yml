@@ -480,8 +480,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { family: rpm, target: rocky-10,  container: 'rockylinux/rockylinux:10', pkg_distro: rocky-10 }
-          - { family: rpm, target: fedora-44, container: 'fedora:44',                pkg_distro: rocky-10 }
+          # RPM is built on Rocky 9 (GCC 11, CXXABI_1.3.14) for compatibility
+          # with older distros. Both containers install the rocky-9 build to
+          # verify backward compatibility on newer systems.
+          - { family: rpm, target: rocky-10,  container: 'rockylinux/rockylinux:10', pkg_distro: rocky-9 }
+          - { family: rpm, target: fedora-44, container: 'fedora:44',                pkg_distro: rocky-9 }
     container:
       image: ${{ matrix.container }}
     defaults:
@@ -519,9 +522,21 @@ jobs:
           fi
 
       - name: Install package
+        env:
+          PKG_DISTRO: ${{ matrix.pkg_distro }}
         run: |
           set -euo pipefail
-          dnf install -y ./dist/*.rpm
+          shopt -s nullglob
+          # Release may contain RPMs built for multiple distros with the same
+          # Name/Version/Release. Installing them together conflicts; select
+          # only the one matching pkg_distro.
+          pkgs=()
+          for f in dist/*.rpm; do
+            [[ "$(basename "$f")" == *"-${PKG_DISTRO}."* ]] && pkgs+=("$f")
+          done
+          (( ${#pkgs[@]} > 0 )) || { echo "::error::no .rpm for $PKG_DISTRO in dist/"; ls dist/; exit 1; }
+          echo "[i] installing: ${pkgs[*]}"
+          dnf install -y "${pkgs[@]}"
 
       - name: Verify --version
         run: |
