@@ -13,7 +13,7 @@ OPTS_CHECK=""
 OPTS_UPDATE=""
 OPTS_INSTALL=""
 OPTS_REMOVE=""
-COM_UPGRADE="upgrade -y"
+COM_UPGRADE="dist-upgrade -y"
 OPTS_UPGRADE=""
 CHECK_CHAIN=("-q|")
 
