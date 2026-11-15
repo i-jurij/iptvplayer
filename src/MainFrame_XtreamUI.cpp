@@ -1383,6 +1383,88 @@ void MainFrame::TriggerLiveLazyRefreshIfNeeded() {
   OnLiveRefreshCatalog(dummy);
 }
 
+void MainFrame::OnXtreamCatalogAutoUpdated(const std::string &uuid, int mask) {
+  if (IsBeingDeleted())
+    return;
+  Playlist *cur = GetPlaylistByIndex(m_loadedPlaylistIndex);
+  if (!cur || cur->getUniqueId() != uuid)
+    return;
+
+  if (mask & 1) {
+    ReloadLiveChannelsFromDb();
+  }
+  if (mask & 2) {
+    if (m_moviesPanelCreated) {
+      PopulateMoviesCategories();
+      if (m_notebook && m_notebook->GetSelection() == m_moviesPageIdx &&
+          !m_moviesCategoryIds.empty()) {
+        m_currentVodCategoryId = m_moviesCategoryIds[0];
+        LoadVodPage(true);
+      }
+    }
+  }
+  if (mask & 4) {
+    if (m_seriesPanel && m_notebook &&
+        m_notebook->GetSelection() == m_seriesPageIdx) {
+      m_seriesPanel->OnActivated();
+    }
+  }
+}
+
+void MainFrame::ReloadLiveChannelsFromDb() {
+  Playlist *cur = GetPlaylistByIndex(m_loadedPlaylistIndex);
+  if (!cur || !cur->isXtream())
+    return;
+  auto *mgr = getPlaylistManager();
+  if (!mgr)
+    return;
+  xtream::XtreamDatabase *db = mgr->GetXtreamDb(*cur);
+  if (!db)
+    return;
+  auto *client = mgr->GetXtreamClient();
+  if (!client)
+    return;
+
+  auto streams = db->GetAllLiveStreams();
+  if (streams.empty())
+    return;
+
+  const auto liveCats = db->GetCategories("live");
+  std::unordered_map<int, std::string> liveCatName;
+  liveCatName.reserve(liveCats.size());
+  for (const auto &c : liveCats)
+    liveCatName[c.id] = c.name;
+
+  std::vector<Channel> channels;
+  channels.reserve(streams.size());
+  const std::string plTitle = cur->getTitle();
+  const std::string plId = cur->getUniqueId();
+
+  for (const auto &s : streams) {
+    const std::string url =
+        client->BuildLiveUrl(*cur, s.streamId, s.customSid);
+    if (url.empty())
+      continue;
+    Channel ch;
+    ch.setName(s.name);
+    ch.setUrl(url);
+    ch.setTvgId(s.epgChannelId);
+    ch.setLogo(s.posterUrl);
+    ch.setPlaylistName(plTitle);
+    ch.setPlaylistId(plId);
+    ch.setStreamId(s.streamId);
+    ch.setMediaType(MediaType::Live);
+    auto catIt = liveCatName.find(s.categoryId);
+    if (catIt != liveCatName.end())
+      ch.setGroupTitle(catIt->second);
+    channels.push_back(std::move(ch));
+  }
+
+  cur->setChannels(std::move(channels));
+  loadPlaylistChannels(cur->getChannels(), wxString::FromUTF8(plTitle), plId);
+  SetStatusText(_U("Xtream: live channels updated."), 0);
+}
+
 wxString MainFrame::FormatAccountInfoShort(const Playlist *pl) {
   if (!pl || !pl->isXtream() || !pl->getXtreamMeta().hasUserInfo())
     return wxString();

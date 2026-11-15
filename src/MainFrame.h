@@ -489,6 +489,13 @@ private:
   void OnLiveRefreshCatalog(wxCommandEvent &event);
   void TriggerLiveLazyRefreshIfNeeded();
 
+  // callback из PlaylistManager::catalog auto-update.
+  // mask = 1=Live, 2=VOD, 4=Series. Вызывается уже в UI-потоке.
+  void OnXtreamCatalogAutoUpdated(const std::string &uuid, int mask);
+  // Перечитать Live-каналы из БД (без сетевого fetch) — используется после
+  // auto-update Live, чтобы обновить m_allChannels и отрисовать Channels.
+  void ReloadLiveChannelsFromDb();
+
   void EnsureSeriesPanel();
   void OnSeriesToggle(wxCommandEvent &event);
   void HandleSeriesPageChanged(int sel);

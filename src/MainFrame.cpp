@@ -229,6 +229,19 @@ MainFrame::MainFrame(Application *app)
   }
 
   Bind(EVT_FAVORITES_MATCH_DONE, &MainFrame::OnFavoritesMatchDone, this);
+
+  // подписка на catalog auto-update. Отписываемся в ~MainFrame
+  // (перед разрушением GUI) — иначе UAF на висячем this.
+  if (auto *mgr = getPlaylistManager()) {
+    wxWeakRef<MainFrame> weakThis(this);
+    mgr->SetCatalogUpdatedCallback([weakThis](const std::string &uuid,
+                                              int mask) {
+      auto *self = weakThis.get();
+      if (!self || self->IsBeingDeleted())
+        return;
+      self->OnXtreamCatalogAutoUpdated(uuid, mask);
+    });
+  }
 }
 
 MainFrame::~MainFrame() {
@@ -258,6 +271,9 @@ MainFrame::~MainFrame() {
         epg->RemoveOnProgress(m_epgProgressToken);
         m_epgProgressToken = 0;
       }
+    }
+    if (auto *mgr = m_application->getPlaylistManager()) {
+      mgr->SetCatalogUpdatedCallback(nullptr);
     }
   }
 

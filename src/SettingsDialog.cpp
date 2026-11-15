@@ -183,6 +183,50 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
           m_config->getInt("xtream_resume_rewind_sec", 15));
     }
 
+    // 9.8: catalog auto-update.
+    m_xtreamCatalogAutoupdateCheck = new wxCheckBox(
+        xtreamBox, wxID_ANY, _U("Auto-update catalog"));
+    m_xtreamCatalogAutoupdateCheck->SetToolTip(
+        _U("Periodically refresh Live / VOD / Series catalogs in background."));
+    if (m_config) {
+      m_xtreamCatalogAutoupdateCheck->SetValue(
+          m_config->getSetting("xtream_catalog_autoupdate", "false") == "true");
+    }
+    xtreamSizer->Add(m_xtreamCatalogAutoupdateCheck, 0,
+                     wxLEFT | wxRIGHT | wxTOP, INNER_PAD);
+
+    wxFlexGridSizer *catalogGrid =
+        new wxFlexGridSizer(2, FromDIP(5), FromDIP(10));
+    catalogGrid->Add(
+        new wxStaticText(xtreamBox, wxID_ANY,
+                         _U("Catalog update interval (hours):")),
+        0, wxALIGN_CENTER_VERTICAL | wxRIGHT, INNER_PAD);
+    m_xtreamCatalogIntervalSpin =
+        new wxSpinCtrl(xtreamBox, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                       wxSize(FromDIP(120), -1));
+    m_xtreamCatalogIntervalSpin->SetRange(1, 168);
+    m_xtreamCatalogIntervalSpin->SetValue(
+        m_config ? m_config->getInt("xtream_catalog_interval_hours", 24) : 24);
+    m_xtreamCatalogIntervalSpin->SetToolTip(
+        _U("How often to refresh the catalog. Range 1-168 (week). "
+           "Default 24."));
+    catalogGrid->Add(m_xtreamCatalogIntervalSpin, 0, wxALIGN_LEFT);
+    xtreamSizer->Add(catalogGrid, 0, wxEXPAND | wxALL, INNER_PAD);
+
+    wxArrayString modeChoices;
+    modeChoices.Add(_U("Parallel (Live + VOD + Series simultaneously)"));
+    modeChoices.Add(_U("Sequential (Live → VOD → Series)"));
+    m_xtreamCatalogModeRadio = new wxRadioBox(
+        xtreamBox, wxID_ANY, _U("Catalog update mode"), wxDefaultPosition,
+        wxDefaultSize, modeChoices, 1, wxRA_SPECIFY_ROWS);
+    if (m_config) {
+      const std::string mode =
+          m_config->getSetting("xtream_catalog_update_mode", "parallel");
+      m_xtreamCatalogModeRadio->SetSelection(mode == "sequential" ? 1 : 0);
+    }
+    xtreamSizer->Add(m_xtreamCatalogModeRadio, 0,
+                     wxLEFT | wxRIGHT | wxBOTTOM, INNER_PAD);
+
     m_xtreamCacheSizeLabel = new wxStaticText(xtreamBox, wxID_ANY, "");
     {
       wxFont f = m_xtreamCacheSizeLabel->GetFont();
@@ -381,8 +425,30 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
     if (m_resumeRewindSpin)
       m_config->setInt("xtream_resume_rewind_sec",
                        m_resumeRewindSpin->GetValue());
+
+    // 9.8: catalog auto-update.
+    if (m_xtreamCatalogAutoupdateCheck)
+      m_config->setSetting("xtream_catalog_autoupdate",
+                           m_xtreamCatalogAutoupdateCheck->GetValue()
+                               ? "true"
+                               : "false");
+    if (m_xtreamCatalogIntervalSpin)
+      m_config->setInt("xtream_catalog_interval_hours",
+                       m_xtreamCatalogIntervalSpin->GetValue());
+    if (m_xtreamCatalogModeRadio)
+      m_config->setSetting(
+          "xtream_catalog_update_mode",
+          m_xtreamCatalogModeRadio->GetSelection() == 1 ? "sequential"
+                                                        : "parallel");
+
     m_config->saveSettings();
     m_mainFrame->SetStatusText(_U("Settings saved."), 0);
+
+    // Перезапустить auto-update thread с новыми настройками.
+    if (m_mainFrame) {
+      if (auto *mgr = m_mainFrame->getPlaylistManager())
+        mgr->RestartCatalogAutoUpdate();
+    }
   }
 }
 

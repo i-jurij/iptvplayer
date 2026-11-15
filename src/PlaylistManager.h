@@ -7,6 +7,8 @@
 #include "xtream/XtreamDatabase.h"
 
 #include <atomic>
+#include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -60,6 +62,8 @@ private:
   CURL *m_handle = nullptr;
 };
 
+class ConfigManager;
+
 class PlaylistManager {
 public:
   // Результат RefreshLiveCatalog: каналы для Playlist::setChannels.
@@ -70,7 +74,8 @@ public:
     std::vector<Channel> channels;
   };
 
-  explicit PlaylistManager(const std::string &configDir = "");
+  explicit PlaylistManager(const std::string &configDir = "",
+                           ConfigManager *cfg = nullptr);
   ~PlaylistManager();
 
   ErrorCode addPlaylistFromFile(const std::wstring &filePathW,
@@ -171,7 +176,48 @@ public:
   // «Clear Xtream cache» (удаляет БД).
   int GetCatchupStyle(const Playlist &playlist);
 
+  // catalog auto-update.
+  // Background thread: первый чек через 60 сек (разнесение с M3U/EPG
+  // при старте), далее тик раз в час. Проверяет meta last_update_* по
+  // каждому Xtream-плейлисту и обновляет просроченные типы.
+  // Если autoupdate выключен в настройках (xtream_catalog_autoupdate),
+  // thread всё равно работает, но ничего не делает (дешёвая проверка).
+  void StartCatalogAutoUpdate();
+  void StopCatalogAutoUpdate();
+  void RestartCatalogAutoUpdate();
+
+  // Callback для UI: (uuid, mask), где mask = 1=Live, 2=VOD, 4=Series.
+  // Вызывается через wxTheApp->CallAfter (в main-потоке).
+  using CatalogUpdatedFn = std::function<void(const std::string &, int)>;
+  void SetCatalogUpdatedCallback(CatalogUpdatedFn fn);
+
 private:
+  // per-type флаги занятости. Ставятся внутри Refresh*Catalog,
+  // снимаются RAII. Auto-update пропускает тип, если флаг уже true.
+  std::atomic<bool> m_liveRefreshingAtomic{false};
+  std::atomic<bool> m_vodRefreshingAtomic{false};
+  std::atomic<bool> m_seriesRefreshingAtomic{false};
+
+  // VOD и Series — отдельные refresh-методы (для sequential и parallel).
+  bool RefreshVodCatalog(const Playlist &playlist);
+  bool RefreshSeriesCatalog(const Playlist &playlist);
+
+  // auto-update infrastructure.
+  ConfigManager *m_configManager = nullptr;
+  std::thread m_catalogAutoUpdateThread;
+  std::atomic<bool> m_catalogStop{false};
+  std::mutex m_catalogMutex;
+  std::condition_variable m_catalogCV;
+
+  CatalogUpdatedFn m_catalogUpdatedCallback;
+  std::mutex m_catalogCallbackMutex;
+
+  // Проверить все Xtream-плейлисты на due и запустить refresh.
+  void CheckCatalogDueForAll();
+  // Запустить refresh для одного плейлиста по маске типов.
+  void RunCatalogRefresh(const std::string &uuid, int mask);
+  // Определить, какие типы просрочены (возвращает маску).
+  int ComputeDueMask(const Playlist &pl);
   // Полный рефреш Xtream-каталога: RefreshAllLive + RefreshAllVod +
   // RefreshAllSeries + категории. Мутирует playlist->setChannels() и
   // setHasVod/setHasSeries. Вызывается из updatePlaylist (фоновый поток

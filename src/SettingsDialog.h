@@ -24,6 +24,9 @@ private:
   wxButton *m_reloadMissingLogosBtn = nullptr;
   wxSpinCtrl *m_resumeCompleteSpin = nullptr;
   wxSpinCtrl *m_resumeRewindSpin = nullptr;
+  wxCheckBox *m_xtreamCatalogAutoupdateCheck = nullptr;
+  wxSpinCtrl *m_xtreamCatalogIntervalSpin = nullptr;
+  wxRadioBox *m_xtreamCatalogModeRadio = nullptr;
   wxButton *m_clearXtreamCacheBtn = nullptr;
   wxStaticText *m_xtreamCacheSizeLabel = nullptr;
 

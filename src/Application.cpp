@@ -90,8 +90,8 @@ Application::Application() {
 
   m_configManager =
       std::make_unique<ConfigManager>(configFile.GetFullPath().ToUTF8().data());
-  m_playlistManager =
-      std::make_shared<PlaylistManager>(baseDir.ToUTF8().data());
+  m_playlistManager = std::make_unique<PlaylistManager>(baseDir.ToUTF8().data(),
+                                                        m_configManager.get());
 
   wxString favPathWx =
       configFile.GetPath() + wxFILE_SEP_PATH + "favorites.json";
@@ -280,6 +280,11 @@ bool Application::start() {
   // Инициализация EPGManager
   if (m_epgManager) {
     m_epgManager->StartAutoUpdate();
+  }
+
+  // catalog auto-update (разнесено с M3U/EPG — первый чек через 60 сек).
+  if (m_playlistManager) {
+    m_playlistManager->RestartCatalogAutoUpdate();
   }
 
   std::cout << "Application started successfully" << std::endl;

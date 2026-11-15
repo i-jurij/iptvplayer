@@ -1,4 +1,5 @@
 #include "PlaylistManager.h"
+#include "ConfigManager.h"
 #include "ErrorCode.h"
 #include "EventIDs.h"
 #include "LogControl.h"
@@ -66,8 +67,9 @@ static size_t WriteCallback(char *ptr, size_t size, size_t nmemb,
   return size * nmemb;
 }
 
-PlaylistManager::PlaylistManager(const std::string &configDir)
-    : m_configDir(configDir) {
+PlaylistManager::PlaylistManager(const std::string &configDir,
+                                 ConfigManager *cfg)
+    : m_configManager(cfg), m_configDir(configDir) {
   // Защита от trailing separator на входе
   while (m_configDir.size() > 1 &&
          (m_configDir.back() == '/' || m_configDir.back() == '\\')) {
@@ -79,9 +81,8 @@ PlaylistManager::PlaylistManager(const std::string &configDir)
 }
 
 PlaylistManager::~PlaylistManager() {
-  // Signal cancel; do NOT wait. Worker is detached and touches only its own
-  // shared_ptr<AddFromUrlJob>. On process exit, OS reclaims everything;
-  // even if curl is stuck in connect(), the process exits.
+  StopCatalogAutoUpdate();
+
   CancelPendingAddFromUrl();
 
   std::lock_guard<std::mutex> lk(m_xtreamDbMutex);
@@ -241,6 +242,19 @@ ErrorCode PlaylistManager::downloadUrl(const std::string &url,
   return ErrorCode::OK;
 }
 
+namespace {
+// RAII-флаг занятости типа. Auto-update проверяет перед запуском.
+struct AtomicFlagGuard {
+  std::atomic<bool> &flag;
+  explicit AtomicFlagGuard(std::atomic<bool> &f) : flag(f) {
+    flag.store(true, std::memory_order_release);
+  }
+  ~AtomicFlagGuard() { flag.store(false, std::memory_order_release); }
+  AtomicFlagGuard(const AtomicFlagGuard &) = delete;
+  AtomicFlagGuard &operator=(const AtomicFlagGuard &) = delete;
+};
+} // namespace
+
 PlaylistManager::LiveRefreshResult
 PlaylistManager::RefreshLiveCatalog(const Playlist &playlist) {
   LiveRefreshResult result;
@@ -250,6 +264,8 @@ PlaylistManager::RefreshLiveCatalog(const Playlist &playlist) {
     setLastError("RefreshLiveCatalog: not Xtream playlist");
     return result;
   }
+
+  AtomicFlagGuard flagGuard(m_liveRefreshingAtomic);
   if (!m_xtreamClient) {
     setLastError("RefreshLiveCatalog: XtreamApiClient not initialized");
     return result;
@@ -388,6 +404,70 @@ int PlaylistManager::GetCatchupStyle(const Playlist &playlist) {
   return style;
 }
 
+bool PlaylistManager::RefreshVodCatalog(const Playlist &playlist) {
+  if (!playlist.isXtream() || !m_xtreamClient)
+    return false;
+  xtream::XtreamDatabase *db = GetXtreamDb(playlist);
+  if (!db)
+    return false;
+
+  AtomicFlagGuard flagGuard(m_vodRefreshingAtomic);
+
+  std::atomic<bool> cancel{false};
+  if (!m_xtreamClient->RefreshAllVod(const_cast<Playlist &>(playlist), *db,
+                                     nullptr, cancel)) {
+    LOG_WARN("PlaylistManager::RefreshVodCatalog: RefreshAllVod failed for "
+             "'%s'",
+             playlist.getTitle().c_str());
+    return false;
+  }
+
+  const auto vodCats = m_xtreamClient->GetCategories(
+      playlist, xtream::XtreamApiClient::CategoryType::Vod);
+  for (const auto &c : vodCats) {
+    xtream::XtreamDatabase::Category cat;
+    cat.id = c.id;
+    cat.type = "vod";
+    cat.name = c.name;
+    db->UpsertCategory(cat);
+  }
+  LOG_INFO("PlaylistManager::RefreshVodCatalog: '%s' done (hasVod=%d)",
+           playlist.getTitle().c_str(), vodCats.empty() ? 0 : 1);
+  return true;
+}
+
+bool PlaylistManager::RefreshSeriesCatalog(const Playlist &playlist) {
+  if (!playlist.isXtream() || !m_xtreamClient)
+    return false;
+  xtream::XtreamDatabase *db = GetXtreamDb(playlist);
+  if (!db)
+    return false;
+
+  AtomicFlagGuard flagGuard(m_seriesRefreshingAtomic);
+
+  std::atomic<bool> cancel{false};
+  if (!m_xtreamClient->RefreshAllSeries(const_cast<Playlist &>(playlist), *db,
+                                        nullptr, cancel)) {
+    LOG_WARN("PlaylistManager::RefreshSeriesCatalog: RefreshAllSeries failed "
+             "for '%s'",
+             playlist.getTitle().c_str());
+    return false;
+  }
+
+  const auto seriesCats = m_xtreamClient->GetCategories(
+      playlist, xtream::XtreamApiClient::CategoryType::Series);
+  for (const auto &c : seriesCats) {
+    xtream::XtreamDatabase::Category cat;
+    cat.id = c.id;
+    cat.type = "series";
+    cat.name = c.name;
+    db->UpsertCategory(cat);
+  }
+  LOG_INFO("PlaylistManager::RefreshSeriesCatalog: '%s' done (hasSeries=%d)",
+           playlist.getTitle().c_str(), seriesCats.empty() ? 0 : 1);
+  return true;
+}
+
 ErrorCode PlaylistManager::RefreshXtreamCatalog(Playlist *playlist) {
   if (!playlist || !playlist->isXtream()) {
     setLastError("RefreshXtreamCatalog: not Xtream playlist");
@@ -399,54 +479,15 @@ ErrorCode PlaylistManager::RefreshXtreamCatalog(Playlist *playlist) {
     return liveRes.code;
   playlist->setChannels(std::move(liveRes.channels));
 
-  if (!m_xtreamClient) {
-    setLastError("RefreshXtreamCatalog: XtreamApiClient not initialized");
-    return ErrorCode::Unknown;
-  }
-
-  xtream::XtreamDatabase *db = GetXtreamDb(*playlist);
-  if (!db) {
-    setLastError("RefreshXtreamCatalog: cannot open xtream.db");
-    return ErrorCode::Unknown;
-  }
-
-  std::atomic<bool> cancel{false};
-
-  if (!m_xtreamClient->RefreshAllVod(*playlist, *db, nullptr, cancel)) {
-    LOG_WARN("RefreshXtreamCatalog: RefreshAllVod failed for '%s'",
-             playlist->getTitle().c_str());
-  }
-  if (!m_xtreamClient->RefreshAllSeries(*playlist, *db, nullptr, cancel)) {
-    LOG_WARN("RefreshXtreamCatalog: RefreshAllSeries failed for '%s'",
-             playlist->getTitle().c_str());
-  }
-
-  const auto vodCats = m_xtreamClient->GetCategories(
-      *playlist, xtream::XtreamApiClient::CategoryType::Vod);
-  for (const auto &c : vodCats) {
-    xtream::XtreamDatabase::Category cat;
-    cat.id = c.id;
-    cat.type = "vod";
-    cat.name = c.name;
-    db->UpsertCategory(cat);
-  }
-  playlist->setHasVod(!vodCats.empty());
-
-  const auto seriesCats = m_xtreamClient->GetCategories(
-      *playlist, xtream::XtreamApiClient::CategoryType::Series);
-  for (const auto &c : seriesCats) {
-    xtream::XtreamDatabase::Category cat;
-    cat.id = c.id;
-    cat.type = "series";
-    cat.name = c.name;
-    db->UpsertCategory(cat);
-  }
-  playlist->setHasSeries(!seriesCats.empty());
+  const bool hasVod = RefreshVodCatalog(*playlist);
+  const bool hasSeries = RefreshSeriesCatalog(*playlist);
+  playlist->setHasVod(hasVod);
+  playlist->setHasSeries(hasSeries);
 
   LOG_INFO("PlaylistManager::RefreshXtreamCatalog: '%s' done "
            "(live=%zu, hasVod=%d, hasSeries=%d)",
            playlist->getTitle().c_str(), playlist->getChannelCount(),
-           playlist->hasVod() ? 1 : 0, playlist->hasSeries() ? 1 : 0);
+           hasVod ? 1 : 0, hasSeries ? 1 : 0);
   return ErrorCode::OK;
 }
 
@@ -1760,4 +1801,174 @@ long long PlaylistManager::GetTotalXtreamCacheBytes() const {
   }
 
   return total;
+}
+
+// ---------------------------------------------------------------------------
+// catalog auto-update
+// ---------------------------------------------------------------------------
+
+void PlaylistManager::SetCatalogUpdatedCallback(CatalogUpdatedFn fn) {
+  std::lock_guard<std::mutex> lock(m_catalogCallbackMutex);
+  m_catalogUpdatedCallback = std::move(fn);
+}
+
+int PlaylistManager::ComputeDueMask(const Playlist &pl) {
+  if (!pl.isXtream())
+    return 0;
+  xtream::XtreamDatabase *db = GetXtreamDb(pl);
+  if (!db)
+    return 0;
+
+  int intervalHours = 24;
+  if (m_configManager)
+    intervalHours =
+        m_configManager->getInt("xtream_catalog_interval_hours", 24);
+  if (intervalHours < 1)
+    intervalHours = 1;
+  if (intervalHours > 168)
+    intervalHours = 168;
+  const int64_t intervalSec = static_cast<int64_t>(intervalHours) * 3600;
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+
+  auto isDue = [&](const char *key) -> bool {
+    const std::string val = db->GetMeta(key);
+    if (val.empty())
+      return true;
+    try {
+      const int64_t last = std::stoll(val);
+      return (now - last) >= intervalSec;
+    } catch (...) {
+      return true;
+    }
+  };
+
+  int mask = 0;
+  if (isDue("last_update_live"))
+    mask |= 1;
+  if (isDue("last_update_vod"))
+    mask |= 2;
+  if (isDue("last_update_series"))
+    mask |= 4;
+  return mask;
+}
+
+void PlaylistManager::RunCatalogRefresh(const std::string &uuid, int mask) {
+  if (mask == 0)
+    return;
+  Playlist *pl = findByUniqueId(uuid);
+  if (!pl || !pl->isXtream())
+    return;
+
+  const std::string mode = m_configManager
+                               ? m_configManager->getSetting(
+                                     "xtream_catalog_update_mode", "parallel")
+                               : "parallel";
+
+  if (mode == "sequential") {
+    if ((mask & 1) && !m_liveRefreshingAtomic.load())
+      RefreshLiveCatalog(*pl);
+    if ((mask & 2) && !m_vodRefreshingAtomic.load())
+      RefreshVodCatalog(*pl);
+    if ((mask & 4) && !m_seriesRefreshingAtomic.load())
+      RefreshSeriesCatalog(*pl);
+  } else {
+    std::vector<std::thread> threads;
+    if ((mask & 1) && !m_liveRefreshingAtomic.load()) {
+      threads.emplace_back([this, pl]() { RefreshLiveCatalog(*pl); });
+    }
+    if ((mask & 2) && !m_vodRefreshingAtomic.load()) {
+      threads.emplace_back([this, pl]() { RefreshVodCatalog(*pl); });
+    }
+    if ((mask & 4) && !m_seriesRefreshingAtomic.load()) {
+      threads.emplace_back([this, pl]() { RefreshSeriesCatalog(*pl); });
+    }
+    for (auto &t : threads)
+      t.join();
+  }
+
+  CatalogUpdatedFn cb;
+  {
+    std::lock_guard<std::mutex> lock(m_catalogCallbackMutex);
+    cb = m_catalogUpdatedCallback;
+  }
+  if (cb && wxTheApp) {
+    const std::string uuidCopy = uuid;
+    wxTheApp->CallAfter([cb, uuidCopy, mask]() { cb(uuidCopy, mask); });
+  }
+}
+
+void PlaylistManager::CheckCatalogDueForAll() {
+  if (!m_configManager)
+    return;
+  if (m_configManager->getSetting("xtream_catalog_autoupdate", "false") !=
+      "true")
+    return;
+
+  // Snapshot: список Xtream-плейлистов (uuid, title).
+  std::vector<std::pair<std::string, std::string>> snapshot;
+  {
+    std::lock_guard<std::mutex> lock(m_playlistsMutex);
+    for (const auto &up : m_playlists) {
+      if (up && up->isXtream())
+        snapshot.emplace_back(up->getUniqueId(), up->getTitle());
+    }
+  }
+
+  for (const auto &kv : snapshot) {
+    const std::string &uuid = kv.first;
+    Playlist *pl = findByUniqueId(uuid);
+    if (!pl || !pl->isXtream())
+      continue;
+    const int mask = ComputeDueMask(*pl);
+    if (mask == 0)
+      continue;
+    LOG_INFO("Catalog auto-update: '%s' due (mask=%d)", kv.second.c_str(),
+             mask);
+    RunCatalogRefresh(uuid, mask);
+  }
+}
+
+void PlaylistManager::StartCatalogAutoUpdate() {
+  if (m_catalogAutoUpdateThread.joinable())
+    return;
+  m_catalogStop.store(false, std::memory_order_release);
+  m_catalogAutoUpdateThread = std::thread([this]() {
+    std::unique_lock<std::mutex> lock(m_catalogMutex);
+    // 9.8: первый чек через 60 сек после старта — разнесение с M3U/EPG.
+    if (m_catalogCV.wait_for(lock, std::chrono::seconds(60), [this]() {
+          return m_catalogStop.load(std::memory_order_acquire);
+        })) {
+      return;
+    }
+    while (!m_catalogStop.load(std::memory_order_acquire)) {
+      lock.unlock();
+      CheckCatalogDueForAll();
+      lock.lock();
+      // Периодический тик: 1 час.
+      if (m_catalogCV.wait_for(lock, std::chrono::hours(1), [this]() {
+            return m_catalogStop.load(std::memory_order_acquire);
+          })) {
+        return;
+      }
+    }
+  });
+}
+
+void PlaylistManager::StopCatalogAutoUpdate() {
+  if (!m_catalogAutoUpdateThread.joinable())
+    return;
+  m_catalogStop.store(true, std::memory_order_release);
+  {
+    std::lock_guard<std::mutex> lock(m_catalogMutex);
+    m_catalogCV.notify_all();
+  }
+  m_catalogAutoUpdateThread.join();
+}
+
+void PlaylistManager::RestartCatalogAutoUpdate() {
+  StopCatalogAutoUpdate();
+  if (m_configManager && m_configManager->getSetting(
+                             "xtream_catalog_autoupdate", "false") == "true") {
+    StartCatalogAutoUpdate();
+  }
 }
