@@ -26,6 +26,12 @@ case "$_major" in
     *)    _mpv="mpv-libs-devel" ;;
 esac
 
+# EL9 minimal images ship curl-minimal, which blocks installing the full
+# curl package (listed in DEPS). Swap to the full curl once.
+if [ "$_major" = "9" ] && rpm -q curl-minimal >/dev/null 2>&1; then
+    dnf -y swap curl-minimal curl
+fi
+
 DEPS="
 build-essential:gcc gcc-c++ make
 cmake:cmake

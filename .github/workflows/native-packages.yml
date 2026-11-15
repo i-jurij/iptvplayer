@@ -109,6 +109,9 @@ jobs:
               dnf config-manager --set-enabled crb 2>/dev/null || true
               dnf install -y epel-release || true
             fi
+            if rpm -q curl-minimal >/dev/null 2>&1; then
+              dnf -y swap curl-minimal curl
+            fi
             dnf install -y gcc gcc-c++ make cmake git autoconf automake libtool \
               pkgconf-pkg-config wget curl ca-certificates file xz \
               rpm-build rpm-sign gnupg2 gettext
