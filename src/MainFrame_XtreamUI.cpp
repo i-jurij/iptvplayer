@@ -1342,6 +1342,14 @@ void MainFrame::OnLiveRefreshCatalog(wxCommandEvent &) {
               _U("No live channels (VOD-only provider)"));
         cur->setChannels({});
         s->m_allChannels.clear();
+        // Clear stale filter dropdowns (FillFilterChoices hides empty
+        // group/country/language dropdowns).
+        s->FillFilterChoices({});
+        // Persist empty channels: lazy refresh already ran, so next
+        // launch would not trigger it again (last_update_live is set)
+        // and would restore stale channels from JSON.
+        if (auto *mgrSave = s->getPlaylistManager())
+          mgrSave->savePlaylist(cur);
         s->ApplyFiltersAndSort();
         return;
       }
@@ -1349,6 +1357,11 @@ void MainFrame::OnLiveRefreshCatalog(wxCommandEvent &) {
       cur->setChannels(std::move(res.channels));
       s->loadPlaylistChannels(cur->getChannels(),
                               wxString::FromUTF8(cur->getTitle()), plUuid);
+      // Persist live channels to JSON so next launch shows them from
+      // cache without waiting for lazy refresh (which would not trigger
+      // because last_update_live is now set).
+      if (auto *mgrSave = s->getPlaylistManager())
+        mgrSave->savePlaylist(cur);
       s->SetStatusText(_U("Channels: live channels loaded."), 0);
     });
   }).detach();

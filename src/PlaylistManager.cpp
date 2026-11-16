@@ -845,6 +845,53 @@ void PlaylistManager::PostAddFromUrlEvent(
 
 void PlaylistManager::RunAddFromUrlWorker(
     std::shared_ptr<AddFromUrlJob> job) {
+  // Xtream: channels come from player_api.php via lazy refresh
+  // (RefreshLiveCatalog), not from get.php M3U. Skip download / parse
+  // entirely; only fetch categories (VOD/Series) for UI tab visibility.
+  if (job->isXtream) {
+    if (job->cancelled.load(std::memory_order_acquire)) {
+      job->done.store(true, std::memory_order_release);
+      return;
+    }
+    if (job->xtreamClient && job->xtreamDb) {
+      Playlist tmp(job->title, job->url, true);
+      tmp.setXtream(true);
+      tmp.setXtreamMeta(job->xtreamMeta);
+
+      const auto vodCats = job->xtreamClient->GetCategories(
+          tmp, xtream::XtreamApiClient::CategoryType::Vod);
+      for (const auto &c : vodCats) {
+        xtream::XtreamDatabase::Category cat;
+        cat.id = c.id;
+        cat.type = "vod";
+        cat.name = c.name;
+        job->xtreamDb->UpsertCategory(cat);
+      }
+      job->hasVod = !vodCats.empty();
+
+      const auto seriesCats = job->xtreamClient->GetCategories(
+          tmp, xtream::XtreamApiClient::CategoryType::Series);
+      for (const auto &c : seriesCats) {
+        xtream::XtreamDatabase::Category cat;
+        cat.id = c.id;
+        cat.type = "series";
+        cat.name = c.name;
+        job->xtreamDb->UpsertCategory(cat);
+      }
+      job->hasSeries = !seriesCats.empty();
+    }
+    if (job->cancelled.load(std::memory_order_acquire)) {
+      job->done.store(true, std::memory_order_release);
+      return;
+    }
+    job->channels.clear();
+    job->success = true;
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_SUCCESS, job, "");
+    return;
+  }
+
+  // M3U path: download, reject JSON, parse M3U.
   // 1) Download (no `this`).
   std::string content;
   DownloadProgress prog;

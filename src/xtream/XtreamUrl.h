@@ -44,6 +44,15 @@ using ProbeCallback = std::function<void(
 // Callback для DialProbeAsync. Отличается от ProbeCallback полем isM3u:
 //   isM3u=true  — URL подтверждён как M3U по содержимому (добавить как M3U)
 //   isM3u=false — Xtream auth endpoint (finalUrl = get.php URL с meta)
+// Callback for ProbeApiAsync: player_api.php auth only, no get.php.
+// finalBase — base URL (may differ from input if https fallback kicked in).
+// userInfoJson / serverInfoJson — raw JSON on success; empty on failure.
+using ApiProbeCallback =
+    std::function<void(bool ok, const wxString &finalBase,
+                       const wxString &error,
+                       const std::string &userInfoJson,
+                       const std::string &serverInfoJson)>;
+
 using DialProbeCallback =
     std::function<void(bool ok, const wxString &finalUrl, const wxString &error,
                        const std::string &userInfoJson,
@@ -54,6 +63,13 @@ using DialProbeCallback =
 void ProbeAsync(const wxString &baseUrl, const wxString &user,
                 const wxString &pass, const wxString &ua,
                 ProbeCallback callback);
+// player_api.php auth probe only (no get.php). Used by DialProbeAsync for
+// Xtream add-flow: channels come from player_api via lazy refresh, not M3U.
+// Includes https retry when the initial http:// probe fails with a
+// connection error or 5xx.
+void ProbeApiAsync(const wxString &baseUrl, const wxString &user,
+                   const wxString &pass, const wxString &ua,
+                   ApiProbeCallback callback);
 // Sniffing-диспетчер. Классифицирует содержимое URL (M3U / XtreamAuth /
 // JSON-other / HTML / BinaryStream / Empty / Error) и:
 //   M3U + query-creds → probe → Xtream playlist (isM3u=false)

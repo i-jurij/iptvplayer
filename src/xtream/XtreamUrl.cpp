@@ -311,9 +311,87 @@ ProbeResult DoProbe(const wxString &baseUrl, const wxString &user,
   return result;
 }
 
-// Только Stage 2: получить get.php URL. Используется, когда Stage 1 (auth)
-// уже пройден (sniffing вернул XtreamAuth).
-AttemptResult TryGetPhpOnly(const wxString &base, const wxString &user,
+struct ApiProbeResult {
+  bool ok = false;
+  wxString finalBase;
+  wxString error;
+  std::string userInfoJson;
+  std::string serverInfoJson;
+};
+
+// player_api.php auth-only probe (no get.php). Mirrors TryProbe's Stage 1
+// with the same https fallback logic.
+ApiProbeResult DoProbeApi(const wxString &baseUrl, const wxString &user,
+                          const wxString &pass, const wxString &ua) {
+  ApiProbeResult result;
+  LOG_DEBUG("Xtream API probe: base='%s'", baseUrl.utf8_str().data());
+
+  auto tryOne = [&](const wxString &base) -> AttemptResult {
+    AttemptResult r;
+    const wxString apiUrl = base + "/player_api.php?username=" +
+                            UrlEncode(user) + "&password=" + UrlEncode(pass);
+    FetchResult fr = FetchPrefix(apiUrl, 16 * 1024, 8, ua);
+    LOG_DEBUG("Xtream API probe: player_api.php HTTP %ld, %zu bytes",
+              fr.httpCode, fr.body.size());
+    if (!fr.ok) {
+      r.error = std::string("Connection failed: ") + fr.error;
+      r.retryHttps = true;
+      return r;
+    }
+    if (fr.httpCode == 401 || fr.httpCode == 403) {
+      r.error = "Invalid username or password";
+      return r;
+    }
+    if (fr.httpCode != 200) {
+      r.error = "HTTP " + std::to_string(fr.httpCode) + " on player_api.php";
+      if (fr.httpCode >= 500)
+        r.retryHttps = true;
+      return r;
+    }
+    std::string authErr;
+    if (!CheckAuthJson(fr.body, authErr, &r.userInfoJson, &r.serverInfoJson)) {
+      r.error = authErr;
+      return r;
+    }
+    r.ok = true;
+    r.finalUrl = base;
+    return r;
+  };
+
+  AttemptResult first = tryOne(baseUrl);
+  if (first.ok) {
+    result.ok = true;
+    result.finalBase = baseUrl;
+    result.userInfoJson = std::move(first.userInfoJson);
+    result.serverInfoJson = std::move(first.serverInfoJson);
+    return result;
+  }
+
+  const wxURI uri(baseUrl);
+  const bool wasHttp = uri.HasScheme() && uri.GetScheme().Lower() == "http";
+  if (wasHttp && first.retryHttps) {
+    const wxString httpsUrl = MakeHttpsUrl(baseUrl);
+    LOG_INFO("Xtream: API probe retry with https (%s)",
+             httpsUrl.utf8_str().data());
+    AttemptResult second = tryOne(httpsUrl);
+    if (second.ok) {
+      result.ok = true;
+      result.finalBase = httpsUrl;
+      result.userInfoJson = std::move(second.userInfoJson);
+      result.serverInfoJson = std::move(second.serverInfoJson);
+      return result;
+    }
+    result.error = wxString::FromUTF8(second.error);
+    return result;
+  }
+
+  result.error = wxString::FromUTF8(first.error);
+  return result;
+}
+
+// Unused after 10.2 (Xtream add-flow goes via player_api.php). Kept for
+// potential Q4 fallback (M3U when all three player_api endpoints fail).
+[[maybe_unused]] AttemptResult TryGetPhpOnly(const wxString &base, const wxString &user,
                             const wxString &pass, const wxString &ua) {
   AttemptResult r;
   for (xtream::Format fmt :
@@ -371,6 +449,24 @@ void ProbeAsync(const wxString &baseUrl, const wxString &user,
   }).detach();
 }
 
+void ProbeApiAsync(const wxString &baseUrl, const wxString &user,
+                   const wxString &pass, const wxString &ua,
+                   ApiProbeCallback callback) {
+  const wxString uaEff = ua.IsEmpty() ? DefaultUserAgent() : ua;
+  std::thread([baseUrl, user, pass, uaEff, callback]() {
+    ApiProbeResult r = DoProbeApi(baseUrl, user, pass, uaEff);
+    wxWeakRef<wxAppConsole> weakApp(wxTheApp);
+    wxAppConsole *app = weakApp.get();
+    if (!app)
+      return;
+    app->CallAfter([callback, r]() {
+      if (callback)
+        callback(r.ok, r.finalBase, r.error, r.userInfoJson,
+                 r.serverInfoJson);
+    });
+  }).detach();
+}
+
 void DialProbeAsync(const wxString &inputUrl, const wxString &user,
                     const wxString &pass, const wxString &ua,
                     DialProbeCallback callback) {
@@ -382,42 +478,42 @@ void DialProbeAsync(const wxString &inputUrl, const wxString &user,
         switch (det.kind) {
         case DetectionKind::XtreamAuth: {
           const wxString base = StripPhpSuffix(inputUrl);
-          std::thread([base, user, pass, uaEff, det, callback]() {
-            AttemptResult r = TryGetPhpOnly(base, user, pass, uaEff);
-            auto deliver = [r, det, callback]() {
-              if (r.ok)
-                callback(true, r.finalUrl, "", det.userInfoJson,
-                         det.serverInfoJson, /*isM3u=*/false);
-              else
-                callback(false, "", wxString::FromUTF8(r.error), "", "", false);
-            };
-            if (wxTheApp)
-              wxTheApp->CallAfter(deliver);
-            else
-              deliver();
-          }).detach();
+          // Sniffing already confirmed player_api.php + auth. Channels
+          // will be fetched by lazy refresh (RefreshLiveCatalog) via
+          // player_api, not get.php. Pass base as finalUrl; meta carries
+          // user_info / server_info.
+          auto deliver = [det, callback, base]() {
+            callback(true, base, "", det.userInfoJson, det.serverInfoJson,
+                     /*isM3u=*/false);
+          };
+          if (wxTheApp)
+            wxTheApp->CallAfter(deliver);
+          else
+            deliver();
           return;
         }
 
         case DetectionKind::M3U: {
           // M3U по содержимому. Если в query есть creds — это может быть
-          // get.php URL: пробуем как Xtream (meta+VOD/Series), при ошибке
-          // probe откатываемся на M3U-only.
+          // get.php URL: extract credentials, try player_api.php first.
+          // If the API works — Xtream playlist (isM3u=false); if not —
+          // fall back to M3U playlist (isM3u=true) using the original URL.
           const wxString wxUrl =
               det.finalUrl.IsEmpty() ? inputUrl : det.finalUrl;
           const UrlCredentials creds = ExtractQueryCredentials(wxUrl);
           if (creds.valid && !creds.user.IsEmpty() && !creds.pass.IsEmpty()) {
             const wxString base = StripPhpSuffix(wxUrl);
-            ProbeAsync(base, creds.user, creds.pass, uaEff,
-                       [callback, wxUrl](bool ok, const wxString &probeFinalUrl,
-                                         const wxString & /*error*/,
-                                         const std::string &ui,
-                                         const std::string &si) {
-                         if (ok)
-                           callback(true, probeFinalUrl, "", ui, si, false);
-                         else
-                           callback(true, wxUrl, "", "", "", true);
-                       });
+            ProbeApiAsync(base, creds.user, creds.pass, uaEff,
+                          [callback, wxUrl](bool ok,
+                                            const wxString &finalBase,
+                                            const wxString & /*error*/,
+                                            const std::string &ui,
+                                            const std::string &si) {
+                            if (ok)
+                              callback(true, finalBase, "", ui, si, false);
+                            else
+                              callback(true, wxUrl, "", "", "", true);
+                          });
             return;
           }
           callback(true, wxUrl, "", "", "", true);
@@ -449,16 +545,34 @@ void DialProbeAsync(const wxString &inputUrl, const wxString &user,
         case DetectionKind::NetworkError:
         case DetectionKind::Unknown:
         default: {
-          // Fallback: full probe (bare server отдаёт 404/empty на "/").
+          // Bare server может отдавать 404/empty на "/". Try player_api
+          // first; if that fails, full probe (auth + get.php) as M3U
+          // fallback for non-Xtream servers that answer get.php only.
           const wxString base = StripPhpSuffix(inputUrl);
-          ProbeAsync(base, user, pass, uaEff,
-                     [callback](bool ok, const wxString &finalUrl,
-                                const wxString &error,
-                                const std::string &userInfoJson,
-                                const std::string &serverInfoJson) {
-                       callback(ok, finalUrl, error, userInfoJson,
-                                serverInfoJson, false);
-                     });
+          ProbeApiAsync(base, user, pass, uaEff,
+                        [callback, base, user, pass, uaEff](
+                            bool ok, const wxString &finalBase,
+                            const wxString & /*error*/,
+                            const std::string &userInfoJson,
+                            const std::string &serverInfoJson) {
+                          if (ok) {
+                            callback(true, finalBase, "", userInfoJson,
+                                     serverInfoJson, /*isM3u=*/false);
+                            return;
+                          }
+                          ProbeAsync(
+                              base, user, pass, uaEff,
+                              [callback](bool ok2, const wxString &finalUrl,
+                                         const wxString &err2,
+                                         const std::string &ui2,
+                                         const std::string &si2) {
+                                if (ok2)
+                                  callback(true, finalUrl, "", ui2, si2,
+                                           /*isM3u=*/true);
+                                else
+                                  callback(false, "", err2, "", "", false);
+                              });
+                        });
           return;
         }
         }
