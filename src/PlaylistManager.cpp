@@ -4,7 +4,9 @@
 #include "EventIDs.h"
 #include "LogControl.h"
 #include "LogoCache.h"
+#include "M3UExporter.h"
 #include "M3UParser.h"
+#include "PlaylistJson.h"
 #include "MainFrame.h"
 #include "Playlist.h"
 #include "Utils.h"
@@ -497,9 +499,11 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
     return ErrorCode::InvalidIndex;
   }
 
-  // Xtream: no-op по сети. Заполняем m_channels из существующего
-  // live_streams (если БД уже наполнена прошлыми refresh'ами).
-  // Lazy RefreshAllLive — из MainFrame при первом входе на Channels.
+  // Path 1: Xtream — DB cache read only (no network here).
+  // Fills m_channels from the existing live_streams table (if the DB was
+  // already populated by previous refreshes). Lazy RefreshAllLive is
+  // triggered from MainFrame on first entry to Channels. For Xtream this
+  // method is a network no-op.
   if (playlist->isXtream()) {
     xtream::XtreamDatabase *db = GetXtreamDb(*playlist);
     if (!db) {
@@ -554,19 +558,21 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
     return ErrorCode::OK;
   }
 
+  // Path 2: M3U — download/read + parser only. No Xtream logic here.
   std::string content;
   bool ok = false;
   if (playlist->isUrl()) {
     // Bounded network call: without timeouts curl defaults to 300 s on
     // connect and unlimited on transfer, which can hang Update and the
-    // process exit. 30 s connect covers slow-but-alive networks; 600 s total
-    // covers large playlists on slow links, while leaving the stall detector
-    // (30 s with no bytes) as the effective upper bound on a dead server.
+    // process exit. 30 s connect covers slow-but-alive networks; 600 s
+    // total covers large playlists on slow links, while leaving the stall
+    // detector (30 s with no bytes) as the effective upper bound on a dead
+    // server.
     DownloadProgress prog;
     prog.connectTimeoutSec = 30;
     prog.totalTimeoutSec = 600;
-    ok = (downloadUrl(playlist->getSource(), content,
-                      playlist->getUserAgent(), &prog) == ErrorCode::OK);
+    ok = (downloadUrl(playlist->getSource(), content, playlist->getUserAgent(),
+                      &prog) == ErrorCode::OK);
   } else {
     ok = readFile(playlist->getSource(), content);
   }
@@ -574,9 +580,9 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
   if (!ok)
     return ErrorCode::FileNotFound;
 
-  // Xtream API (player_api.php) и другие JSON-эндпоинты возвращают объект
-  // или массив вместо M3U. Отсекаем до парсера — иначе M3UParser выдаст
-  // невнятное "no channels found".
+  // Xtream API (player_api.php) and other JSON endpoints return an object
+  // or array instead of M3U. Reject before the parser — otherwise M3UParser
+  // will produce an unhelpful "no channels found".
   {
     size_t i = 0;
     if (content.size() >= 3 && static_cast<unsigned char>(content[0]) == 0xEF &&
@@ -609,44 +615,12 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
 
   playlist->setChannels(std::move(result.channels));
 
-  if (playlist->isXtream()) {
-    xtream::XtreamDatabase *db = GetXtreamDb(*playlist);
-    if (!db) {
-      LOG_WARN("PlaylistManager::loadPlaylistContent: cannot open xtream.db "
-               "for '%s', skipping VOD/Series categories",
-               playlist->getTitle().c_str());
-      return ErrorCode::OK;
-    }
-
-    if (m_xtreamClient) {
-      const auto vodCats = m_xtreamClient->GetCategories(
-          *playlist, xtream::XtreamApiClient::CategoryType::Vod);
-      for (const auto &c : vodCats) {
-        xtream::XtreamDatabase::Category cat;
-        cat.id = c.id;
-        cat.type = "vod";
-        cat.name = c.name;
-        db->UpsertCategory(cat);
-      }
-      playlist->setHasVod(!vodCats.empty());
-
-      const auto seriesCats = m_xtreamClient->GetCategories(
-          *playlist, xtream::XtreamApiClient::CategoryType::Series);
-      for (const auto &c : seriesCats) {
-        xtream::XtreamDatabase::Category cat;
-        cat.id = c.id;
-        cat.type = "series";
-        cat.name = c.name;
-        db->UpsertCategory(cat);
-      }
-      playlist->setHasSeries(!seriesCats.empty());
-
-      LOG_INFO("PlaylistManager: '%s' has %zu VOD categories, %zu Series "
-               "categories",
-               playlist->getTitle().c_str(), vodCats.size(),
-               seriesCats.size());
-    }
-  }
+  // M3U invariants: no VOD/Series catalogs. Fresh tmp.playlist
+  // (updatePlaylist) and addPlaylistFromFile already have
+  // hasVod=false / hasSeries=false from the constructor; we set them
+  // explicitly as defense against accidental pollution from legacy JSON.
+  playlist->setHasVod(false);
+  playlist->setHasSeries(false);
 
   return ErrorCode::OK;
 }
@@ -1225,7 +1199,7 @@ ErrorCode PlaylistManager::exportPlaylist(size_t index,
   }
 
   Playlist *pl = m_playlists[index].get();
-  std::string m3u = m_parser.exportToM3U(pl->getChannels(), pl->getTitle());
+  std::string m3u = ExportToM3U(pl->getChannels(), pl->getTitle());
 
   std::ofstream out(outputPath);
   if (!out.is_open()) {
@@ -1360,7 +1334,7 @@ ErrorCode PlaylistManager::savePlaylist(const Playlist *pl, size_t idx) const {
 
   std::string json;
   try {
-    json = pl->toJson();
+    json = ToJson(*pl);
   } catch (const std::exception &ex) {
     setLastError("Serialization failed: " + std::string(ex.what()));
     return ErrorCode::Unknown;
@@ -1431,7 +1405,7 @@ ErrorCode PlaylistManager::loadPlaylists() {
         }
 
         auto pl = std::make_unique<Playlist>();
-        if (!pl->fromJson(content)) {
+        if (!FromJson(content, *pl)) {
           std::cerr << "Warning: invalid JSON in playlist: " << entry.path()
                     << std::endl;
           continue;

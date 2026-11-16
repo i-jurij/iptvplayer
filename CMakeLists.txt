@@ -257,6 +257,8 @@ set(SOURCES
     src/Playlist.cpp
     src/PlaylistManager.cpp
     src/M3UParser.cpp
+    src/M3UExporter.cpp
+    src/PlaylistJson.cpp
     src/ThreadUtils.cpp
     src/TypeAheadSearch.cpp
     src/UpdateAllThread.cpp

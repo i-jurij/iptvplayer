@@ -19,10 +19,7 @@ public:
     M3UParser();
     ~M3UParser();
 
-	ErrorCode parse(const std::string& content, Playlist* playlist);
     ParseResult parse(const std::string& content);
-    std::string exportToM3U(const std::vector<Channel>& channels,
-                            const std::string& playlistTitle);
 
 private:
     Channel parseExtInfLine(const std::string& extinf, const std::string& url);

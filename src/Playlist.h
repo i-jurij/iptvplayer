@@ -21,6 +21,8 @@ struct XtreamMeta {
   }
 };
 
+enum class PlaylistKind { M3U, Xtream };
+
 class Playlist {
 public:
   Playlist() noexcept;
@@ -47,8 +49,10 @@ public:
   const std::string &getUniqueId() const noexcept { return m_uniqueId; }
   void setUniqueId(const std::string &id) { m_uniqueId = id; }
 
-  bool isXtream() const noexcept { return m_xtream; }
-  void setXtream(bool v) noexcept { m_xtream = v; }
+  bool isXtream() const noexcept { return m_kind == PlaylistKind::Xtream; }
+  void setXtream(bool v) noexcept {
+    m_kind = v ? PlaylistKind::Xtream : PlaylistKind::M3U;
+  }
 
   const XtreamMeta &getXtreamMeta() const noexcept { return m_xtreamMeta; }
   void setXtreamMeta(const XtreamMeta &m) noexcept { m_xtreamMeta = m; }
@@ -65,6 +69,7 @@ public:
   void setSource(const std::string &source) noexcept { m_source = source; }
   void setUserAgent(const std::string &ua) noexcept { m_userAgent = ua; }
   void setAutoUpdate(bool v) noexcept { m_autoUpdate = v; }
+  void setIsUrl(bool v) noexcept { m_isUrl = v; }
   void setLastUpdate(std::time_t t) noexcept { m_lastUpdate = t; }
   void setChannels(std::vector<Channel> channels) noexcept;
 
@@ -75,9 +80,6 @@ public:
 
   std::vector<std::string> getChannelTitles() const;
   std::vector<std::string> getChannelUrls() const;
-
-  std::string toJson() const;
-  bool fromJson(const std::string &json);
 
 private:
   std::string m_title;
@@ -90,7 +92,7 @@ private:
 
   std::string m_uniqueId;
 
-  bool m_xtream = false;
+  PlaylistKind m_kind = PlaylistKind::M3U;
   XtreamMeta m_xtreamMeta;
   bool m_hasVod = false;
   bool m_hasSeries = false;
