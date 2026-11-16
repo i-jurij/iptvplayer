@@ -107,315 +107,101 @@ For smooth HD playback, install VA-API drivers (`va-driver-all` on Debian/Ubuntu
 
 ## Building and packaging
 
-### 1. Building a package for your system (recommended)
+> **Don't want to modify your host system?** Building from source installs
+> development packages and modifies the system. If you don't want that,
+> build inside a disposable container, VM, or CI runner instead — and copy
+> the resulting artifacts out of it.
 
-Everything is driven by one entry point:
+### 1. Using `make.sh`
+
+All builds go through one entry point:
 
     ./scripts/make.sh --package
 
-Passing no format flag on a TTY opens an interactive menu that lists the
-formats available for the detected distribution. On a non-interactive run
-(CI, `--no-menu`) the default is `--native`.
+On an interactive terminal it shows a menu of formats available for your
+distribution. Add a format flag to skip the menu:
 
-Typical flows:
+    ./scripts/make.sh --package --native      # .deb / .rpm / .pkg.tar.zst / … for this distro
+    ./scripts/make.sh --package --appimage    # AppImage (linuxdeploy)
+    ./scripts/make.sh --package --sharun      # AppImage (quick-sharun, maximum portability)
+    ./scripts/make.sh --package --flatpak     # Flatpak bundle
 
-    # Interactive menu — choose what to build
-    ./scripts/make.sh --package
+You do **not** need to install anything first: `--package` (and `--build`)
+install or verify all dependencies automatically. In interactive mode the
+script installs what is missing; with `--yes` (CI) it only verifies and
+fails early if something is missing.
 
-    # Native package for the current distro
-    ./scripts/make.sh --package --native
+Other commands:
 
-    # AppImage through linuxdeploy (classic pipeline)
-    ./scripts/make.sh --package --appimage
+    ./scripts/make.sh --build               # binary only, no packaging
+    ./scripts/make.sh --build --type debug
+    ./scripts/make.sh --build --rebuild     # force a clean rebuild
+    ./scripts/make.sh --clean               # remove staging artifacts
+    ./scripts/make.sh --clean --with-third-party
 
-    # AppImage through quick-sharun (maximum portability:
-    # old glibc, musl systems, NixOS)
-    ./scripts/make.sh --package --sharun
+`./scripts/make.sh --help` lists every command and flag.
 
-    # Flatpak bundle
-    ./scripts/make.sh --package --flatpak
+**What `--package` does:**
 
-    # Several formats at once
-    ./scripts/make.sh --package --native --appimage --flatpak
+1. Detect distribution and architecture.
+2. Ensure dependencies (system packages, wxWidgets, wxSQLite3 — all handled
+   by the script).
+3. Build the binary into `install/` if it is missing.
+4. Produce the requested artifacts in `dist/`.
+5. Sign them (if `GPG_KEY_ID` is set) and write `dist/checksums.txt`.
 
-    # Force a rebuild of the binary first
-    ./scripts/make.sh --package --native --rebuild
+Signing covers `.deb`, `.rpm`, `.AppImage` and `checksums.txt`, best-effort
+per file — a single failed signature is a warning, not an error. Set
+`GPG_WRAPPER_DIR` to use an isolated GPG home (CI). `public-key.asc` is not
+produced; export it with `gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc`.
 
-Run `./scripts/make.sh --help` for the full list of commands and options.
+### 2. Manual build without the scripts
 
-**Distro-specific formats are chosen automatically.** `--native` builds
-`.deb` on Debian/Ubuntu/Mint/Pop/Astra, `.rpm` on Fedora/RHEL/Rocky/Alma/
-CentOS/Oracle/RedOS/ALT/ROSA/Mageia/OpenMandriva/openSUSE/SLES, `.pkg.tar.zst`
-on Arch/Manjaro/EndeavourOS/CachyOS, `.apk` on Alpine, `.tbz2` on Gentoo,
-`.tar.zst` on NixOS, `.txz` on Slackware, and `.xbps` on Void. The adapter
-is `scripts/distros/<name>.sh`, selected by `# distro-patterns:` header
-matching `$DISTRO`.
+If you want to do it by hand:
 
-**Which variant should I pick?**
+1. **Install the toolchain and dependencies:** CMake, ninja or make, a
+   C++17-capable compiler, pkg-config, plus the development packages for
+   the app itself: `mpv` (`libmpv`), `libcurl`, `expat`, `zlib`, `gettext`.
+   wxWidgets dependencies (GTK, GDK-Pixbuf, JPEG, PNG, WebP, Freetype, …)
+   are only needed to build wxWidgets below, not the app directly.
+2. **Build wxWidgets** statically per its upstream instructions, with
 
-- **Native** (`.deb` / `.rpm` / `.pkg.tar.zst`) — smallest download, but
-  depends on libraries already present in your distribution. Only offered
-  when the script recognises your system.
-- **AppImage** — self-contained, runs on any glibc ≥ 2.39 system, no
-  installation required.
-- **AppImage (sharun)** — uses `quick-sharun` and embeds its own dynamic
-  linker; can work on old distros, musl systems (Alpine, Void-musl) and
-  NixOS without FHS.
-
-### 2. How the scripts fit together
-
-One entry point (`make.sh`) and a set of libraries. The libraries are
-sourced, not executed; you only ever run `make.sh`.
-
-**Entry point:**
-
-| File | Role |
-| :--- | :--- |
-| `scripts/make.sh` | Single entry point. Parses `--deps` / `--build` / `--package` / `--clean`, dispatches to `cmd/*.sh`, exits. |
-| `scripts/bootstrap-bash.sh` | POSIX bootstrap. If `/bin/sh` is not bash, it re-execs into a system bash or downloads a static one (`bash-static-<arch>`). Honors `IPTVPLAYER_BASH_STATIC`, `IPTVPLAYER_BASH_TAG`, `IPTVPLAYER_BOOTSTRAP_DISABLE`. |
-
-**Libraries** (sourced by `make.sh`):
-
-| File | Role |
-| :--- | :--- |
-| `scripts/detect.sh` | Arch detection (`DEB_ARCH` / `RPM_ARCH` / `APPIMAGE_ARCH`), distro detection (`$DISTRO` from `/etc/os-release`, then `# distro-patterns:` matching in `distros/*.sh`), `sudo` detection, colors, logging. |
-| `scripts/lib.sh` | Shared helpers: `ask`, `download`, `download_multi`, `read_versions_from_install`, `prepare_staging`, `rpm_files_block`, `detect_deb_depends`, `pack_rpm`, `pack_deb`, `deps_*`, `check_deps`, `ensure_tools`, `setup_dirs`, `sign_files`. |
-| `scripts/cmd/deps.sh` | `--deps` implementation: `deps_run`, `deps_ensure_for_build`, `deps_ensure_system`, `deps_ensure_tools`, `deps_ensure_third_party` (wxWidgets + wxSQLite3 builds), `deps_cleanup_after_success`. |
-| `scripts/cmd/build.sh` | `--build` implementation: `bin_run`, `bin_resolve_paths`, `bin_ensure_binary` (CMake configure/build/install/strip), `setup_log_fifo`. |
-| `scripts/cmd/package.sh` | `--package` implementation: `package_run` (format selection, binary-or-build, `check_deps`, `setup_dirs`, per-format dispatch, `sign_files`), `package_show_menu`. |
-| `scripts/cmd/clean.sh` | `--clean` implementation: remove `pkg-*`, `pkg-staging`, `dist/.AppDir`, `AppDir`, `compile_commands.json`; optional `third_party` (`--with-third-party`); remove packages recorded in `.iptvplayer-deps-installed`. |
-
-**Formats** (sourced on demand by `package_run`):
-
-| File | Role |
-| :--- | :--- |
-| `scripts/formats/native.sh` | `build_native` — thin dispatcher around `distro_build` from `distros/<name>.sh`. |
-| `scripts/formats/appimage.sh` | `populate_appdir` + `build_appimage` — linuxdeploy + GTK plugin + `appimagetool`. |
-| `scripts/formats/sharun.sh` | `build_sharun_appimage` — `quick-sharun`, DejaVu fallback, `ca-bundle.hook`, `fonts.hook`, `dbus-fallback.hook`. |
-| `scripts/formats/flatpak.sh` | `build_flatpak` — `flatpak-builder` + `flatpak build-bundle` (GNOME runtime, default `org.gnome.Platform//47`). |
-
-**Per-distro adapters** (`scripts/distros/*.sh`): one file per distribution family, selected by `# distro-patterns:` header. Each file declares `PKGMGR*`, `COM_*`, `DEPS`, `REQUIRED_TOOLS`, `PACK_FORMAT`, `RPM_*` (if applicable), and defines `distro_build()` and (optionally) `distro_setup_repos()`.
-
-**Order of operations:**
-
-1. `./scripts/make.sh --deps` — one-time prep. Installs system packages listed in `distros/<name>.sh` (`DEPS`), verifies required tools, then builds wxWidgets (`WX_VERSION`, default 3.3.2) and wxSQLite3 (`WXSQLITE3_VERSION`, default 5.0.1) statically into `third_party/`. Skip with `--skip-system` (only `third_party` gets built). Force rebuild of `third_party` with `--rebuild`.
-2. `./scripts/make.sh --build` — CMake configure + build + install. `--type release|debug`, `--log`, `--rebuild` supported.
-3. `./scripts/make.sh --package [formats]` — builds the binary if `install/bin/iptvplayer` is missing, then produces the requested formats in `dist/`. Multiple formats accepted: `--native --appimage --sharun --flatpak`. Uses `--rebuild` to wipe `build-*`, `install`, `dist`, `pkg-*`, `pkg-staging`, `AppDir` first.
-4. `./scripts/make.sh --clean` — removes staging artifacts, `pkg-*` directories, and packages recorded in `.iptvplayer-deps-installed`. Does **not** touch `build-*` / `install/` / `dist/` (that is `--rebuild`'s job). Add `--with-third-party` to also remove `third_party/`.
-
-**Order of operations, in plain terms:**
-
-1. `scripts/setup-deps.sh` — one-time prep, produces static dependencies.
-2. `scripts/build-package.sh <flags>` —
-   - reads `METAINFO_NAME`, detects architecture (`DEB_ARCH`, `RPM_ARCH`, `APPIMAGE_ARCH`) and distribution (`DISTRO`);
-   - checks for required tools (`dpkg-deb`, `rpmbuild`, `wget`, `tar`, `readelf`, `gpg` if signing, …);
-   - if `install/bin/iptvplayer` is missing (or `--rebuild` given) — calls `build-release.sh --type release --prefix ./install --yes`;
-   - reads `install/VERSION{,_FULL,_FILE}`;
-   - for AppImage (linuxdeploy): populates `dist/.AppDir` via `linuxdeploy` + GTK plugin (downloaded on demand);
-   - for AppImage (sharun): deploys dependencies via `quick-sharun` (downloaded on demand);
-   - builds the requested artifacts into `dist/`;
-   - optionally signs them (if `GPG_KEY_ID` is set) and writes `dist/checksums.txt`.
-3. Result: `dist/` contains the artifacts listed at the end of the run.
-
-Note: `build-package.sh` cleans up `pkg-staging/`, `dist/.AppDir/`,
-`pkg-rpm/`, `pkg-rpm-alt/` and `pkg-rpm-rosa/` on exit. `dist/` is preserved
-(unless you pass `--clean`).
-
-### 3. Installing dependencies (manual step)
-
-Before the first package build, run:
-
-    ./scripts/make.sh --deps
-
-It will:
-
-- detect your distribution (`$DISTRO` from `/etc/os-release`, or override with
-  `DISTRO=<id>-<ver>`) and source the matching `scripts/distros/<name>.sh`;
-- install the packages listed in that file's `DEPS` map via `PKGMGR` (`apt-get`,
-  `dnf`, `zypper`, `pacman`, `apk`, `emerge`, `xbps-install`, …); distros
-  without a package manager (NixOS, Slackware) skip this step silently;
-- run `distro_setup_repos` first when the adapter defines it (RHEL/Rocky EPEL,
-  Oracle Linux EPEL + CRB, OpenMandriva `restricted`);
-- download **wxWidgets** and build it statically with builtin libwebp;
-- download **wxSQLite3** and build it statically against the local wxWidgets;
-- ensure `msgfmt` (from `gettext`) is available if `po/` contains `.po` files —
-  the build fails without it (see *Localization*). `gettext` is installed by
-  `make.sh --deps` on every distro that uses a package manager; `msgmerge` is
-  also checked and reported missing if absent, but only `msgfmt` is fatal.
-
-Both are installed into:
-
-    third_party/wx/install/
-    third_party/wxsqlite3/install/
-
-These paths are already configured in `CMakeLists.txt`.
-
-The pinned versions live in `scripts/cmd/deps.sh` (`WX_VERSION`, default
-`3.3.2`; `WXSQLITE3_VERSION`, default `5.0.1`). They can be overridden
-without editing the script:
-
-    WX_VERSION=3.4.0 WXSQLITE3_VERSION=5.1.0 ./scripts/make.sh --deps
-
-Options (global — must be passed to `make.sh`):
-
-    ./scripts/make.sh --deps                     # interactive
-    ./scripts/make.sh --deps --yes               # non-interactive
-    ./scripts/make.sh --deps --skip-system       # only rebuild third_party
-    ./scripts/make.sh --deps --yes --rebuild     # force rebuild both
-
-> `make.sh --deps` installs the system packages itself via your distribution's
-> package manager — it only needs `sudo` (or root) and either `curl` or
-> `wget`. The full package list is the `DEPS` map inside the matched
-> `scripts/distros/<name>.sh`. Installed packages are recorded in
-> `.iptvplayer-deps-installed` and removed automatically after a successful
-> `--build` / `--package` (unless `--skip-system` was used). `--clean` also
-> removes them.
-
-### 4. Manual build (step by step)
-
-This is the low-level path, useful if you want to understand what the scripts
-do or if you need a build without packaging.
-
-1. **Install dependencies** (see §3):
-
-        ./scripts/setup-deps.sh
-
-2. **Configure and build** with CMake:
+- `wxBUILD_SHARED=OFF` (static)
+- `wxUSE_GLCANVAS=ON`
+- `wxUSE_LIBWEBP=builtin`, `wxUSE_LIBJPEG=builtin`
+- `wxUSE_SVG=ON`
+- `CMAKE_INSTALL_LIBDIR=lib`.
+  
+1. **Build wxSQLite3** statically against that wxWidgets  
+`./configure --prefix=<wxsqlite3-prefix> --with-wx-config=<wx-prefix>/bin/wx-config --disable-shared --enable-static`
+2. **Point CMake** at both prefixes via `-DLOCAL_WX_INSTALL=…` and
+   `-DLOCAL_WXSQLITE3_INSTALL=…` (or drop them into `third_party/wx/install/`
+   and `third_party/wxsqlite3/install/`).
+3. **Build and install:**
 
         mkdir -p build && cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release \
-                 -DCMAKE_INSTALL_PREFIX="$PWD/../install"
+                 -DCMAKE_INSTALL_PREFIX="$PWD/../install" \
+                 -DCMAKE_CXX_STANDARD=20
         cmake --build . -j"$(nproc)"
-
-3. **Install** the binary, icons and resources:
-
         cmake --build . --target install
 
-4. **Run**:
+4. **Run:** `cd ../install/bin && ./iptvplayer`.
 
-        cd ../install/bin && ./iptvplayer
+### 3. IDE support
 
-Or use the wrapper, which does all of the above in one shot:
+`cmake --build` writes `compile_commands.json`; `make.sh` copies it to the
+project root. This enables `clangd`, VSCode, CLion and ccls without extra
+configuration.
 
-    ./scripts/make.sh --build                          # Release, install to ./install
-    ./scripts/make.sh --build --type debug             # Debug build
-    ./scripts/make.sh --build --type debug --rebuild   # Clean rebuild
-    ./scripts/make.sh --build --log                    # Save build log
-
-#### `build-release.sh` options
-
-| Option | Description |
-| :----- | :---------- |
-| `--rebuild` | Remove `build-<type>/`, `install/`, `pkg-staging/`, `AppDir/` before building |
-| `--type release\|debug` | Build type (default: `release`) |
-| `--log` | Save build log to `build_<YYYYMMDD_HHMMSS>.log` |
-| `--yes`, `-y` | Non-interactive mode |
-| `-h`, `--help` | Show help |
-
-**What it does:**
-
-1. Checks that `third_party/wx/install/lib/…` and `third_party/wxsqlite3/install/lib/…` exist; warns if not.
-2. Creates `build-release/` or `build-debug/`.
-3. Configures CMake with the chosen type and install prefix.
-4. Builds (uses `ninja` if available, otherwise `make`).
-5. Installs the executable, icons, resources, `VERSION{,_FULL,_FILE}`, metainfo, license.
-6. `strip`s the binary in Release/MinSizeRel builds.
-7. Copies `compile_commands.json` to the project root for IDE support.
-
-#### `build-package.sh` options (full list)
-
-| Option | Description |
-| :----- | :---------- |
-| `--native` | Native package for the detected distribution (`.deb` / `.rpm` / `.pkg.tar.zst` / `.apk` / `.tbz2` / `.tar.zst` / `.txz` / `.xbps`, whichever matches) |
-| `--appimage` | AppImage through linuxdeploy + `appimagetool` |
-| `--sharun` | AppImage through `quick-sharun` (maximum portability) |
-| `--flatpak` | Flatpak bundle (needs `flatpak-builder`) |
-| `--no-menu` | Do not show the interactive menu |
-| `--rebuild` | Force rebuild of the binary (wipes `build-*` / `install` / `dist` / `pkg-*` / `pkg-staging` / `AppDir`) |
-| `--yes`, `-y` | Non-interactive mode (implies `--no-menu`) |
-| `-h`, `--help` | Show help |
-
-Format flags can be combined in one invocation (`--native --appimage
---flatpak`). If no format flag is given and stdin is a TTY, `--package`
-shows a menu tailored to your distribution. If stdin is **not** a TTY
-(CI, `--no-menu`) the default is `--native`. Pass explicit flags to
-override.
-
-`--clean`, `--clean-only`, `--native-deb`, `--native-rpm`, `--native-arch`,
-`--native-alt`, `--native-rosa`, `--native-appimage`, and `--all` no longer
-exist. Use `make.sh --clean` for cleanup and `--native` (single flag) for
-whichever native format the current distro provides.
-
-Output goes to `dist/`:
-
-    dist/
-    ├── iptvplayer_<version>_<distro>_<deb-arch>.deb                    # .deb
-    ├── iptvplayer-<version>-<release>.<suffix>.<rpm-arch>.rpm          # .rpm (exact parts vary, see §Installation)
-    ├── iptvplayer-<version>-1-<distro>-<arch>.pkg.tar.zst              # .pkg.tar.zst
-    ├── iptvplayer-<version>-r<rel>.apk                                 # .apk
-    ├── iptvplayer-<version>.tbz2                                       # .tbz2
-    ├── iptvplayer-<version>-<nix-system>.tar.zst                       # Nix
-    ├── iptvplayer-<version>-<arch>-<build><tag>.txz                    # .txz
-    ├── iptvplayer-<version>_<rev>.<arch>.xbps                          # .xbps
-    ├── iptvplayer-<version>.flatpak                                    # Flatpak
-    ├── iptvplayer-linux-<arch>-<version>-linuxdeploy.AppImage          # AppImage (linuxdeploy)
-    ├── iptvplayer-linux-<arch>-<version>-linuxdeploy.AppImage.asc      # if signed
-    ├── iptvplayer-linux-<arch>-<version>-linuxdeploy.AppImage.zsync    # if zsyncmake is present
-    ├── iptvplayer-linux-<arch>-<version>-sharun.AppImage               # AppImage (quick-sharun)
-    ├── iptvplayer-linux-<arch>-<version>-sharun.AppImage.asc           # if signed
-    ├── checksums.txt
-    └── checksums.txt.asc                                               # if signed
-
-#### Signing (optional)
-
-If `GPG_KEY_ID` is set in the environment when `build-package.sh` runs, it
-signs:
-
-- `.deb` via `debsigs` (falls back to a detached `.asc`);
-- `.rpm` via `rpm --addsign` (falls back to a detached `.asc`);
-- `*.AppImage` via a detached `.asc`;
-- `checksums.txt` via a detached `checksums.txt.asc`.
-
-`sign_files()` always writes `checksums.txt`; signing is best-effort per
-file — a single failed signature is a warning, not an error. To use an
-isolated GPG home (CI), set `GPG_WRAPPER_DIR` to a directory containing
-`gpg` and (optionally) `pass`.
-
-`public-key.asc` is **not** produced by the script. If you need to publish
-the public key, export it manually:
-
-    gpg --armor --export "$GPG_KEY_ID" > dist/public-key.asc
-
-The CI release workflow does this step automatically and attaches the file
-to the GitHub release.
-
-### 5. IDE support
-
-After any build, `compile_commands.json` is generated and copied to the
-project root. This enables:
-
-- **VSCode** with `clangd` or Microsoft C/C++ extension;
-- **CLion**;
-- **ccls**.
-
-Install `clangd` (recommended):
-
-    sudo apt install clangd-16   # Ubuntu/Debian
-
-Then install the clangd extension in VSCode — it will use
-`compile_commands.json` automatically.
-
-### 6. Summary of common commands
+### 4. Common commands
 
 | Task | Command |
 | :--- | :--- |
-| Install dependencies (once) | `./scripts/make.sh --deps` |
 | Build package for current distro | `./scripts/make.sh --package --native` |
-| Build AppImage | `./scripts/make.sh --package --appimage` |
-| Build AppImage (quick-sharun) | `./scripts/make.sh --package --sharun` |
+| Build AppImage (sharun) | `./scripts/make.sh --package --sharun` |
 | Build Flatpak | `./scripts/make.sh --package --flatpak` |
-| Build several formats at once | `./scripts/make.sh --package --native --appimage --flatpak` |
-| Just build the binary | `./scripts/make.sh --build` |
+| Build binary only | `./scripts/make.sh --build` |
 | Debug build | `./scripts/make.sh --build --type debug` |
 | Clean rebuild | `./scripts/make.sh --build --rebuild` |
 | Clean staging artifacts | `./scripts/make.sh --clean` |
@@ -464,6 +250,7 @@ UI strings are translated with gettext.
 
 **Updating translations.**
 
+```sh
     # 1) extract new/changed strings, merge into existing .po files
     ./scripts/update-po.sh
 
@@ -471,6 +258,7 @@ UI strings are translated with gettext.
 
     # 3) rebuild — msgfmt runs automatically
     ./scripts/make.sh --build
+```
 
 **Adding a new language.**
 
