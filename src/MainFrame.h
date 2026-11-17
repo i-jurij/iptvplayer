@@ -466,9 +466,10 @@ private:
   wxActivityIndicator *m_moviesActivity = nullptr;
   int m_moviesPageIdx = wxNOT_FOUND;
   bool m_moviesPanelCreated = false;
-  wxButton *m_moviesRefreshBtn = nullptr;
-  bool m_moviesRefreshing = false;
-  // one-shot auto-refresh per playlist session.
+   wxButton *m_moviesRefreshBtn = nullptr;
+   bool m_moviesRefreshing = false;
+   wxSplitterWindow *m_moviesSplitter = nullptr;
+   // one-shot auto-refresh per playlist session.
   // Set when HandleMoviesPageChanged triggers initial catalog load;
   // reset in ResetMoviesState (playlist switch) and in loadPlaylistChannels
   // when playlist changes.

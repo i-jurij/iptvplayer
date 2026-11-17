@@ -649,6 +649,17 @@ void MainFrame::createMainPanel() {
     // Show after hide in constructor
     m_notebook->Show();
 
+    // После Show() страница отрисовалась — только тогда GetClientSize()
+    // вернёт правильный размер. wxTheApp->CallAfter срабатывает после
+    // того, как страница точно отрисовалась.
+    wxTheApp->CallAfter([this]() {
+      if (m_moviesSplitter) {
+        const int w = m_moviesSplitter->GetClientSize().GetWidth();
+        if (w > 0)
+          m_moviesSplitter->SetSashPosition(w * 2 / 3);
+      }
+    });
+
     CheckAndSuggestPlaylist();
   });
 
@@ -734,8 +745,6 @@ void MainFrame::RestoreLastOpenedPlaylist() {
   // не будет найдена).
   if (savedTab == "movies" && !m_moviesPanelCreated) {
     EnsureMoviesPanel();
-    m_notebook->Layout();
-    m_mainPanel->Layout();
   }
   if (savedTab == "series" && m_seriesPageIdx == wxNOT_FOUND) {
     EnsureSeriesPanel();
@@ -745,12 +754,6 @@ void MainFrame::RestoreLastOpenedPlaylist() {
       DetermineActiveTabIndex(savedTab, true));
 
   m_notebook->SetSelection(targetTab);
-
-  // После SetSelection страница получила правильный размер от notebook —
-  // отправляем SizeEvent, чтобы PosterCards пересчитал ширину карточек.
-  if (targetTab == m_moviesPageIdx && m_moviesPage) {
-    m_moviesPage->SendSizeEvent();
-  }
 
   // Откладываем восстановление Movies/Series контекста
   // (категории заполняются лениво при первом входе)
