@@ -518,6 +518,11 @@ void MainFrame::HandleMoviesPageChanged(int sel) {
   if (!m_moviesPanelCreated)
     return;
 
+  if (m_startupRestorePending) {
+    RestoreMoviesContext();
+    m_startupRestorePending = false;
+  }
+
   Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
   if (!pl || !pl->isXtream() || !pl->hasVod())
     return;
@@ -1233,6 +1238,11 @@ void MainFrame::HandleSeriesPageChanged(int sel) {
     return;
   if (!m_seriesPanel)
     return;
+
+  if (m_startupRestorePending) {
+    RestoreSeriesContext();
+    m_startupRestorePending = false;
+  }
 
   m_seriesPanel->OnActivated();
 }

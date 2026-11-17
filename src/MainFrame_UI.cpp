@@ -699,44 +699,67 @@ void MainFrame::createStatusBar() {
 void MainFrame::RestoreLastOpenedPlaylist() {
   auto *cfg = getConfigManager();
   auto *mgr = getPlaylistManager();
-  if (!cfg || !mgr)
-    return;
+  if (!cfg || !mgr) return;
 
-  std::string lastOpened = cfg->getSetting("last_opened_playlist", "");
-  if (lastOpened.empty())
-    return;
+  std::string title = cfg->getSetting("last_opened_playlist", "");
+  if (title.empty()) return;
 
+  // Плейлисты уже в памяти (загружены при старте через loadPlaylists).
+  // Просто ищем по названию — это строковое сравнение, без загрузки контента.
+  Playlist *pl = mgr->findByTitle(title);
+  if (!pl) return;
+
+  size_t idx = 0;
   const auto &pls = mgr->getPlaylists();
-  if (pls.empty())
-    return;
-
   for (size_t i = 0; i < pls.size(); ++i) {
-    Playlist *pl = pls[i].get();
-    if (!pl)
-      continue;
-
-    if (pl->getTitle() == lastOpened) {
-
-      m_loadedPlaylistIndex = static_cast<int>(i);
-      m_loadedPlaylistName = lastOpened;
-      m_selectedPlaylistIndex = static_cast<int>(i);
-
-      // загружаем каналы
-      loadPlaylistChannels(pl->getChannels(),
-                           wxString::FromUTF8(pl->getTitle()),
-                           pl->getUniqueId());
-
-      // переключаем вкладку Channels
-      ToggleHeaderGroup(m_btnChannels);
-      m_notebook->SetSelection(m_channelsPageIdx);
-
-      SetStatusText(wxString::Format("Playlist selected: %s",
-                                     wxString::FromUTF8(pl->getTitle())),
-                    1);
-
-      return;
+    if (pls[i].get() == pl) {
+      idx = i;
+      break;
     }
   }
+
+  m_loadedPlaylistIndex = static_cast<int>(idx);
+  m_loadedPlaylistName = title;
+  m_selectedPlaylistIndex = static_cast<int>(idx);
+
+  loadPlaylistChannels(pl->getChannels(),
+                       wxString::FromUTF8(pl->getTitle()),
+                       pl->getUniqueId());
+
+  // Определяем целевую вкладку
+  std::string savedTab = cfg->getSetting("last_active_tab", "channels");
+
+  // Обеспечиваем создание Movies/Series страниц, если целевая вкладка
+  // указывает на них (иначе m_moviesPageIdx == wxNOT_FOUND и вкладка
+  // не будет найдена).
+  if (savedTab == "movies" && !m_moviesPanelCreated) {
+    EnsureMoviesPanel();
+    m_notebook->Layout();
+    m_mainPanel->Layout();
+  }
+  if (savedTab == "series" && m_seriesPageIdx == wxNOT_FOUND) {
+    EnsureSeriesPanel();
+  }
+
+  int targetTab = FallbackToFirstAvailableTab(
+      DetermineActiveTabIndex(savedTab, true));
+
+  m_notebook->SetSelection(targetTab);
+
+  // После SetSelection страница получила правильный размер от notebook —
+  // отправляем SizeEvent, чтобы PosterCards пересчитал ширину карточек.
+  if (targetTab == m_moviesPageIdx && m_moviesPage) {
+    m_moviesPage->SendSizeEvent();
+  }
+
+  // Откладываем восстановление Movies/Series контекста
+  // (категории заполняются лениво при первом входе)
+  if (targetTab == m_moviesPageIdx || targetTab == m_seriesPageIdx) {
+    m_startupRestorePending = true;
+  }
+
+  SetStatusText(wxString::Format("Playlist loaded: %s",
+                                 wxString::FromUTF8(pl->getTitle())), 1);
 }
 
 void MainFrame::showPanel(wxWindow *child) {
@@ -766,4 +789,36 @@ int MainFrame::GetHeaderRowHeight() const {
       return h;
   }
   return FromDIP(28);
+}
+
+int MainFrame::DetermineActiveTabIndex(const std::string &tab,
+                                       bool playlistFound) const {
+  if (!playlistFound) return m_notebook->FindPage(m_playlistPanel);
+
+  if (tab == "channels" && m_channelsPageIdx != wxNOT_FOUND) return m_channelsPageIdx;
+  if (tab == "favorites" && m_favoritesPageIdx != wxNOT_FOUND) return m_favoritesPageIdx;
+  if (tab == "video" && m_videoPageIdx != wxNOT_FOUND) return m_videoPageIdx;
+  if (tab == "movies" && m_moviesPageIdx != wxNOT_FOUND) return m_moviesPageIdx;
+  if (tab == "series" && m_seriesPageIdx != wxNOT_FOUND) return m_seriesPageIdx;
+  if (tab == "epg" && m_epgPageIdx != wxNOT_FOUND) return m_epgPageIdx;
+
+  return playlistFound ? m_channelsPageIdx : m_notebook->FindPage(m_playlistPanel);
+}
+
+int MainFrame::FallbackToFirstAvailableTab(int preferredTab) const {
+  if (preferredTab == m_moviesPageIdx) {
+    Playlist *pl = GetLoadedPlaylist();
+    if (!pl || !pl->isXtream() || !pl->hasVod()) {
+      return m_loadedPlaylistIndex >= 0 ? m_channelsPageIdx
+                                        : m_notebook->FindPage(m_playlistPanel);
+    }
+  }
+  if (preferredTab == m_seriesPageIdx) {
+    Playlist *pl = GetLoadedPlaylist();
+    if (!pl || !pl->isXtream() || !pl->hasSeries()) {
+      return m_loadedPlaylistIndex >= 0 ? m_channelsPageIdx
+                                        : m_notebook->FindPage(m_playlistPanel);
+    }
+  }
+  return preferredTab;
 }

@@ -301,6 +301,9 @@ MainFrame::~MainFrame() {
       cfg->setRecentFiles(recentRaw);
     }
 
+    // Сохранение контекста старта
+    SaveStartupContext();
+
     IconManager::Shutdown();
     // m_closing уже true — см. начало деструктора.
     // Ожидание завершения всех фоновых задач
@@ -521,4 +524,50 @@ void MainFrame::OpenFiles(const wxArrayString &paths) {
     return;
   m_notebook->SetSelection(m_videoPageIdx);
   m_videoPanel->HandleDroppedFiles(paths, 0);
+}
+
+void MainFrame::SaveStartupContext() {
+  auto *cfg = getConfigManager();
+  if (!cfg) return;
+
+  // Название плейлиста (плейлисты уже в памяти, это просто строковое сравнение)
+  if (m_loadedPlaylistIndex >= 0) {
+    Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
+    if (pl) {
+      cfg->setSetting("last_opened_playlist", pl->getTitle());
+    }
+  }
+
+  // Активная вкладка
+  int sel = m_notebook ? m_notebook->GetSelection() : -1;
+  std::string activeTab = "playlist";
+
+  if (sel == m_channelsPageIdx) activeTab = "channels";
+  else if (sel == m_favoritesPageIdx) activeTab = "favorites";
+  else if (sel == m_videoPageIdx) activeTab = "video";
+  else if (m_moviesPageIdx != wxNOT_FOUND && sel == m_moviesPageIdx) activeTab = "movies";
+  else if (m_seriesPageIdx != wxNOT_FOUND && sel == m_seriesPageIdx) activeTab = "series";
+  else if (m_epgPageIdx != wxNOT_FOUND && sel == m_epgPageIdx) activeTab = "epg";
+
+  cfg->setSetting("last_active_tab", activeTab);
+
+  // Movies контекст
+  if (sel == m_moviesPageIdx && m_moviesPanelCreated) {
+    cfg->setSetting("last_movies_category_id",
+                    std::to_string(m_currentVodCategoryId));
+    cfg->setInt("last_movies_list_mode", static_cast<int>(m_moviesListMode));
+    cfg->setInt("last_movies_sort_mode", static_cast<int>(m_moviesSortMode));
+  }
+
+  // Series контекст
+  if (sel == m_seriesPageIdx && m_seriesPanel) {
+    cfg->setSetting("last_series_category_id",
+                    std::to_string(m_seriesPanel->GetCurrentCategoryId()));
+    cfg->setInt("last_series_list_mode", static_cast<int>(m_seriesPanel->GetListMode()));
+    cfg->setInt("last_series_sort_mode", static_cast<int>(m_seriesPanel->GetSortMode()));
+    cfg->setSetting("last_series_series_id",
+                    std::to_string(m_seriesPanel->GetCurrentSeriesId()));
+    cfg->setInt("last_series_season", m_seriesPanel->GetCurrentSeasonNumber());
+    cfg->setInt("last_series_level", static_cast<int>(m_seriesPanel->CurrentLevel()));
+  }
 }

@@ -1709,3 +1709,45 @@ void SeriesPanel::UpdateInfoLabel() {
   if (wxWindow *p = m_infoLabel->GetParent())
     p->Layout();
 }
+
+void SeriesPanel::RestoreNavigationState(int64_t seriesId, int seasonNumber,
+                                         int level) {
+    if (seriesId <= 0 || level < 0 || level > 2) return;
+
+    auto *db = GetDb();
+    if (!db) return;
+
+    auto series = db->GetSeries(seriesId);
+    if (series.seriesId == 0) return;
+
+    m_currentSeriesId = seriesId;
+    m_currentSeriesName = wxString::FromUTF8(series.name);
+    m_currentSeasonNumber = seasonNumber;
+
+    const auto seasons = db->GetSeasons(seriesId);
+    if (seasons.empty()) return;
+
+    m_currentSeasons = seasons;
+
+    if (level == 0) return;
+
+    PopulateSeasonsCards();
+
+    if (level == 1) {
+        RebuildBreadcrumbs();
+        GoToLevel(Level::Seasons);
+        return;
+    }
+
+    const auto episodes = db->GetEpisodes(seriesId, seasonNumber);
+    if (episodes.empty()) {
+        RebuildBreadcrumbs();
+        GoToLevel(Level::Seasons);
+        return;
+    }
+
+    m_currentEpisodes = episodes;
+    PopulateEpisodesList(seasonNumber);
+    RebuildBreadcrumbs();
+    GoToLevel(Level::Episodes);
+}

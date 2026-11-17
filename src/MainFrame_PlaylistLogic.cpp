@@ -1088,3 +1088,44 @@ void MainFrame::RemoveChannelFromPlaylist(const Channel &ch) {
 
   LOG_DEBUG("RemoveChannelFromPlaylist: END");
 }
+
+void MainFrame::RestoreMoviesContext() {
+  auto *cfg = getConfigManager();
+  if (!cfg || !m_moviesCategoryChoice) return;
+
+  int savedMode = cfg->getInt("last_movies_list_mode", 0);
+  SetMoviesListMode(static_cast<MoviesListMode>(savedMode));
+
+  int savedSort = cfg->getInt("last_movies_sort_mode", 0);
+  m_moviesSortMode = static_cast<MoviesSortMode>(savedSort);
+  if (m_moviesSortChoice) {
+    m_moviesSortChoice->SetSelection(savedSort);
+  }
+}
+
+void MainFrame::RestoreSeriesContext() {
+  auto *cfg = getConfigManager();
+  if (!cfg || !m_seriesPanel) return;
+
+  std::string catIdStr = cfg->getSetting("last_series_category_id", "0");
+  int savedCatId = 0;
+  try { savedCatId = std::stoi(catIdStr); } catch (...) {}
+  m_seriesPanel->SetCurrentCategoryId(savedCatId);
+
+  int savedMode = cfg->getInt("last_series_list_mode", 0);
+  m_seriesPanel->SetListMode(static_cast<SeriesListMode>(savedMode));
+
+  int savedSort = cfg->getInt("last_series_sort_mode", 0);
+  m_seriesPanel->SetSortMode(static_cast<SeriesSortMode>(savedSort));
+
+  std::string seriesIdStr = cfg->getSetting("last_series_series_id", "0");
+  int64_t savedSeriesId = 0;
+  try { savedSeriesId = std::stoll(seriesIdStr); } catch (...) {}
+
+  int savedSeason = cfg->getInt("last_series_season", 0);
+  int savedLevel = cfg->getInt("last_series_level", 0);
+
+  if (savedSeriesId > 0) {
+    m_seriesPanel->RestoreNavigationState(savedSeriesId, savedSeason, savedLevel);
+  }
+}

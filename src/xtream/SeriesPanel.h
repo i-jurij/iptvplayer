@@ -62,6 +62,20 @@ public:
 
   wxSimplebook *GetBook() const { return m_book; }
 
+  // Геттеры/сеттеры для сохранения контекста
+  int GetCurrentCategoryId() const { return m_currentCategoryId; }
+  void SetCurrentCategoryId(int id) { m_currentCategoryId = id; }
+  SeriesListMode GetListMode() const { return m_listMode; }
+  void SetListMode(SeriesListMode mode) { m_listMode = mode; }
+  SeriesSortMode GetSortMode() const { return m_sortMode; }
+  void SetSortMode(SeriesSortMode mode) { m_sortMode = mode; }
+  const std::vector<int> &GetCategoryIds() const { return m_categoryIds; }
+  int64_t GetCurrentSeriesId() const { return m_currentSeriesId; }
+  int GetCurrentSeasonNumber() const { return m_currentSeasonNumber; }
+
+  // Восстановить навигационный контекст (сериал, сезон, уровень)
+  void RestoreNavigationState(int64_t seriesId, int seasonNumber, int level);
+
 private:
   void BuildUi();
   void BuildSeriesListPage();

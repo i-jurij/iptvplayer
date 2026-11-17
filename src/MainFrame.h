@@ -180,7 +180,14 @@ public:
   // если они видимы — перезагружает (пустые категории).
   void OnXtreamCacheCleared();
 
-  void OpenFiles(const wxArrayString &paths);
+   void OpenFiles(const wxArrayString &paths);
+
+   // --- Startup context save/restore ---
+   void SaveStartupContext();
+   void RestoreMoviesContext();
+   void RestoreSeriesContext();
+   int DetermineActiveTabIndex(const std::string &tab, bool playlistFound) const;
+   int FallbackToFirstAvailableTab(int preferredTab) const;
 
 private:
   void OnFavoritesMatchDone(wxCommandEvent& evt);
@@ -557,7 +564,10 @@ private:
   wxCheckBox *m_playlistsAutoUpdateAllCheck = nullptr;
   void onPlaylistsAutoUpdateAll(wxCommandEvent &event);
 
-  wxStaticLine *statusLine = nullptr;
+   // Флаг: нужно ли восстановить Movies/Series контекст при первом входе
+   bool m_startupRestorePending = false;
+
+   wxStaticLine *statusLine = nullptr;
 };
 
 #endif // MAINFRAME_H
