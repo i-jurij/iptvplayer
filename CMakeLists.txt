@@ -259,6 +259,10 @@ set(SOURCES
     src/M3UParser.cpp
     src/M3UExporter.cpp
     src/PlaylistJson.cpp
+    src/PLSParser.cpp
+    src/XSPFParser.cpp
+    src/ASXParser.cpp
+    src/PlaylistParserFactory.cpp
     src/ThreadUtils.cpp
     src/TypeAheadSearch.cpp
     src/UpdateAllThread.cpp

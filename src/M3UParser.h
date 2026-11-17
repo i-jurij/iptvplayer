@@ -1,25 +1,16 @@
 #pragma once
-#include "ErrorCode.h"
+#include "PlaylistParser.h"
 #include "Playlist.h"
 #include <string>
 #include <vector>
 #include <map>
 
-struct ParseResult {
-    std::vector<Channel> channels;
-    std::string error;
-    ErrorCode code;
-    bool success;
-
-    ParseResult() : code(ErrorCode::Unknown), success(false) {}
-};
-
-class M3UParser {
+class M3UParser : public IPlaylistParser {
 public:
     M3UParser();
-    ~M3UParser();
+    ~M3UParser() override;
 
-    ParseResult parse(const std::string& content);
+    ParseResult parse(const std::string& content) override;
 
 private:
     Channel parseExtInfLine(const std::string& extinf, const std::string& url);
