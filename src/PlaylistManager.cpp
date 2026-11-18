@@ -799,6 +799,7 @@ struct PlaylistManager::AddFromUrlJob {
   bool isXtream = false;
   XtreamMeta xtreamMeta;
   std::string configDir;
+  std::string uuid;  // общий UUID для БД и плейлиста (Xtream)
 
   // Xtream-only: pre-opened shared resources (worker never touches `this`).
   std::shared_ptr<xtream::XtreamApiClient> xtreamClient;
@@ -1033,6 +1034,9 @@ ErrorCode PlaylistManager::CommitActiveAddFromUrlJob() {
   auto pl = std::make_unique<Playlist>(job->title, effectiveSource, true);
   pl->setUserAgent(job->userAgent);
   pl->setAutoUpdate(job->autoUpdate);
+  if (job->isXtream && !job->uuid.empty()) {
+    pl->setUniqueId(job->uuid);  // тот же UUID, что у БД
+  }
   if (job->isXtream) {
     pl->setXtream(true);
     pl->setXtreamMeta(job->xtreamMeta);
@@ -1070,11 +1074,16 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
     job->xtreamMeta = std::move(xtreamMeta);
 
   if (isXtream) {
+    // Генерируем UUID один раз, чтобы БД при добавлении и при открытии
+    // была одна и та же (ключ в m_xtreamDbs — uuid плейлиста).
+    std::string uuid = GenerateUUID();
     Playlist tmp(title, url, true);
     tmp.setXtream(true);
     tmp.setXtreamMeta(job->xtreamMeta);
+    tmp.setUniqueId(uuid);
     job->xtreamClient = m_xtreamClient;
     job->xtreamDb     = GetXtreamDbShared(tmp);
+    job->uuid         = uuid;
   }
 
   {
