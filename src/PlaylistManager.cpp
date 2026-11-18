@@ -1711,18 +1711,13 @@ void PlaylistManager::CloseAndRemoveXtreamDb(const std::string &uuid) {
 
   if (sp) {
     sp->MarkForDeferredDelete();
-    if (sp.use_count() == 1) {
-      // Only we hold it — Close() synchronously (waits for writers) and
-      // deletes files.
-      sp->Close();
-      LOG_DEBUG("PlaylistManager: closed+removed xtream.db for '%s'",
-                uuid.c_str());
-    } else {
-      // Workers still hold — file deletion deferred to last Close().
-      LOG_DEBUG("PlaylistManager: deferred delete xtream.db '%s' "
-                "(use_count=%ld)",
-                uuid.c_str(), static_cast<long>(sp.use_count()));
-    }
+    // Close() is idempotent and safe to call even if workers still hold
+    // shared_ptr copies: it sets open=false, waits for in-progress writers,
+    // then closes connections.  Files are deleted when Close() runs (not
+    // deferred to destructor) because the deferred-delete flag is set above.
+    sp->Close();
+    LOG_DEBUG("PlaylistManager: closed+removed xtream.db for '%s'",
+              uuid.c_str());
     return;
   }
 
@@ -1743,9 +1738,7 @@ ErrorCode PlaylistManager::ClearAllXtreamCaches() {
   }
   for (auto &kv : snapshot) {
     kv.second->MarkForDeferredDelete();
-    if (kv.second.use_count() == 1) {
-      kv.second->Close();
-    }
+    kv.second->Close();
   }
   snapshot.clear();
 
