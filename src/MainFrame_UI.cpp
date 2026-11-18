@@ -650,13 +650,17 @@ void MainFrame::createMainPanel() {
     m_notebook->Show();
 
     // После Show() страница отрисовалась — только тогда GetClientSize()
-    // вернёт правильный размер. wxTheApp->CallAfter срабатывает после
-    // того, как страница точно отрисовалась.
+    // вернёт правильный размер для настройки сплита.
     wxTheApp->CallAfter([this]() {
-      if (m_moviesSplitter) {
-        const int w = m_moviesSplitter->GetClientSize().GetWidth();
-        if (w > 0)
-          m_moviesSplitter->SetSashPosition(w * 2 / 3);
+      auto *cfg = getConfigManager();
+      bool userAdjusted = false;
+      if (cfg) {
+        userAdjusted = (cfg->getSetting("movies_split_user_adjusted", "false") == "true");
+      }
+      if (!userAdjusted && m_moviesSplitter) {
+        int totalWidth = m_moviesSplitter->GetClientSize().GetWidth();
+        if (totalWidth > 0)
+          m_moviesSplitter->SetSashPosition(totalWidth * 2 / 3);
       }
     });
 

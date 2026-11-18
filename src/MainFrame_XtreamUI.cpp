@@ -212,6 +212,44 @@ void MainFrame::EnsureMoviesPanel() {
 
   splitter->SplitVertically(m_moviesCards, m_moviesInfo);
 
+  // --- Восстановление позиции сплиттера (по образу Channels/Favorites) ---
+  auto *cfg = getConfigManager();
+  bool userAdjustedMovies = false;
+  if (cfg) {
+    std::string val = cfg->getSetting("movies_split_user_adjusted", "false");
+    userAdjustedMovies = (val == "true");
+  }
+
+  if (cfg && userAdjustedMovies) {
+    int savedPos = cfg->getInt("movies_split_pos", -1);
+    if (savedPos > 0) {
+      splitter->SetSashPosition(savedPos);
+    }
+  }
+
+  // Автокоррекция при ресайзе (если пользователь не трогал)
+  splitter->Bind(wxEVT_SIZE, [splitter, cfg](wxSizeEvent &evt) {
+    if (cfg) {
+      bool userAdjusted =
+          (cfg->getSetting("movies_split_user_adjusted", "false") == "true");
+      if (!userAdjusted) {
+        int totalWidth = splitter->GetClientSize().GetWidth();
+        if (totalWidth > 0)
+          splitter->SetSashPosition(totalWidth * 2 / 3);
+      }
+    }
+    evt.Skip();
+  });
+
+  // Сохранение позиции при ручном изменении
+  splitter->Bind(wxEVT_SPLITTER_SASH_POS_CHANGED, [cfg](wxSplitterEvent &evt) {
+    if (cfg) {
+      cfg->setInt("movies_split_pos", evt.GetSashPosition());
+      cfg->setSetting("movies_split_user_adjusted", "true");
+    }
+    evt.Skip();
+  });
+
   mainSizer->Add(splitter, 1, wxEXPAND | wxALL, FromDIP(4));
 
   m_moviesLoadMoreBtn = new wxButton(m_moviesPage, wxID_ANY, _U("Load more"));
@@ -225,14 +263,6 @@ void MainFrame::EnsureMoviesPanel() {
   m_notebook->AddPage(m_moviesPage, "");
   m_moviesPageIdx = m_notebook->FindPage(m_moviesPage);
   m_moviesPanelCreated = true;
-
-  // Загружаем контент — страница уже в notebook, но скрыта.
-  // Карточки перерисуются при Show() с правильным размером.
-  PopulateMoviesCategories();
-  if (!m_moviesCategoryIds.empty()) {
-    m_currentVodCategoryId = m_moviesCategoryIds[0];
-    LoadVodPage(true);
-  }
 }
 
 void MainFrame::PopulateMoviesCategories() {
@@ -519,14 +549,36 @@ void MainFrame::HandleMoviesPageChanged(int sel) {
     m_startupRestorePending = false;
   }
 
-  // Настройка сплита — через CallAfter чтобы страница отрисовалась
-  // (GetClientSize() вернёт правильный размер только после отрисовки)
-  if (m_moviesSplitter) {
-    CallAfter([this]() {
-      const int w = m_moviesSplitter->GetClientSize().GetWidth();
-      if (w > 0)
-        m_moviesSplitter->SetSashPosition(w * 2 / 3);
-    });
+  Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
+  if (!pl || !pl->isXtream() || !pl->hasVod())
+    return;
+
+  if (!m_moviesCards || !m_moviesCards->GetMediaKey(0).empty())
+    return;
+
+  // one-shot auto-refresh. If the catalog has never been
+  // downloaded (no "last_update_vod" meta), kick off a refresh once per
+  // playlist session. User can retry manually via "Refresh catalog".
+  if (!m_moviesAutoRefreshStarted) {
+    auto *mgr = getPlaylistManager();
+    if (mgr) {
+      auto *db = mgr->GetXtreamDb(*pl);
+      if (db && db->GetMeta("last_update_vod").empty()) {
+        m_moviesAutoRefreshStarted = true;
+        wxCommandEvent dummy;
+        OnMoviesRefreshCatalog(dummy);
+        return; // callback handles categories + page load
+      }
+    }
+  }
+
+  // Catalog previously downloaded (or auto-refresh already attempted).
+  // Show what's in the DB; empty categories show "Empty category" via
+  // LoadVodPage.
+  PopulateMoviesCategories();
+  if (!m_moviesCategoryIds.empty()) {
+    m_currentVodCategoryId = m_moviesCategoryIds[0];
+    LoadVodPage(true);
   }
 }
 
