@@ -65,7 +65,45 @@ bool LooksLikeM3u(const std::string &prefix) {
   return pos != std::string::npos && pos < limit;
 }
 
-// Возвращает true, если response — HTML.
+bool LooksLikePls(const std::string &prefix) {
+  const size_t n = std::min<size_t>(prefix.size(), 256);
+  const std::string head = ToLowerAscii(prefix.substr(0, n));
+  const size_t pos = head.find("[playlist]");
+  if (pos == std::string::npos)
+    return false;
+  size_t i = 0;
+  if (prefix.size() >= 3 && static_cast<unsigned char>(prefix[0]) == 0xEF &&
+      static_cast<unsigned char>(prefix[1]) == 0xBB &&
+      static_cast<unsigned char>(prefix[2]) == 0xBF)
+    i = 3;
+  for (; i < pos; ++i) {
+    const char c = head[i];
+    if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+      return false;
+  }
+  return true;
+}
+
+bool LooksLikeXspf(const std::string &prefix, const std::string &contentType) {
+  const std::string ct = ToLowerAscii(contentType);
+  if (ct.find("xspf") != std::string::npos)
+    return true;
+  const size_t n = std::min<size_t>(prefix.size(), 1024);
+  const std::string head = ToLowerAscii(prefix.substr(0, n));
+  return head.find("<playlist") != std::string::npos &&
+         head.find("xspf") != std::string::npos;
+}
+
+bool LooksLikeAsx(const std::string &prefix, const std::string &contentType) {
+  const std::string ct = ToLowerAscii(contentType);
+  if (ct.find("x-ms-asx") != std::string::npos ||
+      ct.find("asx") != std::string::npos)
+    return true;
+  const size_t n = std::min<size_t>(prefix.size(), 1024);
+  const std::string head = ToLowerAscii(prefix.substr(0, n));
+  return head.find("<asx") != std::string::npos;
+}
+
 bool LooksLikeHtml(const std::string &prefix, const std::string &contentType) {
   const std::string ctLower = ToLowerAscii(contentType);
   if (ctLower.find("html") != std::string::npos)
@@ -116,13 +154,51 @@ bool LooksLikeBinaryStream(const std::string &prefix,
   return false;
 }
 
+bool IsUrlLikeKey(const std::string &k) {
+  return k == "url" || k == "link" || k == "stream" || k == "src" ||
+         k == "file" || k == "location";
+}
+
+bool JsonLooksLikePlaylist(const rapidjson::Value &d) {
+  if (d.IsArray()) {
+    for (const auto &el : d.GetArray()) {
+      if (!el.IsObject())
+        continue;
+      for (auto it = el.MemberBegin(); it != el.MemberEnd(); ++it) {
+        if (it->name.IsString() && IsUrlLikeKey(it->name.GetString()) &&
+            it->value.IsString() && it->value.GetStringLength() > 0)
+          return true;
+      }
+    }
+    return false;
+  }
+  if (d.IsObject()) {
+    for (const char *k : {"channels", "items", "streams"}) {
+      if (d.HasMember(k) && d[k].IsArray())
+        return true;
+    }
+    for (auto it = d.MemberBegin(); it != d.MemberEnd(); ++it) {
+      if (it->name.IsString() && IsUrlLikeKey(it->name.GetString()) &&
+          it->value.IsString() && it->value.GetStringLength() > 0)
+        return true;
+    }
+  }
+  return false;
+}
+
 DetectionKind ClassifyPrefix(const std::string &prefix,
                              const std::string &contentType,
                              std::string *userInfoOut,
                              std::string *serverInfoOut) {
-  // 1) M3U
+  // 1) Playlist text/XML formats.
   if (LooksLikeM3u(prefix))
     return DetectionKind::M3U;
+  if (LooksLikePls(prefix))
+    return DetectionKind::PLS;
+  if (LooksLikeXspf(prefix, contentType))
+    return DetectionKind::XSPF;
+  if (LooksLikeAsx(prefix, contentType))
+    return DetectionKind::ASX;
 
   // 2) HTML
   if (LooksLikeHtml(prefix, contentType))
@@ -165,6 +241,8 @@ DetectionKind ClassifyPrefix(const std::string &prefix,
           return DetectionKind::XtreamAuth;
         }
       }
+      if (JsonLooksLikePlaylist(d))
+        return DetectionKind::JsonPlaylist;
       return DetectionKind::JsonOther;
     }
     // "{" в начале, но parse fail — всё равно JsonOther (сервер пытался отдать
@@ -180,6 +258,19 @@ DetectionKind ClassifyPrefix(const std::string &prefix,
 }
 
 } // namespace
+
+Detection ClassifyContent(const std::string &content, const std::string &ct) {
+  Detection det;
+  det.contentType = ct;
+  if (content.empty()) {
+    det.kind = DetectionKind::Empty;
+    return det;
+  }
+  const size_t n = std::min<size_t>(content.size(), kMaxPrefixBytes);
+  const std::string prefix = content.substr(0, n);
+  det.kind = ClassifyPrefix(prefix, ct, &det.userInfoJson, &det.serverInfoJson);
+  return det;
+}
 
 void DetectContentAsync(const wxString &url, const wxString &userAgent,
                         DetectCallback cb) {
@@ -242,11 +333,11 @@ void DetectContentAsync(const wxString &url, const wxString &userAgent,
       } else if (httpCode >= 400) {
         det.kind = DetectionKind::HttpError;
         det.error = "HTTP " + std::to_string(httpCode);
-      } else if (buf.data.empty()) {
-        det.kind = DetectionKind::Empty;
       } else {
-        det.kind = ClassifyPrefix(buf.data, det.contentType, &det.userInfoJson,
-                                  &det.serverInfoJson);
+        const Detection c = ClassifyContent(buf.data, det.contentType);
+        det.kind = c.kind;
+        det.userInfoJson = c.userInfoJson;
+        det.serverInfoJson = c.serverInfoJson;
       }
     }
 

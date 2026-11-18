@@ -22,9 +22,11 @@ AddPlaylistFileDialog::AddPlaylistFileDialog(wxWindow *parent)
     : wxDialog(parent, wxID_ANY, _U("Add Playlist from File"),
                wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
-  const wxString playlistWildcard = _U("Playlist files") +
-                                    " (*.m3u;*.m3u8)|*.m3u;*.m3u8|" +
-                                    _U("All files") + " (*.*)|*.*";
+  const wxString playlistWildcard =
+      _U("Playlist files") +
+      " (*.m3u;*.m3u8;*.pls;*.xspf;*.asx;*.json)"
+      "|*.m3u;*.m3u8;*.pls;*.xspf;*.asx;*.json|" +
+      _U("All files") + " (*.*)|*.*";
 
   auto *topSizer = new wxBoxSizer(wxVERTICAL);
 

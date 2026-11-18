@@ -6,13 +6,16 @@
 #include "LogoCache.h"
 #include "M3UExporter.h"
 #include "M3UParser.h"
-#include "PlaylistJson.h"
 #include "MainFrame.h"
 #include "Playlist.h"
+#include "PlaylistJson.h"
+#include "PlaylistParser.h"
 #include "Utils.h"
 #include "Utils_FsPath.h"
 #include "Utils_Net.h"
+#include "xtream/PlaylistDetector.h"
 #include "xtream/XtreamApiClient.h"
+#include "xtream/XtreamUrl.h"
 
 #include <wx/app.h>
 #include <wx/event.h>
@@ -580,30 +583,48 @@ ErrorCode PlaylistManager::loadPlaylistContent(Playlist *playlist) {
   if (!ok)
     return ErrorCode::FileNotFound;
 
-  // Xtream API (player_api.php) and other JSON endpoints return an object
-  // or array instead of M3U. Reject before the parser — otherwise M3UParser
-  // will produce an unhelpful "no channels found".
-  {
-    size_t i = 0;
-    if (content.size() >= 3 && static_cast<unsigned char>(content[0]) == 0xEF &&
-        static_cast<unsigned char>(content[1]) == 0xBB &&
-        static_cast<unsigned char>(content[2]) == 0xBF)
-      i = 3;
-    while (i < content.size()) {
-      const char c = content[i];
-      if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
-        ++i;
-      else
-        break;
-    }
-    if (i < content.size() && (content[i] == '{' || content[i] == '[')) {
-      setLastError("Server returned JSON (Xtream API). "
-                   "Use get.php for M3U playlists.");
-      return ErrorCode::Unknown;
-    }
+  const xtream::Detection det = xtream::ClassifyContent(content, "");
+  PlaylistFormat fmt;
+  switch (det.kind) {
+  case xtream::DetectionKind::M3U:
+    fmt = PlaylistFormat::M3U;
+    break;
+  case xtream::DetectionKind::PLS:
+    fmt = PlaylistFormat::PLS;
+    break;
+  case xtream::DetectionKind::XSPF:
+    fmt = PlaylistFormat::XSPF;
+    break;
+  case xtream::DetectionKind::ASX:
+    fmt = PlaylistFormat::ASX;
+    break;
+  case xtream::DetectionKind::JsonPlaylist:
+    fmt = PlaylistFormat::JSON;
+    break;
+  case xtream::DetectionKind::XtreamAuth:
+    setLastError("Xtream API response; use Add Xtream Playlist.");
+    return ErrorCode::Unknown;
+  case xtream::DetectionKind::Html:
+    setLastError("Server returned HTML, not a playlist.");
+    return ErrorCode::Unknown;
+  case xtream::DetectionKind::BinaryStream:
+    setLastError("URL points to a media stream, not a playlist.");
+    return ErrorCode::Unknown;
+  case xtream::DetectionKind::Empty:
+    setLastError("Empty response.");
+    return ErrorCode::Unknown;
+  default:
+    setLastError("Unrecognized playlist format.");
+    return ErrorCode::Unknown;
   }
 
-  auto result = m_parser.parse(content);
+  auto parser = CreateParser(fmt);
+  if (!parser) {
+    setLastError("No parser available for detected format.");
+    return ErrorCode::Unknown;
+  }
+
+  auto result = parser->parse(content);
   if (!result.success) {
     setLastError(result.error);
     return result.code;
@@ -892,8 +913,7 @@ void PlaylistManager::RunAddFromUrlWorker(
     return;
   }
 
-  // M3U path: download, reject JSON, parse M3U.
-  // 1) Download (no `this`).
+  // Download (no `this`).
   std::string content;
   DownloadProgress prog;
   prog.externalCancel    = &job->cancelled;
@@ -916,32 +936,116 @@ void PlaylistManager::RunAddFromUrlWorker(
     return;
   }
 
-  // 2) Reject JSON (Xtream API endpoint misuse) — same detection as before.
-  {
-    size_t i = 0;
-    if (content.size() >= 3 &&
-        static_cast<unsigned char>(content[0]) == 0xEF &&
-        static_cast<unsigned char>(content[1]) == 0xBB &&
-        static_cast<unsigned char>(content[2]) == 0xBF)
-      i = 3;
-    while (i < content.size() &&
-           (content[i] == ' ' || content[i] == '\t' ||
-            content[i] == '\r' || content[i] == '\n'))
-      ++i;
-    if (i < content.size() &&
-        (content[i] == '{' || content[i] == '[')) {
-      job->success  = false;
-      job->errorMsg = "Server returned JSON (Xtream API). "
-                      "Use get.php for M3U playlists.";
+  // Detect format from content; dispatch to parser or Xtream switch.
+  const xtream::Detection det = xtream::ClassifyContent(content, "");
+
+  if (det.kind == xtream::DetectionKind::XtreamAuth) {
+    // Server returned Xtream player_api auth JSON. Switch this job into
+    // Xtream mode: generate UUID now (CommitActiveAddFromUrlJob will use
+    // it), extract base/user/pass from URL, probe categories for tab
+    // visibility. Categories are written to DB by lazy-refresh on first
+    // Movies/Series entry, no need to open the DB here.
+    job->isXtream = true;
+    job->uuid = GenerateUUID();
+    job->xtreamMeta.userInfoJson = det.userInfoJson;
+    job->xtreamMeta.serverInfoJson = det.serverInfoJson;
+    job->xtreamMeta.baseUrl = xtream::StripPhpSuffix(
+        wxString::FromUTF8(job->url.c_str())).ToUTF8().data();
+    const UrlCredentials qc =
+        ExtractQueryCredentials(wxString::FromUTF8(job->url.c_str()));
+    if (qc.valid) {
+      job->xtreamMeta.username = qc.user.ToUTF8().data();
+      job->xtreamMeta.password = qc.pass.ToUTF8().data();
+    }
+
+    if (job->xtreamClient) {
+      Playlist tmp(job->title, job->url, true);
+      tmp.setUniqueId(job->uuid);
+      tmp.setXtream(true);
+      tmp.setXtreamMeta(job->xtreamMeta);
+
+      const auto vodCats = job->xtreamClient->GetCategories(
+          tmp, xtream::XtreamApiClient::CategoryType::Vod);
+      job->hasVod = !vodCats.empty();
+
+      const auto seriesCats = job->xtreamClient->GetCategories(
+          tmp, xtream::XtreamApiClient::CategoryType::Series);
+      job->hasSeries = !seriesCats.empty();
+    }
+
+    if (job->cancelled.load(std::memory_order_acquire)) {
       job->done.store(true, std::memory_order_release);
-      PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
       return;
     }
+
+    job->channels.clear();
+    job->success = true;
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_SUCCESS, job, "");
+    return;
   }
 
-  // 3) Parse (M3UParser is stateless — local instance is safe).
-  M3UParser parser;
-  auto result = parser.parse(content);
+  PlaylistFormat fmt;
+  switch (det.kind) {
+  case xtream::DetectionKind::M3U:
+    fmt = PlaylistFormat::M3U;
+    break;
+  case xtream::DetectionKind::PLS:
+    fmt = PlaylistFormat::PLS;
+    break;
+  case xtream::DetectionKind::XSPF:
+    fmt = PlaylistFormat::XSPF;
+    break;
+  case xtream::DetectionKind::ASX:
+    fmt = PlaylistFormat::ASX;
+    break;
+  case xtream::DetectionKind::JsonPlaylist:
+    fmt = PlaylistFormat::JSON;
+    break;
+  case xtream::DetectionKind::Html:
+    job->success  = false;
+    job->errorMsg = "Server returned HTML, not a playlist.";
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+    return;
+  case xtream::DetectionKind::BinaryStream:
+    job->success  = false;
+    job->errorMsg = "URL points to a media stream, not a playlist.";
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+    return;
+  case xtream::DetectionKind::Empty:
+    job->success  = false;
+    job->errorMsg = "Empty response.";
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+    return;
+  case xtream::DetectionKind::NetworkError:
+  case xtream::DetectionKind::HttpError:
+    job->success  = false;
+    job->errorMsg = det.error.empty()
+                        ? std::string("Network error.")
+                        : det.error;
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+    return;
+  default:
+    job->success  = false;
+    job->errorMsg = "Unrecognized playlist format.";
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+    return;
+  }
+
+  auto parser = CreateParser(fmt);
+  if (!parser) {
+    job->success  = false;
+    job->errorMsg = "No parser available for detected format.";
+    job->done.store(true, std::memory_order_release);
+    PostAddFromUrlEvent(ID_ADD_FROM_URL_ERROR, job, job->errorMsg);
+    return;
+  }
+  auto result = parser->parse(content);
   if (!result.success || result.channels.empty()) {
     job->success  = false;
     job->errorMsg = result.success
@@ -956,36 +1060,6 @@ void PlaylistManager::RunAddFromUrlWorker(
     return;
   }
 
-  // 4) Xtream categories — writes into shared DB, sets flags on job.
-  if (job->isXtream && job->xtreamClient && job->xtreamDb) {
-    Playlist tmp(job->title, job->url, true);
-    tmp.setXtream(true);
-    tmp.setXtreamMeta(job->xtreamMeta);
-
-    const auto vodCats = job->xtreamClient->GetCategories(
-        tmp, xtream::XtreamApiClient::CategoryType::Vod);
-    for (const auto &c : vodCats) {
-      xtream::XtreamDatabase::Category cat;
-      cat.id = c.id; cat.type = "vod"; cat.name = c.name;
-      job->xtreamDb->UpsertCategory(cat);
-    }
-    job->hasVod = !vodCats.empty();
-
-    const auto seriesCats = job->xtreamClient->GetCategories(
-        tmp, xtream::XtreamApiClient::CategoryType::Series);
-    for (const auto &c : seriesCats) {
-      xtream::XtreamDatabase::Category cat;
-      cat.id = c.id; cat.type = "series"; cat.name = c.name;
-      job->xtreamDb->UpsertCategory(cat);
-    }
-    job->hasSeries = !seriesCats.empty();
-  }
-  if (job->cancelled.load(std::memory_order_acquire)) {
-    job->done.store(true, std::memory_order_release);
-    return;
-  }
-
-  // 5) Hand result to UI thread; commit is done there.
   job->channels = std::move(result.channels);
   job->success  = true;
   job->done.store(true, std::memory_order_release);
@@ -1073,6 +1147,10 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
   if (isXtream)
     job->xtreamMeta = std::move(xtreamMeta);
 
+  // Worker may need the client to probe categories (e.g. XtreamAuth detected
+  // after download in Add URL flow). Safe for M3U: shared_ptr, unused.
+  job->xtreamClient = m_xtreamClient;
+
   if (isXtream) {
     // Генерируем UUID один раз, чтобы БД при добавлении и при открытии
     // была одна и та же (ключ в m_xtreamDbs — uuid плейлиста).
@@ -1081,9 +1159,8 @@ ErrorCode PlaylistManager::addPlaylistFromUrl(const std::string &url,
     tmp.setXtream(true);
     tmp.setXtreamMeta(job->xtreamMeta);
     tmp.setUniqueId(uuid);
-    job->xtreamClient = m_xtreamClient;
-    job->xtreamDb     = GetXtreamDbShared(tmp);
-    job->uuid         = uuid;
+    job->xtreamDb = GetXtreamDbShared(tmp);
+    job->uuid     = uuid;
   }
 
   {
