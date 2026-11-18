@@ -1,6 +1,7 @@
 #include "PlaylistParser.h"
 
 #include "ASXParser.h"
+#include "JSONPlaylistParser.h"
 #include "M3UParser.h"
 #include "PLSParser.h"
 #include "XSPFParser.h"
@@ -15,6 +16,8 @@ std::unique_ptr<IPlaylistParser> CreateParser(PlaylistFormat fmt) {
     return std::make_unique<XSPFParser>();
   case PlaylistFormat::ASX:
     return std::make_unique<ASXParser>();
+  case PlaylistFormat::JSON:
+    return std::make_unique<JSONPlaylistParser>();
   }
   return nullptr;
 }

@@ -23,6 +23,7 @@ enum class PlaylistFormat {
   PLS,
   XSPF,
   ASX,
+  JSON,
 };
 
 class IPlaylistParser {

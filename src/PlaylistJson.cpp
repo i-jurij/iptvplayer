@@ -1,5 +1,7 @@
 #include "PlaylistJson.h"
 
+#include "JSONChannel.h"
+
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -162,86 +164,12 @@ bool FromJson(const std::string &json, Playlist &pl) {
     pl.setXtreamMeta(std::move(meta));
   }
 
-  // Channels
+  // Channels (canonical mapping lives in JSONChannel.cpp; shared with
+  // JSONPlaylistParser's importer path).
   std::vector<Channel> channels;
   channels.reserve(doc["channels"].GetArray().Size());
-  for (auto &chVal : doc["channels"].GetArray()) {
-    Channel ch;
-    if (chVal.HasMember("name") && chVal["name"].IsString())
-      ch.setName(chVal["name"].GetString());
-
-    if (chVal.HasMember("url") && chVal["url"].IsString())
-      ch.setUrl(chVal["url"].GetString());
-
-    if (chVal.HasMember("groupTitle") && chVal["groupTitle"].IsString())
-      ch.setGroupTitle(chVal["groupTitle"].GetString());
-
-    if (chVal.HasMember("country") && chVal["country"].IsString())
-      ch.setCountry(chVal["country"].GetString());
-
-    if (chVal.HasMember("language") && chVal["language"].IsString())
-      ch.setLanguage(chVal["language"].GetString());
-
-    if (chVal.HasMember("category") && chVal["category"].IsString())
-      ch.setCategory(chVal["category"].GetString());
-
-    if (chVal.HasMember("tvgLogo") && chVal["tvgLogo"].IsString())
-      ch.setLogo(chVal["tvgLogo"].GetString());
-
-    if (chVal.HasMember("tvg-id") && chVal["tvg-id"].IsString())
-      ch.setTvgId(chVal["tvg-id"].GetString());
-
-    if (chVal.HasMember("tvg-name") && chVal["tvg-name"].IsString())
-      ch.setTvgName(chVal["tvg-name"].GetString());
-
-    if (chVal.HasMember("playlistId") && chVal["playlistId"].IsString())
-      ch.setPlaylistId(chVal["playlistId"].GetString());
-
-    if (chVal.HasMember("series") && chVal["series"].IsString())
-      ch.setSeries(chVal["series"].GetString());
-
-    if (chVal.HasMember("season") && chVal["season"].IsString())
-      ch.setSeason(chVal["season"].GetString());
-
-    if (chVal.HasMember("mediaType") && chVal["mediaType"].IsInt()) {
-      const int mt = chVal["mediaType"].GetInt();
-      if (mt >= 0 && mt <= 3)
-        ch.setMediaType(static_cast<MediaType>(mt));
-    }
-    if (chVal.HasMember("streamId")) {
-      const auto &sid = chVal["streamId"];
-      if (sid.IsInt64())
-        ch.setStreamId(sid.GetInt64());
-      else if (sid.IsInt())
-        ch.setStreamId(sid.GetInt());
-      else if (sid.IsUint())
-        ch.setStreamId(static_cast<int64_t>(sid.GetUint()));
-      else if (sid.IsUint64())
-        ch.setStreamId(static_cast<int64_t>(sid.GetUint64()));
-      else if (sid.IsString()) {
-        try {
-          ch.setStreamId(std::stoll(sid.GetString()));
-        } catch (...) {
-        }
-      }
-    }
-
-    // Extra attributes (everything except known fields).
-    for (auto it = chVal.MemberBegin(); it != chVal.MemberEnd(); ++it) {
-      std::string key = it->name.GetString();
-      if (key != "name" && key != "url" && key != "groupTitle" &&
-          key != "country" && key != "language" && key != "category" &&
-          key != "tvgLogo" && key != "tvg-id" && key != "tvg-name" &&
-          key != "playlistId" && key != "series" && key != "season" &&
-          key != "mediaType" && key != "streamId") {
-        if (it->value.IsString()) {
-          ch.attributes()[key] = it->value.GetString();
-        }
-      }
-    }
-
-    channels.push_back(std::move(ch));
-  }
+  for (auto &chVal : doc["channels"].GetArray())
+    channels.push_back(ParseChannelFromJson(chVal));
   // setChannels sets playlistId = m_uniqueId on each channel and resets
   // m_lastUpdate to now() — lastUpdate is corrected immediately below.
   pl.setChannels(std::move(channels));

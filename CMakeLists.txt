@@ -263,6 +263,8 @@ set(SOURCES
     src/XSPFParser.cpp
     src/ASXParser.cpp
     src/PlaylistParserFactory.cpp
+    src/JSONChannel.cpp
+    src/JSONPlaylistParser.cpp
     src/ThreadUtils.cpp
     src/TypeAheadSearch.cpp
     src/UpdateAllThread.cpp
