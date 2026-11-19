@@ -43,20 +43,10 @@ wxString BuildSuggestedSource(const Playlist &playlist) {
   if (!path.empty() && path != "/")
     newOrigin += path;
 
-  const wxString oldSource = wxString::FromUTF8(playlist.getSource());
-  wxURI oldUri(oldSource);
-
-  wxString oldPath = oldUri.GetPath();
-  if (oldPath.empty() || oldPath == "/")
-    oldPath.clear();
-
-  wxString oldQuery = oldUri.HasQuery() ? oldUri.GetQuery() : wxString();
-
-  wxString result = newOrigin + oldPath;
-  if (!oldQuery.empty())
-    result += "?" + oldQuery;
-
-  return result;
+  // Xtream: suggested baseUrl = origin + path(server_info.url).
+  // The old baseUrl's path/query are not appended: path would duplicate
+  // when both endpoints share it, and query may contain stale credentials.
+  return newOrigin;
 }
 
 // Origin без path/query.
