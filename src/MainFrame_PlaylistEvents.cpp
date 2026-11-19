@@ -206,10 +206,14 @@ void MainFrame::onEditPlaylistWithSuggestedSource(
   if (idx < 0)
     return;
 
+  const PlaylistKind kind = playlist.isXtream() ? PlaylistKind::Xtream
+                                                : PlaylistKind::M3U;
   auto dlg = EditPlaylistDialog::CreateWithSuggestedSource(
       this, wxString::FromUTF8(playlist.getTitle()),
       wxString::FromUTF8(playlist.getSource()), suggestedSource,
-      wxString::FromUTF8(playlist.getUserAgent()), playlist.getAutoUpdate());
+      wxString::FromUTF8(playlist.getUserAgent()), playlist.getAutoUpdate(),
+      kind, wxString::FromUTF8(playlist.getXtreamMeta().username),
+      wxString::FromUTF8(playlist.getXtreamMeta().password));
   dlg->SetPlaylistIndex(static_cast<size_t>(idx));
 
   if (dlg->ShowModal() == wxID_OK)

@@ -107,7 +107,9 @@ public:
   ErrorCode exportPlaylist(size_t index, const std::string &outputPath);
   ErrorCode editPlaylist(size_t index, const std::string &title,
                          const std::string &source,
-                         const std::string &userAgent, bool autoUpdate);
+                         const std::string &userAgent, bool autoUpdate,
+                         const std::string &xtreamUser = std::string(),
+                         const std::string &xtreamPass = std::string());
 
   Playlist *getPlaylist(std::size_t idx);
   std::vector<std::unique_ptr<Playlist>> &getPlaylists() { return m_playlists; }

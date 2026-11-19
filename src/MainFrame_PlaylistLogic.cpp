@@ -506,8 +506,16 @@ void MainFrame::editPlaylistAtIndex(int index) {
   wxString source = wxString::FromUTF8(pl->getSource());
   wxString userAgent = wxString::FromUTF8(pl->getUserAgent());
   bool autoUpdate = pl->getAutoUpdate();
+  const PlaylistKind kind =
+      pl->isXtream() ? PlaylistKind::Xtream : PlaylistKind::M3U;
+  wxString user, pass;
+  if (pl->isXtream()) {
+    user = wxString::FromUTF8(pl->getXtreamMeta().username);
+    pass = wxString::FromUTF8(pl->getXtreamMeta().password);
+  }
 
-  EditPlaylistDialog dlg(this, title, source, userAgent, autoUpdate);
+  EditPlaylistDialog dlg(this, title, source, userAgent, autoUpdate, kind, user,
+                         pass);
   dlg.SetPlaylistIndex(static_cast<size_t>(index));
 
   if (dlg.ShowModal() == wxID_OK) {
@@ -532,11 +540,20 @@ void MainFrame::updatePlaylistFromDialog(int index,
   const std::string newUserAgent = dlg.GetUserAgent().ToStdString();
   const bool newAutoUpdate = dlg.GetAutoUpdate();
 
+  std::string newUser, newPass;
+  bool credsChanged = false;
+  if (current->isXtream()) {
+    newUser = dlg.GetUsername().ToStdString();
+    newPass = dlg.GetPassword().ToStdString();
+    credsChanged = (newUser != current->getXtreamMeta().username ||
+                    newPass != current->getXtreamMeta().password);
+  }
+
   // No-op: user opened the dialog, changed nothing, pressed OK.
   // Skip save and EPG mapping invalidation.
   if (current->getTitle() == newTitle && current->getSource() == newSource &&
       current->getUserAgent() == newUserAgent &&
-      current->getAutoUpdate() == newAutoUpdate) {
+      current->getAutoUpdate() == newAutoUpdate && !credsChanged) {
     return;
   }
 
@@ -550,7 +567,8 @@ void MainFrame::updatePlaylistFromDialog(int index,
   }
 
   ErrorCode ec = mgr->editPlaylist(static_cast<size_t>(index), newTitle,
-                                   newSource, newUserAgent, newAutoUpdate);
+                                   newSource, newUserAgent, newAutoUpdate,
+                                   newUser, newPass);
   if (ec != ErrorCode::OK) {
     showError(this, wxString::Format(_U("Failed to save playlist:\n%s"),
                                      wxString::FromUTF8(mgr->getLastError())));

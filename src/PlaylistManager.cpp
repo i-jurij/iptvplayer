@@ -1349,7 +1349,9 @@ ErrorCode PlaylistManager::exportPlaylist(size_t index,
 ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
                                         const std::string &source,
                                         const std::string &userAgent,
-                                        bool autoUpdate) {
+                                        bool autoUpdate,
+                                        const std::string &xtreamUser,
+                                        const std::string &xtreamPass) {
   setLastError("");
   std::string oldTitle;
   {
@@ -1370,10 +1372,9 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
     pl->setAutoUpdate(autoUpdate);
   }
 
-  // Xtream — source = meta.baseUrl. Если baseUrl изменился,
-  // сбросить meta last_update_* чтобы lazy refresh сработал при следующем
-  // входе на вкладки (Channels / Movies / Series). Сетевой перезагрузки НЕ
-  // делаем.
+  // Xtream — source = meta.baseUrl. Сбросить meta last_update_* если
+  // сменились baseUrl или creds (lazy refresh при следующем входе на
+  // вкладки). Сетевой перезагрузки НЕ делаем.
   {
     Playlist *pl = nullptr;
     {
@@ -1383,16 +1384,28 @@ ErrorCode PlaylistManager::editPlaylist(size_t index, const std::string &title,
     }
     if (pl && pl->isXtream()) {
       XtreamMeta meta = pl->getXtreamMeta();
+      bool needReset = false;
       if (meta.baseUrl != source) {
         meta.baseUrl = source;
+        needReset = true;
+      }
+      if (!xtreamUser.empty() && meta.username != xtreamUser) {
+        meta.username = xtreamUser;
+        needReset = true;
+      }
+      if (!xtreamPass.empty() && meta.password != xtreamPass) {
+        meta.password = xtreamPass;
+        needReset = true;
+      }
+      if (needReset) {
         pl->setXtreamMeta(std::move(meta));
         xtream::XtreamDatabase *db = GetXtreamDb(*pl);
         if (db) {
           db->SetMeta("last_update_live", "");
           db->SetMeta("last_update_vod", "");
           db->SetMeta("last_update_series", "");
-          LOG_INFO("editPlaylist: Xtream '%s' baseUrl changed; lazy refresh "
-                   "scheduled on next tab entry",
+          LOG_INFO("editPlaylist: Xtream '%s' endpoint/creds changed; lazy "
+                   "refresh scheduled on next tab entry",
                    pl->getTitle().c_str());
         }
       }

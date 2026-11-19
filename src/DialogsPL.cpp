@@ -4,16 +4,16 @@
 #include "Playlist.h"
 #include "Utils.h"
 
-#include <wx/wx.h>
 #include <wx/button.h>
-#include <wx/filename.h>
 #include <wx/filedlg.h>
 #include <wx/filefn.h>
+#include <wx/filename.h>
 #include <wx/filepicker.h>
 #include <wx/log.h>
 #include <wx/msgdlg.h>
-#include <wx/stattext.h>
 #include <wx/sizer.h>
+#include <wx/stattext.h>
+#include <wx/wx.h>
 
 // ============================================================================
 // AddPlaylistFileDialog
@@ -225,7 +225,10 @@ EditPlaylistDialog::EditPlaylistDialog(wxWindow* parent,
 									   const wxString& title,
                                        const wxString& source,
                                        const wxString& userAgent,
-                                       bool autoUpdate)
+                                       bool autoUpdate,
+                                       PlaylistKind kind,
+                                       const wxString& xtreamUser,
+                                       const wxString& xtreamPass)
     : wxDialog(parent, wxID_ANY, _U("Edit Playlist"),
                wxDefaultPosition,
                wxSize(DIALOG_WIDTH, EDIT_DIALOG_HEIGHT))
@@ -234,22 +237,25 @@ EditPlaylistDialog::EditPlaylistDialog(wxWindow* parent,
     , m_userAgent(userAgent)
     , m_autoUpdate(autoUpdate)
     , m_playlistIndex(0)
+    , m_kind(kind)
+    , m_username(xtreamUser)
+    , m_password(xtreamPass)
 {
   initializeControls();
   setupLayout();
   bindEvents();
-
-  SetSize(wxSize(DIALOG_WIDTH, EDIT_DIALOG_HEIGHT));
   Layout();
 }
 
 std::unique_ptr<EditPlaylistDialog>
 EditPlaylistDialog::CreateWithSuggestedSource(
     wxWindow *parent, const wxString &title, const wxString &oldSource,
-    const wxString &newSource, const wxString &userAgent, bool autoUpdate) {
-  auto dlg = std::make_unique<EditPlaylistDialog>(parent, title, newSource,
-                                                  userAgent, autoUpdate);
-  // Tooltip на поле source — подсказка, что это новый адрес.
+    const wxString &newSource, const wxString &userAgent, bool autoUpdate,
+    PlaylistKind kind, const wxString &xtreamUser,
+    const wxString &xtreamPass) {
+  auto dlg = std::make_unique<EditPlaylistDialog>(
+      parent, title, newSource, userAgent, autoUpdate, kind, xtreamUser,
+      xtreamPass);
   dlg->m_sourceCtrl->SetToolTip(
       wxString::Format(_U("Old source: %s"), oldSource));
   return dlg;
@@ -262,6 +268,12 @@ void EditPlaylistDialog::initializeControls() {
   m_autoUpdateCheck =
       new wxCheckBox(this, wxID_ANY, _U("Auto-update on startup"));
   m_autoUpdateCheck->SetValue(m_autoUpdate);
+
+  if (m_kind == PlaylistKind::Xtream) {
+    m_userCtrl = new wxTextCtrl(this, wxID_ANY, m_username);
+    m_passCtrl = new wxTextCtrl(this, wxID_ANY, m_password, wxDefaultPosition,
+                                wxDefaultSize, wxTE_PASSWORD);
+  }
 }
 
 void EditPlaylistDialog::setupLayout() {
@@ -269,8 +281,20 @@ void EditPlaylistDialog::setupLayout() {
 
   mainSizer->Add(createInputField(_U("Title:"), m_titleCtrl), 0,
                  wxEXPAND | wxALL, FromDIP(10));
-  mainSizer->Add(createInputField(_U("URL / Path:"), m_sourceCtrl), 0,
+
+  const wxString sourceLabel = (m_kind == PlaylistKind::Xtream)
+                                   ? _U("Server URL:")
+                                   : _U("URL / Path:");
+  mainSizer->Add(createInputField(sourceLabel, m_sourceCtrl), 0,
                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+
+  if (m_kind == PlaylistKind::Xtream && m_userCtrl && m_passCtrl) {
+    mainSizer->Add(createInputField(_U("Username:"), m_userCtrl), 0,
+                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+    mainSizer->Add(createInputField(_U("Password:"), m_passCtrl), 0,
+                   wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+  }
+
   mainSizer->Add(createInputField(_U("User Agent:"), m_userAgentCtrl), 0,
                  wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
   mainSizer->Add(m_autoUpdateCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM,
@@ -278,6 +302,10 @@ void EditPlaylistDialog::setupLayout() {
   mainSizer->Add(createButtonSection(), 0, wxEXPAND | wxALL, FromDIP(10));
 
   SetSizer(mainSizer);
+  // Fit dialog height to content: M3U shrinks (no user/pass fields),
+  // Xtream grows (2 extra fields). Width stays fixed.
+  const int minH = mainSizer->GetMinSize().GetHeight();
+  SetClientSize(wxSize(DIALOG_WIDTH, minH));
 }
 
 wxSizer *EditPlaylistDialog::createInputField(const wxString &label,
@@ -315,6 +343,23 @@ void EditPlaylistDialog::onOK(wxCommandEvent& event) {
     if (m_title.IsEmpty()) {
         showError(this, _U("Please enter a title"));
         return;
+    }
+
+    if (m_kind == PlaylistKind::Xtream) {
+        m_username = m_userCtrl ? m_userCtrl->GetValue().Trim() : wxString();
+        m_password = m_passCtrl ? m_passCtrl->GetValue().Trim() : wxString();
+        if (m_source.IsEmpty()) {
+            showError(this, _U("Please enter Server URL"));
+            return;
+        }
+        if (m_username.IsEmpty()) {
+            showError(this, _U("Please enter Username"));
+            return;
+        }
+        if (m_password.IsEmpty()) {
+            showError(this, _U("Please enter Password"));
+            return;
+        }
     }
 
     event.Skip();

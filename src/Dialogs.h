@@ -80,16 +80,24 @@ class EditPlaylistDialog : public wxDialog {
 public:
     EditPlaylistDialog(wxWindow* parent, const wxString& title,
                       const wxString& source, const wxString& userAgent,
-                      bool autoUpdate);
-    // pre-fill source с подсветкой необходимости проверить креды.
+                      bool autoUpdate,
+                      PlaylistKind kind = PlaylistKind::M3U,
+                      const wxString& xtreamUser = wxEmptyString,
+                      const wxString& xtreamPass = wxEmptyString);
     static std::unique_ptr<EditPlaylistDialog> CreateWithSuggestedSource(
         wxWindow *parent, const wxString &title, const wxString &oldSource,
-        const wxString &newSource, const wxString &userAgent, bool autoUpdate);
+        const wxString &newSource, const wxString &userAgent, bool autoUpdate,
+        PlaylistKind kind = PlaylistKind::M3U,
+        const wxString &xtreamUser = wxEmptyString,
+        const wxString &xtreamPass = wxEmptyString);
 
     wxString GetTitle() const { return m_title; }
     wxString GetSource() const { return m_source; }
     wxString GetUserAgent() const { return m_userAgent; }
     bool GetAutoUpdate() const { return m_autoUpdate; }
+    PlaylistKind GetKind() const { return m_kind; }
+    wxString GetUsername() const { return m_username; }
+    wxString GetPassword() const { return m_password; }
 
     void SetPlaylistIndex(size_t index) { m_playlistIndex = index; }
     size_t GetPlaylistIndex() const { return m_playlistIndex; }
@@ -108,12 +116,17 @@ private:
     wxTextCtrl* m_sourceCtrl;
     wxTextCtrl* m_userAgentCtrl;
     wxCheckBox* m_autoUpdateCheck;
+    wxTextCtrl* m_userCtrl = nullptr;
+    wxTextCtrl* m_passCtrl = nullptr;
 
     wxString m_title;
     wxString m_source;
     wxString m_userAgent;
     bool m_autoUpdate;
     size_t m_playlistIndex;
+    PlaylistKind m_kind = PlaylistKind::M3U;
+    wxString m_username;
+    wxString m_password;
 };
 
 bool showRemovePlaylistDialog(wxWindow* parent, const Playlist* playlist, bool& removeSource);
