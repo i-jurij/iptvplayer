@@ -106,16 +106,24 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
 
   {
     auto *row = new wxBoxSizer(wxHORIZONTAL);
-    auto *lbl = new wxStaticText(this, wxID_ANY, _U("Source:"));
+    const wxString labelText =
+        playlist.isXtream() ? _U("Server URL:") : _U("Source:");
+    auto *lbl = new wxStaticText(this, wxID_ANY, labelText);
     wxFont f = lbl->GetFont();
     f.SetWeight(wxFONTWEIGHT_BOLD);
     lbl->SetFont(f);
     row->Add(lbl, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
 
-    const wxString sourceStr = wxString::FromUTF8(playlist.getSource());
+    wxString displayValue = wxString::FromUTF8(playlist.getSource());
+    if (playlist.isXtream()) {
+      const wxString baseUrl =
+          wxString::FromUTF8(playlist.getXtreamMeta().baseUrl);
+      if (!baseUrl.IsEmpty())
+        displayValue = baseUrl;
+    }
 
     auto *urlCtrl = new wxTextCtrl(
-        this, wxID_ANY, sourceStr,
+        this, wxID_ANY, displayValue,
         wxDefaultPosition, wxDefaultSize,
         wxTE_READONLY | wxBORDER_NONE);
     urlCtrl->SetBackgroundColour(GetBackgroundColour());
@@ -124,7 +132,7 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
     {
       wxClientDC dc(this);
       dc.SetFont(GetFont());
-      const int textW = dc.GetTextExtent(sourceStr).GetWidth();
+      const int textW = dc.GetTextExtent(displayValue).GetWidth();
       urlCtrl->SetMinSize(wxSize(textW + FromDIP(24), -1));
     }
 
@@ -142,6 +150,72 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
     const xtream::UserInfo ui = xtream::ParseUserInfo(meta.userInfoJson);
 
     auto *accBox = new wxStaticBoxSizer(wxVERTICAL, this, _U("Account"));
+
+    // Username / Password (readonly, Ctrl+C). Password masked by default
+    // with a Show/Hide toggle.
+    {
+      auto *row = new wxBoxSizer(wxHORIZONTAL);
+      auto *lbl = new wxStaticText(this, wxID_ANY, _U("Username:"));
+      wxFont f = lbl->GetFont();
+      f.SetWeight(wxFONTWEIGHT_BOLD);
+      lbl->SetFont(f);
+      row->Add(lbl, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+
+      const wxString userStr = wxString::FromUTF8(meta.username);
+
+      auto *userCtrl = new wxTextCtrl(
+          this, wxID_ANY, userStr,
+          wxDefaultPosition, wxDefaultSize,
+          wxTE_READONLY | wxBORDER_NONE);
+      userCtrl->SetBackgroundColour(GetBackgroundColour());
+      userCtrl->SetToolTip(_U("Select and copy with Ctrl+C"));
+
+      {
+        wxClientDC dc(this);
+        dc.SetFont(GetFont());
+        const int textW = dc.GetTextExtent(userStr).GetWidth();
+        userCtrl->SetMinSize(wxSize(textW + FromDIP(24), -1));
+      }
+
+      row->Add(userCtrl, 1, wxEXPAND);
+      accBox->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
+    }
+
+    {
+      auto *row = new wxBoxSizer(wxHORIZONTAL);
+      auto *lbl = new wxStaticText(this, wxID_ANY, _U("Password:"));
+      wxFont f = lbl->GetFont();
+      f.SetWeight(wxFONTWEIGHT_BOLD);
+      lbl->SetFont(f);
+      row->Add(lbl, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+
+      const wxString passStr = wxString::FromUTF8(meta.password);
+
+      auto *passCtrl = new wxTextCtrl(
+          this, wxID_ANY, passStr,
+          wxDefaultPosition, wxDefaultSize,
+          wxTE_READONLY | wxTE_PASSWORD | wxBORDER_NONE);
+      passCtrl->SetBackgroundColour(GetBackgroundColour());
+
+      auto *toggleBtn = new wxButton(this, wxID_ANY, _U("Show"));
+      toggleBtn->Bind(wxEVT_BUTTON,
+                      [passCtrl, toggleBtn](wxCommandEvent &) {
+                        const long style = passCtrl->GetWindowStyle();
+                        const bool hidden = (style & wxTE_PASSWORD) != 0;
+                        if (hidden) {
+                          passCtrl->SetWindowStyle(style & ~wxTE_PASSWORD);
+                          toggleBtn->SetLabel(_U("Hide"));
+                        } else {
+                          passCtrl->SetWindowStyle(style | wxTE_PASSWORD);
+                          toggleBtn->SetLabel(_U("Show"));
+                        }
+                        passCtrl->Refresh();
+                      });
+
+      row->Add(passCtrl, 1, wxEXPAND);
+      row->Add(toggleBtn, 0, wxLEFT, FromDIP(4));
+      accBox->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
+    }
 
     addRow(accBox, _U("Status:"), wxString::FromUTF8(xtream::HumanStatus(ui)));
 
