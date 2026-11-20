@@ -228,6 +228,7 @@ public:
   // Если owners пуст — источник удаляется.
   // Для ручных источников (autoCreated=false) — no-op.
   void DeleteEpgSourcesForPlaylist(const std::string &playlistId);
+  void RemoveEpgSourceByUrl(const std::string &url);
 
   void RemoveMappingEntry(const std::string &playlistId,
                           const std::string &key);

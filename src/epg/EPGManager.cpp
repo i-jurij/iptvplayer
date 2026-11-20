@@ -1140,6 +1140,32 @@ void EPGManager::DeleteEpgSourcesForPlaylist(const std::string &playlistId) {
   }
 }
 
+void EPGManager::RemoveEpgSourceByUrl(const std::string &url) {
+  if (url.empty())
+    return;
+
+  auto sources = GetSources();
+  bool changed = false;
+
+  auto it = sources.begin();
+
+  while (it != sources.end()) {
+    if (it->autoCreated && it->url == url) {
+      LOG_INFO("RemoveEpgSourceByUrl: removing auto-created source '%s'",
+               url.c_str());
+
+      it = sources.erase(it);
+      changed = true;
+    } else {
+      ++it;
+    }
+  }
+
+  if (changed) {
+    SetSources(sources);
+  }
+}
+
 void EPGManager::AbortDownload() {
   m_downloadProgress.abort = true;
   ClearRefreshQueue();

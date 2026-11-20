@@ -856,6 +856,16 @@ bool MainFrame::ReloadPlaylistIfCurrent(Playlist *pl) {
   return true;
 }
 
+namespace {
+
+bool IsPermanentEpgFailure(const std::string &error) {
+  return error.find("No channels found in XMLTV") != std::string::npos ||
+
+         error.find("Failed to parse XML") != std::string::npos;
+}
+
+} // namespace
+
 void MainFrame::RegisterEpgSourceForPlaylist(const wxString &epgUrl,
                                              const wxString &playlistTitle) {
   if (epgUrl.IsEmpty())
@@ -922,8 +932,26 @@ void MainFrame::RegisterEpgSourceForPlaylist(const wxString &epgUrl,
         } else {
           LOG_WARN("RegisterEpgSourceForPlaylist: EPG refresh failed: %s",
                    error.c_str());
-          self->SetStatusText(_U("EPG source update failed"), 0);
-          self->SetStatusText(wxString::FromUTF8(error), 1);
+
+          if (IsPermanentEpgFailure(error)) {
+
+            epg2->RemoveEpgSourceByUrl(url);
+
+            LOG_INFO(
+                "RegisterEpgSourceForPlaylist: removed invalid auto-created "
+                "EPG source '%s'",
+                url.c_str());
+
+            self->SetStatusText(_U("Invalid EPG source removed"), 0);
+
+            self->SetStatusText(wxString::FromUTF8(error), 1);
+
+          } else {
+
+            self->SetStatusText(_U("EPG source update failed"), 0);
+
+            self->SetStatusText(wxString::FromUTF8(error), 1);
+          }
         }
       });
 
