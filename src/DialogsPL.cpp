@@ -459,9 +459,6 @@ void EditPlaylistDialog::onExport(wxCommandEvent& WXUNUSED(event))
 //============================================
 // Remove playlist dialog
 //============================================
-#include "Dialogs.h"
-#include "Playlist.h"
-#include <wx/wx.h>
 
 // Обработчик кнопки "Да" для диалога удаления
 static void onRemoveDialogYes(wxDialog* dlg, wxCheckBox* removeSourceCheck, bool& removeSource)
