@@ -79,14 +79,13 @@ void MainFrame::createFavoritesUI() {
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   wxBoxSizer *favFilterSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  // Search (Stage 7.1b)
+  // Created here but added at the end of favFilterSizer
+  // (unified with Channels: filters first, then search, then Reset).
   m_favSearch = new wxSearchCtrl(favFilterPanel, wxID_ANY);
   m_favSearch->ShowCancelButton(true);
   m_favSearch->SetDescriptiveText(_U("Search favorites"));
   m_favSearch->SetMinSize(wxSize(FromDIP(240), -1));
   m_favSearch->Bind(wxEVT_TEXT, &MainFrame::OnFavSearchChanged, this);
-  favFilterSizer->Add(m_favSearch, 0,
-                      wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(12));
 
   m_favSearchDebounce.SetOwner(this);
   Bind(wxEVT_TIMER, &MainFrame::OnFavSearchDebounce, this,
@@ -119,6 +118,11 @@ void MainFrame::createFavoritesUI() {
   favFilterSizer->Add(new wxStaticText(favFilterPanel, wxID_ANY, _U("Sort:")), 0,
                       wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(6));
   favFilterSizer->Add(m_favSortChoice, 0, wxRIGHT, FromDIP(8));
+
+  // Search (right cluster, no stretch — compact layout).
+  favFilterSizer->Add(m_favSearch, 0,
+                      wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(12));
+
   m_favFilterResetBtn = new wxButton(favFilterPanel, wxID_ANY, _U("Reset"));
   favFilterSizer->Add(m_favFilterResetBtn, 0, wxLEFT, FromDIP(8));
 

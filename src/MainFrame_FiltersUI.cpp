@@ -48,14 +48,13 @@ void MainFrame::createChannelsFilterPanel() {
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
   auto *filterSizer = new wxBoxSizer(wxHORIZONTAL);
 
-  // Search (Stage 7.1b)
+  // Search (Stage 7.1b). Created here but added at the end of filterSizer
+  // (unified with Favorites: filters first, then search, then Reset).
   m_channelSearch = new wxSearchCtrl(m_filterPanel, wxID_ANY);
   m_channelSearch->ShowCancelButton(true);
   m_channelSearch->SetDescriptiveText(_U("Search channels"));
   m_channelSearch->SetMinSize(wxSize(FromDIP(240), -1));
   m_channelSearch->Bind(wxEVT_TEXT, &MainFrame::OnChannelSearchChanged, this);
-  filterSizer->Add(m_channelSearch, 0,
-                   wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(12));
 
   m_channelSearchDebounce.SetOwner(this);
   Bind(wxEVT_TIMER, &MainFrame::OnChannelSearchDebounce, this,
@@ -105,6 +104,10 @@ void MainFrame::createChannelsFilterPanel() {
   m_radioOnlyCheck->Hide();
   filterSizer->Add(m_radioOnlyCheck, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL,
                    FromDIP(12));
+
+  // Search (right cluster, no stretch — compact layout).
+  filterSizer->Add(m_channelSearch, 0,
+                   wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(12));
 
   // Reset button
   m_resetBtn = new wxButton(m_filterPanel, wxID_ANY, _U("Reset"),
