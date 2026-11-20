@@ -75,30 +75,33 @@ PlaylistInfoDialog::PlaylistInfoDialog(wxWindow *parent,
 void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
   auto *mainSizer = new wxBoxSizer(wxVERTICAL);
 
-  auto addRow = [this](wxSizer *sizer, const wxString &label,
+  auto addRow = [this](wxSizer *sizer, wxWindow *parent, const wxString &label,
                        const wxString &value) {
     auto *row = new wxBoxSizer(wxHORIZONTAL);
-    auto *lbl = new wxStaticText(this, wxID_ANY, label);
+    auto *lbl = new wxStaticText(parent, wxID_ANY, label);
     wxFont f = lbl->GetFont();
     f.SetWeight(wxFONTWEIGHT_BOLD);
     lbl->SetFont(f);
     row->Add(lbl, 0, wxALIGN_TOP | wxRIGHT, FromDIP(8));
 
-    auto *val = new wxStaticText(this, wxID_ANY, value);
+    auto *val = new wxStaticText(parent, wxID_ANY, value);
     val->Wrap(FromDIP(420));
     row->Add(val, 1, wxEXPAND);
 
     sizer->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
   };
 
-  auto *infoBox = new wxStaticBoxSizer(wxVERTICAL, this, _U("Playlist"));
-  addRow(infoBox, _U("Title:"), wxString::FromUTF8(playlist.getTitle()));
+  // Playlist box.
+  auto *infoBoxStatic = new wxStaticBox(this, wxID_ANY, _U("Playlist"));
+  auto *infoBox = new wxStaticBoxSizer(infoBoxStatic, wxVERTICAL);
+  addRow(infoBox, infoBoxStatic, _U("Title:"),
+         wxString::FromUTF8(playlist.getTitle()));
 
   {
     auto *row = new wxBoxSizer(wxHORIZONTAL);
     const wxString labelText =
         playlist.isXtream() ? _U("Server URL:") : _U("Source:");
-    auto *lbl = new wxStaticText(this, wxID_ANY, labelText);
+    auto *lbl = new wxStaticText(infoBoxStatic, wxID_ANY, labelText);
     wxFont f = lbl->GetFont();
     f.SetWeight(wxFONTWEIGHT_BOLD);
     lbl->SetFont(f);
@@ -112,15 +115,14 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
         displayValue = baseUrl;
     }
 
-    auto *urlCtrl = new wxTextCtrl(
-        this, wxID_ANY, displayValue,
-        wxDefaultPosition, wxDefaultSize,
-        wxTE_READONLY | wxBORDER_NONE);
+    auto *urlCtrl = new wxTextCtrl(infoBoxStatic, wxID_ANY, displayValue,
+                                   wxDefaultPosition, wxDefaultSize,
+                                   wxTE_READONLY | wxBORDER_NONE);
     urlCtrl->SetBackgroundColour(GetBackgroundColour());
     urlCtrl->SetToolTip(_U("Select and copy with Ctrl+C"));
 
     {
-      wxClientDC dc(this);
+      wxClientDC dc(infoBoxStatic);
       dc.SetFont(GetFont());
       const int textW = dc.GetTextExtent(displayValue).GetWidth();
       urlCtrl->SetMinSize(wxSize(textW + FromDIP(24), -1));
@@ -131,7 +133,7 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
     infoBox->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
   }
 
-  addRow(infoBox, _U("Channels:"),
+  addRow(infoBox, infoBoxStatic, _U("Channels:"),
          wxString::Format("%zu", playlist.getChannelCount()));
   mainSizer->Add(infoBox, 0, wxEXPAND | wxALL, FromDIP(10));
 
@@ -139,13 +141,15 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
     const auto &meta = playlist.getXtreamMeta();
     const xtream::UserInfo ui = xtream::ParseUserInfo(meta.userInfoJson);
 
-    auto *accBox = new wxStaticBoxSizer(wxVERTICAL, this, _U("Account"));
+    // Account box.
+    auto *accBoxStatic = new wxStaticBox(this, wxID_ANY, _U("Account"));
+    auto *accBox = new wxStaticBoxSizer(accBoxStatic, wxVERTICAL);
 
     // Username / Password (readonly, Ctrl+C). Password masked by default
     // with a Show/Hide toggle.
     {
       auto *row = new wxBoxSizer(wxHORIZONTAL);
-      auto *lbl = new wxStaticText(this, wxID_ANY, _U("Username:"));
+      auto *lbl = new wxStaticText(accBoxStatic, wxID_ANY, _U("Username:"));
       wxFont f = lbl->GetFont();
       f.SetWeight(wxFONTWEIGHT_BOLD);
       lbl->SetFont(f);
@@ -153,15 +157,14 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
 
       const wxString userStr = wxString::FromUTF8(meta.username);
 
-      auto *userCtrl = new wxTextCtrl(
-          this, wxID_ANY, userStr,
-          wxDefaultPosition, wxDefaultSize,
-          wxTE_READONLY | wxBORDER_NONE);
+      auto *userCtrl = new wxTextCtrl(accBoxStatic, wxID_ANY, userStr,
+                                      wxDefaultPosition, wxDefaultSize,
+                                      wxTE_READONLY | wxBORDER_NONE);
       userCtrl->SetBackgroundColour(GetBackgroundColour());
       userCtrl->SetToolTip(_U("Select and copy with Ctrl+C"));
 
       {
-        wxClientDC dc(this);
+        wxClientDC dc(accBoxStatic);
         dc.SetFont(GetFont());
         const int textW = dc.GetTextExtent(userStr).GetWidth();
         userCtrl->SetMinSize(wxSize(textW + FromDIP(24), -1));
@@ -173,7 +176,7 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
 
     {
       auto *row = new wxBoxSizer(wxHORIZONTAL);
-      auto *lbl = new wxStaticText(this, wxID_ANY, _U("Password:"));
+      auto *lbl = new wxStaticText(accBoxStatic, wxID_ANY, _U("Password:"));
       wxFont f = lbl->GetFont();
       f.SetWeight(wxFONTWEIGHT_BOLD);
       lbl->SetFont(f);
@@ -181,13 +184,12 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
 
       const wxString passStr = wxString::FromUTF8(meta.password);
 
-      auto *passCtrl = new wxTextCtrl(
-          this, wxID_ANY, passStr,
-          wxDefaultPosition, wxDefaultSize,
-          wxTE_READONLY | wxTE_PASSWORD | wxBORDER_NONE);
+      auto *passCtrl = new wxTextCtrl(accBoxStatic, wxID_ANY, passStr,
+                                      wxDefaultPosition, wxDefaultSize,
+                                      wxTE_READONLY | wxTE_PASSWORD | wxBORDER_NONE);
       passCtrl->SetBackgroundColour(GetBackgroundColour());
 
-      auto *toggleBtn = new wxButton(this, wxID_ANY, _U("Show"));
+      auto *toggleBtn = new wxButton(accBoxStatic, wxID_ANY, _U("Show"));
       toggleBtn->Bind(wxEVT_BUTTON,
                       [passCtrl, toggleBtn](wxCommandEvent &) {
                         const long style = passCtrl->GetWindowStyle();
@@ -207,7 +209,8 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
       accBox->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
     }
 
-    addRow(accBox, _U("Status:"), wxString::FromUTF8(xtream::HumanStatus(ui)));
+    addRow(accBox, accBoxStatic, _U("Status:"),
+           wxString::FromUTF8(xtream::HumanStatus(ui)));
 
     if (ui.hasExpDate()) {
       wxString expStr =
@@ -215,23 +218,24 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
       const int64_t now = static_cast<int64_t>(std::time(nullptr));
       if (xtream::IsExpiringSoon(ui.expDate, now, 3))
         expStr += " " + _U("(soon!)");
-      addRow(accBox, _U("Expiration:"), expStr);
+      addRow(accBox, accBoxStatic, _U("Expiration:"), expStr);
     } else {
-      addRow(accBox, _U("Expiration:"), _U("Unlimited"));
+      addRow(accBox, accBoxStatic, _U("Expiration:"), _U("Unlimited"));
     }
 
     if (ui.maxConnections > 0) {
-      addRow(accBox, _U("Connections:"),
+      addRow(accBox, accBoxStatic, _U("Connections:"),
              wxString::Format(_U("active %d / %d allowed"),
                               ui.activeConnections, ui.maxConnections));
     }
 
     if (ui.isTrial)
-      addRow(accBox, _U("Type:"), _U("Trial account"));
+      addRow(accBox, accBoxStatic, _U("Type:"), _U("Trial account"));
 
     const xtream::ServerInfo si = xtream::ParseServerInfo(meta.serverInfoJson);
     if (!si.url.empty() && si.url != playlist.getSource()) {
-      addRow(accBox, _U("Canonical URL:"), wxString::FromUTF8(si.url));
+      addRow(accBox, accBoxStatic, _U("Canonical URL:"),
+             wxString::FromUTF8(si.url));
 
       const wxString oldSource = wxString::FromUTF8(playlist.getSource());
       const wxString newOrigin = OriginOf(wxString::FromUTF8(si.url));
@@ -242,7 +246,7 @@ void PlaylistInfoDialog::BuildUi(const Playlist &playlist) {
         const wxString suggested = BuildSuggestedSource(playlist);
         if (!suggested.IsEmpty()) {
           auto *btnRow = new wxBoxSizer(wxHORIZONTAL);
-          auto *btn = new wxButton(this, wxID_ANY, _U("Update source…"));
+          auto *btn = new wxButton(accBoxStatic, wxID_ANY, _U("Update source…"));
           btn->SetToolTip(
               _U("Server reports a different canonical address. Open the "
                  "playlist editor with the new URL pre-filled."));
