@@ -180,7 +180,12 @@ void MainFrame::EnsureMoviesPanel() {
   m_moviesCards->SetSelectCallback([this](const std::string &key, size_t idx) {
     OnMovieSelected(key, idx);
   });
-
+  m_moviesCards->SetActivateCallback(
+      [this](const std::string &key, size_t /*idx*/) {
+        const int64_t id = ParseVodMediaKey(key);
+        if (id > 0)
+          OnPlayVod(id, /*fromBeginning=*/false);
+      });
   m_moviesCards->SetFavoriteToggleCallback(
       [this](const std::string &mediaKey) {
         const int64_t id = ParseVodMediaKey(mediaKey);
@@ -579,6 +584,10 @@ void MainFrame::HandleMoviesPageChanged(int sel) {
   if (!m_moviesCategoryIds.empty()) {
     m_currentVodCategoryId = m_moviesCategoryIds[0];
     LoadVodPage(true);
+    CallAfter([this]() {
+      if (m_moviesCards)
+        m_moviesCards->FocusFirst();
+    });
   }
 }
 
@@ -733,6 +742,8 @@ void MainFrame::OnMoviesRefreshCatalog(wxCommandEvent &) {
       if (!s->m_moviesCategoryIds.empty()) {
         s->m_currentVodCategoryId = s->m_moviesCategoryIds[0];
         s->LoadVodPage(true);
+        if (s->m_moviesCards)
+          s->m_moviesCards->FocusFirst();
       }
     });
   }).detach();
@@ -1271,6 +1282,11 @@ void MainFrame::HandleSeriesPageChanged(int sel) {
   }
 
   m_seriesPanel->OnActivated();
+
+  CallAfter([this]() {
+    if (m_seriesPanel)
+      m_seriesPanel->FocusFirstPoster();
+  });
 }
 
 void MainFrame::UpdateSeriesTabVisibility() {

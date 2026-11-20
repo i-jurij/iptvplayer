@@ -40,11 +40,20 @@ public:
   void SetScrollY(int y);
 
   const std::string &GetMediaKey(size_t index) const;
-
+  // Set keyboard focus to the first poster (used when the Movies/Series tab
+  // becomes active). No-op when items are empty or widget is not shown.
+  void FocusFirst();
+  
   using SelectCallback =
       std::function<void(const std::string &mediaKey, size_t index)>;
   void SetSelectCallback(SelectCallback cb) {
     m_onPosterSelect = std::move(cb);
+  }
+
+  using ActivateCallback =
+      std::function<void(const std::string &mediaKey, size_t index)>;
+  void SetActivateCallback(ActivateCallback cb) {
+    m_onActivate = std::move(cb);
   }
 
   using ContextCallback = std::function<void(const std::string &mediaKey,
@@ -74,11 +83,15 @@ protected:
   void OnCardClick(size_t index, bool fav, const wxRect &rect) override;
   void OnContextMenu(wxContextMenuEvent &evt);
   void OnMouseDown(wxMouseEvent &evt) override;
+  void OnKeyDownIntercept(wxKeyEvent &evt);
+  void OnLeftDClick(wxMouseEvent &evt);
+  void OnCardActivate(size_t index);
   void EnsureScaledIcons();
 
 private:
   std::vector<PosterItem> m_items;
   SelectCallback m_onPosterSelect;
+  ActivateCallback m_onActivate;
   wxString m_emptyMessage;
   ContextCallback m_onContext;
   ToggleCallback m_onFavoriteToggle;

@@ -1201,6 +1201,7 @@ void SeriesPanel::OnRefreshCatalog(wxCommandEvent &) {
       if (!s->m_categoryIds.empty()) {
         s->m_currentCategoryId = s->m_categoryIds[0];
         s->LoadSeriesPage(true);
+        s->FocusFirstPoster();
       }
     });
   }).detach();
@@ -1657,6 +1658,11 @@ void SeriesPanel::FocusSearch() {
     m_search->SetFocus();
     m_search->SelectAll();
   }
+}
+
+void SeriesPanel::FocusFirstPoster() {
+  if (m_cards)
+    m_cards->FocusFirst();
 }
 
 void SeriesPanel::UpdateInfoLabel() {

@@ -55,6 +55,9 @@ public:
   void Reset();
   void ClearPlayingState();
   void FocusSearch();
+  // Set keyboard focus to the first series poster (used when the Series tab
+  // becomes active). No-op when the list is empty or not shown.
+  void FocusFirstPoster();
 
   Level CurrentLevel() const { return m_level; }
   void GoToLevel(Level level);

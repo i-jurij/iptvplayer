@@ -53,6 +53,8 @@ Channel ConvertToChannel(const PosterItem &item) {
 
 PosterCards::PosterCards(wxWindow *parent) : CardsBase(parent) {
   Bind(wxEVT_CONTEXT_MENU, &PosterCards::OnContextMenu, this);
+  Bind(wxEVT_KEY_DOWN, &PosterCards::OnKeyDownIntercept, this);
+  Bind(wxEVT_LEFT_DCLICK, &PosterCards::OnLeftDClick, this);
   m_favFilled = CreateFilledStarIcon(wxSize(128, 128));
   m_watchFilled = CreateFilledBookmarkIcon(wxSize(128, 128));
 }
@@ -372,6 +374,75 @@ void PosterCards::OnCardClick(size_t index, bool /*fav*/,
     m_onPosterSelect(m_items[index].mediaKey, index);
 }
 
+void PosterCards::OnCardActivate(size_t index) {
+  if (index >= m_items.size())
+    return;
+  // Movies: play via m_onActivate. Series: no m_onActivate set → fall back
+  // to m_onPosterSelect (drill-in to seasons), same as a single click.
+  if (m_onActivate) {
+    m_onActivate(m_items[index].mediaKey, index);
+    return;
+  }
+  if (m_onPosterSelect)
+    m_onPosterSelect(m_items[index].mediaKey, index);
+}
+
+void PosterCards::OnKeyDownIntercept(wxKeyEvent &evt) {
+  const int key = evt.GetKeyCode();
+  if (key != WXK_RETURN && key != WXK_NUMPAD_ENTER) {
+    evt.Skip(); // let CardsBase::OnKeyDown handle navigation etc.
+    return;
+  }
+  if (!IsShownOnScreen() || m_channels.empty()) {
+    evt.Skip();
+    return;
+  }
+  if (m_focusIndex < 0)
+    m_focusIndex = 0;
+  if (m_focusIndex >= static_cast<int>(m_channels.size())) {
+    evt.Skip();
+    return;
+  }
+  OnCardActivate(static_cast<size_t>(m_focusIndex));
+  // Intentionally no Skip(): prevent base-class PlayChannel with empty URL.
+}
+
+void PosterCards::OnLeftDClick(wxMouseEvent &evt) {
+  bool fav = false;
+  wxRect rect;
+  const int idx = HitTestIndex(evt.GetPosition(), fav, &rect);
+  if (idx < 0 || idx >= static_cast<int>(m_items.size())) {
+    evt.Skip();
+    return;
+  }
+
+  // Ignore dbl-click on fav/watch icon overlays: the 1st LEFT_DOWN already
+  // toggled, the 2nd would toggle back. Activating play here would be
+  // surprising. Same zone math as OnMouseDown.
+  const PosterItem &item = m_items[idx];
+  auto dip = [this](int v) { return wxWindow::FromDIP(v, this); };
+  const int iconSize = dip(kIconSizeDip);
+  const int xIcon = rect.x + rect.width - dip(kIconMarginDip + kIconSizeDip);
+  int yIcon = rect.y + dip(kIconMarginDip);
+  const wxPoint pos = evt.GetPosition();
+  if (item.isFavorite) {
+    if (wxRect(xIcon, yIcon, iconSize, iconSize).Contains(pos)) {
+      evt.Skip();
+      return;
+    }
+    yIcon += iconSize + dip(kIconGapDip);
+  }
+  if (item.isWatchlist) {
+    if (wxRect(xIcon, yIcon, iconSize, iconSize).Contains(pos)) {
+      evt.Skip();
+      return;
+    }
+  }
+
+  OnCardActivate(static_cast<size_t>(idx));
+  evt.Skip();
+}
+
 void PosterCards::OnContextMenu(wxContextMenuEvent &evt) {
   if (!m_onContext)
     return;
@@ -508,4 +579,16 @@ void PosterCards::SetScrollY(int y) {
   if (py <= 0)
     py = 1;
   Scroll(-1, y / py);
+}
+
+void PosterCards::FocusFirst() {
+  if (m_items.empty())
+    return;
+  if (!IsShown())
+    return;
+  // SelectCard handles m_focusIndex, EnsureRowVisible, invalidation, Refresh.
+  // It is a no-op if m_cols == 0 (layout not ready) — widget focus still
+  // applies, and CardsBase::OnKeyDown will set m_focusIndex = 0 on first key.
+  SelectCard(0);
+  SetFocusIgnoringChildren();
 }
