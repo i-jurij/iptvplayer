@@ -940,7 +940,7 @@ void MainFrame::RegisterEpgSourceForPlaylist(const wxString &epgUrl,
             LOG_INFO(
                 "RegisterEpgSourceForPlaylist: removed invalid auto-created "
                 "EPG source '%s'",
-                url.c_str());
+                SanitizeUrlForLog(url).c_str());
 
             self->SetStatusText(_U("Invalid EPG source removed"), 0);
 
@@ -956,7 +956,7 @@ void MainFrame::RegisterEpgSourceForPlaylist(const wxString &epgUrl,
       });
 
   LOG_INFO("RegisterEpgSourceForPlaylist: enqueued '%s' (%s)", name.c_str(),
-           url.c_str());
+           SanitizeUrlForLog(url).c_str());
   SetStatusText(_U("EPG source added, updating in background."), 0);
 }
 

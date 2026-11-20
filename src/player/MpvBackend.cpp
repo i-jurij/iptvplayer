@@ -341,8 +341,9 @@ bool MpvBackend::PlayUrl(const std::string &url, double startPosition) {
   m_lastUrl = url;
   const char *cmd[] = {"loadfile", m_lastUrl.c_str(), nullptr};
   int r = mpv_command(m_mpv, cmd);
-  //LOG_DEBUG("mpv loadurl '%s' start=%.2f -> %d", m_lastUrl.c_str(),
-  //          startPosition, r);
+  // LOG_DEBUG("mpv loadurl '%s' start=%.2f -> %d",
+  // SanitizeUrlForLog(m_lastUrl).c_str(),
+  //           startPosition, r);
   return r >= 0;
 }
 

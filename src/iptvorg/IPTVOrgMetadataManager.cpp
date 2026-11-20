@@ -1,6 +1,7 @@
 #include "IPTVOrgMetadataManager.h"
 #include "../LogControl.h"
 #include "../PlaylistManager.h"
+#include "../Utils_Net.h"
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
 
@@ -43,7 +44,7 @@ bool IPTVOrgMetadataManager::FetchJson(const std::string &url,
     }
     std::string lastErr = m_playlistMgr->getLastError();
     LOG_ERROR("IPTVOrgMetadataManager: Failed to download %s, error: %s",
-              url.c_str(), lastErr.c_str());
+              SanitizeUrlForLog(url).c_str(), lastErr.c_str());
     if (errorText) {
       if (lastErr.empty())
         *errorText = "Download failed: unknown error";

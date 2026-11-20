@@ -409,7 +409,7 @@ void ChannelDataModel::Resort() {
 void ChannelDataModel::RemoveChannel(const std::string &name,
                                      const std::string &url) {
   LOG_DEBUG("ChannelDataModel::RemoveChannel: name='%s', url='%s'",
-            name.c_str(), url.c_str());
+            name.c_str(), SanitizeUrlForLog(url).c_str());
   // Находим индекс удаляемого канала
   size_t index = SIZE_MAX;
   for (size_t i = 0; i < m_channels.size(); ++i) {

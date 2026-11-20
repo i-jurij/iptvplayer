@@ -832,7 +832,7 @@ bool EPGManager::LoadFromUrl(const std::string &url,
   }
 
   if (check.contentLength > 0) {
-    LOG_DEBUG("EPGManager: URL %s, Content-Length: %lld bytes", url.c_str(),
+    LOG_DEBUG("EPGManager: URL %s, Content-Length: %lld bytes", SanitizeUrlForLog(url).c_str(),
               check.contentLength);
   }
 
@@ -864,7 +864,8 @@ bool EPGManager::LoadFromUrl(const std::string &url,
     const std::string safeUrl = SanitizeUrlForLog(url);
     setLastError("Failed to download EPG from " + safeUrl + ": " +
                  m_playlistManager->getLastError());
-    LOG_ERROR("EPGManager: Failed to download EPG from %s", safeUrl.c_str());
+    LOG_ERROR("EPGManager: Failed to download EPG from %s",
+              SanitizeUrlForLog(safeUrl).c_str());
 
     return false;
   }
@@ -893,13 +894,13 @@ bool EPGManager::LoadFromUrl(const std::string &url,
                           decompressCancelled)) {
     if (decompressCancelled) {
       setLastError("Cancelled during decompression");
-      LOG_DEBUG("EPGManager: decompression cancelled for %s", url.c_str());
+      LOG_DEBUG("EPGManager: decompression cancelled for %s", SanitizeUrlForLog(url).c_str());
       return false;
     }
     const std::string safeUrl = SanitizeUrlForLog(url);
     setLastError("Failed to decompress data from " + safeUrl);
     LOG_ERROR("EPGManager: Failed to decompress data from %s",
-              safeUrl.c_str());
+              SanitizeUrlForLog(safeUrl).c_str());
     return false;
   }
 
@@ -1054,7 +1055,7 @@ void EPGManager::RegisterEpgSource(const std::string &url,
   for (const auto &src : sources) {
     if (src.url == url) {
       // Уже есть. Ручной — не трогаем. Auto-created — тоже (idempotent).
-      LOG_DEBUG("RegisterEpgSource: source already exists: %s", url.c_str());
+      LOG_DEBUG("RegisterEpgSource: source already exists: %s", SanitizeUrlForLog(url).c_str());
       return;
     }
   }
@@ -1069,7 +1070,7 @@ void EPGManager::RegisterEpgSource(const std::string &url,
 
   SetSources(sources);
   LOG_INFO("RegisterEpgSource: added auto-created source '%s' (%s)",
-           name.c_str(), url.c_str());
+           name.c_str(), SanitizeUrlForLog(url).c_str());
 }
 
 void EPGManager::SetEpgSourceOwner(const std::string &url,
@@ -1084,7 +1085,7 @@ void EPGManager::SetEpgSourceOwner(const std::string &url,
       continue;
     if (!src.autoCreated) {
       LOG_DEBUG("SetEpgSourceOwner: source '%s' is manual, skipping",
-                url.c_str());
+                SanitizeUrlForLog(url).c_str());
       return;
     }
     if (std::find(src.ownerPlaylistIds.begin(), src.ownerPlaylistIds.end(),
@@ -1098,7 +1099,7 @@ void EPGManager::SetEpgSourceOwner(const std::string &url,
 
   if (changed) {
     SetSources(sources);
-    LOG_DEBUG("SetEpgSourceOwner: attached '%s' to playlist '%s'", url.c_str(),
+    LOG_DEBUG("SetEpgSourceOwner: attached '%s' to playlist '%s'", SanitizeUrlForLog(url).c_str(),
               playlistId.c_str());
   }
 }
@@ -1126,7 +1127,7 @@ void EPGManager::DeleteEpgSourcesForPlaylist(const std::string &playlistId) {
     changed = true;
     if (owners.empty()) {
       LOG_INFO("DeleteEpgSourcesForPlaylist: removing orphan source '%s'",
-               it->url.c_str());
+               SanitizeUrlForLog(it->url).c_str());
       it = sources.erase(it);
     } else {
       ++it;
@@ -1152,7 +1153,7 @@ void EPGManager::RemoveEpgSourceByUrl(const std::string &url) {
   while (it != sources.end()) {
     if (it->autoCreated && it->url == url) {
       LOG_INFO("RemoveEpgSourceByUrl: removing auto-created source '%s'",
-               url.c_str());
+               SanitizeUrlForLog(url).c_str());
 
       it = sources.erase(it);
       changed = true;
@@ -1208,7 +1209,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     }
     const std::string safeUrl = SanitizeUrlForLog(sourceUrl);
     setLastError("Failed to parse XML from " + safeUrl);
-    LOG_ERROR("EPGManager: Failed to parse XML from %s", safeUrl.c_str());
+    LOG_ERROR("EPGManager: Failed to parse XML from %s", SanitizeUrlForLog(safeUrl).c_str());
     return false;
   }
 
@@ -1217,7 +1218,7 @@ bool EPGManager::ParseAndMerge(const std::string &xmlData,
     const std::string safeUrl = SanitizeUrlForLog(sourceUrl);
     setLastError("No channels found in XMLTV from " + safeUrl);
     LOG_ERROR("EPGManager: No channels found in XMLTV from %s",
-              safeUrl.c_str());
+              SanitizeUrlForLog(safeUrl).c_str());
     return false;
   }
 

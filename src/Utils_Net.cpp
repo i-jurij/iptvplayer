@@ -321,72 +321,69 @@ wxString SanitizeUrlForLog(const wxString &url) {
 
   wxURI uri(url);
   if (!uri.HasScheme())
-    return url;
+    return url; // not a full URL – nothing to mask
 
+  // -----------------------------------------------------------------
+  // 1) Mask the whole user‑info (username[:password]) if present.
+  // -----------------------------------------------------------------
   wxString result = url;
-
-  // 1) Path masking: после /movie/, /series/, /live/, /timeshift/
-  //    всё до '?' заменяется на "***".
-  {
-    static const wxString kSegments[] = {"/movie/", "/series/", "/live/",
-                                         "/timeshift/"};
-
-    const size_t qPos = result.find('?');
-    const size_t hPos = result.find('#');
-    size_t endPath = result.length();
-    if (qPos != wxString::npos)
-      endPath = qPos;
-    if (hPos != wxString::npos && hPos < endPath)
-      endPath = hPos;
-
-    const wxString pathPart = result.Left(endPath);
-
-    for (const auto &seg : kSegments) {
-      const size_t pos = pathPart.find(seg);
-      if (pos == wxString::npos)
-        continue;
-
-      const size_t pathStart = pos + seg.length();
-      if (pathStart >= pathPart.length())
-        break;
-
-      const wxString before = pathPart.Left(pathStart);
-      const wxString after = result.Mid(endPath);
-      result = before + "***" + after;
-      break;
+  if (uri.HasUserInfo()) {
+    // Build a replacement “***” that keeps the @ delimiter.
+    // Example:  http://john:secret@example.com  →  http://***@example.com
+    const size_t atPos = result.find('@');
+    if (atPos != wxString::npos) {
+      // Find the scheme delimiter (://) to keep it unchanged.
+      const size_t schemeEnd = result.find("://");
+      const size_t replaceStart =
+          (schemeEnd == wxString::npos) ? 0 : schemeEnd + 3;
+      result = result.Left(replaceStart) + "***" + result.Mid(atPos);
     }
   }
 
-  // 2) Query masking: username=..., password=... → ***
+  // -----------------------------------------------------------------
+  // 2) Mask **every** query‑parameter value.
+  // -----------------------------------------------------------------
   if (uri.HasQuery()) {
     const wxString query = uri.GetQuery();
-    wxString masked;
+    wxString maskedQuery;
     size_t pos = 0;
+
     while (pos < query.length()) {
-      const size_t amp = query.find('&', pos);
-      wxString pair =
-          (amp == wxString::npos) ? query.Mid(pos) : query.Mid(pos, amp - pos);
-      const size_t eq = pair.find('=');
-      if (eq != wxString::npos) {
-        const wxString key = pair.Left(eq);
-        const wxString keyLower = key.Lower();
-        if (keyLower == "username" || keyLower == "password")
-          pair = key + "=***";
+      // Extract one name=value pair (or a name without '=').
+      const size_t ampPos = query.find('&', pos);
+      const wxString pair = (ampPos == wxString::npos)
+                                ? query.Mid(pos)
+                                : query.Mid(pos, ampPos - pos);
+
+      const size_t eqPos = pair.find('=');
+      wxString maskedPair;
+
+      if (eqPos != wxString::npos) {
+        // Keep the key, replace the value with "***".
+        const wxString key = pair.Left(eqPos);
+        maskedPair = key + "=***";
+      } else {
+        // Parameter without a value – leave it as‑is.
+        maskedPair = pair;
       }
-      if (!masked.IsEmpty())
-        masked += "&";
-      masked += pair;
-      if (amp == wxString::npos)
+
+      if (!maskedQuery.IsEmpty())
+        maskedQuery += '&';
+      maskedQuery += maskedPair;
+
+      if (ampPos == wxString::npos)
         break;
-      pos = amp + 1;
+      pos = ampPos + 1;
     }
 
-    const size_t qpos = result.find('?');
-    if (qpos != wxString::npos) {
-      size_t endpos = result.find('#', qpos);
-      if (endpos == wxString::npos)
-        endpos = result.length();
-      result = result.Left(qpos + 1) + masked + result.Mid(endpos);
+    // Re‑assemble the URL with the new query string.
+    const size_t qPos = result.find('?');
+    if (qPos != wxString::npos) {
+      // Preserve any fragment (#…) that may follow the query.
+      const size_t hashPos = result.find('#', qPos);
+      const size_t afterQuery =
+          (hashPos == wxString::npos) ? result.length() : hashPos;
+      result = result.Left(qPos + 1) + maskedQuery + result.Mid(afterQuery);
     }
   }
 

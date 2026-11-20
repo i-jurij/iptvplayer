@@ -123,7 +123,7 @@ void IconManager::EnsureIconAsync(const std::string &playlist,
                                   const std::string &url, IconCallback cb) {
   // PROFILE_SCOPE("IconManager::EnsureIconAsync");
   // LOG_DEBUG("IconManager::EnsureIconAsync p=%s c=%s url=%s thread=%zu",
-  //         playlist.c_str(), channel.c_str(), url.c_str(),
+  //         playlist.c_str(), channel.c_str(), SanitizeUrlForLog(url).c_str(),
   //       std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
   if (shuttingDown.load()) {
@@ -148,7 +148,7 @@ void IconManager::EnsureIconAsync(const std::string &playlist,
       // --- CASE C: файла нет → скачиваем ---
       DownloadAndProcessAsync(playlist, channel, url, [=](wxBitmap dlBmp) {
         // LOG_DEBUG("IconManager::Download start p=%s c=%s url=%s",
-        //         playlist.c_str(), channel.c_str(), url.c_str());
+        //         playlist.c_str(), channel.c_str(), SanitizeUrlForLog(url).c_str());
 
         if (!dlBmp.IsOk() || dlBmp.GetWidth() <= 1 || dlBmp.GetHeight() <= 1) {
           SafeCallReady(cb, wxNullBitmap);
@@ -158,7 +158,7 @@ void IconManager::EnsureIconAsync(const std::string &playlist,
         SafeCallReady(cb, dlBmp);
 
         // LOG_DEBUG("IconManager::Download done p=%s c=%s url=%s",
-        //         playlist.c_str(), channel.c_str(), url.c_str());
+        //         playlist.c_str(), channel.c_str(), SanitizeUrlForLog(url).c_str());
       });
     });
   });
@@ -540,7 +540,7 @@ void IconManager::DownloadAndProcessAsync(const std::string &playlist,
 bool IconManager::DownloadIconToBuffer(const std::string &url,
                                        std::vector<unsigned char> &buffer) {
   PROFILE_SCOPE("IconManager::DownloadIconToBuffer");
-  // LOG_DEBUG("IconManager::DownloadIconToBuffer start url=%s", url.c_str());
+  // LOG_DEBUG("IconManager::DownloadIconToBuffer start url=%s", SanitizeUrlForLog(url).c_str());
 
   struct DownloadContext {
     std::vector<unsigned char> *buf;
@@ -638,18 +638,18 @@ bool IconManager::DownloadIconToBuffer(const std::string &url,
   }
 
   if (httpCode < 200 || httpCode >= 300) {
-    LOG_WARN("IconManager: HTTP %ld for %s", httpCode, url.c_str());
+    LOG_WARN("IconManager: HTTP %ld for %s", httpCode, SanitizeUrlForLog(url).c_str());
     return false;
   }
 
   if (buffer.empty()) {
-    LOG_WARN("IconManager: empty buffer for %s", url.c_str());
+    LOG_WARN("IconManager: empty buffer for %s", SanitizeUrlForLog(url).c_str());
     return false;
   }
 
   if (contentType &&
       std::string(contentType).find("text/html") != std::string::npos) {
-    LOG_WARN("IconManager: content-type HTML for %s", url.c_str());
+    LOG_WARN("IconManager: content-type HTML for %s", SanitizeUrlForLog(url).c_str());
     return false;
   }
 
