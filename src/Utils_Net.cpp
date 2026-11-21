@@ -315,42 +315,117 @@ UrlCredentials ExtractQueryCredentials(const wxString &url) {
   return result;
 }
 
+static bool IsSafeQueryKey(const wxString &key) {
+  static const wxString keys[] = {"action",      "type",      "output",
+                                  "category_id", "vod_id",    "series_id",
+                                  "stream_id",   "episode_id"};
+
+  for (const auto &safeKey : keys) {
+    if (key.CmpNoCase(safeKey) == 0)
+      return true;
+  }
+
+  return false;
+}
+
+
 wxString SanitizeUrlForLog(const wxString &url) {
   if (url.IsEmpty())
     return url;
 
   wxURI uri(url);
-  if (!uri.HasScheme())
-    return url; // not a full URL – nothing to mask
+
+  wxString result = url;
 
   // -----------------------------------------------------------------
-  // 1) Mask the whole user‑info (username[:password]) if present.
+  // 1) Path masking:
+  //    /movie/, /series/, /live/, /timeshift/
   // -----------------------------------------------------------------
-  wxString result = url;
+  {
+    static const wxString kSegments[] = {"/movie/", "/series/", "/live/",
+                                         "/timeshift/"};
+
+    const size_t qPos = result.find('?');
+    const size_t hPos = result.find('#');
+
+    size_t endPath = result.length();
+
+    if (qPos != wxString::npos)
+      endPath = qPos;
+
+    if (hPos != wxString::npos && hPos < endPath)
+      endPath = hPos;
+
+    const wxString pathPart = result.Left(endPath);
+
+    for (const auto &seg : kSegments) {
+      const size_t pos = pathPart.find(seg);
+
+      if (pos == wxString::npos)
+        continue;
+
+      const size_t pathStart = pos + seg.length();
+
+      if (pathStart >= pathPart.length())
+        break;
+
+      const wxString before = pathPart.Left(pathStart);
+      const wxString after = result.Mid(endPath);
+
+      result = before + "***" + after;
+      break;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // 2) Mask user-info:
+  //
+  // http://user:pass@host
+  // ->
+  // http://***@host
+  // -----------------------------------------------------------------
   if (uri.HasUserInfo()) {
-    // Build a replacement “***” that keeps the @ delimiter.
-    // Example:  http://john:secret@example.com  →  http://***@example.com
     const size_t atPos = result.find('@');
+
     if (atPos != wxString::npos) {
-      // Find the scheme delimiter (://) to keep it unchanged.
       const size_t schemeEnd = result.find("://");
+
       const size_t replaceStart =
           (schemeEnd == wxString::npos) ? 0 : schemeEnd + 3;
+
       result = result.Left(replaceStart) + "***" + result.Mid(atPos);
     }
   }
 
   // -----------------------------------------------------------------
-  // 2) Mask **every** query‑parameter value.
+  // 3) Mask ALL query parameter values.
+  //
+  // ?username=foo&password=bar
+  // ->
+  // ?username=***&password=***
+  //
+  // ?token=abcdef
+  // ->
+  // ?token=***
   // -----------------------------------------------------------------
-  if (uri.HasQuery()) {
-    const wxString query = uri.GetQuery();
+  const size_t qPos = result.find('?');
+
+  if (qPos != wxString::npos) {
+
+    size_t hashPos = result.find('#', qPos);
+
+    if (hashPos == wxString::npos)
+      hashPos = result.length();
+
+    const wxString query = result.Mid(qPos + 1, hashPos - qPos - 1);
+
     wxString maskedQuery;
+
     size_t pos = 0;
 
     while (pos < query.length()) {
-      // Extract one name=value pair (or a name without '=').
       const size_t ampPos = query.find('&', pos);
+
       const wxString pair = (ampPos == wxString::npos)
                                 ? query.Mid(pos)
                                 : query.Mid(pos, ampPos - pos);
@@ -358,33 +433,29 @@ wxString SanitizeUrlForLog(const wxString &url) {
       const size_t eqPos = pair.find('=');
       wxString maskedPair;
 
-      if (eqPos != wxString::npos) {
-        // Keep the key, replace the value with "***".
-        const wxString key = pair.Left(eqPos);
-        maskedPair = key + "=***";
-      } else {
-        // Parameter without a value – leave it as‑is.
+      if (eqPos == wxString::npos) {
         maskedPair = pair;
+      } else {
+        const wxString key = pair.Left(eqPos);
+
+        if (IsSafeQueryKey(key))
+          maskedPair = pair;
+        else
+          maskedPair = key + "=***";
       }
 
       if (!maskedQuery.IsEmpty())
         maskedQuery += '&';
+
       maskedQuery += maskedPair;
 
       if (ampPos == wxString::npos)
         break;
+
       pos = ampPos + 1;
     }
 
-    // Re‑assemble the URL with the new query string.
-    const size_t qPos = result.find('?');
-    if (qPos != wxString::npos) {
-      // Preserve any fragment (#…) that may follow the query.
-      const size_t hashPos = result.find('#', qPos);
-      const size_t afterQuery =
-          (hashPos == wxString::npos) ? result.length() : hashPos;
-      result = result.Left(qPos + 1) + maskedQuery + result.Mid(afterQuery);
-    }
+    result = result.Left(qPos + 1) + maskedQuery + result.Mid(hashPos);
   }
 
   return result;
