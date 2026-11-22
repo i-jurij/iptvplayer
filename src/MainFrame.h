@@ -80,6 +80,27 @@ inline constexpr SortMode kSortOrder[] = {
 
 wxString SortModeLabel(SortMode m);
 
+// Универсальные хелперы для восстановления выделения в list/cards панелях
+template<typename Panel>
+static bool RestoreListSelection(Panel *panel, const Channel &ch) {
+  if (!panel) return false;
+  return panel->SelectChannel(ch);
+}
+
+template<typename Panel>
+static bool RestoreCardsSelection(Panel *panel, const Channel &ch) {
+  if (!panel) return false;
+  const auto &channels = panel->GetChannels();
+  for (size_t i = 0; i < channels.size(); ++i) {
+    if (channels[i].getName() == ch.getName() &&
+        channels[i].getPlaylistName() == ch.getPlaylistName()) {
+      panel->SelectCard(static_cast<int>(i));
+      return true;
+    }
+  }
+  return false;
+}
+
 class MainFrame : public wxFrame {
 public:
   explicit MainFrame(Application *app);
@@ -90,6 +111,7 @@ public:
 
   bool isClosing() const { return m_closing; }
   void SetApplication(Application *app) { m_application = app; }
+  wxAuiNotebook *getNotebook() const { return m_notebook; }
   // Применить начальный режим (вызывается в конструкторе, до heavy init)
   void ApplyInitialViewMode();
 
@@ -355,6 +377,9 @@ private:
   void HandleFavPageChanged(int sel);
   void HandlePlaylistPageChanged(int sel);
   void HandleVideoPageChanged(int sel);
+  void HandleActivePageChanged(int sel);
+  void SavePanelState(int pageIndex);
+  void RestorePanelState(int pageIndex);
 
   // ----------------------------------------------------------------
   // Thread‑related UI callbacks

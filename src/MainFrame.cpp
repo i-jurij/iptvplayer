@@ -185,28 +185,16 @@ MainFrame::MainFrame(Application *app)
         m_epgDebounceTimer.Stop();
         m_epgPendingPanel = nullptr;
 
-        int sel = evt.GetSelection();
-        LOG_DEBUG("MainFrame: notebook page changed event: selection=%d, "
-                  "pagePtr=%p, pageLabel='%s', m_videoPageIdx=%d, "
-                  "m_videoPanel=%p, m_ignoreNotebookEvents=%d",
-                  sel, (void *)m_notebook->GetPage(sel),
-                  m_notebook->GetPageText(sel).ToUTF8().data(), m_videoPageIdx,
-                  (void *)m_videoPanel, (int)m_ignoreNotebookEvents.load());
+        int prevSel = m_notebook->GetSelection();
+        int newSel = evt.GetSelection();
+        LOG_DEBUG("MainFrame: notebook page changed: prevSel=%d, newSel=%d",
+                  prevSel, newSel);
+
+        // Сохранить состояние уходящей панели
+        SavePanelState(prevSel);
 
         evt.Skip();
-
-        // --- Вызов обработчиков страниц ---
-        HandleVideoPageChanged(sel);
-        HandleChannelPageChanged(sel);
-        HandleFavPageChanged(sel);
-        HandlePlaylistPageChanged(sel);
-        HandleMoviesPageChanged(sel);
-        HandleSeriesPageChanged(sel);
-        if (sel == m_epgPageIdx) {
-          SetStatusText("", 0);
-          SetStatusText("", 1);
-        }
-        ToggleHeaderGroup(sel);
+        HandleActivePageChanged(newSel);
       });
 
   Bind(wxEVT_CHAR_HOOK, &MainFrame::OnGlobalCharHook, this);
@@ -569,5 +557,71 @@ void MainFrame::SaveStartupContext() {
                     std::to_string(m_seriesPanel->GetCurrentSeriesId()));
     cfg->setInt("last_series_season", m_seriesPanel->GetCurrentSeasonNumber());
     cfg->setInt("last_series_level", static_cast<int>(m_seriesPanel->CurrentLevel()));
+  }
+}
+
+void MainFrame::HandleActivePageChanged(int sel) {
+  RestorePanelState(sel);
+
+  if (sel == m_videoPageIdx) HandleVideoPageChanged(sel);
+  else if (sel == m_channelsPageIdx) HandleChannelPageChanged(sel);
+  else if (sel == m_favoritesPageIdx) HandleFavPageChanged(sel);
+  else if (sel == m_notebook->FindPage(m_playlistPanel)) HandlePlaylistPageChanged(sel);
+  else if (sel == m_moviesPageIdx) HandleMoviesPageChanged(sel);
+  else if (sel == m_seriesPageIdx) HandleSeriesPageChanged(sel);
+
+  if (sel == m_epgPageIdx) {
+    SetStatusText("", 0);
+    SetStatusText("", 1);
+  }
+  ToggleHeaderGroup(sel);
+}
+
+void MainFrame::SavePanelState(int pageIndex) {
+  auto *cfg = getConfigManager();
+  if (!cfg) return;
+
+  if (pageIndex == m_channelsPageIdx) {
+    cfg->setSetting("channels_view_mode", m_startInGrid ? "grid" : "list");
+  }
+  else if (pageIndex == m_favoritesPageIdx) {
+    cfg->setSetting("favorites_view_mode", m_startInGrid ? "grid" : "list");
+  }
+  else if (pageIndex == m_moviesPageIdx && m_moviesPanelCreated) {
+    cfg->setSetting("last_movies_category_id",
+                    std::to_string(m_currentVodCategoryId));
+    cfg->setInt("last_movies_list_mode", static_cast<int>(m_moviesListMode));
+    cfg->setInt("last_movies_sort_mode", static_cast<int>(m_moviesSortMode));
+  }
+  else if (pageIndex == m_seriesPageIdx && m_seriesPanel) {
+    cfg->setSetting("last_series_category_id",
+                    std::to_string(m_seriesPanel->GetCurrentCategoryId()));
+    cfg->setInt("last_series_list_mode", static_cast<int>(m_seriesPanel->GetListMode()));
+    cfg->setInt("last_series_sort_mode", static_cast<int>(m_seriesPanel->GetSortMode()));
+    cfg->setSetting("last_series_series_id",
+                    std::to_string(m_seriesPanel->GetCurrentSeriesId()));
+    cfg->setInt("last_series_season", m_seriesPanel->GetCurrentSeasonNumber());
+    cfg->setInt("last_series_level", static_cast<int>(m_seriesPanel->CurrentLevel()));
+  }
+  cfg->saveSettings();
+}
+
+void MainFrame::RestorePanelState(int pageIndex) {
+  auto *cfg = getConfigManager();
+  if (!cfg) return;
+
+  if (pageIndex == m_channelsPageIdx) {
+    std::string mode = cfg->getSetting("channels_view_mode", "list");
+    m_startInGrid = (mode == "grid");
+  }
+  else if (pageIndex == m_favoritesPageIdx) {
+    std::string mode = cfg->getSetting("favorites_view_mode", "list");
+    m_startInGrid = (mode == "grid");
+  }
+  else if (pageIndex == m_moviesPageIdx) {
+    RestoreMoviesContext();
+  }
+  else if (pageIndex == m_seriesPageIdx) {
+    RestoreSeriesContext();
   }
 }

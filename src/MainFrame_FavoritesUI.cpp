@@ -476,31 +476,17 @@ void MainFrame::HandleFavPageChanged(int sel) {
 }
 
 void MainFrame::RestoreFavoriteSelection() {
-  if (!m_hasLastSelectedFavorite)
-    return;
+  if (!m_hasLastSelectedFavorite) return;
 
   bool restored = false;
   if (m_favViewBook) {
     int sel = m_favViewBook->GetSelection();
-    if (sel == 0 && m_favList) {
-      restored = m_favList->SelectChannel(m_lastSelectedFavorite);
-    } else if (sel == 1 && m_favCards) {
-      const auto &channels = m_favCards->GetChannels();
-      for (size_t i = 0; i < channels.size(); ++i) {
-        if (channels[i].getName() == m_lastSelectedFavorite.getName() &&
-            channels[i].getPlaylistName() ==
-                m_lastSelectedFavorite.getPlaylistName()) {
-          m_favCards->SelectCard((int)i);
-          restored = true;
-          break;
-        }
-      }
-    }
+    if (sel == 0) restored = RestoreListSelection(m_favList, m_lastSelectedFavorite);
+    else if (sel == 1) restored = RestoreCardsSelection(m_favCards, m_lastSelectedFavorite);
   }
 
-  if (restored && m_epgFavorites && m_epgFavorites->IsActive()) {
+  if (restored && m_epgFavorites && m_epgFavorites->IsActive())
     m_epgFavorites->SetChannel(m_lastSelectedFavorite);
-  }
 }
 
 void MainFrame::OnFavSearchChanged(wxCommandEvent &evt) {

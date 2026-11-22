@@ -74,7 +74,7 @@ void VideoPanel::OpenFile() {
   m_currentName = NormalizeFileNameForDisk(
     std::string(fn.GetFullName().ToUTF8()), 128, Display);
 
-  m_isChannelPlaying = false;
+  m_playbackSource = nullptr;
   m_isTempPlaylistPlaying = false;
   m_tempCurrentIndex = -1;
 
@@ -289,8 +289,14 @@ void VideoPanel::Stop() {
   m_eofFreezeCount = 0;
   m_eofLastPos = -1.0;
 
-  if (m_isChannelPlaying || m_isFavoritePlaying) {
-    m_onRequestTabSwitch(m_channelSourceTab);
+  if (m_playbackSource) {
+    MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+    if (mf && mf->getNotebook()) {
+      int srcIdx = mf->getNotebook()->FindPage(m_playbackSource);
+      if (srcIdx != mf->getNotebook()->GetSelection()) {
+        m_onRequestTabSwitch(srcIdx);
+      }
+    }
   }
 }
 
@@ -522,7 +528,7 @@ void VideoPanel::Stop() {
                                      wxLIST_STATE_SELECTED);
     m_tempPlaylistList->EnsureVisible(0);
 
-    m_isChannelPlaying = false;
+    m_playbackSource = nullptr;
 
     // Помечаем pending запуск из temp playlist и сохраняем индекс 0
     m_pendingTempPlay = true;
@@ -576,8 +582,7 @@ void VideoPanel::Stop() {
 
     // === Сбрасываем старые поля ===
     m_isTempPlaylistPlaying = false;
-    m_isChannelPlaying = false;
-    m_isFavoritePlaying = false;
+    m_playbackSource = nullptr;
 
     MpvGLCanvas *canvas = dynamic_cast<MpvGLCanvas *>(m_videoArea);
     if (canvas) {

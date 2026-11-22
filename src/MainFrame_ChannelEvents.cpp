@@ -11,9 +11,7 @@ void MainFrame::onChannelSelected(const Channel &ch, size_t, const wxRect &) {
   if (!m_videoPanel)
     return;
 
-  m_videoPanel->SetChannelSourceTab(m_channelsPageIdx);
-  m_videoPanel->SetIsChannelPlaying(true);
-  m_videoPanel->SetIsFavoritePlaying(false);
+  m_videoPanel->m_playbackSource = m_channelsPage;
 
   m_epgPendingPanel = m_epgChannels;
   m_epgPendingChannel = ch;

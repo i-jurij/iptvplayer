@@ -10,9 +10,7 @@ void MainFrame::onFavoriteSelected(const Channel &ch, size_t, const wxRect &) {
   if (!m_videoPanel)
     return;
 
-  m_videoPanel->SetChannelSourceTab(m_favoritesPageIdx);
-  m_videoPanel->SetIsChannelPlaying(false);
-  m_videoPanel->SetIsFavoritePlaying(true);
+  m_videoPanel->m_playbackSource = m_favoritesPanel;
 
   m_epgPendingPanel = m_epgFavorites;
   m_epgPendingChannel = ch;

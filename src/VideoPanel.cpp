@@ -1146,45 +1146,6 @@ void VideoPanel::SetTabActive(bool active) {
           (int)m_tempState);
       m_autoPausedByTabSwitch = false;
     }
-
-    // локальный таймер и счётчик попыток — без новых полей класса
-    wxTimer *resumeTimer = new wxTimer(this);
-    int *attempts = new int(0);
-
-    // захватываем только то, что реально нужно; используем литерал 8 вместо
-    // захвата константы
-    resumeTimer->Bind(wxEVT_TIMER, [this, resumeTimer,
-                                    attempts](wxTimerEvent &) {
-      ++(*attempts);
-      PlayerState s = m_playerController ? m_playerController->GetState()
-                                         : PlayerState::Stopped;
-      LOG_DEBUG("ResumeTimer attempt=%d state=%d", *attempts, (int)s);
-
-      if (s == PlayerState::Playing) {
-        LOG_DEBUG(
-            "ResumeTimer: backend Playing — clearing m_autoPausedByTabSwitch");
-        m_autoPausedByTabSwitch = false;
-
-        resumeTimer->Stop();
-        delete resumeTimer;
-        delete attempts;
-        return;
-      }
-
-      if (*attempts >= 8) {
-        LOG_DEBUG("ResumeTimer: giving up after %d attempts — clearing "
-                  "m_autoPausedByTabSwitch",
-                  *attempts);
-        m_autoPausedByTabSwitch = false;
-
-        resumeTimer->Stop();
-        delete resumeTimer;
-        delete attempts;
-        return;
-      }
-    });
-
-    resumeTimer->Start(100, wxTIMER_CONTINUOUS);
   });
 }
 

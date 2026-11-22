@@ -253,59 +253,12 @@ void MainFrame::createMainPanel() {
   m_videoPanel = new VideoPanel(m_notebook);
   m_videoPanel->SetUIElementsToHide(headerPanel, m_gaugeTop);
   m_videoPanel->m_onRequestTabSwitch = [this](int index) {
-    LOG_DEBUG("MainFrame: m_onRequestTabSwitch requested index=%d, current "
-              "token=%llu",
-              index, (unsigned long long)m_showPanelToken.load());
-
-    // Если уже идёт программное переключение — игнорируем новый запрос
-    if (m_ignoreNotebookEvents.load()) {
-      LOG_DEBUG("m_onRequestTabSwitch: ignored because m_ignoreNotebookEvents "
-                "is set");
-      return;
-    }
-
-    // Захватываем токен, чтобы отложённые/асинхронные вызовы могли быть
-    // инвалидацированы
-    uint64_t token = m_showPanelToken.load();
-
-    // Поднимаем флаг, чтобы синхронные обработчики страницы не выполняли
-    // побочную логику
+    if (m_ignoreNotebookEvents.load()) return;
     m_ignoreNotebookEvents.store(true);
-
-    // Выполняем переключение вкладки
     m_notebook->SetSelection(index);
-    LOG_DEBUG("m_onRequestTabSwitch: SetSelection(%d) done, current=%d", index,
-              m_notebook->GetSelection());
-
-    // Асинхронно выполняем пост‑действия и снимаем флаг; проверяем токен на
-    // инвалидацию
-    CallAfter([this, index, token]() {
-      LOG_DEBUG("MainFrame(CallAfter): handling requestTabSwitch index=%d, "
-                "token=%llu",
-                index, (unsigned long long)token);
-
-      // Если токен изменился — кто-то инвалидировал показ панели, пропускаем
-      // пост‑действия
-      if (token != m_showPanelToken.load()) {
-        LOG_DEBUG("m_onRequestTabSwitch(CallAfter): token invalidated, "
-                  "skipping post actions (index=%d)",
-                  index);
-        m_ignoreNotebookEvents.store(false);
-        return;
-      }
-
-      // Вызываем те же обработчики, что обычно срабатывают на событие страницы
-      HandleChannelPageChanged(index);
-      HandleFavPageChanged(index);
-      HandlePlaylistPageChanged(index);
-
-      // Обновляем заголовок
-      ToggleHeaderGroup(index);
-
-      // Снимаем блокировку — теперь внешние события снова обрабатываются
+    CallAfter([this, index]() {
+      HandleActivePageChanged(index);
       m_ignoreNotebookEvents.store(false);
-      LOG_DEBUG("m_onRequestTabSwitch(CallAfter): finished for index=%d",
-                index);
     });
   };
 

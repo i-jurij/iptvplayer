@@ -112,10 +112,6 @@ public:
     m_onProgress = std::move(cb);
   }
 
-  void SetChannelSourceTab(int tab) { m_channelSourceTab = tab; }
-  void SetIsChannelPlaying(bool is_channel) { m_isChannelPlaying = is_channel; }
-  void SetIsFavoritePlaying(bool is_fav) { m_isFavoritePlaying = is_fav; }
-
   // Обработчик прогресса из PlayerController
   void OnProgressInfo(const ProgressInfo &info);
 
@@ -253,11 +249,11 @@ public:
   // и не temp playlist. Используется для авто-перехода к следующему эпизоду.
   std::function<void()> m_onPlaybackEnded;
 
+  // wxWindow* на панель-источник (m_channelsPage / m_favoritesPanel / nullptr)
+  wxWindow *m_playbackSource = nullptr;
+
 private:
   bool m_stoppedByUser = false;
-  int m_channelSourceTab = -1;
-  bool m_isChannelPlaying = false;
-  bool m_isFavoritePlaying = false;
 
   FocusManager *m_focusManager = nullptr;
 
