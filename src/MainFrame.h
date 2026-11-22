@@ -113,6 +113,9 @@ public:
   void SetApplication(Application *app) { m_application = app; }
   wxAuiNotebook *getNotebook() const { return m_notebook; }
   int getSeriesPageIdx() const { return m_seriesPageIdx; }
+  void HandleActivePageChanged(int sel);
+  VideoPanel *getVideoPanel() const { return m_videoPanel; }
+  wxPanel *getSeriesPage() const { return m_seriesPage; }
   // Применить начальный режим (вызывается в конструкторе, до heavy init)
   void ApplyInitialViewMode();
 
@@ -378,7 +381,6 @@ private:
   void HandleFavPageChanged(int sel);
   void HandlePlaylistPageChanged(int sel);
   void HandleVideoPageChanged(int sel);
-  void HandleActivePageChanged(int sel);
   void SavePanelState(int pageIndex);
   void RestorePanelState(int pageIndex);
 

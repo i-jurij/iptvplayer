@@ -1059,6 +1059,11 @@ void SeriesPanel::PlayEpisode(const xtream::XtreamDatabase::Episode &episode) {
   ch.setMediaType(MediaType::Episode);
   ch.setStreamId(streamId);
 
+  // Устанавливаем источник для возврата при отсутствии след. эпизода
+  if (m_mainFrame && m_mainFrame->getSeriesPageIdx() != wxNOT_FOUND) {
+    m_mainFrame->getVideoPanel()->m_playbackSource = m_mainFrame->getSeriesPage();
+  }
+
   m_mainFrame->PlayChannel(ch, startPosition, mediaKey);
 }
 
@@ -1619,7 +1624,7 @@ void SeriesPanel::PlayNextEpisode() {
     const int seriesIdx = m_mainFrame ? m_mainFrame->getSeriesPageIdx()
                                       : wxNOT_FOUND;
     if (seriesIdx != wxNOT_FOUND) {
-      m_mainFrame->getNotebook()->SetSelection(seriesIdx);
+      m_mainFrame->HandleActivePageChanged(seriesIdx);
     }
     return;
   }
