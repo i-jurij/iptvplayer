@@ -1624,7 +1624,7 @@ void SeriesPanel::PlayNextEpisode() {
     const int seriesIdx = m_mainFrame ? m_mainFrame->getSeriesPageIdx()
                                       : wxNOT_FOUND;
     if (seriesIdx != wxNOT_FOUND) {
-      m_mainFrame->HandleActivePageChanged(seriesIdx);
+      m_mainFrame->getNotebook()->SetSelection(seriesIdx);
     }
     return;
   }
