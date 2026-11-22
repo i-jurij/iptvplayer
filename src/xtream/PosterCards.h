@@ -111,6 +111,7 @@ private:
 
   std::string m_playlistName;
   std::unordered_set<std::string> m_requestedPosters;
+  LogoCache::LogoBitmapPtr m_ghostBmp;
   wxBitmap m_favFilled;
   wxBitmap m_watchFilled;
   double m_iconsScale = 0.0;

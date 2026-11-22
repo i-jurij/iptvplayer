@@ -134,6 +134,9 @@ public:
                                     int limit) const;
 
   int64_t GetVodCount(int categoryId) const;
+  // All-vod: keyset pagination without category JOIN (for "All videos" view).
+  std::vector<VodStream> GetAllVodPage(int64_t afterStreamId, int limit) const;
+  int64_t GetVodCountAll() const;
 
   // vod_info: один объект на stream_id, кэш ответа get_vod_info.
   // fetched_at — unix epoch, 0 = не задан (вызывающий заполняет).
@@ -153,6 +156,10 @@ public:
   std::vector<Series> GetSeriesPage(int categoryId, int64_t afterSeriesId,
                                     int limit) const;
   int64_t GetSeriesCount(int categoryId) const;
+  // All-series: keyset pagination without category JOIN (for "All series"
+  // view).
+  std::vector<Series> GetAllSeriesPage(int64_t afterSeriesId, int limit) const;
+  int64_t GetSeriesCountAll() const;
 
   struct Season {
     int64_t seriesId = 0;

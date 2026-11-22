@@ -289,6 +289,9 @@ void MainFrame::PopulateMoviesCategories() {
   m_moviesCategoryChoice->Append(_U("Recently Added"));
   m_moviesCategoryIds.push_back(kRecentlyAddedCategoryId);
 
+  m_moviesCategoryChoice->Append(_U("All videos"));
+  m_moviesCategoryIds.push_back(kAllCategoryId);
+
   const auto cats = db->GetCategories("vod");
   for (const auto &c : cats) {
     m_moviesCategoryIds.push_back(c.id);
@@ -318,7 +321,7 @@ void MainFrame::LoadVodPage(bool reset) {
   }
   if (m_vodLoading)
     return;
-  if (m_currentVodCategoryId <= 0)
+  if (m_currentVodCategoryId != kAllCategoryId && m_currentVodCategoryId <= 0)
     return;
 
   Playlist *pl = GetPlaylistByIndex(m_loadedPlaylistIndex);
@@ -347,8 +350,11 @@ void MainFrame::LoadVodPage(bool reset) {
   }
 
   constexpr int kPageSize = 200;
-  const auto page =
-      db->GetVodPage(m_currentVodCategoryId, m_lastVodStreamId, kPageSize);
+  std::vector<xtream::XtreamDatabase::VodStream> page;
+  if (m_currentVodCategoryId == kAllCategoryId)
+    page = db->GetAllVodPage(m_lastVodStreamId, kPageSize);
+  else
+    page = db->GetVodPage(m_currentVodCategoryId, m_lastVodStreamId, kPageSize);
 
   if (!page.empty())
     m_lastVodStreamId = page.back().streamId;
@@ -387,9 +393,11 @@ void MainFrame::LoadVodPage(bool reset) {
   UpdateMoviesInfoLabel();
 
   // Total count for virtual grid + infinite scroll. DB COUNT(*) is exact
-  // and cheap (indexed on category map).
+  // and cheap.
   if (db) {
-    const int64_t total = db->GetVodCount(m_currentVodCategoryId);
+    const int64_t total = (m_currentVodCategoryId == kAllCategoryId)
+                              ? db->GetVodCountAll()
+                              : db->GetVodCount(m_currentVodCategoryId);
     m_moviesCards->SetTotalCount(static_cast<size_t>(total));
   }
 
@@ -768,9 +776,8 @@ void MainFrame::SetMoviesListMode(MoviesListMode mode) {
   case MoviesListMode::All:
     m_lastVodStreamId = 0;
     if (!m_moviesCategoryIds.empty() &&
-        (m_currentVodCategoryId <= 0 ||
-         std::find(m_moviesCategoryIds.begin(), m_moviesCategoryIds.end(),
-                   m_currentVodCategoryId) == m_moviesCategoryIds.end())) {
+        std::find(m_moviesCategoryIds.begin(), m_moviesCategoryIds.end(),
+                  m_currentVodCategoryId) == m_moviesCategoryIds.end()) {
       m_currentVodCategoryId = m_moviesCategoryIds[0];
     }
     LoadVodPage(true);
@@ -1572,6 +1579,8 @@ void MainFrame::UpdateMoviesInfoLabel() {
     view = _U("Watchlist");
   } else if (m_currentVodCategoryId == kRecentlyAddedCategoryId) {
     view = _U("Recently Added");
+  } else if (m_currentVodCategoryId == kAllCategoryId) {
+    view = _U("All videos");
   } else {
     int idx = -1;
     for (size_t i = 0; i < m_moviesCategoryIds.size(); ++i) {

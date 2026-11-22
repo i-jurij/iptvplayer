@@ -483,6 +483,7 @@ private:
   };
   MoviesSortMode m_moviesSortMode = MoviesSortMode::Default;
   static constexpr int kRecentlyAddedCategoryId = -1;
+  static constexpr int kAllCategoryId = -2;
   std::vector<int> m_moviesCategoryIds;
   int m_currentVodCategoryId = 0;
   int64_t m_lastVodStreamId = 0;

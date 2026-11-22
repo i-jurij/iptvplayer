@@ -47,6 +47,7 @@ public:
   enum class Level { SeriesList = 0, Seasons = 1, Episodes = 2 };
 
   static constexpr int kRecentlyAddedCategoryId = -1;
+  static constexpr int kAllCategoryId = -2;
 
   SeriesPanel(wxWindow *parent, MainFrame *mainFrame);
   ~SeriesPanel() override;

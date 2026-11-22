@@ -1081,6 +1081,80 @@ int64_t XtreamDatabase::GetVodCount(int categoryId) const {
   }
 }
 
+std::vector<XtreamDatabase::VodStream>
+XtreamDatabase::GetAllVodPage(int64_t afterStreamId, int limit) const {
+  std::vector<VodStream> out;
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  if (limit <= 0)
+    limit = 500;
+  if (limit > 5000)
+    limit = 5000;
+
+  try {
+    Statement stmt =
+        db.PrepareStatement("SELECT stream_id, name, name_lower, stream_icon, "
+                            "       rating, rating_5based, added, "
+                            "       container_extension, custom_sid "
+                            "FROM vod_streams "
+                            "WHERE stream_id > ? "
+                            "ORDER BY stream_id LIMIT ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, wxLongLong(afterStreamId));
+    stmt.Bind(2, limit);
+    ResultSet rs = stmt.ExecuteQuery();
+    while (rs.NextRow()) {
+      VodStream s;
+      s.streamId = rs.GetInt64(0).GetValue();
+      s.name = std::string(rs.GetString(1).utf8_str().data());
+      s.nameLower = std::string(rs.GetString(2).utf8_str().data());
+      s.posterUrl = std::string(rs.GetString(3).utf8_str().data());
+      s.rating = rs.GetDouble(4);
+      s.rating5based = rs.GetDouble(5);
+      s.added = rs.GetInt64(6).GetValue();
+      s.containerExt = std::string(rs.GetString(7).utf8_str().data());
+      s.customSid = std::string(rs.GetString(8).utf8_str().data());
+      out.push_back(std::move(s));
+    }
+    return out;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetAllVodPage: %s",
+              e.GetMessage().utf8_str().data());
+    return out;
+  }
+}
+
+int64_t XtreamDatabase::GetVodCountAll() const {
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return 0;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return 0;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  try {
+    Statement stmt = db.PrepareStatement("SELECT COUNT(*) FROM vod_streams");
+    StatementGuard guard(stmt);
+    ResultSet rs = stmt.ExecuteQuery();
+    if (rs.NextRow())
+      return rs.GetInt64(0).GetValue();
+    return 0;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetVodCountAll: %s",
+              e.GetMessage().utf8_str().data());
+    return 0;
+  }
+}
+
 bool XtreamDatabase::InsertVodInfo(int64_t streamId,
                                    const std::string &infoJson,
                                    int64_t fetchedAt) {
@@ -1327,6 +1401,87 @@ int64_t XtreamDatabase::GetSeriesCount(int categoryId) const {
     return 0;
   } catch (const wxSQLite3::Exception &e) {
     LOG_ERROR("XtreamDatabase::GetSeriesCount: %s",
+              e.GetMessage().utf8_str().data());
+    return 0;
+  }
+}
+
+std::vector<XtreamDatabase::Series>
+XtreamDatabase::GetAllSeriesPage(int64_t afterSeriesId, int limit) const {
+  std::vector<Series> out;
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return out;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  if (limit <= 0)
+    limit = 500;
+  if (limit > 5000)
+    limit = 5000;
+
+  try {
+    Statement stmt = db.PrepareStatement(
+        "SELECT series_id, name, name_lower, cover, plot, "
+        "       cast_list, director, genre, releaseDate, "
+        "       rating, rating_5based, backdrop_path, "
+        "       youtube_trailer, episode_run_time, last_modified "
+        "FROM series "
+        "WHERE series_id > ? "
+        "ORDER BY series_id LIMIT ?");
+    StatementGuard guard(stmt);
+    stmt.Bind(1, wxLongLong(afterSeriesId));
+    stmt.Bind(2, limit);
+    ResultSet rs = stmt.ExecuteQuery();
+    while (rs.NextRow()) {
+      Series s;
+      s.seriesId = rs.GetInt64(0).GetValue();
+      s.name = std::string(rs.GetString(1).utf8_str().data());
+      s.nameLower = std::string(rs.GetString(2).utf8_str().data());
+      s.coverUrl = std::string(rs.GetString(3).utf8_str().data());
+      s.plot = std::string(rs.GetString(4).utf8_str().data());
+      s.castList = std::string(rs.GetString(5).utf8_str().data());
+      s.director = std::string(rs.GetString(6).utf8_str().data());
+      s.genre = std::string(rs.GetString(7).utf8_str().data());
+      s.releaseDate = std::string(rs.GetString(8).utf8_str().data());
+      s.rating = rs.GetDouble(9);
+      s.rating5based = rs.GetDouble(10);
+      s.backdropPath = std::string(rs.GetString(11).utf8_str().data());
+      s.youtubeTrailer = std::string(rs.GetString(12).utf8_str().data());
+      s.episodeRunTime = std::string(rs.GetString(13).utf8_str().data());
+      s.lastModified = rs.GetInt64(14).GetValue();
+      out.push_back(std::move(s));
+    }
+    return out;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetAllSeriesPage: %s",
+              e.GetMessage().utf8_str().data());
+    return out;
+  }
+}
+
+int64_t XtreamDatabase::GetSeriesCountAll() const {
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return 0;
+  const bool useRead = m_impl->readOpen.load(std::memory_order_acquire);
+  std::lock_guard<std::recursive_mutex> lock(useRead ? m_impl->readMutex
+                                                     : m_impl->writeMutex);
+  if (!m_impl->open.load(std::memory_order_acquire))
+    return 0;
+  Database &db = useRead ? m_impl->readDb : m_impl->writeDb;
+
+  try {
+    Statement stmt = db.PrepareStatement("SELECT COUNT(*) FROM series");
+    StatementGuard guard(stmt);
+    ResultSet rs = stmt.ExecuteQuery();
+    if (rs.NextRow())
+      return rs.GetInt64(0).GetValue();
+    return 0;
+  } catch (const wxSQLite3::Exception &e) {
+    LOG_ERROR("XtreamDatabase::GetSeriesCountAll: %s",
               e.GetMessage().utf8_str().data());
     return 0;
   }

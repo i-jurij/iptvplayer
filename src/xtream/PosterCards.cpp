@@ -221,6 +221,27 @@ void PosterCards::UpdateLayout() {
 
   m_contentScale = GetContentScale(this);
 
+  // One shared ghost bitmap for not-yet-loaded indexes. All ghost slots
+  // reference the same shared_ptr — memory cost is one bitmap, not N.
+  {
+    const double cs = m_contentScale;
+    const int pw = std::max(1, static_cast<int>(std::round(m_cardW * cs)));
+    const int ph = std::max(1, static_cast<int>(std::round(m_cardH * cs)));
+    wxBitmap bmp(pw, ph);
+    bmp.SetScaleFactor(cs);
+    wxMemoryDC mdc(bmp);
+    const bool dark = ShouldUseDarkColors();
+    const wxColour bg = dark ? wxColour(50, 53, 55) : wxColour(210, 210, 210);
+    const wxColour border =
+        dark ? wxColour(80, 83, 85) : wxColour(170, 170, 170);
+    mdc.SetPen(wxPen(border));
+    mdc.SetBrush(wxBrush(bg));
+    mdc.DrawRectangle(0, 0, m_layout.cardW,
+                      m_layout.logoH + m_layout.titleH);
+    mdc.SelectObject(wxNullBitmap);
+    m_ghostBmp = std::make_shared<wxBitmap>(std::move(bmp));
+  }
+
   ClearAllCaches(false, true);
   m_requestedPosters.clear();
 
@@ -244,19 +265,14 @@ void PosterCards::RenderTile(size_t index) {
   const int physCardH = std::max(1, static_cast<int>(std::round(m_cardH * cs)));
 
   // Ghost placeholder for items beyond the currently loaded range.
+  // Shared m_ghostBmp — one bitmap reused for all unloaded slots. Ghost
+  // is only rendered for visible indexes (paint loop), so memory stays at
+  // a single bitmap regardless of total count.
   if (index >= m_channels.size()) {
-    wxBitmap bmp(physCardW, physCardH);
-    bmp.SetScaleFactor(cs);
-    wxMemoryDC mdc(bmp);
-    const bool dark = ShouldUseDarkColors();
-    wxColour bg = dark ? wxColour(50, 53, 55) : wxColour(210, 210, 210);
-    wxColour border = dark ? wxColour(80, 83, 85) : wxColour(170, 170, 170);
-    mdc.SetPen(wxPen(border));
-    mdc.SetBrush(wxBrush(bg));
-    mdc.DrawRectangle(0, 0, m_layout.cardW, m_layout.logoH + m_layout.titleH);
-    mdc.SelectObject(wxNullBitmap);
-    m_tileCache[index] = std::make_shared<wxBitmap>(std::move(bmp));
-    AddTileToLRU(index, m_tileCache[index]);
+    if (m_ghostBmp && m_ghostBmp->IsOk()) {
+      m_tileCache[index] = m_ghostBmp;
+      AddTileToLRU(index, m_ghostBmp);
+    }
     return;
   }
 

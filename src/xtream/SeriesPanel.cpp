@@ -630,6 +630,9 @@ void SeriesPanel::PopulateCategories() {
   m_categoryChoice->Append(_U("Recently Added"));
   m_categoryIds.push_back(kRecentlyAddedCategoryId);
 
+  m_categoryChoice->Append(_U("All series"));
+  m_categoryIds.push_back(kAllCategoryId);
+
   const auto cats = db->GetCategories("series");
   for (const auto &c : cats) {
     m_categoryIds.push_back(c.id);
@@ -649,7 +652,7 @@ void SeriesPanel::LoadSeriesPage(bool reset) {
   }
   if (m_loading)
     return;
-  if (m_currentCategoryId <= 0)
+  if (m_currentCategoryId != kAllCategoryId && m_currentCategoryId <= 0)
     return;
 
   Playlist *pl = GetCurrentPlaylist();
@@ -669,8 +672,11 @@ void SeriesPanel::LoadSeriesPage(bool reset) {
   m_loading = true;
   SetBusy(true);
 
-  const auto page =
-      db->GetSeriesPage(m_currentCategoryId, m_lastSeriesId, kPageSize);
+  std::vector<xtream::XtreamDatabase::Series> page;
+  if (m_currentCategoryId == kAllCategoryId)
+    page = db->GetAllSeriesPage(m_lastSeriesId, kPageSize);
+  else
+    page = db->GetSeriesPage(m_currentCategoryId, m_lastSeriesId, kPageSize);
 
   if (!page.empty())
     m_lastSeriesId = page.back().seriesId;
@@ -712,7 +718,9 @@ void SeriesPanel::LoadSeriesPage(bool reset) {
 
   // Total count for virtual grid + infinite scroll.
   if (db) {
-    const int64_t total = db->GetSeriesCount(m_currentCategoryId);
+    const int64_t total = (m_currentCategoryId == kAllCategoryId)
+                              ? db->GetSeriesCountAll()
+                              : db->GetSeriesCount(m_currentCategoryId);
     if (m_cards)
       m_cards->SetTotalCount(static_cast<size_t>(total));
   }
@@ -1669,6 +1677,8 @@ void SeriesPanel::UpdateInfoLabel() {
     view = _U("Watchlist");
   } else if (m_currentCategoryId == kRecentlyAddedCategoryId) {
     view = _U("Recently Added");
+  } else if (m_currentCategoryId == kAllCategoryId) {
+    view = _U("All series");
   } else {
     int idx = -1;
     for (size_t i = 0; i < m_categoryIds.size(); ++i) {
