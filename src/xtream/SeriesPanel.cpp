@@ -1614,6 +1614,13 @@ void SeriesPanel::PlayNextEpisode() {
     if (m_mainFrame && !m_mainFrame->IsBeingDeleted())
       m_mainFrame->SetStatusText(_U("Season finished."), 0);
     ClearPlayingState();
+
+    // Возврат на вкладку Series при отсутствии след. эпизода
+    const int seriesIdx = m_mainFrame ? m_mainFrame->getSeriesPageIdx()
+                                      : wxNOT_FOUND;
+    if (seriesIdx != wxNOT_FOUND) {
+      m_mainFrame->getNotebook()->SetSelection(seriesIdx);
+    }
     return;
   }
 

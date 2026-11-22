@@ -112,6 +112,7 @@ public:
   bool isClosing() const { return m_closing; }
   void SetApplication(Application *app) { m_application = app; }
   wxAuiNotebook *getNotebook() const { return m_notebook; }
+  int getSeriesPageIdx() const { return m_seriesPageIdx; }
   // Применить начальный режим (вызывается в конструкторе, до heavy init)
   void ApplyInitialViewMode();
 

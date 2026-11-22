@@ -530,6 +530,12 @@ void MainFrame::OnPlayVod(int64_t streamId, bool fromBeginning) {
   ch.setStreamId(streamId);
 
   ClearPlaybackPosition();
+
+  // Устанавливаем источник для возврата при остановке
+  if (m_videoPanel && m_moviesPageIdx != wxNOT_FOUND) {
+    m_videoPanel->m_playbackSource = m_moviesPage;
+  }
+
   PlayChannel(ch, startPosition);
 }
 

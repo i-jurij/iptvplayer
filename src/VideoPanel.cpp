@@ -958,8 +958,29 @@ void VideoPanel::OnPlayerState(wxCommandEvent &evt) {
         m_pendingTempPlay = false;
         m_pendingTempIndex = -1;
       }
-    } else if (!m_stoppedByUser && m_onPlaybackEnded) {
+    } else if (m_stoppedByUser) {
+      // Ручной Stop — возврат на вкладку-источник
+      if (m_playbackSource) {
+        MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+        if (mf && mf->getNotebook()) {
+          int srcIdx = mf->getNotebook()->FindPage(m_playbackSource);
+          if (srcIdx != mf->getNotebook()->GetSelection()) {
+            m_onRequestTabSwitch(srcIdx);
+          }
+        }
+      }
+    } else if (m_onPlaybackEnded) {
+      // Авто-след. эпизод (сериалы) или ничего
       m_onPlaybackEnded();
+    } else if (m_playbackSource) {
+      // EOF без слушателей — возврат на вкладку-источник
+      MainFrame *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this));
+      if (mf && mf->getNotebook()) {
+        int srcIdx = mf->getNotebook()->FindPage(m_playbackSource);
+        if (srcIdx != mf->getNotebook()->GetSelection()) {
+          m_onRequestTabSwitch(srcIdx);
+        }
+      }
     }
     m_stoppedByUser = false;
     break;
