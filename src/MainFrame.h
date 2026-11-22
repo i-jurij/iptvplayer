@@ -462,7 +462,6 @@ private:
   wxToggleButton *m_moviesModeWatchBtn = nullptr;
   wxStaticText *m_moviesHeader = nullptr;
   wxStaticText *m_moviesInfoLabel = nullptr;
-  wxButton *m_moviesLoadMoreBtn = nullptr;
   wxActivityIndicator *m_moviesActivity = nullptr;
   int m_moviesPageIdx = wxNOT_FOUND;
   bool m_moviesPanelCreated = false;
@@ -518,7 +517,6 @@ private:
   void ApplyMoviesSearch(const std::string &queryLower);
   void ApplyMoviesSort();
   void OnMoviesSortChanged(wxCommandEvent &event);
-  void OnMoviesLoadMore(wxCommandEvent &event);
   void OnMovieSelected(const std::string &mediaKey, size_t index);
   void OnPlayVod(int64_t streamId, bool fromBeginning = false);
   void SetMoviesListMode(MoviesListMode mode);

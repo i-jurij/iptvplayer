@@ -105,7 +105,6 @@ private:
   void ToggleSeriesInList(int64_t seriesId, bool favorites);
   void ApplySearch(const std::string &queryLower);
   void ApplySort();
-  void OnLoadMore(wxCommandEvent &event);
   void OnRefreshCatalog(wxCommandEvent &event);
   void OnSeriesSelected(const std::string &mediaKey, size_t index);
   void OnSeasonSelected(const std::string &mediaKey, size_t index);
@@ -155,7 +154,6 @@ private:
   SeriesSortMode m_sortMode = SeriesSortMode::Default;
   wxButton *m_refreshBtn = nullptr;
   wxActivityIndicator *m_activity = nullptr;
-  wxButton *m_loadMoreBtn = nullptr;
   PosterCards *m_cards = nullptr;
 
   std::vector<int> m_categoryIds;

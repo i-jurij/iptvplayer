@@ -139,6 +139,9 @@ protected:
   int m_focusIndex = -1; // клавиатурный фокус
   int m_hoverIndex = -1; // hover мыши
   bool m_isFavoritesCards = false;
+  // Total item count (DB total for virtual grid size). 0 = use m_channels.size().
+  // Set by PosterCards::SetTotalCount; base classes keep it at 0.
+  size_t m_totalCount = 0;
 
   std::unordered_map<std::string, std::vector<int>> m_scaledKeyToIndices;
   void OnLogoScaledReady(const std::string &scaledKey);
@@ -165,6 +168,9 @@ protected:
   virtual wxBitmap GetStarBitmap(const Channel &ch) const = 0;
   virtual void OnCardClick(size_t index, bool fav, const wxRect &rect) = 0;
   virtual void RenderTile(size_t index);
+  // Called when the viewport is within ~3 rows of the virtual bottom.
+  // Base is a no-op; PosterCards overrides for infinite scroll.
+  virtual void OnNearBottom() {}
 
   // общая отрисовка
   void DrawCardBase(wxDC &dc, size_t index, const wxRect &rect, bool hovered);

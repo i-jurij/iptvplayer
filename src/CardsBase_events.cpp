@@ -193,6 +193,14 @@ void CardsBase::OnScroll(wxScrollWinEvent &evt) {
       m_logoTimer.Stop();
   }
 
+  // Near-bottom trigger for infinite scroll.
+  if (m_rowH > 0) {
+    const int vh = GetVirtualSize().GetHeight();
+    const int ch = GetClientSize().GetHeight();
+    if (vh > 0 && newY + ch >= vh - 3 * m_rowH)
+      OnNearBottom();
+  }
+
   evt.Skip();
 }
 
@@ -228,6 +236,21 @@ void CardsBase::OnMouseWheel(wxMouseEvent &evt) {
       return;
     if (self->m_mouseInside) {
       self->UpdateHoverAtPoint(self->m_lastMouseClientPos);
+    }
+    // Near-bottom trigger (wheel scroll applied by default handler; check
+    // here in CallAfter so the new position is already in effect).
+    if (self->m_rowH > 0) {
+      int sy = 0;
+      self->GetViewStart(nullptr, &sy);
+      int py = 20;
+      self->GetScrollPixelsPerUnit(nullptr, &py);
+      if (py <= 0)
+        py = 20;
+      const int y = sy * py;
+      const int vh = self->GetVirtualSize().GetHeight();
+      const int ch = self->GetClientSize().GetHeight();
+      if (vh > 0 && y + ch >= vh - 3 * self->m_rowH)
+        self->OnNearBottom();
     }
   });
 

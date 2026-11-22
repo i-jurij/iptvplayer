@@ -134,8 +134,7 @@ void SeriesPanel::BuildSeriesListPage() {
     f.SetPointSize(f.GetPointSize() - 1);
     m_infoLabel->SetFont(f);
   }
-  titleSizer->Add(m_infoLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
-                  FromDIP(8));
+  titleSizer->Add(m_infoLabel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
   titleSizer->AddStretchSpacer(1);
 
   const int headerH =
@@ -213,6 +212,8 @@ void SeriesPanel::BuildSeriesListPage() {
   if (pl && pl->isXtream())
     m_cards->SetPlaylistName(pl->getTitle());
 
+  m_cards->SetLoadMoreCallback([this]() { LoadSeriesPage(false); });
+
   m_cards->SetSelectCallback([this](const std::string &key, size_t idx) {
     OnSeriesSelected(key, idx);
   });
@@ -239,11 +240,6 @@ void SeriesPanel::BuildSeriesListPage() {
       });
 
   mainSizer->Add(m_cards, 1, wxEXPAND | wxALL, FromDIP(4));
-
-  m_loadMoreBtn = new wxButton(m_seriesListPage, wxID_ANY, _U("Load more"));
-  m_loadMoreBtn->Bind(wxEVT_BUTTON, &SeriesPanel::OnLoadMore, this);
-  m_loadMoreBtn->Hide();
-  mainSizer->Add(m_loadMoreBtn, 0, wxALIGN_CENTER | wxALL, FromDIP(6));
 
   m_seriesListPage->SetSizer(mainSizer);
   m_seriesListPage->Layout();
@@ -495,8 +491,8 @@ void SeriesPanel::Reset() {
     m_seasonsBreadcrumbSizer->Clear(true);
   if (m_episodesBreadcrumbSizer)
     m_episodesBreadcrumbSizer->Clear(true);
-  if (m_loadMoreBtn)
-    m_loadMoreBtn->Hide();
+  if (m_cards)
+    m_cards->SetTotalCount(0);
   if (m_activity) {
     m_activity->Stop();
     m_activity->Hide();
@@ -612,8 +608,6 @@ void SeriesPanel::SetBusy(bool busy) {
     m_search->Enable(!busy);
   if (m_sortChoice)
     m_sortChoice->Enable(!busy);
-  if (m_loadMoreBtn && busy)
-    m_loadMoreBtn->Disable();
 
   if (!busy && m_searchQuery.empty() && m_modeAllBtn) {
     m_modeAllBtn->Enable(true);
@@ -670,8 +664,6 @@ void SeriesPanel::LoadSeriesPage(bool reset) {
       m_cards->SetPlaylistName(pl->getTitle());
       m_cards->SetEmptyMessage(wxString());
     }
-    if (m_loadMoreBtn)
-      m_loadMoreBtn->Hide();
   }
 
   m_loading = true;
@@ -718,13 +710,11 @@ void SeriesPanel::LoadSeriesPage(bool reset) {
 
   UpdateInfoLabel();
 
-  if (m_loadMoreBtn) {
-    // known: если в категории ровно N * kPageSize элементов, кнопка
-    // показывается на границе. Следующий клик вернёт пустую страницу
-    // и скроет кнопку — 1 лишний round-trip. Приемлемо, экономим лишний
-    // SQL-запрос (COUNT) на каждую страницу.
-    m_loadMoreBtn->Show(page.size() == kPageSize);
-    m_loadMoreBtn->Enable(true);
+  // Total count for virtual grid + infinite scroll.
+  if (db) {
+    const int64_t total = db->GetSeriesCount(m_currentCategoryId);
+    if (m_cards)
+      m_cards->SetTotalCount(static_cast<size_t>(total));
   }
 
   m_loading = false;
@@ -776,8 +766,9 @@ void SeriesPanel::LoadRecentlyAdded() {
 
   UpdateInfoLabel();
 
-  if (m_loadMoreBtn)
-    m_loadMoreBtn->Hide();
+  // Flat list (no pagination): total = items.size().
+  if (m_cards)
+    m_cards->SetTotalCount(m_cards->GetChannels().size());
 
   m_loading = false;
   SetBusy(false);
@@ -793,8 +784,6 @@ void SeriesPanel::OnCategoryChanged(wxCommandEvent &) {
   m_currentCategoryId = m_categoryIds[sel];
   LoadSeriesPage(true);
 }
-
-void SeriesPanel::OnLoadMore(wxCommandEvent &) { LoadSeriesPage(false); }
 
 void SeriesPanel::OnSeriesSelected(const std::string &mediaKey,
                                    size_t /*index*/) {
@@ -908,10 +897,10 @@ void SeriesPanel::PopulateSeasonsCards() {
     seriesCover = s.coverUrl;
   }
 
-  const auto favSet = LoadListSet(
-      db, xtream::XtreamDatabase::ListType::Favorites);
-  const auto watchSet = LoadListSet(
-      db, xtream::XtreamDatabase::ListType::Watchlist);
+  const auto favSet =
+      LoadListSet(db, xtream::XtreamDatabase::ListType::Favorites);
+  const auto watchSet =
+      LoadListSet(db, xtream::XtreamDatabase::ListType::Watchlist);
 
   std::vector<PosterItem> items;
   items.reserve(m_currentSeasons.size());
@@ -926,8 +915,7 @@ void SeriesPanel::PopulateSeasonsCards() {
       item.name = "Season " + std::to_string(s.seasonNumber);
     item.posterUrl = !s.coverUrl.empty() ? s.coverUrl : seriesCover;
 
-    const std::string favKey =
-        "series:" + std::to_string(m_currentSeriesId);
+    const std::string favKey = "series:" + std::to_string(m_currentSeriesId);
     item.isFavorite = favSet.count(favKey) > 0;
     item.isWatchlist = watchSet.count(favKey) > 0;
 
@@ -1008,8 +996,7 @@ void SeriesPanel::OnEpisodeActivated(wxDataViewEvent &evt) {
   PlayEpisode(m_currentEpisodes[idx]);
 }
 
-void SeriesPanel::PlayEpisode(
-    const xtream::XtreamDatabase::Episode &episode) {
+void SeriesPanel::PlayEpisode(const xtream::XtreamDatabase::Episode &episode) {
   auto *pl = GetCurrentPlaylist();
   auto *client = GetClient();
   auto *db = GetDb();
@@ -1067,9 +1054,7 @@ void SeriesPanel::PlayEpisode(
   m_mainFrame->PlayChannel(ch, startPosition, mediaKey);
 }
 
-void SeriesPanel::OnBackClicked(wxCommandEvent &) {
-  GoBack();
-}
+void SeriesPanel::OnBackClicked(wxCommandEvent &) { GoBack(); }
 
 void SeriesPanel::RebuildBreadcrumbs() {
   RebuildSeasonsBreadcrumb();
@@ -1131,8 +1116,7 @@ void SeriesPanel::RebuildEpisodesBreadcrumb() {
   }
   m_episodesBreadcrumbSizer->Add(sep, 0, wxALIGN_CENTER_VERTICAL);
 
-  auto *seasonText =
-      new wxStaticText(m_episodesPage, wxID_ANY, seasonLabel);
+  auto *seasonText = new wxStaticText(m_episodesPage, wxID_ANY, seasonLabel);
   {
     wxFont f = seasonText->GetFont();
     f.SetPointSize(f.GetPointSize() + 2);
@@ -1282,8 +1266,7 @@ void SeriesPanel::LoadSeriesFavorites() {
 
   UpdateInfoLabel();
 
-  if (m_loadMoreBtn)
-    m_loadMoreBtn->Hide();
+  m_cards->SetTotalCount(m_cards->GetChannels().size());
 
   m_seriesListPage->Layout();
 }
@@ -1322,8 +1305,7 @@ void SeriesPanel::LoadSeriesWatchlist() {
 
   UpdateInfoLabel();
 
-  if (m_loadMoreBtn)
-    m_loadMoreBtn->Hide();
+  m_cards->SetTotalCount(m_cards->GetChannels().size());
 
   m_seriesListPage->Layout();
 }
@@ -1487,8 +1469,8 @@ void SeriesPanel::ApplySearch(const std::string &queryLower) {
                                                            : wxString());
   UpdateInfoLabel();
 
-  if (m_loadMoreBtn)
-    m_loadMoreBtn->Hide();
+  m_cards->SetTotalCount(m_cards->GetChannels().size());
+
   if (m_categoryChoice)
     m_categoryChoice->Disable();
   if (m_modeAllBtn) {
@@ -1718,42 +1700,47 @@ void SeriesPanel::UpdateInfoLabel() {
 
 void SeriesPanel::RestoreNavigationState(int64_t seriesId, int seasonNumber,
                                          int level) {
-    if (seriesId <= 0 || level < 0 || level > 2) return;
+  if (seriesId <= 0 || level < 0 || level > 2)
+    return;
 
-    auto *db = GetDb();
-    if (!db) return;
+  auto *db = GetDb();
+  if (!db)
+    return;
 
-    auto series = db->GetSeries(seriesId);
-    if (series.seriesId == 0) return;
+  auto series = db->GetSeries(seriesId);
+  if (series.seriesId == 0)
+    return;
 
-    m_currentSeriesId = seriesId;
-    m_currentSeriesName = wxString::FromUTF8(series.name);
-    m_currentSeasonNumber = seasonNumber;
+  m_currentSeriesId = seriesId;
+  m_currentSeriesName = wxString::FromUTF8(series.name);
+  m_currentSeasonNumber = seasonNumber;
 
-    const auto seasons = db->GetSeasons(seriesId);
-    if (seasons.empty()) return;
+  const auto seasons = db->GetSeasons(seriesId);
+  if (seasons.empty())
+    return;
 
-    m_currentSeasons = seasons;
+  m_currentSeasons = seasons;
 
-    if (level == 0) return;
+  if (level == 0)
+    return;
 
-    PopulateSeasonsCards();
+  PopulateSeasonsCards();
 
-    if (level == 1) {
-        RebuildBreadcrumbs();
-        GoToLevel(Level::Seasons);
-        return;
-    }
-
-    const auto episodes = db->GetEpisodes(seriesId, seasonNumber);
-    if (episodes.empty()) {
-        RebuildBreadcrumbs();
-        GoToLevel(Level::Seasons);
-        return;
-    }
-
-    m_currentEpisodes = episodes;
-    PopulateEpisodesList(seasonNumber);
+  if (level == 1) {
     RebuildBreadcrumbs();
-    GoToLevel(Level::Episodes);
+    GoToLevel(Level::Seasons);
+    return;
+  }
+
+  const auto episodes = db->GetEpisodes(seriesId, seasonNumber);
+  if (episodes.empty()) {
+    RebuildBreadcrumbs();
+    GoToLevel(Level::Seasons);
+    return;
+  }
+
+  m_currentEpisodes = episodes;
+  PopulateEpisodesList(seasonNumber);
+  RebuildBreadcrumbs();
+  GoToLevel(Level::Episodes);
 }

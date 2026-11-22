@@ -75,6 +75,8 @@ void PosterCards::SetItems(std::vector<PosterItem> &&items) {
 
   ClearAllCaches(true, true);
 
+  m_loadMoreInFlight = false;
+
   const int winId = this->GetId();
   CallAfterSafeById(winId, [winId](wxWindow *w) {
     auto *self = dynamic_cast<PosterCards *>(w);
@@ -96,6 +98,8 @@ void PosterCards::AppendItems(const std::vector<PosterItem> &items) {
     m_items.push_back(item);
     m_channels.push_back(ConvertToChannel(item));
   }
+
+  m_loadMoreInFlight = false;
 
   const int winId = this->GetId();
   CallAfterSafeById(winId, [winId](wxWindow *w) {
@@ -196,17 +200,22 @@ void PosterCards::UpdateLayout() {
   m_rowH = m_cardH + m_gapY;
 
   m_cols = std::max(1, clientW / std::max(1, m_colW));
-  if (!m_channels.empty())
-    m_cols = std::min(m_cols, static_cast<int>(m_channels.size()));
+  // Cap by total (DB) count when known; otherwise by loaded count.
+  const int cap = (m_totalCount > 0)
+                      ? static_cast<int>(m_totalCount)
+                      : static_cast<int>(m_channels.size());
+  m_cols = std::min(m_cols, std::max(1, cap));
 
   const int totalGridWidth =
       (m_cols > 0) ? (m_cols * m_cardW + (m_cols - 1) * m_gapX) : 0;
   m_gridOffsetX = std::max(0, (clientW - totalGridWidth) / 2);
 
   const int totalW = std::max(clientW, totalGridWidth);
-  const size_t rows = m_channels.empty() ? 1
-                                         : (m_channels.size() + m_cols - 1) /
-                                               static_cast<size_t>(m_cols);
+  const size_t count = (m_totalCount > 0) ? m_totalCount : m_channels.size();
+  const size_t rows =
+      count == 0 ? 1
+                 : (count + static_cast<size_t>(m_cols) - 1) /
+                       static_cast<size_t>(m_cols);
   const int totalH = static_cast<int>(rows) * m_rowH;
   SetVirtualSize(totalW, totalH);
 
@@ -230,15 +239,31 @@ void PosterCards::UpdateLayout() {
 }
 
 void PosterCards::RenderTile(size_t index) {
-  if (index >= m_channels.size() || index >= m_items.size())
-    return;
-
-  auto dip = [this](int v) { return wxWindow::FromDIP(v, this); };
-
   const double cs = m_contentScale;
   const int physCardW = std::max(1, static_cast<int>(std::round(m_cardW * cs)));
   const int physCardH = std::max(1, static_cast<int>(std::round(m_cardH * cs)));
 
+  // Ghost placeholder for items beyond the currently loaded range.
+  if (index >= m_channels.size()) {
+    wxBitmap bmp(physCardW, physCardH);
+    bmp.SetScaleFactor(cs);
+    wxMemoryDC mdc(bmp);
+    const bool dark = ShouldUseDarkColors();
+    wxColour bg = dark ? wxColour(50, 53, 55) : wxColour(210, 210, 210);
+    wxColour border = dark ? wxColour(80, 83, 85) : wxColour(170, 170, 170);
+    mdc.SetPen(wxPen(border));
+    mdc.SetBrush(wxBrush(bg));
+    mdc.DrawRectangle(0, 0, m_layout.cardW, m_layout.logoH + m_layout.titleH);
+    mdc.SelectObject(wxNullBitmap);
+    m_tileCache[index] = std::make_shared<wxBitmap>(std::move(bmp));
+    AddTileToLRU(index, m_tileCache[index]);
+    return;
+  }
+
+  if (index >= m_items.size())
+    return;
+
+  auto dip = [this](int v) { return wxWindow::FromDIP(v, this); };
   wxBitmap bmp(physCardW, physCardH);
   bmp.SetScaleFactor(cs);
   wxMemoryDC mdc(bmp);
@@ -591,4 +616,28 @@ void PosterCards::FocusFirst() {
   // applies, and CardsBase::OnKeyDown will set m_focusIndex = 0 on first key.
   SelectCard(0);
   SetFocusIgnoringChildren();
+}
+
+void PosterCards::SetTotalCount(size_t total) {
+  // Reset in-flight flag: fresh total means a new page (or full reload) has
+  // landed, and the next near-bottom trigger is allowed again.
+  m_loadMoreInFlight = false;
+  if (m_totalCount == total)
+    return;
+  m_totalCount = total;
+  UpdateLayout();
+  Refresh();
+}
+
+void PosterCards::OnNearBottom() {
+  if (!m_loadMoreCallback || m_loadMoreInFlight)
+    return;
+  // No total known → infinite scroll not configured; never trigger.
+  if (m_totalCount == 0)
+    return;
+  // Already fully loaded → nothing to do.
+  if (m_channels.size() >= m_totalCount)
+    return;
+  m_loadMoreInFlight = true;
+  m_loadMoreCallback();
 }

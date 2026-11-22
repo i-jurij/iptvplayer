@@ -43,7 +43,16 @@ public:
   // Set keyboard focus to the first poster (used when the Movies/Series tab
   // becomes active). No-op when items are empty or widget is not shown.
   void FocusFirst();
-  
+  // Total item count in DB (for virtual grid size + ghost placeholders).
+  // Pass items.size() for flat lists (Recently Added, Favorites, Watchlist,
+  // Search); pass DB count for paginated category views.
+  void SetTotalCount(size_t total);
+
+  using LoadMoreCallback = std::function<void()>;
+  void SetLoadMoreCallback(LoadMoreCallback cb) {
+    m_loadMoreCallback = std::move(cb);
+  }
+
   using SelectCallback =
       std::function<void(const std::string &mediaKey, size_t index)>;
   void SetSelectCallback(SelectCallback cb) {
@@ -86,12 +95,15 @@ protected:
   void OnKeyDownIntercept(wxKeyEvent &evt);
   void OnLeftDClick(wxMouseEvent &evt);
   void OnCardActivate(size_t index);
+  void OnNearBottom() override;
   void EnsureScaledIcons();
 
 private:
   std::vector<PosterItem> m_items;
   SelectCallback m_onPosterSelect;
   ActivateCallback m_onActivate;
+  LoadMoreCallback m_loadMoreCallback;
+  bool m_loadMoreInFlight = false;
   wxString m_emptyMessage;
   ContextCallback m_onContext;
   ToggleCallback m_onFavoriteToggle;

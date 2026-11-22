@@ -177,6 +177,8 @@ void MainFrame::EnsureMoviesPanel() {
   if (pl && pl->isXtream())
     m_moviesCards->SetPlaylistName(pl->getTitle());
 
+  m_moviesCards->SetLoadMoreCallback([this]() { LoadVodPage(false); });
+
   m_moviesCards->SetSelectCallback([this](const std::string &key, size_t idx) {
     OnMovieSelected(key, idx);
   });
@@ -257,11 +259,6 @@ void MainFrame::EnsureMoviesPanel() {
 
   mainSizer->Add(splitter, 1, wxEXPAND | wxALL, FromDIP(4));
 
-  m_moviesLoadMoreBtn = new wxButton(m_moviesPage, wxID_ANY, _U("Load more"));
-  m_moviesLoadMoreBtn->Bind(wxEVT_BUTTON, &MainFrame::OnMoviesLoadMore, this);
-  m_moviesLoadMoreBtn->Hide();
-  mainSizer->Add(m_moviesLoadMoreBtn, 0, wxALIGN_CENTER | wxALL, FromDIP(6));
-
   m_moviesPage->SetSizer(mainSizer);
   m_moviesPage->Layout();
 
@@ -341,7 +338,6 @@ void MainFrame::LoadVodPage(bool reset) {
     m_moviesCards->SetItems({});
     m_moviesCards->SetPlaylistName(pl->getTitle());
     m_moviesInfo->Clear();
-    m_moviesLoadMoreBtn->Hide();
   }
 
   m_vodLoading = true;
@@ -349,7 +345,6 @@ void MainFrame::LoadVodPage(bool reset) {
     m_moviesActivity->Show();
     m_moviesActivity->Start();
   }
-  m_moviesLoadMoreBtn->Disable();
 
   constexpr int kPageSize = 200;
   const auto page =
@@ -391,8 +386,12 @@ void MainFrame::LoadVodPage(bool reset) {
 
   UpdateMoviesInfoLabel();
 
-  m_moviesLoadMoreBtn->Show(page.size() == kPageSize);
-  m_moviesLoadMoreBtn->Enable(true);
+  // Total count for virtual grid + infinite scroll. DB COUNT(*) is exact
+  // and cheap (indexed on category map).
+  if (db) {
+    const int64_t total = db->GetVodCount(m_currentVodCategoryId);
+    m_moviesCards->SetTotalCount(static_cast<size_t>(total));
+  }
 
   m_vodLoading = false;
   if (m_moviesActivity) {
@@ -402,8 +401,6 @@ void MainFrame::LoadVodPage(bool reset) {
 
   m_moviesPage->Layout();
 }
-
-void MainFrame::OnMoviesLoadMore(wxCommandEvent &) { LoadVodPage(false); }
 
 void MainFrame::OnMovieSelected(const std::string &mediaKey, size_t /*index*/) {
   const int64_t streamId = ParseVodMediaKey(mediaKey);
@@ -632,6 +629,8 @@ void MainFrame::ResetMoviesState() {
   }
   if (m_moviesRefreshBtn)
     m_moviesRefreshBtn->Enable(true);
+  if (m_moviesCards)
+    m_moviesCards->SetTotalCount(0);
 
   m_moviesRefreshing = false;
 
@@ -641,8 +640,6 @@ void MainFrame::ResetMoviesState() {
   m_currentVodStreamId = 0;
   m_vodLoading = false;
 
-  if (m_moviesLoadMoreBtn)
-    m_moviesLoadMoreBtn->Hide();
   if (m_moviesHeader)
     m_moviesHeader->SetLabel(_U("Movies"));
   if (m_moviesInfoLabel)
@@ -824,13 +821,11 @@ void MainFrame::LoadMoviesFavorites() {
   m_moviesCards->SetPlaylistName(pl->getTitle());
   ApplyMoviesSort();
   m_moviesCards->SetEmptyMessage(
-      m_moviesCards->GetMediaKey(0).empty() ? _U("No favorites")
-                                            : wxString());
+      m_moviesCards->GetMediaKey(0).empty() ? _U("No favorites") : wxString());
 
   UpdateMoviesInfoLabel();
 
-  if (m_moviesLoadMoreBtn)
-    m_moviesLoadMoreBtn->Hide();
+  m_moviesCards->SetTotalCount(m_moviesCards->GetChannels().size());
 
   m_moviesPage->Layout();
 }
@@ -871,14 +866,13 @@ void MainFrame::LoadMoviesWatchlist() {
   m_moviesCards->SetItems(std::move(items));
   m_moviesCards->SetPlaylistName(pl->getTitle());
   ApplyMoviesSort();
-  m_moviesCards->SetEmptyMessage(
-      m_moviesCards->GetMediaKey(0).empty() ? _U("Watchlist is empty")
-                                            : wxString());
+  m_moviesCards->SetEmptyMessage(m_moviesCards->GetMediaKey(0).empty()
+                                     ? _U("Watchlist is empty")
+                                     : wxString());
 
   UpdateMoviesInfoLabel();
 
-  if (m_moviesLoadMoreBtn)
-    m_moviesLoadMoreBtn->Hide();
+  m_moviesCards->SetTotalCount(m_moviesCards->GetChannels().size());
 
   m_moviesPage->Layout();
 }
@@ -1093,8 +1087,7 @@ void MainFrame::ApplyMoviesSearch(const std::string &queryLower) {
 
   UpdateMoviesInfoLabel();
 
-  if (m_moviesLoadMoreBtn)
-    m_moviesLoadMoreBtn->Hide();
+  m_moviesCards->SetTotalCount(m_moviesCards->GetChannels().size());
 
   if (m_moviesCategoryChoice)
     m_moviesCategoryChoice->Disable();
@@ -1152,8 +1145,8 @@ void MainFrame::LoadMoviesRecentlyAdded() {
 
   UpdateMoviesInfoLabel();
 
-  if (m_moviesLoadMoreBtn)
-    m_moviesLoadMoreBtn->Hide();
+  // Flat list (no pagination): total = items.size().
+  m_moviesCards->SetTotalCount(m_moviesCards->GetChannels().size());
 
   m_moviesInfo->Clear();
   m_currentVodStreamId = 0;
