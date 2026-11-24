@@ -539,16 +539,22 @@ void MainFrame::SaveStartupContext() {
 
   cfg->setSetting("last_active_tab", activeTab);
 
-  // Movies контекст
-  if (sel == m_moviesPageIdx && m_moviesPanelCreated) {
+  SaveXtreamContext(sel);
+}
+
+void MainFrame::SaveXtreamContext(int pageIndex) {
+  auto *cfg = getConfigManager();
+  if (!cfg) return;
+
+  if (pageIndex == m_moviesPageIdx && m_moviesPanelCreated) {
     cfg->setSetting("last_movies_category_id",
                     std::to_string(m_currentVodCategoryId));
     cfg->setInt("last_movies_list_mode", static_cast<int>(m_moviesListMode));
     cfg->setInt("last_movies_sort_mode", static_cast<int>(m_moviesSortMode));
+    cfg->setInt("last_playing_vod_id",
+                static_cast<int>(m_currentVodStreamId));
   }
-
-  // Series контекст
-  if (sel == m_seriesPageIdx && m_seriesPanel) {
+  else if (pageIndex == m_seriesPageIdx && m_seriesPanel) {
     cfg->setSetting("last_series_category_id",
                     std::to_string(m_seriesPanel->GetCurrentCategoryId()));
     cfg->setInt("last_series_list_mode", static_cast<int>(m_seriesPanel->GetListMode()));
@@ -557,6 +563,14 @@ void MainFrame::SaveStartupContext() {
                     std::to_string(m_seriesPanel->GetCurrentSeriesId()));
     cfg->setInt("last_series_season", m_seriesPanel->GetCurrentSeasonNumber());
     cfg->setInt("last_series_level", static_cast<int>(m_seriesPanel->CurrentLevel()));
+
+    // Состояние воспроизведения
+    cfg->setSetting("last_playing_episode_id",
+                    m_seriesPanel->GetCurrentPlayingEpisodeId());
+    cfg->setInt("last_playing_series_id",
+                static_cast<int>(m_seriesPanel->GetCurrentPlayingSeriesId()));
+    cfg->setInt("last_playing_season",
+                m_seriesPanel->GetCurrentPlayingSeason());
   }
 }
 
@@ -587,21 +601,8 @@ void MainFrame::SavePanelState(int pageIndex) {
   else if (pageIndex == m_favoritesPageIdx) {
     cfg->setSetting("favorites_view_mode", m_startInGrid ? "grid" : "list");
   }
-  else if (pageIndex == m_moviesPageIdx && m_moviesPanelCreated) {
-    cfg->setSetting("last_movies_category_id",
-                    std::to_string(m_currentVodCategoryId));
-    cfg->setInt("last_movies_list_mode", static_cast<int>(m_moviesListMode));
-    cfg->setInt("last_movies_sort_mode", static_cast<int>(m_moviesSortMode));
-  }
-  else if (pageIndex == m_seriesPageIdx && m_seriesPanel) {
-    cfg->setSetting("last_series_category_id",
-                    std::to_string(m_seriesPanel->GetCurrentCategoryId()));
-    cfg->setInt("last_series_list_mode", static_cast<int>(m_seriesPanel->GetListMode()));
-    cfg->setInt("last_series_sort_mode", static_cast<int>(m_seriesPanel->GetSortMode()));
-    cfg->setSetting("last_series_series_id",
-                    std::to_string(m_seriesPanel->GetCurrentSeriesId()));
-    cfg->setInt("last_series_season", m_seriesPanel->GetCurrentSeasonNumber());
-    cfg->setInt("last_series_level", static_cast<int>(m_seriesPanel->CurrentLevel()));
+  else {
+    SaveXtreamContext(pageIndex);
   }
   cfg->saveSettings();
 }

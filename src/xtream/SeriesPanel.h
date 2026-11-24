@@ -76,6 +76,9 @@ public:
   const std::vector<int> &GetCategoryIds() const { return m_categoryIds; }
   int64_t GetCurrentSeriesId() const { return m_currentSeriesId; }
   int GetCurrentSeasonNumber() const { return m_currentSeasonNumber; }
+  int64_t GetCurrentPlayingSeriesId() const { return m_playingSeriesId; }
+  int GetCurrentPlayingSeason() const { return m_playingSeason; }
+  std::string GetCurrentPlayingEpisodeId() const { return m_playingEpisodeId; }
 
   // Восстановить навигационный контекст (сериал, сезон, уровень)
   void RestoreNavigationState(int64_t seriesId, int seasonNumber, int level);

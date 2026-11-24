@@ -383,6 +383,7 @@ private:
   void HandleVideoPageChanged(int sel);
   void SavePanelState(int pageIndex);
   void RestorePanelState(int pageIndex);
+  void SaveXtreamContext(int pageIndex);
 
   // ----------------------------------------------------------------
   // Thread‑related UI callbacks
