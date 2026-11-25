@@ -1,25 +1,24 @@
 #include "IconManager.h"
 #include "LogControl.h"
 #include "LogoCache.h"
+#include "Utils_Cache.h"
 
 #include <wx/app.h>
 #include <wx/dcmemory.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <functional>
-#include <list>
 #include <mutex>
-#include <unordered_map>
 
 namespace {
 
 std::mutex s_posterMutex;
-std::unordered_map<std::string, LogoCache::LogoBitmapPtr> s_posterCache;
-std::list<std::string> s_posterLRU;
-std::atomic<size_t> s_maxPoster(500);
+// Poster cache: shared LruCache (onEvict left default-empty — no eviction
+// callback needed for posters; pending callbacks keyed by key in
+// s_posterPending are unaffected by eviction of already-cached entries).
+LruCache<std::string, LogoCache::LogoBitmapPtr> s_posterCache(500);
 
 struct PendingPoster {
   std::vector<LogoCache::LogoCallback> callbacks;
@@ -28,21 +27,6 @@ struct PendingPoster {
 std::unordered_map<std::string, PendingPoster> s_posterPending;
 
 constexpr size_t kMaxPendingPerKey = 16;
-
-void TouchPoster(const std::string &key) {
-  auto it = std::find(s_posterLRU.begin(), s_posterLRU.end(), key);
-  if (it != s_posterLRU.end())
-    s_posterLRU.erase(it);
-  s_posterLRU.push_front(key);
-}
-
-void EnforcePosterLimit() {
-  while (s_posterCache.size() > s_maxPoster.load() && !s_posterLRU.empty()) {
-    const std::string oldest = s_posterLRU.back();
-    s_posterLRU.pop_back();
-    s_posterCache.erase(oldest);
-  }
-}
 
 wxBitmap ScalePosterToTarget(const wxBitmap &master, int targetW, int targetH,
                              const wxColour &bgColor) {
@@ -92,18 +76,15 @@ std::string LogoCache::MakePosterKey(const std::string &playlist,
 
 LogoCache::LogoBitmapPtr LogoCache::GetCachedPosterPtr(const std::string &key) {
   std::lock_guard<std::mutex> lock(s_posterMutex);
-  auto it = s_posterCache.find(key);
-  if (it != s_posterCache.end() && it->second && it->second->IsOk()) {
-    TouchPoster(key);
-    return it->second;
-  }
+  auto *p = s_posterCache.Get(key);
+  if (p && *p && (*p)->IsOk())
+    return *p;
   return nullptr;
 }
 
 void LogoCache::SetPosterCacheLimits(size_t maxPosters) {
-  s_maxPoster.store(maxPosters);
   std::lock_guard<std::mutex> lock(s_posterMutex);
-  EnforcePosterLimit();
+  s_posterCache.SetMaxSize(maxPosters);
 }
 
 void LogoCache::ClearPosterMemory() {
@@ -115,8 +96,7 @@ void LogoCache::ClearPosterMemory() {
         if (cb)
           pending.push_back(cb);
     s_posterPending.clear();
-    s_posterCache.clear();
-    s_posterLRU.clear();
+    s_posterCache.Clear();
   }
 
   if (wxTheApp) {
@@ -147,11 +127,10 @@ void LogoCache::GetPosterAsync(const std::string &playlist,
   {
     std::lock_guard<std::mutex> lock(s_posterMutex);
 
-    auto it = s_posterCache.find(key);
-    if (it != s_posterCache.end() && it->second && it->second->IsOk()) {
-      TouchPoster(key);
+    auto *cachedPtr = s_posterCache.Get(key);
+    if (cachedPtr && *cachedPtr && (*cachedPtr)->IsOk()) {
       if (cb && wxTheApp) {
-        auto ptr = it->second;
+        auto ptr = *cachedPtr;
         wxTheApp->CallAfter([cb, ptr]() { cb(ptr); });
       }
       return;
@@ -209,11 +188,8 @@ void LogoCache::GetPosterAsync(const std::string &playlist,
         cbs.swap(it->second.callbacks);
         s_posterPending.erase(it);
       }
-      if (ptr) {
-        s_posterCache[key] = ptr;
-        TouchPoster(key);
-        EnforcePosterLimit();
-      }
+      if (ptr)
+        s_posterCache.Put(key, ptr);
     }
 
     if (wxTheApp) {

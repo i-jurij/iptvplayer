@@ -270,8 +270,7 @@ void PosterCards::RenderTile(size_t index) {
   // a single bitmap regardless of total count.
   if (index >= m_channels.size()) {
     if (m_ghostBmp && m_ghostBmp->IsOk()) {
-      m_tileCache[index] = m_ghostBmp;
-      AddTileToLRU(index, m_ghostBmp);
+      m_tileCache.Put(index, m_ghostBmp);
     }
     return;
   }
@@ -399,8 +398,7 @@ void PosterCards::RenderTile(size_t index) {
 
   mdc.SelectObject(wxNullBitmap);
 
-  m_tileCache[index] = std::make_shared<wxBitmap>(std::move(bmp));
-  AddTileToLRU(index, m_tileCache[index]);
+  m_tileCache.Put(index, std::make_shared<wxBitmap>(std::move(bmp)));
 }
 
 wxBitmap PosterCards::GetStarBitmap(const Channel & /*ch*/) const {

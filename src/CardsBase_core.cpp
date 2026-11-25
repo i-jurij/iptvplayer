@@ -30,6 +30,7 @@ void CardsBase::InitLRULimits() {
   int scaled = (int)(base * dpiLayers * ramFactor);
 
   MAX_TILE_LRU = std::clamp(scaled, 300, 4000);
+  m_tileCache.SetMaxSize(static_cast<size_t>(MAX_TILE_LRU));
 
   //LOG_DEBUG("Adaptive LRU: visible=%d buffer=%d prefetch=%d dpi=%d ram=%.1f → "
     //        "MAX_TILE_LRU=%d",
@@ -136,9 +137,7 @@ void CardsBase::SetChannelsBase(const std::vector<Channel> &channels) {
   m_textSizeCache.clear();
 
   m_logoQueuePQ.clear();
-  m_tileCache.clear();
-  m_tileLRU.clear();
-  m_tileLRUCache.clear();
+  m_tileCache.Clear();
 
   m_activeLoads = 0;
 
@@ -171,8 +170,7 @@ void CardsBase::SetChannelsBase(const std::vector<Channel> &channels) {
 }
 
 void CardsBase::RefreshCards() {
-  m_tileCache.clear();
-  m_tileLRUCache.clear();
+  m_tileCache.Clear();
   UpdateLayout();
   InitLRULimits();
   Refresh();

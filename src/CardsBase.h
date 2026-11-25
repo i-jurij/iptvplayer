@@ -2,6 +2,7 @@
 
 #include "Channel.h"
 #include "LogoCache.h"
+#include "Utils_Cache.h"
 
 #include <wx/dcbuffer.h>
 #include <wx/scrolwin.h>
@@ -129,9 +130,9 @@ protected:
   // UpdateLayout().
   double m_contentScale = 1.0;
 
-  // Кэш тайлов карточек (один размер — один слой).
-  // Ключ — index; при смене breakpoint или scale полностью очищается.
-  std::unordered_map<size_t, LogoCache::LogoBitmapPtr> m_tileCache;
+  // Кэш тайлов карточек (один размер — один слой). LRU-порядок поддерживается
+  // автоматически (LruCache); при смене breakpoint или scale — полная очистка.
+  LruCache<size_t, LogoCache::LogoBitmapPtr> m_tileCache{300};
   
   void OnContextMenu(wxContextMenuEvent &evt);
   
@@ -159,10 +160,6 @@ protected:
   void OnEnvironmentChanged(wxEvent &evt);
 
   void EnqueueLogoPriority(size_t index, int priority);
-
-  // LRU helpers now accept shared_ptr
-  void AddRowToLRU(int row, const LogoCache::LogoBitmapPtr &bmpPtr);
-  void AddTileToLRU(size_t index, const LogoCache::LogoBitmapPtr &bmpPtr);
 
   static int GetStarSizeForCardH(int cardH);
   virtual wxBitmap GetStarBitmap(const Channel &ch) const = 0;
@@ -196,10 +193,6 @@ protected:
   void OnMouseLeave(wxMouseEvent &event);
   void OnDestroy(wxWindowDestroyEvent &event);
   void OnKeyDown(wxKeyEvent &evt);
-
-  // LRU-кэш плиток (index → shared_ptr<wxBitmap>)
-  std::list<size_t> m_tileLRU;
-  std::unordered_map<size_t, LogoCache::LogoBitmapPtr> m_tileLRUCache;
 
   static int MAX_TILE_LRU;
 

@@ -13,11 +13,13 @@
 // --- Rate limiting helpers ---
 static std::atomic<uint64_t> s_lastAdjustMs(0);
 static std::atomic<uint64_t> s_lastDebugMs(0);
+static std::atomic<uint64_t> s_lastCleanupMs(0);
 static std::atomic<size_t> s_adjustCounter(0);
 
 static const size_t ADJUST_EVERY_N = 64;
 static const uint64_t ADJUST_INTERVAL_MS = 3000;
 static const uint64_t DEBUG_INTERVAL_MS = 2000;
+static const uint64_t CLEANUP_INTERVAL_MS = 30000;
 
 static inline uint64_t NowMs() {
   return (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -33,6 +35,12 @@ void MaybeAdjustLimits() {
       (now > last && now - last > ADJUST_INTERVAL_MS)) {
     LogoCache::AdjustLimitsForMemory();
     s_lastAdjustMs.store(now, std::memory_order_relaxed);
+  }
+
+  uint64_t lastCleanup = s_lastCleanupMs.load(std::memory_order_relaxed);
+  if (now > lastCleanup && now - lastCleanup > CLEANUP_INTERVAL_MS) {
+    LogoCache::CleanupOldEntries();
+    s_lastCleanupMs.store(now, std::memory_order_relaxed);
   }
 }
 
@@ -50,8 +58,8 @@ static bool ShouldDebugLogSizes() {
 bool LogoCache::HasMaster(const std::string &p, const std::string &c) {
   std::lock_guard<std::mutex> lock(s_mutex);
   auto mk = MakeMasterKey(p, c);
-  auto it = s_cache.find(mk);
-  return it != s_cache.end() && it->second.master && it->second.master->IsOk();
+  const LogoEntry *e = Cache().Peek(mk);
+  return e && e->master && e->master->IsOk();
 }
 
 void LogoCache::PutMaster(const std::string &p, const std::string &c,
@@ -63,10 +71,16 @@ void LogoCache::PutMaster(const std::string &p, const std::string &c,
   {
     std::lock_guard<std::mutex> lock(s_mutex);
     auto mk = MakeMasterKey(p, c);
-    auto &e = s_cache[mk];
-    e.master = bmpPtr;
-    e.lastAccess = std::chrono::steady_clock::now();
-    TouchEntry(mk);
+
+    LogoEntry *e = Cache().Get(mk); // touch (MRU)
+    if (!e) {
+      Cache().Put(mk, LogoEntry{});     // Put уже ставит в MRU
+      e = Cache().PeekMut(mk);          // без повторного touch
+    }
+    if (e) {
+      e->master = bmpPtr;
+      e->lastAccess = std::chrono::steady_clock::now();
+    }
   }
 
   MaybeAdjustLimits();
@@ -139,9 +153,9 @@ void LogoCache::EnsureMaster(const std::string &p, const std::string &c,
   {
     std::lock_guard<std::mutex> lock(s_mutex);
     auto mk = MakeMasterKey(p, c);
-    auto it = s_cache.find(mk);
-    if (it != s_cache.end() && it->second.master && it->second.master->IsOk()) {
-      auto mptr = it->second.master;
+    const LogoEntry *e = Cache().Peek(mk);
+    if (e && e->master && e->master->IsOk()) {
+      auto mptr = e->master;
       if (cb) {
         if (wxTheApp) {
           auto cb_copy = cb;
@@ -180,6 +194,10 @@ void LogoCache::AdjustLimitsForMemory() {
 
   s_maxMasters.store(newMasters);
   s_maxScaledTotal.store(newScaled);
+
+  // Применяем master-limit немедленно (evict через onEvict).
+  std::lock_guard<std::mutex> lock(s_mutex);
+  Cache().SetMaxSize(newMasters);
 }
 
 void LogoCache::EnforceLimits() {
@@ -198,51 +216,35 @@ void LogoCache::EnforceLimits() {
   size_t maxMasters = s_maxMasters.load(std::memory_order_relaxed);
   size_t maxScaledTotal = s_maxScaledTotal.load(std::memory_order_relaxed);
 
-  while (s_lru.size() > maxMasters) {
-    auto old = s_lru.back();
-    s_lru.pop_back();
-    auto it = s_cache.find(old);
-    if (it != s_cache.end()) {
-      for (auto &kv : it->second.scaled) {
-        s_scaledIndex.erase(kv.first);
-      }
-      s_cache.erase(it);
-    }
-  }
+  auto &cache = Cache();
 
+  // Master-eviction: применяем актуальный лимит (safety net для
+  // внешнего SetCacheLimits и AdjustLimitsForMemory).
+  if (cache.MaxSize() != maxMasters)
+    cache.SetMaxSize(maxMasters);
+
+  // Scaled-eviction: обход LRU→MRU, режем scaled пока totalScaled > limit.
   size_t totalScaled = s_scaledIndex.size();
   if (totalScaled <= maxScaledTotal)
     return;
 
-  for (auto rit = s_lru.rbegin();
-       rit != s_lru.rend() && totalScaled > maxScaledTotal; ++rit) {
-
-    const std::string &mk = *rit;
-    auto cacheIt = s_cache.find(mk);
-    if (cacheIt == s_cache.end())
-      continue;
-
-    auto &entry = cacheIt->second;
-
-    for (auto sit = entry.scaled.begin();
-         sit != entry.scaled.end() && totalScaled > maxScaledTotal;) {
-
+  cache.ForEach([&](const std::string &, LogoEntry &e) {
+    if (totalScaled <= maxScaledTotal)
+      return;
+    for (auto sit = e.scaled.begin();
+         sit != e.scaled.end() && totalScaled > maxScaledTotal;) {
       s_scaledIndex.erase(sit->first);
-      entry.scaledLastAccess.erase(sit->first);
-      sit = entry.scaled.erase(sit);
+      s_scaledToMaster.erase(sit->first);
+      e.scaledLastAccess.erase(sit->first);
+      sit = e.scaled.erase(sit);
       --totalScaled;
-      
-      if (totalScaled <= maxScaledTotal)
-        break;
     }
-  }
+  });
 }
 
 void LogoCache::DebugLogSizes() {
-  size_t masters = s_cache.size();
-  size_t totalScaled = s_scaledIndex.size();
-  LOG_DEBUG("LogoCache::Sizes masters=%zu scaledIndex=%zu s_lru=%zu", masters,
-            totalScaled, s_lru.size());
+  LOG_DEBUG("LogoCache::Sizes masters=%zu scaledIndex=%zu", Cache().Size(),
+            s_scaledIndex.size());
 }
 
 // --- Control ---
@@ -267,6 +269,7 @@ bool LogoCache::IsPausedLoaded() {
 void LogoCache::SetCacheLimits(size_t maxMasters, size_t maxScaled) {
   s_maxMasters.store(maxMasters, std::memory_order_relaxed);
   s_maxScaledTotal.store(maxScaled, std::memory_order_relaxed);
+  // Применение лимита — на следующем EnforceLimits (safety net).
 }
 
 void LogoCache::RegisterScaledReadyCallback(
@@ -294,46 +297,36 @@ void LogoCache::ClearMemory(bool force) {
     ageMs = duration_cast<milliseconds>(now - s_last_clear_time).count();
   }
 
-  //LOG_DEBUG("LogoCache::ClearMemory ENTER force=%d last_clear_age_ms=%lld "
-    //        "scaledIndex=%zu masters=%zu",
-      //      force ? 1 : 0, ageMs, s_scaledIndex.size(), s_cache.size());
-
   constexpr auto kClearDebounceMs = 500LL;
 
   if (!force && ageMs >= 0 &&
       ageMs < static_cast<long long>(kClearDebounceMs)) {
-    //LOG_DEBUG(
-      //  "LogoCache::ClearMemory skipped (debounced) last_clear_age_ms=%lld",
-        //ageMs);
     return;
   }
 
   s_last_clear_time = now;
 
-  //LOG_DEBUG("LogoCache::ClearMemory performing clear now");
-
   {
     std::lock_guard<std::mutex> lock(s_mutex);
     s_scaledIndex.clear();
-    for (auto &p : s_cache) {
-      p.second.scaled.clear();
-    }
-    s_lru.clear();
+    s_scaledToMaster.clear();
+    // Чистим только scaled; master-LRU и мастера сохраняем (D6 вариант A).
+    Cache().ForEach([](const std::string &, LogoEntry &e) {
+      e.scaled.clear();
+      e.scaledLastAccess.clear();
+    });
   }
-
-  //LOG_DEBUG("LogoCache::ClearMemory cleared scaled in-memory caches force=%d",
-    //        force ? 1 : 0);
 }
 
 void LogoCache::DumpUniqueKeys() {
   std::lock_guard<std::mutex> lk(s_mutex);
   std::unordered_set<std::string> masters;
   std::unordered_set<std::string> scaled;
-  for (auto &kv : s_cache) {
-    masters.insert(kv.first);
-    for (auto &sk : kv.second.scaled)
+  Cache().ForEach([&](const std::string &mk, const LogoEntry &e) {
+    masters.insert(mk);
+    for (const auto &sk : e.scaled)
       scaled.insert(sk.first);
-  }
+  });
   fprintf(stderr, "ICON_DBG: unique masters=%zu unique scaled=%zu\n",
           masters.size(), scaled.size());
   fflush(stderr);

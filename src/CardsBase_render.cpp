@@ -115,9 +115,7 @@ void CardsBase::UpdateLayout() {
     LogoCache::ClearScaledRemoveSizes(
         {std::make_tuple(oldPhysW, oldPhysH, oldScale100)});
 
-    m_tileCache.clear();
-    m_tileLRU.clear();
-    m_tileLRUCache.clear();
+    m_tileCache.Clear();
   }
 
   Refresh(false);
@@ -387,20 +385,20 @@ void CardsBase::OnPaint(wxPaintEvent &) {
       if (index >= (int)m_channels.size())
         break;
 
-      auto it = m_tileCache.find((size_t)index);
+      auto *ptr = m_tileCache.Get((size_t)index);
 
-      if (it != m_tileCache.end() && it->second && it->second->IsOk()) {
+      if (ptr && *ptr && (*ptr)->IsOk()) {
         int x = m_gridOffsetX + col * m_colW;
-        dc.DrawBitmap(*it->second, x, y, true);
+        dc.DrawBitmap(**ptr, x, y, true);
         continue;
       }
 
       RenderTile((size_t)index);
 
-      it = m_tileCache.find((size_t)index);
-      if (it != m_tileCache.end() && it->second && it->second->IsOk()) {
+      ptr = m_tileCache.Get((size_t)index);
+      if (ptr && *ptr && (*ptr)->IsOk()) {
         int x = m_gridOffsetX + col * m_colW;
-        dc.DrawBitmap(*it->second, x, y, true);
+        dc.DrawBitmap(**ptr, x, y, true);
       }
     }
   }

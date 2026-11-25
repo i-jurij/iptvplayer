@@ -10,8 +10,9 @@
 #include <wx/log.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <set>
-
 
 std::atomic<size_t> LogoCache::s_maxMasters(300);
 std::atomic<size_t> LogoCache::s_maxScaledTotal(2000);
@@ -20,9 +21,7 @@ std::atomic<bool> LogoCache::s_paused(false);
 // --- STATIC FIELDS (определяем здесь, чтобы были доступны во всех .cpp) ---
 std::unordered_map<std::string, std::weak_ptr<wxBitmap>>
     LogoCache::s_scaledIndex;
-
-std::unordered_map<std::string, LogoCache::LogoEntry> LogoCache::s_cache;
-std::list<std::string> LogoCache::s_lru;
+std::unordered_map<std::string, std::string> LogoCache::s_scaledToMaster;
 std::mutex LogoCache::s_mutex;
 
 std::function<void(const std::string &)> LogoCache::s_onScaledReady;
@@ -31,6 +30,21 @@ std::unordered_map<std::string, LogoCache::PendingOps>
     LogoCache::s_masterPending;
 std::unordered_map<std::string, LogoCache::PendingOps>
     LogoCache::s_scaledPending;
+
+// --- Master-LRU accessor (Meyers singleton + call_once для onEvict) ---
+LruCache<std::string, LogoCache::LogoEntry> &LogoCache::Cache() {
+  static LruCache<std::string, LogoEntry> cache(300);
+  static std::once_flag initFlag;
+  std::call_once(initFlag, []() {
+    cache.onEvict = [](const std::string & /*mk*/, const LogoEntry &e) {
+      for (const auto &sk : e.scaled) {
+        s_scaledIndex.erase(sk.first);
+        s_scaledToMaster.erase(sk.first);
+      }
+    };
+  });
+  return cache;
+}
 
 wxColour LogoCache::GetDefaultCardBgColor() {
   if (ShouldUseDarkColors()) {
@@ -78,14 +92,6 @@ static bool ParseScaledKeySize(const std::string &sk, int &outW, int &outH,
   return true;
 }
 
-// --- LRU ---
-void LogoCache::TouchEntry(const std::string &mk) {
-  auto it = std::find(s_lru.begin(), s_lru.end(), mk);
-  if (it != s_lru.end())
-    s_lru.erase(it);
-  s_lru.push_front(mk);
-}
-
 // --- Cache Ops ---
 void LogoCache::ClearAll() {
   std::lock_guard<std::mutex> lock(s_mutex);
@@ -105,35 +111,31 @@ void LogoCache::ClearAll() {
     }
   }
   s_scaledPending.clear();
-  // Очищаем кэш
+  // Очищаем кэш (onEvict почистит scaled-индексы)
+  Cache().Clear();
   s_scaledIndex.clear();
-  s_cache.clear();
-  s_lru.clear();
+  s_scaledToMaster.clear();
 
   ClearPosterMemory();
 }
 
 void LogoCache::ClearPlaylist(const std::string &p) {
   std::lock_guard<std::mutex> lock(s_mutex);
-  for (auto it = s_cache.begin(); it != s_cache.end();) {
-    if (it->first.rfind(p + "|", 0) == 0) {
-      for (auto &sk : it->second.scaled) {
-        s_scaledIndex.erase(sk.first);
-      }
-      it = s_cache.erase(it);
-    } else {
-      ++it;
-    }
-  }
-  s_lru.remove_if(
-      [&](const std::string &mk) { return mk.rfind(p + "|", 0) == 0; });
+
+  std::vector<std::string> toErase;
+  Cache().ForEach([&](const std::string &mk, const LogoEntry &) {
+    if (mk.rfind(p + "|", 0) == 0)
+      toErase.push_back(mk);
+  });
+  for (const auto &mk : toErase)
+    Cache().Erase(mk); // onEvict чистит s_scaledIndex/s_scaledToMaster
 }
 
 void LogoCache::ClearScaled() {
   std::lock_guard<std::mutex> lock(s_mutex);
 
   LOG_DEBUG("ClearScaled: scaled=%zu masters=%zu", s_scaledIndex.size(),
-            s_cache.size());
+            Cache().Size());
 
   // Вызываем все ожидающие scaled-колбэки с nullptr
   for (auto &kv : s_scaledPending) {
@@ -143,11 +145,14 @@ void LogoCache::ClearScaled() {
     }
   }
   s_scaledPending.clear();
-  // Очищаем scaled-кэш
-  for (auto &kv : s_cache) {
-    kv.second.scaled.clear();
-  }
+
+  // Очищаем scaled-кэш у всех мастеров
+  Cache().ForEach([](const std::string &, LogoEntry &e) {
+    e.scaled.clear();
+    e.scaledLastAccess.clear();
+  });
   s_scaledIndex.clear();
+  s_scaledToMaster.clear();
 }
 
 void LogoCache::ClearScaledRemoveSizes(
@@ -170,9 +175,10 @@ void LogoCache::ClearScaledRemoveSizes(
   }
 
   std::lock_guard<std::mutex> lock(s_mutex);
-  for (auto &cachePair : s_cache) {
-    auto &scaledMap = cachePair.second.scaled;
-    for (auto it = scaledMap.begin(); it != scaledMap.end();) {
+
+  std::vector<std::string> toClearPending;
+  Cache().ForEach([&](const std::string &, LogoEntry &e) {
+    for (auto it = e.scaled.begin(); it != e.scaled.end();) {
       int w = 0, h = 0, scale100 = 0;
       bool parsed = ParseScaledKeySize(it->first, w, h, scale100);
       bool toRemove =
@@ -180,221 +186,132 @@ void LogoCache::ClearScaledRemoveSizes(
           (removeSet.find(std::make_tuple(w, h, scale100)) != removeSet.end());
       if (toRemove) {
         const std::string &sk = it->first;
-        // Очищаем ожидающие колбэки для этого scaled-ключа
-        auto pendingIt = s_scaledPending.find(sk);
-        if (pendingIt != s_scaledPending.end()) {
-          for (auto &pcb : pendingIt->second.callbacks) {
-            if (pcb)
-              pcb(nullptr);
-          }
-          s_scaledPending.erase(pendingIt);
-        }
+        toClearPending.push_back(sk);
         s_scaledIndex.erase(sk);
-        it = scaledMap.erase(it);
+        s_scaledToMaster.erase(sk);
+        e.scaledLastAccess.erase(sk);
+        it = e.scaled.erase(it);
       } else {
         ++it;
       }
     }
-  }
+  });
 
-  // Очищаем LRU от записей, у которых больше нет scaled
-  for (auto it = s_lru.begin(); it != s_lru.end();) {
-    auto cacheIt = s_cache.find(*it);
-    if (cacheIt == s_cache.end() || cacheIt->second.scaled.empty()) {
-      it = s_lru.erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
-
-void LogoCache::ClearScaledExceptSize(
-    const std::vector<std::tuple<int, int, int>> &keepSizes) {
-  PROFILE_SCOPE("LogoCache::ClearScaledExceptSize");
-  std::lock_guard<std::mutex> lock(s_mutex);
-
-  if (keepSizes.empty()) {
-    // Очищаем всё: вызываем все ожидающие scaled-колбэки с nullptr
-    for (auto &kv : s_scaledPending) {
-      for (auto &cb : kv.second.callbacks) {
-        if (cb)
-          cb(nullptr);
+  // Очищаем ожидающие колбэки для удалённых scaled-ключей
+  for (const auto &sk : toClearPending) {
+    auto pendingIt = s_scaledPending.find(sk);
+    if (pendingIt != s_scaledPending.end()) {
+      for (auto &pcb : pendingIt->second.callbacks) {
+        if (pcb)
+          pcb(nullptr);
       }
-    }
-    s_scaledPending.clear();
-    for (auto &kv : s_cache) {
-      for (auto &sk : kv.second.scaled) {
-        s_scaledIndex.erase(sk.first);
-      }
-      kv.second.scaled.clear();
-    }
-    s_lru.clear();
-    return;
-  }
-
-  // Каждый кортеж — (physW, physH, scale100).
-  std::set<std::tuple<int, int, int>> keepSet;
-  for (const auto &t : keepSizes) {
-    int w, h, s;
-    std::tie(w, h, s) = t;
-    if (w > 0 && h > 0 && s > 0)
-      keepSet.insert(std::make_tuple(w, h, s));
-  }
-
-  for (auto &cachePair : s_cache) {
-    auto &scaledMap = cachePair.second.scaled;
-    for (auto it = scaledMap.begin(); it != scaledMap.end();) {
-      const std::string &sk = it->first;
-      int w = 0, h = 0, scale100 = 0;
-      bool parsed = ParseScaledKeySize(sk, w, h, scale100);
-      bool keep = parsed && (keepSet.find(std::make_tuple(w, h, scale100)) !=
-                             keepSet.end());
-      if (!keep) {
-        // Очищаем ожидающие колбэки для этого scaled-ключа
-        auto pendingIt = s_scaledPending.find(sk);
-        if (pendingIt != s_scaledPending.end()) {
-          for (auto &pcb : pendingIt->second.callbacks) {
-            if (pcb)
-              pcb(nullptr);
-          }
-          s_scaledPending.erase(pendingIt);
-        }
-        s_scaledIndex.erase(sk);
-        it = scaledMap.erase(it);
-      } else {
-        ++it;
-      }
+      s_scaledPending.erase(pendingIt);
     }
   }
-
-  // Очищаем LRU от записей без scaled
-  for (auto it = s_lru.begin(); it != s_lru.end();) {
-    auto cacheIt = s_cache.find(*it);
-    if (cacheIt == s_cache.end() || cacheIt->second.scaled.empty()) {
-      it = s_lru.erase(it);
-    } else {
-      ++it;
-    }
-  }
+  // NOTE: мастера и их LRU-позиции НЕ затрагиваются (fix by I11 11.1).
 }
 
 void LogoCache::DropMaster(const std::string &p, const std::string &c) {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        auto mk = MakeMasterKey(p, c);
-        // Очищаем master-pending для этого ключа
-        auto mpIt = s_masterPending.find(mk);
-        if (mpIt != s_masterPending.end()) {
-          for (auto &cb : mpIt->second.callbacks) {
-            if (cb)
-              cb(nullptr);
-          }
-          s_masterPending.erase(mpIt);
-        }
-        // Удаляем мастер и все scaled-записи (scaled-pending не трогаем)
-        auto cacheIt = s_cache.find(mk);
-        if (cacheIt != s_cache.end()) {
-          for (auto &sk : cacheIt->second.scaled) {
-            s_scaledIndex.erase(sk.first);
-          }
-          s_cache.erase(cacheIt);
-          s_lru.remove(mk);
-        }
-      }
+  std::lock_guard<std::mutex> lock(s_mutex);
+  auto mk = MakeMasterKey(p, c);
+  // Очищаем master-pending для этого ключа
+  auto mpIt = s_masterPending.find(mk);
+  if (mpIt != s_masterPending.end()) {
+    for (auto &cb : mpIt->second.callbacks) {
+      if (cb)
+        cb(nullptr);
+    }
+    s_masterPending.erase(mpIt);
+  }
+  // Удаляем мастер и все scaled-записи (onEvict почистит индексы)
+  Cache().Erase(mk);
+}
 
-      LogoCache::LogoBitmapPtr LogoCache::GetCachedBitmapPtr(
-          const std::string &key) {
-        PROFILE_SCOPE("LogoCache::GetCachedBitmapPtr");
+LogoCache::LogoBitmapPtr
+LogoCache::GetCachedBitmapPtr(const std::string &key) {
+  PROFILE_SCOPE("LogoCache::GetCachedBitmapPtr");
 
-        std::lock_guard<std::mutex> lock(s_mutex);
+  std::lock_guard<std::mutex> lock(s_mutex);
 
-        auto it = s_scaledIndex.find(key);
-        if (it != s_scaledIndex.end()) {
-          auto sp = it->second.lock();
-          if (sp && sp->IsOk()) {
-
-            // --- NEW: обновляем timestamp scaled ---
-            for (auto &kv : s_cache) {
-              auto &entry = kv.second;
-              auto it2 = entry.scaled.find(key);
-              if (it2 != entry.scaled.end()) {
-                auto now = std::chrono::steady_clock::now();
-                entry.scaledLastAccess[key] = now;
-                entry.lastAccess = now;
-                break;
-              }
-            }
-
-            return sp;
-          }
-
-          // weak_ptr истёк → удаляем запись
-          s_scaledIndex.erase(it);
-        }
-
-        return nullptr;
-      }
-
-      // backward-compatible wrapper (возвращает копию)
-      wxBitmap LogoCache::GetCachedBitmap(const std::string &key) {
-        auto p = GetCachedBitmapPtr(key);
-        return p ? *p : wxNullBitmap;
-      }
-
-      void LogoCache::CleanupOldEntries() {
-        using namespace std::chrono;
-        auto now = steady_clock::now();
-
-        const auto MASTER_TIMEOUT = seconds(120);
-        const auto SCALED_TIMEOUT = seconds(60);
-
-        for (auto it = s_cache.begin(); it != s_cache.end();) {
-          auto &entry = it->second;
-
-          // --- 1. Чистим scaled по времени ---
-          for (auto sit = entry.scaled.begin(); sit != entry.scaled.end();) {
-            const std::string &sk = sit->first;
-
-            auto tsIt = entry.scaledLastAccess.find(sk);
-            bool expired = false;
-
-            if (tsIt != entry.scaledLastAccess.end()) {
-              expired = (now - tsIt->second > SCALED_TIMEOUT);
-            }
-
-            if (expired) {
-              s_scaledIndex.erase(sk);
-              entry.scaledLastAccess.erase(sk);
-              sit = entry.scaled.erase(sit);
-            } else {
-              ++sit;
-            }
-          }
-
-          // --- 2. Если master давно не использовался и scaled пуст — удаляем
-          // master
-          // ---
-          bool masterExpired = (now - entry.lastAccess > MASTER_TIMEOUT);
-          bool noScaled = entry.scaled.empty();
-
-          if (masterExpired && noScaled) {
-            s_lru.remove(it->first);
-            it = s_cache.erase(it);
-            continue;
-          }
-
-          ++it;
+  auto it = s_scaledIndex.find(key);
+  if (it != s_scaledIndex.end()) {
+    auto sp = it->second.lock();
+    if (sp && sp->IsOk()) {
+      // O(1) обновление timestamp через обратный индекс (без touch LRU).
+      auto rit = s_scaledToMaster.find(key);
+      if (rit != s_scaledToMaster.end()) {
+        LogoEntry *e = Cache().PeekMut(rit->second);
+        if (e) {
+          auto now = std::chrono::steady_clock::now();
+          e->scaledLastAccess[key] = now;
+          e->lastAccess = now;
         }
       }
+      return sp;
+    }
+    // weak_ptr истёк → удаляем запись
+    s_scaledIndex.erase(it);
+    s_scaledToMaster.erase(key);
+  }
 
-      // Debug helpers implementation, only for development
-      void LogoCache::DumpStats() {
-        std::lock_guard<std::mutex> lk(s_mutex);
-        fprintf(stderr,
-                "ICON_DBG: cache masters=%zu scaledIndex=%zu lru=%zu "
-                "maxMasters=%zu "
-                "maxScaled=%zu\n",
-                s_cache.size(), s_scaledIndex.size(), s_lru.size(),
-                s_maxMasters.load(std::memory_order_relaxed),
-                s_maxScaledTotal.load(std::memory_order_relaxed));
-        fflush(stderr);
+  return nullptr;
+}
+
+// backward-compatible wrapper (возвращает копию)
+wxBitmap LogoCache::GetCachedBitmap(const std::string &key) {
+  auto p = GetCachedBitmapPtr(key);
+  return p ? *p : wxNullBitmap;
+}
+
+// NOTE: активируется в 11.2 (см. MaybeAdjustLimits).
+void LogoCache::CleanupOldEntries() {
+  using namespace std::chrono;
+  auto now = steady_clock::now();
+
+  const auto MASTER_TIMEOUT = seconds(120);
+  const auto SCALED_TIMEOUT = seconds(60);
+
+  std::lock_guard<std::mutex> lock(s_mutex);
+
+  std::vector<std::string> toErase;
+  Cache().ForEach([&](const std::string &mk, LogoEntry &e) {
+    // --- 1. Чистим scaled по времени ---
+    for (auto sit = e.scaled.begin(); sit != e.scaled.end();) {
+      const std::string &sk = sit->first;
+      auto tsIt = e.scaledLastAccess.find(sk);
+      bool expired =
+          (tsIt != e.scaledLastAccess.end()) &&
+          (now - tsIt->second > SCALED_TIMEOUT);
+
+      if (expired) {
+        s_scaledIndex.erase(sk);
+        s_scaledToMaster.erase(sk);
+        e.scaledLastAccess.erase(sk);
+        sit = e.scaled.erase(sit);
+      } else {
+        ++sit;
       }
+    }
+
+    // --- 2. Если master давно не использовался и scaled пуст —
+    // удаляем master ---
+    bool masterExpired = (now - e.lastAccess > MASTER_TIMEOUT);
+    bool noScaled = e.scaled.empty();
+    if (masterExpired && noScaled)
+      toErase.push_back(mk);
+  });
+  for (const auto &mk : toErase)
+    Cache().Erase(mk);
+}
+
+// Debug helpers implementation, only for development
+void LogoCache::DumpStats() {
+  std::lock_guard<std::mutex> lk(s_mutex);
+  fprintf(stderr,
+          "ICON_DBG: cache masters=%zu scaledIndex=%zu "
+          "maxMasters=%zu maxScaled=%zu\n",
+          Cache().Size(), s_scaledIndex.size(),
+          s_maxMasters.load(std::memory_order_relaxed),
+          s_maxScaledTotal.load(std::memory_order_relaxed));
+  fflush(stderr);
+}

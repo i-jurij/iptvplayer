@@ -129,9 +129,6 @@ protected:
 
   std::atomic<bool> m_processing{false};
 
-  std::list<std::string> m_lruQueuedKeys;
-  std::unordered_map<std::string, std::list<std::string>::iterator> m_lruIter;
-
   // favorites sync flag
   bool m_syncingFavorites = false;
 

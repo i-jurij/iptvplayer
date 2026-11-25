@@ -49,6 +49,12 @@ public:
     return it == m_map.end() ? nullptr : &it->second.first;
   }
 
+  // Non-const Peek: mutable access without LRU touch.
+  Value *PeekMut(const Key &key) {
+    auto it = m_map.find(key);
+    return it == m_map.end() ? nullptr : &it->second.first;
+  }
+
   bool Contains(const Key &key) const { return m_map.count(key) != 0; }
 
   // Вставка или обновление. Существующий ключ — обновляет value и
@@ -85,6 +91,17 @@ public:
   size_t MaxSize() const { return m_maxSize; }
   size_t Size() const { return m_map.size(); }
   bool Empty() const { return m_map.empty(); }
+
+  // Iterate LRU→MRU (tail→head). fn(const Key&, Value&) — value mutable,
+  // LRU position unchanged.
+  // Contract: fn must NOT call Get/Put/Erase/Clear/SetMaxSize on this cache.
+  template <class Fn> void ForEach(Fn &&fn) {
+    for (auto it = m_list.rbegin(); it != m_list.rend(); ++it) {
+      auto mit = m_map.find(*it);
+      if (mit != m_map.end())
+        fn(mit->first, mit->second.first);
+    }
+  }
 
   // Удаляет все элементы с вызовом onEvict для каждого.
   void Clear() {

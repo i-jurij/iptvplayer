@@ -411,8 +411,9 @@ void CardsBase::WarmUpTiles() {
 
       // логотип уже есть → убедиться, что тайл создан
       if (LogoCache::GetCachedBitmapPtr(key)) {
-        auto it = m_tileCache.find((size_t)index);
-        if (it == m_tileCache.end() || !it->second || !it->second->IsOk()) {
+        const LogoCache::LogoBitmapPtr *existing =
+            m_tileCache.Peek((size_t)index);
+        if (!existing || !*existing || !(*existing)->IsOk()) {
           RenderTile((size_t)index);
         }
         continue;
@@ -436,30 +437,7 @@ void CardsBase::WarmUpTiles() {
   }
 }
 
-void CardsBase::AddTileToLRU(size_t index,
-                             const LogoCache::LogoBitmapPtr &bmpPtr) {
-  if (!bmpPtr || !bmpPtr->IsOk())
-    return;
-
-  auto it = m_tileLRUCache.find(index);
-  if (it != m_tileLRUCache.end()) {
-    m_tileLRU.remove(index);
-    m_tileLRU.push_front(index);
-    it->second = bmpPtr;
-    return;
-  }
-
-  m_tileLRU.push_front(index);
-  m_tileLRUCache[index] = bmpPtr;
-
-  if ((int)m_tileLRU.size() > MAX_TILE_LRU) {
-    size_t old = m_tileLRU.back();
-    m_tileLRU.pop_back();
-    m_tileLRUCache.erase(old);
-
-    m_tileCache.erase(old);
-  }
-}
+// AddTileToLRU removed — tile cache is now a single LruCache member.
 
 void CardsBase::TrimTextCache() {
   static const size_t MAX_TEXT_CACHE = 15000;
@@ -480,12 +458,10 @@ void CardsBase::ClearAllCaches(bool clearLRU, bool clearTextLayout) {
       m_textSizeCache.clear();
     }
 
-    m_tileCache.clear();
-
-    if (clearLRU) {
-      m_tileLRU.clear();
-      m_tileLRUCache.clear();
-    }
+    // LruCache.Clear covers storage + LRU state; clearLRU is kept for API
+    // compatibility but has no additional effect.
+    (void)clearLRU;
+    m_tileCache.Clear();
 
     m_scaledKeyToIndices.clear();
     m_dirtyCards.clear();

@@ -198,8 +198,7 @@ void CardsBase::RenderTile(size_t index) {
 
   mdc.SelectObject(wxNullBitmap);
 
-  m_tileCache[index] = std::make_shared<wxBitmap>(std::move(bmp));
-  AddTileToLRU(index, m_tileCache[index]);
+  m_tileCache.Put(index, std::make_shared<wxBitmap>(std::move(bmp)));
 }
 
 void CardsBase::OnEnvironmentChanged(wxEvent &evt) {
@@ -440,43 +439,12 @@ bool CardsBase::RemoveChannel(const std::string &name,
   // Удаляем канал из вектора
   m_channels.erase(it);
 
-  // Перестраиваем кэш тайлов с учётом сдвига индексов
+  // Индексы тайлов сдвинулись — сбрасываем кэш. Видимые тайлы перерисуются
+  // через OnPaint → RenderTile. RemoveChannel редкая операция; штраф = один
+  // кадр re-render видимых карточек.
   {
     std::lock_guard<std::mutex> lock(m_cacheMutex);
-
-    // 1) Перестраиваем m_tileCache
-    std::unordered_map<size_t, LogoCache::LogoBitmapPtr> newCache;
-    for (auto &kv : m_tileCache) {
-      size_t oldIdx = kv.first;
-      if (oldIdx == removedIndex)
-        continue;
-      size_t newIdx = (oldIdx > removedIndex) ? oldIdx - 1 : oldIdx;
-      newCache[newIdx] = kv.second;
-    }
-    m_tileCache = std::move(newCache);
-
-    // 2) Перестраиваем LRU
-    std::list<size_t> newLRU;
-    for (size_t oldIdx : m_tileLRU) {
-      if (oldIdx == removedIndex)
-        continue;
-      size_t newIdx = (oldIdx > removedIndex) ? oldIdx - 1 : oldIdx;
-      newLRU.push_back(newIdx);
-    }
-    m_tileLRU = std::move(newLRU);
-
-    // 3) Перестраиваем m_tileLRUCache (аналогично)
-    std::unordered_map<size_t, LogoCache::LogoBitmapPtr> newLRUCache;
-    for (auto &kv : m_tileLRUCache) {
-      size_t oldIdx = kv.first;
-      if (oldIdx == removedIndex)
-        continue;
-      size_t newIdx = (oldIdx > removedIndex) ? oldIdx - 1 : oldIdx;
-      newLRUCache[newIdx] = kv.second;
-    }
-    m_tileLRUCache = std::move(newLRUCache);
-
-    // 4) m_scaledKeyToIndices можно очистить — он перестроится при WarmUpTiles
+    m_tileCache.Clear();
     m_scaledKeyToIndices.clear();
   }
 

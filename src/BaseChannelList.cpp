@@ -556,8 +556,6 @@ void BaseChannelList::HandleVisibleRangeChange() {
     std::lock_guard<std::mutex> lk(m_queueMutex);
     m_loadQueue.clear();
     m_queuedKeys.clear();
-    m_lruQueuedKeys.clear();
-    m_lruIter.clear();
     m_pendingLogoLoads.clear();
   }
 
@@ -614,8 +612,8 @@ void BaseChannelList::EnqueueRowLoad(size_t row, bool highPriority) {
       if (!m_loadQueue.empty()) {
         const QueueItem &back = m_loadQueue.back();
         std::string qkey = m_model->MakeCacheKeyForRow((unsigned int)back.row);
-        m_queuedKeys.erase(qkey);
-        m_loadQueue.pop_back();
+    m_queuedKeys.erase(qkey);
+    m_loadQueue.pop_back();
       }
     }
 
@@ -629,8 +627,6 @@ void BaseChannelList::EnqueueRowLoad(size_t row, bool highPriority) {
       m_loadQueue.push_back(qi);
 
     m_queuedKeys.insert(key);
-    m_lruQueuedKeys.push_back(key);
-    m_lruIter[key] = std::prev(m_lruQueuedKeys.end());
 
     AddKeyMapping(key, row);
   }
@@ -701,13 +697,6 @@ void BaseChannelList::processLoadQueue() {
 
       // Удаляем ключ из очереди и из маппинга
       m_queuedKeys.erase(key);
-
-      auto itLru = m_lruIter.find(key);
-      if (itLru != m_lruIter.end()) {
-        m_lruQueuedKeys.erase(itLru->second);
-        m_lruIter.erase(itLru);
-      }
-
       RemoveKeyMapping(key);
 
       it = m_loadQueue.erase(it);
@@ -813,9 +802,6 @@ void BaseChannelList::processLoadQueue() {
                     QueueItem retryQi{rowCopy, 1, expectedModelVer, NowMs(),
                                       newRetry};
                     list->m_loadQueue.push_back(retryQi);
-                    list->m_lruQueuedKeys.push_back(keyCopy);
-                    list->m_lruIter[keyCopy] =
-                        std::prev(list->m_lruQueuedKeys.end());
                     list->AddKeyMapping(keyCopy, rowCopy);
                   } else {
                     LOG_DEBUG("Logo load permanently failed for key=%s",
@@ -929,9 +915,7 @@ void BaseChannelList::PauseLogoLoading() {
     m_loadQueue.clear();
     m_inflightPerHost.clear();
     m_queuedKeys.clear();
-    m_lruQueuedKeys.clear();
-    m_lruIter.clear();
-    m_pendingLogoLoads.clear(); // NEW
+    m_pendingLogoLoads.clear();
   }
 
   {
@@ -1051,8 +1035,6 @@ void BaseChannelList::ResetVisibleRange() {
   m_loadQueue.clear();
   m_inflightPerHost.clear();
   m_queuedKeys.clear();
-  m_lruQueuedKeys.clear();
-  m_lruIter.clear();
   m_pendingLogoLoads.clear();
 
   {
@@ -1141,8 +1123,6 @@ void BaseChannelList::ClearPendingLoads() {
   m_loadQueue.clear();
   m_pendingLogoLoads.clear();
   m_queuedKeys.clear();
-  m_lruQueuedKeys.clear();
-  m_lruIter.clear();
   m_inflightPerHost.clear();
   // Если есть другие очереди — очистить их
 }

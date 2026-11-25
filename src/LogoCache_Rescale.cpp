@@ -122,6 +122,7 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
         return;
       } else {
         s_scaledIndex.erase(itCache);
+        s_scaledToMaster.erase(sk);
       }
     }
 
@@ -258,8 +259,9 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
 
       {
         std::lock_guard<std::mutex> lock(s_mutex);
-        auto itMaster = s_cache.find(mk_l);
-        if (itMaster == s_cache.end()) {
+        LogoEntry *entry = Cache().Get(mk_l); // touch (MRU)
+        if (!entry) {
+          // Мастер уже вытеснен — фейлим pending
           auto pendingIt = s_scaledPending.find(sk_l);
           if (pendingIt != s_scaledPending.end()) {
             for (auto &pcb : pendingIt->second.callbacks) {
@@ -273,13 +275,12 @@ void LogoCache::RescaleAsync(const LogoBitmapPtr &master, const std::string &p,
           return;
         }
 
-        auto &entry = s_cache[mk_l];
-        entry.scaled[sk_l] = bmpPtr;
+        entry->scaled[sk_l] = bmpPtr;
         auto now = std::chrono::steady_clock::now();
-        entry.scaledLastAccess[sk_l] = now;
-        entry.lastAccess = now;
+        entry->scaledLastAccess[sk_l] = now;
+        entry->lastAccess = now;
         s_scaledIndex[sk_l] = bmpPtr;
-        TouchEntry(mk_l);
+        s_scaledToMaster[sk_l] = mk_l;
 
         auto pendingIt = s_scaledPending.find(sk_l);
         if (pendingIt != s_scaledPending.end()) {
@@ -334,14 +335,13 @@ void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
   LogoBitmapPtr masterCopy = nullptr;
   {
     std::lock_guard<std::mutex> lock(s_mutex);
-    auto it = s_cache.find(mk);
-    if (it != s_cache.end()) {
-      auto &e = it->second;
-      auto it2 = e.scaled.find(sk);
-      if (it2 != e.scaled.end() && it2->second && it2->second->IsOk()) {
+    LogoEntry *e = Cache().Get(mk); // touch (MRU)
+    if (e) {
+      auto it2 = e->scaled.find(sk);
+      if (it2 != e->scaled.end() && it2->second && it2->second->IsOk()) {
         auto now = std::chrono::steady_clock::now();
-        e.scaledLastAccess[sk] = now;
-        e.lastAccess = now;
+        e->scaledLastAccess[sk] = now;
+        e->lastAccess = now;
         if (cb) {
           if (wxTheApp) {
             auto cb_copy = cb;
@@ -353,10 +353,9 @@ void LogoCache::GetLogoAsync(const std::string &p, const std::string &c,
         }
         return;
       }
-      if (e.master && e.master->IsOk()) {
-        masterCopy = e.master;
-        e.lastAccess = std::chrono::steady_clock::now();
-        TouchEntry(mk);
+      if (e->master && e->master->IsOk()) {
+        masterCopy = e->master;
+        e->lastAccess = std::chrono::steady_clock::now();
       }
     }
   }

@@ -1,14 +1,18 @@
 #ifndef LOGO_CACHE_H
 #define LOGO_CACHE_H
 
+#include "Utils_Cache.h"
+
 #include <atomic>
 #include <chrono>
 #include <functional>
-#include <list>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include <wx/bitmap.h>
 #include <wx/image.h>
@@ -20,8 +24,7 @@ public:
   static void DropMaster(const std::string &playlist,
                          const std::string &channel);
 
-  static void SetCacheLimits(size_t maxMasters,
-                                                           size_t maxScaled);
+  static void SetCacheLimits(size_t maxMasters, size_t maxScaled);
 
   using LogoBitmapPtr = std::shared_ptr<wxBitmap>;
   using LogoCallback = std::function<void(const LogoBitmapPtr &)>;
@@ -50,8 +53,6 @@ public:
   static void ClearScaled();
   static void ClearAll();
   static void ClearPlaylist(const std::string &playlist);
-  static void ClearScaledExceptSize(
-      const std::vector<std::tuple<int, int, int>> &keepSizes);
 
   // ---- Posters ----
   // Отдельный кэш постеров. Ключ: playlist + mediaKey + hash(posterUrl)
@@ -78,6 +79,7 @@ public:
   // removeSizes.
   // Каждый кортеж — (physW, physH, scale100), где scale100 — целое
   // (100 = cs 1.0, 200 = cs 2.0). Если removeSizes.empty() — ничего не делает.
+  // Мастера и их LRU-позиции НЕ затрагиваются.
   static void ClearScaledRemoveSizes(
       const std::vector<std::tuple<int, int, int>> &removeSizes);
 
@@ -89,6 +91,11 @@ public:
 
   // Адаптивная подстройка лимитов по памяти
   static void AdjustLimitsForMemory();
+
+  // Time-based hygiene: чистит просроченные scaled и masters-сироты.
+  // Вызывается из MaybeAdjustLimits раз в 30с (rate-limited).
+  static void CleanupOldEntries();
+
   // Отладочная утилита
   static void DebugLogSizes();
   static std::mutex s_mutex;
@@ -134,22 +141,22 @@ private:
   };
 
   // --- Хранилище ---
-  static std::unordered_map<std::string, LogoEntry> s_cache;
-  static std::list<std::string> s_lru;
+  // Master-LRU с onEvict, чистящим scaled-индексы.
+  // Не thread-safe: caller держит s_mutex.
+  static LruCache<std::string, LogoEntry> &Cache();
+
+  // Быстрый индекс scaledKey -> shared_ptr<wxBitmap>
+  static std::unordered_map<std::string, std::weak_ptr<wxBitmap>> s_scaledIndex;
+  // Обратный индекс scaledKey -> masterKey (O(1) для GetCachedBitmapPtr)
+  static std::unordered_map<std::string, std::string> s_scaledToMaster;
 
   // Лимиты (атомарные для безопасности при изменениях из разных потоков)
   static std::atomic<size_t> s_maxMasters;
   static std::atomic<size_t> s_maxScaledTotal;
 
-  static void TouchEntry(const std::string &mk);
   static void EnforceLimits();
 
-  // Быстрый индекс scaledKey -> shared_ptr<wxBitmap>
-  static std::unordered_map<std::string, std::weak_ptr<wxBitmap>> s_scaledIndex;
-
   static std::function<void(const std::string &)> s_onScaledReady;
-
-  static void CleanupOldEntries();
 
   struct PendingOps {
     std::vector<LogoCallback> callbacks;
