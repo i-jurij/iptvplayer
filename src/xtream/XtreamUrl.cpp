@@ -389,7 +389,7 @@ ApiProbeResult DoProbeApi(const wxString &baseUrl, const wxString &user,
   return result;
 }
 
-// Unused after 10.2 (Xtream add-flow goes via player_api.php). Kept for
+// Unused (Xtream add-flow goes via player_api.php). Kept for
 // potential Q4 fallback (M3U when all three player_api endpoints fail).
 [[maybe_unused]] AttemptResult TryGetPhpOnly(const wxString &base, const wxString &user,
                             const wxString &pass, const wxString &ua) {
@@ -527,12 +527,6 @@ void DialProbeAsync(const wxString &inputUrl, const wxString &user,
                    "", "", false);
           return;
 
-        case DetectionKind::Html:
-          callback(false, "",
-                   _U("Server returned an HTML page, not a playlist."), "", "",
-                   false);
-          return;
-
         case DetectionKind::BinaryStream:
           callback(false, "",
                    _U("This URL points to a media stream, not a playlist. "
@@ -544,6 +538,7 @@ void DialProbeAsync(const wxString &inputUrl, const wxString &user,
         case DetectionKind::HttpError:
         case DetectionKind::NetworkError:
         case DetectionKind::Unknown:
+        case DetectionKind::Html:
         default: {
           // Bare server может отдавать 404/empty на "/". Try player_api
           // first; if that fails, full probe (auth + get.php) as M3U
