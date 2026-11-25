@@ -149,8 +149,7 @@ void CardsBase::UpdateLayout() {
 
   {
     std::lock_guard<std::mutex> lock(m_cacheMutex);
-    m_textCache.clear();
-    m_textSizeCache.clear();
+    m_textCache.Clear();
   }
 }
 

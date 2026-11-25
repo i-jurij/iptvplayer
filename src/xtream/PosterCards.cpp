@@ -67,6 +67,7 @@ void PosterCards::SetItems(const std::vector<PosterItem> &items) {
 void PosterCards::SetItems(std::vector<PosterItem> &&items) {
   m_items = std::move(items);
   m_requestedPosters.clear();
+  RebuildMediaKeyIndex();
 
   m_channels.clear();
   m_channels.reserve(m_items.size());
@@ -98,6 +99,7 @@ void PosterCards::AppendItems(const std::vector<PosterItem> &items) {
     m_items.push_back(item);
     m_channels.push_back(ConvertToChannel(item));
   }
+  RebuildMediaKeyIndex();
 
   m_loadMoreInFlight = false;
 
@@ -116,6 +118,8 @@ void PosterCards::SortItems(SortComparator comp) {
     return;
 
   std::sort(m_items.begin(), m_items.end(), comp);
+
+  RebuildMediaKeyIndex();
 
   m_channels.clear();
   m_channels.reserve(m_items.size());
@@ -137,6 +141,15 @@ const std::string &PosterCards::GetMediaKey(size_t index) const {
   if (index >= m_items.size())
     return empty;
   return m_items[index].mediaKey;
+}
+
+void PosterCards::RebuildMediaKeyIndex() {
+  m_mediaKeyToIndex.clear();
+  m_mediaKeyToIndex.reserve(m_items.size());
+  for (size_t i = 0; i < m_items.size(); ++i) {
+    if (!m_items[i].mediaKey.empty())
+      m_mediaKeyToIndex[m_items[i].mediaKey] = i;
+  }
 }
 
 void PosterCards::RefreshPosterLayout() {
@@ -322,18 +335,14 @@ void PosterCards::RenderTile(size_t index) {
             if (!bmp || !bmp->IsOk())
               return;
             // SortItems/SetItems могли изменить порядок m_items между
-            // fetch и callback. Ищем актуальный индекс по mediaKey.
-            int idx = -1;
-            for (size_t i = 0; i < m_items.size(); ++i) {
-              if (m_items[i].mediaKey == mediaKey) {
-                idx = static_cast<int>(i);
-                break;
-              }
-            }
-            if (idx < 0)
+            // fetch и callback. Reverse-index (O(1)) — актуальный индекс
+            // по mediaKey.
+            auto it = m_mediaKeyToIndex.find(mediaKey);
+            if (it == m_mediaKeyToIndex.end())
               return;
-            RenderTile(static_cast<size_t>(idx));
-            MarkCardDirty(idx);
+            size_t idx = it->second;
+            RenderTile(idx);
+            MarkCardDirty(static_cast<int>(idx));
           },
           cs);
     }

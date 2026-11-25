@@ -4,8 +4,6 @@
 #include "Profiler.h"
 #include "Utils.h"
 
-#include <map>
-
 int CardsBase::MAX_TILE_LRU = 300;
 
 void CardsBase::InitLRULimits() {
@@ -133,8 +131,6 @@ void CardsBase::SetChannelsBase(const std::vector<Channel> &channels) {
 
   ClearAllCaches(true, true);
   m_dirtyCards.clear();
-  m_textCache.clear();
-  m_textSizeCache.clear();
 
   m_logoQueuePQ.clear();
   m_tileCache.Clear();

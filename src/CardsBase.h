@@ -11,7 +11,6 @@
 #include <atomic>
 #include <deque>
 #include <functional>
-#include <list>
 #include <map>
 #include <mutex>
 #include <string>
@@ -90,8 +89,6 @@ public:
   std::unordered_set<std::string> m_favorites;
 
   SelectCallback m_onSelect;
-
-  void TrimTextCache();
   // Полная очистка всех RAM-кэшей (локальных и DPI-aware).
   // Если clearScaled==true — очищаются отмасштабированные битмапы
   // (LogoCache::ClearMemory вызывается). Если clearLRU==true — очищаются
@@ -223,12 +220,13 @@ private:
 
   // Cache: normalized DPI -> LayoutInfo (thread-safe)
   wxBitmap GetScaledStar(const wxBitmap &star, int size);
-  // text cache
-  std::unordered_map<std::string, wxString> m_textCache;
+  // Text cache: truncated fallback labels, keyed by (group + "_" + m_logoW).
+  // UI-thread only (no per-call lock); Clear() under m_cacheMutex for
+  // consistency with the rest of the cache lifecycle. LruCache evicts
+  // automatically — no TrimTextCache() needed.
+  LruCache<std::string, wxString> m_textCache{15000};
 
   wxString GetTruncatedText(const Channel &ch);
-  // text size cache
-  std::unordered_map<std::string, std::pair<int, int>> m_textSizeCache;
 
   // hover
   bool m_hoverFav = false;
@@ -238,6 +236,13 @@ private:
   // batched redraw
   wxTimer m_redrawTimer;
   std::vector<int> m_dirtyCards;
+
+  // Background tile cache: per-instance (was previously namespace-scope
+  // globals shared across CardsBase instances, which was fragile — relied
+  // on all instances having identical card size + cs). Invalidated on
+  // card size or content scale change in RenderTile().
+  wxBitmap m_cachedTileBG;
+  double m_cachedTileBG_CS = 0.0;
 
   // throttling
   wxTimer m_logoTimer;

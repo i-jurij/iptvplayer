@@ -23,9 +23,8 @@ wxString CardsBase::GetTruncatedText(const Channel &ch) {
 
   std::string key =
       std::string(group.utf8_str()) + "_" + std::to_string(m_logoW);
-  auto it = m_textCache.find(key);
-  if (it != m_textCache.end())
-    return it->second;
+  if (wxString *cached = m_textCache.Get(key))
+    return *cached;
 
   wxCoord tw, th;
   wxClientDC dc(this);
@@ -33,8 +32,7 @@ wxString CardsBase::GetTruncatedText(const Channel &ch) {
   dc.GetTextExtent(group, &tw, &th);
 
   if (tw <= m_logoW) {
-    m_textCache[key] = group;
-    m_textSizeCache[key] = {tw, th};
+    m_textCache.Put(key, group);
     return group;
   }
 
@@ -50,14 +48,10 @@ wxString CardsBase::GetTruncatedText(const Channel &ch) {
       break;
     }
   }
-  m_textCache[key] = tmp;
-  m_textSizeCache[key] = {tw + ew, th};
+  m_textCache.Put(key, tmp);
 
   return tmp;
 }
-
-wxBitmap m_cachedTileBG;
-double m_cachedTileBG_CS = 0.0;
 
 // argb32
 wxBitmap CardsBase::CreateTileBackground(int w, int h) {

@@ -111,6 +111,13 @@ private:
 
   std::string m_playlistName;
   std::unordered_set<std::string> m_requestedPosters;
+
+  // Reverse-index: mediaKey → index in m_items. Rebuilt whenever m_items
+  // is mutated (SetItems/AppendItems/SortItems). Used by the poster-fetch
+  // callback to locate the current row in O(1) without linear scan —
+  // important for paginated categories with 1000+ items.
+  std::unordered_map<std::string, size_t> m_mediaKeyToIndex;
+  void RebuildMediaKeyIndex();
   LogoCache::LogoBitmapPtr m_ghostBmp;
   wxBitmap m_favFilled;
   wxBitmap m_watchFilled;

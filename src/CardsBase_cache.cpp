@@ -7,7 +7,6 @@
 #include "Utils.h"
 
 #include <algorithm>
-#include <map>
 #include <mutex>
 
 void CardsBase::RequestLogo(size_t index) {
@@ -429,22 +428,6 @@ void CardsBase::WarmUpTiles() {
   }
 
   Refresh();
-
-  static int m_warmupCounter = 0;
-  if (++m_warmupCounter >= 150) {
-    m_warmupCounter = 0;
-    TrimTextCache();
-  }
-}
-
-// AddTileToLRU removed — tile cache is now a single LruCache member.
-
-void CardsBase::TrimTextCache() {
-  static const size_t MAX_TEXT_CACHE = 15000;
-  if (m_textCache.size() > MAX_TEXT_CACHE) {
-    m_textCache.clear();
-    m_textSizeCache.clear();
-  }
 }
 
 void CardsBase::ClearAllCaches(bool clearLRU, bool clearTextLayout) {
@@ -454,8 +437,7 @@ void CardsBase::ClearAllCaches(bool clearLRU, bool clearTextLayout) {
     std::lock_guard<std::mutex> lock(m_cacheMutex);
 
     if (clearTextLayout) {
-      m_textCache.clear();
-      m_textSizeCache.clear();
+      m_textCache.Clear();
     }
 
     // LruCache.Clear covers storage + LRU state; clearLRU is kept for API
