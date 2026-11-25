@@ -60,9 +60,8 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
 
     thumbHint =
         new wxStaticText(logoBox, wxID_ANY,
-                         _U("Note: this feature is experimental and may use "
-                            "significant memory for very large playlists.\n"
-                            "Logo in list view will be shown after restart."));
+                         _U("Note: this feature is experimental and may use \n"
+                            "significant memory for very large playlists."));
     wxFont hintFont = thumbHint->GetFont();
     hintFont.SetPointSize(hintFont.GetPointSize() - 1);
     thumbHint->SetFont(hintFont);
