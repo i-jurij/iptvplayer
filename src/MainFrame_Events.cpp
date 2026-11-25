@@ -309,23 +309,16 @@ void MainFrame::OnGlobalCharHook(wxKeyEvent &evt) {
   evt.Skip();
 }
 
-void MainFrame::FocusCurrentSearch() {
-  if (!m_notebook)
-    return;
+void MainFrame::OnFavoritesMatchDone(wxCommandEvent &evt) {
+  int matched = evt.GetInt();
+  int total = evt.GetExtraLong();
+  LOG_DEBUG("Favorites match done: %d/%d", matched, total);
 
-  const int sel = m_notebook->GetSelection();
-
-  if (sel == m_channelsPageIdx && m_channelSearch) {
-    m_channelSearch->SetFocus();
-    m_channelSearch->SelectAll();
-  } else if (sel == m_favoritesPageIdx && m_favSearch) {
-    m_favSearch->SetFocus();
-    m_favSearch->SelectAll();
-  } else if (sel == m_moviesPageIdx && m_moviesSearch) {
-    m_moviesSearch->SetFocus();
-    m_moviesSearch->SelectAll();
-  } else if (m_seriesPageIdx != wxNOT_FOUND && sel == m_seriesPageIdx &&
-             m_seriesPanel) {
-    m_seriesPanel->FocusSearch();
+  if (m_epgFavorites && m_epgFavorites->IsActive() &&
+      m_epgFavorites->HasChannel()) {
+    // Обновляем EPG для текущего канала в избранном
+    m_epgFavorites->LoadProgramsForChannel(
+        m_epgFavorites->GetCurrentChannelId(),
+        m_epgFavorites->GetCurrentDate());
   }
 }

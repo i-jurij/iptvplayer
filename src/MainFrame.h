@@ -285,7 +285,7 @@ private:
   bool m_channelsNoLogo = true;
 
   // placeholder: later will apply flag to channel views
-  void ApplyChannelsNoLogoToViews();
+  void ApplyNoLogoToViews();
 
   // ----------------------------------------------------------------
   // UI widgets

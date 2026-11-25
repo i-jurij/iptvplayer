@@ -34,6 +34,7 @@
 #include <wx/utils.h>
 
 #include <ctime>
+#include "Profiler.h"
 
 wxDEFINE_EVENT(EVT_UPDATE_ALL_DONE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_UPDATE_ONE_DONE, wxCommandEvent);
@@ -306,20 +307,6 @@ MainFrame::~MainFrame() {
     std::cerr << "MainFrame dtor std::exception: " << e.what() << std::endl;
   } catch (...) {
     std::cerr << "MainFrame dtor unknown exception" << std::endl;
-  }
-}
-
-void MainFrame::OnFavoritesMatchDone(wxCommandEvent &evt) {
-  int matched = evt.GetInt();
-  int total = evt.GetExtraLong();
-  LOG_DEBUG("Favorites match done: %d/%d", matched, total);
-
-  if (m_epgFavorites && m_epgFavorites->IsActive() &&
-      m_epgFavorites->HasChannel()) {
-    // Обновляем EPG для текущего канала в избранном
-    m_epgFavorites->LoadProgramsForChannel(
-        m_epgFavorites->GetCurrentChannelId(),
-        m_epgFavorites->GetCurrentDate());
   }
 }
 
@@ -626,5 +613,97 @@ void MainFrame::RestorePanelState(int pageIndex) {
   }
   else if (pageIndex == m_seriesPageIdx) {
     RestoreSeriesContext();
+  }
+}
+
+void MainFrame::FocusCurrentSearch() {
+  if (!m_notebook)
+    return;
+
+  const int sel = m_notebook->GetSelection();
+
+  if (sel == m_channelsPageIdx && m_channelSearch) {
+    m_channelSearch->SetFocus();
+    m_channelSearch->SelectAll();
+  } else if (sel == m_favoritesPageIdx && m_favSearch) {
+    m_favSearch->SetFocus();
+    m_favSearch->SelectAll();
+  } else if (sel == m_moviesPageIdx && m_moviesSearch) {
+    m_moviesSearch->SetFocus();
+    m_moviesSearch->SelectAll();
+  } else if (m_seriesPageIdx != wxNOT_FOUND && sel == m_seriesPageIdx &&
+             m_seriesPanel) {
+    m_seriesPanel->FocusSearch();
+  }
+}
+
+void MainFrame::SetShowLogoFromSettings(bool show) {
+  m_channelsNoLogo = !show;
+
+  ApplyNoLogoToViews();
+}
+
+void MainFrame::ApplyNoLogoToViews() {
+  PROFILE_SCOPE("MainFrame::ApplyChannelsNoLogoToViews");
+
+  ChannelCards *cards = GetChannelCards();
+  if (cards) {
+    cards->IncrementCacheVersion();
+  }
+
+  LogoCache::PauseLoading();
+  IconManager::PauseLoading();
+  if (cards) {
+    cards->PauseLogoLoading();
+  }
+
+  if (m_channelList) {
+    if (auto *bcl = dynamic_cast<BaseChannelList *>(m_channelList)) {
+      bcl->PauseLogoLoading();
+    }
+  }
+  if (m_favList) {
+    if (auto *bfl = dynamic_cast<BaseChannelList *>(m_favList)) {
+      bfl->PauseLogoLoading();
+    }
+  }
+
+  if (cards) {
+    cards->ClearAllCaches(true, true);
+  }
+  LogoCache::ClearMemory(true);
+  IconManager::ClearMemory();
+
+  if (cards) {
+    cards->InvalidateAll();
+    cards->RefreshCards();
+  }
+  if (m_channelList)
+    m_channelList->Refresh();
+  if (m_favCards) {
+    m_favCards->InvalidateAll();
+    m_favCards->RefreshCards();
+  }
+  if (m_favList)
+    m_favList->Refresh();
+
+  if (!m_channelsNoLogo) {
+    LogoCache::ResumeLoading();
+    IconManager::ResumeLoading();
+
+    if (cards) {
+      cards->ResumeLogoLoading();
+      cards->WarmUpTiles();
+    }
+
+    if (m_channelList) {
+      if (auto *bcl = dynamic_cast<BaseChannelList *>(m_channelList)) {
+        bcl->ResumeLogoLoading();
+      }
+    }
+
+    SetStatusText(_U("Channel logos enabled."), 0);
+  } else {
+    SetStatusText(_U("Channel logos disabled."), 0);
   }
 }

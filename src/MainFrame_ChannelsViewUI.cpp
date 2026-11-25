@@ -1,4 +1,3 @@
-// src/MainFrame_ChannelsViewUI.cpp
 #include "ChannelCards.h"
 #include "ChannelList.h"
 #include "ConfigManager.h"
@@ -262,77 +261,6 @@ void MainFrame::HandleChannelPageChanged(int sel) {
     if (m_channelCards)
       m_channelCards->PauseLogoLoading();
   }
-}
-
-void MainFrame::ApplyChannelsNoLogoToViews() {
-  PROFILE_SCOPE("MainFrame::ApplyChannelsNoLogoToViews");
-
-  ChannelCards *cards = GetChannelCards();
-  if (cards) {
-    cards->IncrementCacheVersion();
-  }
-
-  LogoCache::PauseLoading();
-  IconManager::PauseLoading();
-  if (cards) {
-    cards->PauseLogoLoading();
-  }
-
-  if (m_channelList) {
-    if (auto *bcl = dynamic_cast<BaseChannelList *>(m_channelList)) {
-      bcl->PauseLogoLoading();
-    }
-  }
-  if (m_favList) {
-    if (auto *bfl = dynamic_cast<BaseChannelList *>(m_favList)) {
-      bfl->PauseLogoLoading();
-    }
-  }
-
-  if (cards) {
-    cards->ClearAllCaches(true, true);
-  }
-  LogoCache::ClearMemory(true);
-  IconManager::ClearMemory();
-
-  if (cards) {
-    cards->InvalidateAll();
-    cards->RefreshCards();
-  }
-  if (m_channelList)
-    m_channelList->Refresh();
-  if (m_favCards) {
-    m_favCards->InvalidateAll();
-    m_favCards->RefreshCards();
-  }
-  if (m_favList)
-    m_favList->Refresh();
-
-  if (!m_channelsNoLogo) {
-    LogoCache::ResumeLoading();
-    IconManager::ResumeLoading();
-
-    if (cards) {
-      cards->ResumeLogoLoading();
-      cards->WarmUpTiles();
-    }
-
-    if (m_channelList) {
-      if (auto *bcl = dynamic_cast<BaseChannelList *>(m_channelList)) {
-        bcl->ResumeLogoLoading();
-      }
-    }
-
-    SetStatusText(_U("Channel logos enabled."), 0);
-  } else {
-    SetStatusText(_U("Channel logos disabled."), 0);
-  }
-}
-
-void MainFrame::SetShowLogoFromSettings(bool show) {
-  m_channelsNoLogo = !show;
-
-  ApplyChannelsNoLogoToViews();
 }
 
 void MainFrame::ApplyInitialViewMode() {
