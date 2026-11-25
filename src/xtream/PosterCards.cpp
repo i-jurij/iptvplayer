@@ -309,7 +309,8 @@ void PosterCards::RenderTile(size_t index) {
   mdc.DrawRectangle(0, 0, posterW, posterH);
 
   bool drewPoster = false;
-  if (!item.posterUrl.empty() && !m_playlistName.empty()) {
+  if (!m_loadingPaused.load(std::memory_order_relaxed) &&
+      !item.posterUrl.empty() && !m_playlistName.empty()) {
     const int physW = std::max(1, static_cast<int>(std::round(m_cardW * cs)));
     const int physH = std::max(1, static_cast<int>(std::round(m_logoH * cs)));
     const int scale100 =

@@ -279,6 +279,8 @@ void MainFrame::ApplyInitialViewMode() {
     m_viewToolBar->ToggleTool(ID_VIEW_GRID, startInGrid);
     m_viewToolBar->ToggleTool(ID_VIEW_LIST, !startInGrid);
   }
+
+  ApplyLogosState();
 }
 
 void MainFrame::InitializeListResources() {

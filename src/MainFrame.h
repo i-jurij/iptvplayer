@@ -284,8 +284,13 @@ private:
 
   bool m_showLogos = true;
 
-  // placeholder: later will apply flag to channel views
-  void ApplyLogosState();
+   // placeholder: later will apply flag to channel views
+   void ApplyLogosState();
+
+   void RefreshAllCards();
+   void RefreshAllLists();
+   void PauseAllLogoLoading();
+   void ResumeAllLogoLoading();
 
   // ----------------------------------------------------------------
   // UI widgets

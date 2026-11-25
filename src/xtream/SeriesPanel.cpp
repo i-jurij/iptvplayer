@@ -1766,3 +1766,24 @@ void SeriesPanel::RestoreNavigationState(int64_t seriesId, int seasonNumber,
   RebuildBreadcrumbs();
   GoToLevel(Level::Episodes);
 }
+
+// ---------------------------------------------------------------------------
+// Logo loading pause/resume (called from MainFrame when user toggles logos)
+// ---------------------------------------------------------------------------
+void SeriesPanel::PauseLogoLoading() {
+  if (m_cards) {
+    m_cards->PauseLogoLoading();
+    m_cards->InvalidateAll();
+    m_cards->RefreshCards();
+  }
+  if (m_seasonsCards) {
+    m_seasonsCards->PauseLogoLoading();
+    m_seasonsCards->InvalidateAll();
+    m_seasonsCards->RefreshCards();
+  }
+}
+
+void SeriesPanel::ResumeLogoLoading() {
+  if (m_cards) m_cards->ResumeLogoLoading();
+  if (m_seasonsCards) m_seasonsCards->ResumeLogoLoading();
+}

@@ -213,7 +213,7 @@ protected:
 
   bool RemoveChannel(const std::string &name, const std::string &playlistName);
 
-private:
+protected:
   wxBitmap CreateTileBackground(int w, int h);
   // --- DPI & Layout ---
   bool IsBitmapNonEmpty(const wxBitmap &bmp);

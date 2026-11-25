@@ -82,6 +82,8 @@ public:
 
   // Восстановить навигационный контекст (сериал, сезон, уровень)
   void RestoreNavigationState(int64_t seriesId, int seasonNumber, int level);
+  void PauseLogoLoading();
+  void ResumeLogoLoading();
 
 private:
   void BuildUi();

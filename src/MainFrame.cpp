@@ -653,57 +653,52 @@ void MainFrame::ApplyLogosState() {
 
   LogoCache::PauseLoading();
   IconManager::PauseLoading();
-  if (cards) {
-    cards->PauseLogoLoading();
-  }
-
-  if (m_channelList) {
-    if (auto *bcl = dynamic_cast<BaseChannelList *>(m_channelList)) {
-      bcl->PauseLogoLoading();
-    }
-  }
-  if (m_favList) {
-    if (auto *bfl = dynamic_cast<BaseChannelList *>(m_favList)) {
-      bfl->PauseLogoLoading();
-    }
-  }
+  PauseAllLogoLoading();
 
   if (cards) {
     cards->ClearAllCaches(true, true);
   }
   LogoCache::ClearMemory(true);
+  LogoCache::ClearPosterMemory();
   IconManager::ClearMemory();
 
-  if (cards) {
-    cards->InvalidateAll();
-    cards->RefreshCards();
-  }
-  if (m_channelList)
-    m_channelList->Refresh();
-  if (m_favCards) {
-    m_favCards->InvalidateAll();
-    m_favCards->RefreshCards();
-  }
-  if (m_favList)
-    m_favList->Refresh();
+  RefreshAllCards();
+  RefreshAllLists();
 
   if (m_showLogos) {
     LogoCache::ResumeLoading();
     IconManager::ResumeLoading();
-
-    if (cards) {
-      cards->ResumeLogoLoading();
-      cards->WarmUpTiles();
-    }
-
-    if (m_channelList) {
-      if (auto *bcl = dynamic_cast<BaseChannelList *>(m_channelList)) {
-        bcl->ResumeLogoLoading();
-      }
-    }
+    ResumeAllLogoLoading();
 
     SetStatusText(_U("Channel logos enabled."), 0);
   } else {
     SetStatusText(_U("Channel logos disabled."), 0);
   }
+}
+
+void MainFrame::RefreshAllCards() {
+  if (auto *c = GetChannelCards()) { c->InvalidateAll(); c->RefreshCards(); }
+  if (m_favCards) { m_favCards->InvalidateAll(); m_favCards->RefreshCards(); }
+  if (m_moviesCards) { m_moviesCards->InvalidateAll(); m_moviesCards->RefreshCards(); }
+}
+
+void MainFrame::RefreshAllLists() {
+  if (m_channelList) m_channelList->Refresh();
+  if (m_favList) m_favList->Refresh();
+}
+
+void MainFrame::PauseAllLogoLoading() {
+  if (auto *c = GetChannelCards()) c->PauseLogoLoading();
+  if (m_channelList) { if (auto *bcl = dynamic_cast<BaseChannelList *>(m_channelList)) bcl->PauseLogoLoading(); }
+  if (m_favList) { if (auto *bfl = dynamic_cast<BaseChannelList *>(m_favList)) bfl->PauseLogoLoading(); }
+  if (m_moviesCards) m_moviesCards->PauseLogoLoading();
+  if (m_seriesPanel) m_seriesPanel->PauseLogoLoading();
+}
+
+void MainFrame::ResumeAllLogoLoading() {
+  if (auto *c = GetChannelCards()) { c->ResumeLogoLoading(); c->WarmUpTiles(); }
+  if (m_channelList) { if (auto *bcl = dynamic_cast<BaseChannelList *>(m_channelList)) bcl->ResumeLogoLoading(); }
+  if (m_favList) { if (auto *bfl = dynamic_cast<BaseChannelList *>(m_favList)) bfl->ResumeLogoLoading(); }
+  if (m_moviesCards) m_moviesCards->ResumeLogoLoading();
+  if (m_seriesPanel) m_seriesPanel->ResumeLogoLoading();
 }
