@@ -58,7 +58,6 @@ void MainFrame::createChannelsView() {
 #endif
   wxBitmapBundle iconList = LoadSvgIcon("list", this);
   wxBitmapBundle iconGrid = LoadSvgIcon("grid", this);
-  wxBitmapBundle iconLogo = LoadSvgIcon("showlogo", this);
 
   m_viewToolBar->AddTool(ID_VIEW_LIST, _U("List"),
                          iconList.IsOk() ? iconList : wxNullBitmap,
@@ -66,15 +65,9 @@ void MainFrame::createChannelsView() {
   m_viewToolBar->AddTool(ID_VIEW_GRID, _U("Cards"),
                          iconGrid.IsOk() ? iconGrid : wxNullBitmap,
                          _U("Cards view"), radioKind);
-  m_viewToolBar->AddSeparator();
-  m_viewToolBar->AddTool(ID_SHOW_LOGO, _U("Logo"),
-                         iconLogo.IsOk() ? iconLogo : wxNullBitmap,
-                         _U("Show channel logo"), wxITEM_CHECK);
   m_viewToolBar->Realize();
   m_viewToolBar->SetBackgroundColour(
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE));
-  m_viewToolBar->ToggleTool(ID_SHOW_LOGO, !m_channelsNoLogo);
-  m_viewToolBar->SetToolShortHelp(ID_SHOW_LOGO, _U("Show channel logo"));
 
   channelHeaderSizer->Add(m_viewToolBar, 0, wxALL, 0);
 
@@ -338,9 +331,6 @@ void MainFrame::ApplyChannelsNoLogoToViews() {
 
 void MainFrame::SetShowLogoFromSettings(bool show) {
   m_channelsNoLogo = !show;
-  if (m_viewToolBar) {
-    m_viewToolBar->ToggleTool(ID_SHOW_LOGO, show);
-  }
 
   ApplyChannelsNoLogoToViews();
 }

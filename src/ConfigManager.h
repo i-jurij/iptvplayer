@@ -19,6 +19,7 @@ public:
                            const std::string& defaultValue = "") const;
     void setSetting(const std::string& key, const std::string& value);
     void removeSetting(const std::string& key);
+    bool hasSetting(const std::string& key) const;
 
     // Директория конфигурации
     std::string getConfigDirectory() const;

@@ -53,7 +53,6 @@ ErrorCode ConfigManager::createDefaultSettings() {
   m_settings["media_player_path"] = "";
   m_settings["last_opened_playlist"] = "";
   m_settings["playlistTimeoutMs"] = "30000";
-  m_settings["nologo"] = "true";
   m_settings["channels_grid_threshold"] = "300";
   m_settings["favorites_grid_threshold"] = "300";
 
@@ -201,6 +200,9 @@ void ConfigManager::removeSetting(const std::string &key) {
   auto it = m_settings.find(key);
   if (it != m_settings.end())
     m_settings.erase(it);
+  }
+bool ConfigManager::hasSetting(const std::string &key) const {
+  return m_settings.find(key) != m_settings.end();
 }
 
 void ConfigManager::setError(const std::string &msg) {

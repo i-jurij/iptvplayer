@@ -50,8 +50,8 @@ void MainFrame::onAbout(wxCommandEvent &WXUNUSED(event)) {
   wxString msg = wxString::Format(
       _U("IPTV Player %s\n"
          "Commit: %s\n\n"
-         "A simple player for M3U playlists with EPG support.\n"
-         "Built with wxWidgets, MPV, and SQLite.\n\n"
+         "A IPTV player with XTREAM and EPG support.\n"
+         "Built with wxWidgets, libmpv, SQLite, curl, expat, zlib.\n\n"
          "GitHub: https://github.com/i-jurij/iptvplayer\n\n"),
       IPTVPLAYER_VERSION_FULL,
       IPTVPLAYER_GIT_COMMIT[0] ? IPTVPLAYER_GIT_COMMIT : "unknown");

@@ -12,6 +12,7 @@
 #include "UpdateAllThread.h"
 #include "UpdateOneThread.h"
 #include "Utils.h"
+#include "Utils_Perf.h"
 #include "xtream/SeriesPanel.h"
 
 #include <wx/artprov.h>
@@ -84,11 +85,12 @@ MainFrame::MainFrame(Application *app)
   }
   m_startInGrid = (mode != "list");
 
-  if (cfg) {
+  if (cfg && cfg->hasSetting("nologo")) {
     std::string nologoStr = cfg->getSetting("nologo", "true");
     m_channelsNoLogo = (nologoStr == "true");
   } else {
-    m_channelsNoLogo = true; // fallback default
+    m_channelsNoLogo = (GetAvailableRAM_MB() < GetLowMemoryThreshold_MB());
+    ;
   }
 
   int savedW = cfg ? cfg->getInt("window_width", -1) : -1;
