@@ -86,11 +86,11 @@ MainFrame::MainFrame(Application *app)
   }
   m_startInGrid = (mode != "list");
 
-  if (cfg && cfg->hasSetting("nologo")) {
-    std::string nologoStr = cfg->getSetting("nologo", "true");
-    m_channelsNoLogo = (nologoStr == "true");
+  if (cfg && cfg->hasSetting("showLogos")) {
+    std::string showLogosStr = cfg->getSetting("showLogos", "false");
+    m_showLogos = (showLogosStr == "true");
   } else {
-    m_channelsNoLogo = (GetAvailableRAM_MB() < GetLowMemoryThreshold_MB());
+    m_showLogos = (GetAvailableRAM_MB() >= GetLowMemoryThreshold_MB());
     ;
   }
 
@@ -277,7 +277,7 @@ MainFrame::~MainFrame() {
       cfg->setSetting("window_x", std::to_string(rect.GetX()));
       cfg->setSetting("window_y", std::to_string(rect.GetY()));
       cfg->setInt("m_lastVolume", m_videoPanel->GetLastVolume());
-      cfg->setSetting("nologo", m_channelsNoLogo ? "true" : "false");
+      cfg->setSetting("showLogos", m_showLogos ? "true" : "false");
       cfg->setSetting("channels_view_mode", m_startInGrid ? "grid" : "list");
 
       cfg->saveSettings();
@@ -637,14 +637,14 @@ void MainFrame::FocusCurrentSearch() {
   }
 }
 
-void MainFrame::SetShowLogoFromSettings(bool show) {
-  m_channelsNoLogo = !show;
+void MainFrame::SetShowLogosFromSettings(bool show) {
+  m_showLogos = show;
 
-  ApplyNoLogoToViews();
+  ApplyLogosState();
 }
 
-void MainFrame::ApplyNoLogoToViews() {
-  PROFILE_SCOPE("MainFrame::ApplyChannelsNoLogoToViews");
+void MainFrame::ApplyLogosState() {
+  PROFILE_SCOPE("MainFrame::ApplyLogosState");
 
   ChannelCards *cards = GetChannelCards();
   if (cards) {
@@ -687,7 +687,7 @@ void MainFrame::ApplyNoLogoToViews() {
   if (m_favList)
     m_favList->Refresh();
 
-  if (!m_channelsNoLogo) {
+  if (m_showLogos) {
     LogoCache::ResumeLoading();
     IconManager::ResumeLoading();
 

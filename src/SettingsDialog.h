@@ -17,7 +17,7 @@ public:
 
 private:
   // Контролы
-  wxCheckBox *m_noLogoCheck = nullptr;
+  wxCheckBox *m_showLogosCheck = nullptr;
   wxCheckBox *m_deleteLogoCacheOnDisableCheck = nullptr;
   wxButton *m_deleteDiskCacheBtn = nullptr;
   wxButton *m_deleteRamCacheBtn = nullptr;

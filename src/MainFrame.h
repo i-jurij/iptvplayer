@@ -164,10 +164,10 @@ public:
   void OnFavSearchDebounce(wxTimerEvent &event);
   void FocusCurrentSearch();
 
-  // Apply show-logo flag coming from settings dialog (true = show logos)
-  void SetShowLogoFromSettings(bool show);
+  // Apply show-logs flag coming from settings dialog (true = show logos)
+  void SetShowLogosFromSettings(bool show);
   // в MainFrame.h / MainFrame.cpp
-  bool AreLogosEnabled() const { return !m_channelsNoLogo; }
+  bool AreLogosEnabled() const { return m_showLogos; }
 
   // Флаги состояния
   ChannelsViewState m_gridState = ChannelsViewState::Uninitialized;
@@ -282,10 +282,10 @@ private:
 
   bool m_startInGrid = false;
 
-  bool m_channelsNoLogo = true;
+  bool m_showLogos = true;
 
   // placeholder: later will apply flag to channel views
-  void ApplyNoLogoToViews();
+  void ApplyLogosState();
 
   // ----------------------------------------------------------------
   // UI widgets

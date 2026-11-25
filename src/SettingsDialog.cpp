@@ -67,11 +67,11 @@ SettingsDialog::SettingsDialog(MainFrame *parent, ConfigManager *cfg)
     thumbHint->SetForegroundColour(*wxLIGHT_GREY);
     logoBoxSizer->Add(thumbHint, 0, wxALL | wxEXPAND, INNER_PAD);
 
-    bool nologo = (m_config->getSetting("nologo", "true") == "true");
-    m_noLogoCheck = new wxCheckBox(
-        logoBox, wxID_ANY, _U("Show channel logos (thumbnails)"));
-    m_noLogoCheck->SetValue(!nologo);
-    logoBoxSizer->Add(m_noLogoCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM,
+    bool showLogos = (m_config->getSetting("showLogos", "false") == "true");
+    m_showLogosCheck = new wxCheckBox(
+        logoBox, wxID_ANY, _U("Show channel and poster logos"));
+    m_showLogosCheck->SetValue(showLogos);
+    logoBoxSizer->Add(m_showLogosCheck, 0, wxLEFT | wxRIGHT | wxBOTTOM,
                       INNER_PAD / 2);
 
     m_deleteLogoCacheOnDisableCheck = new wxCheckBox(
@@ -371,10 +371,10 @@ void SettingsDialog::OnCancel(wxCommandEvent &WXUNUSED(event)) {
 }
 
 void SettingsDialog::RestoreDefaults() {
-  const bool default_show_logos = false; // nologo = true
+  const bool default_show_logos = true;
 
-  if (m_noLogoCheck)
-    m_noLogoCheck->SetValue(default_show_logos);
+  if (m_showLogosCheck)
+    m_showLogosCheck->SetValue(default_show_logos);
   if (m_resumeCompleteSpin)
     m_resumeCompleteSpin->SetValue(95);
   if (m_resumeRewindSpin)
@@ -389,9 +389,9 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
   if (!m_mainFrame)
     return;
 
-  bool show = m_noLogoCheck ? m_noLogoCheck->GetValue() : false;
+  bool show = m_showLogosCheck ? m_showLogosCheck->GetValue() : true;
 
-  m_mainFrame->SetShowLogoFromSettings(show);
+  m_mainFrame->SetShowLogosFromSettings(show);
 
   if (!show && m_deleteLogoCacheOnDisableCheck &&
       m_deleteLogoCacheOnDisableCheck->GetValue()) {
@@ -416,7 +416,7 @@ void SettingsDialog::ApplySettings(bool saveConfig) {
   }
 
   if (saveConfig && m_config) {
-    m_config->setSetting("nologo", show ? "false" : "true");
+    m_config->setSetting("showLogos", show ? "true" : "false");
     if (m_resumeCompleteSpin)
       m_config->setInt("xtream_resume_complete_percent",
                        m_resumeCompleteSpin->GetValue());
