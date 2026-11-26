@@ -6,6 +6,7 @@
 #include <functional>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 struct PosterItem {
@@ -118,10 +119,33 @@ private:
   // important for paginated categories with 1000+ items.
   std::unordered_map<std::string, size_t> m_mediaKeyToIndex;
   void RebuildMediaKeyIndex();
+
+  // Hit-test/отрисовочная геометрия иконок fav/watch.
+  // Возвращает {favZone, watchZone} относительно (0,0) карточки, в DIP.
+  // Единственный источник формулы xIcon/yFav/yWatch — все три call-site
+  // (RenderTile, OnMouseDown, OnLeftDClick) используют её.
+  std::pair<wxRect, wxRect> IconZonesDip(int cardWidthDip) const;
+
+  // Клиентский прямоугольник карточки с индексом `idx` (с учётом
+  // вертикального скролла). Единственный источник истины для hit-зон
+  // в mouse-обработчиках: rect из HitTestIndex не используем — на
+  // прокрученных рядах он приходит в виртуальных координатах, из-за
+  // чего зоны иконок уезжают.
+  wxRect CardRectForIndex(int idx) const;
+
+  // Иконные зоны fav/watch в клиентских координатах для карточки
+  // `cardRect` (обычно — из CardRectForIndex). Внутри — IconZonesDip +
+  // FromDIP на каждую координату.
+  std::pair<wxRect, wxRect> IconZones(const wxRect &cardRect) const;
   LogoCache::LogoBitmapPtr m_ghostBmp;
   wxBitmap m_favFilled;
   wxBitmap m_watchFilled;
   double m_iconsScale = 0.0;
   wxBitmap m_favFilledScaled;
   wxBitmap m_watchFilledScaled;
+  wxBitmap m_favOutlineScaled;
+  wxBitmap m_watchOutlineScaled;
+  int m_iconSizeDip = kIconSizeDip;
+  int m_iconMarginDip = kIconMarginDip;
+  int m_iconGapDip = kIconGapDip;
 };

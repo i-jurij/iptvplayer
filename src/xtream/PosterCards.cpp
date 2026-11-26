@@ -27,6 +27,9 @@ struct PosterLayoutDips {
   int posterH = 0;
   int titleH = 0;
   int titleFontPt = 10;
+  int iconSizeDip = 24;
+  int iconMarginDip = 6;
+  int iconGapDip = 6;
   int gapX = 14;
   int gapY = 14;
 };
@@ -37,14 +40,23 @@ PosterLayoutDips ComputePosterLayout(int displayW_Dip) {
     L.posterW = 220;
     L.posterH = 330;
     L.titleFontPt = 10;
+    L.iconSizeDip = 24;
+    L.iconMarginDip = 6;
+    L.iconGapDip = 6;
   } else if (displayW_Dip <= 2560) {
     L.posterW = 260;
     L.posterH = 390;
     L.titleFontPt = 11;
+    L.iconSizeDip = 28;
+    L.iconMarginDip = 7;
+    L.iconGapDip = 7;
   } else {
     L.posterW = 300;
     L.posterH = 450;
     L.titleFontPt = 12;
+    L.iconSizeDip = 32;
+    L.iconMarginDip = 8;
+    L.iconGapDip = 8;
   }
   L.titleH = 40;
   return L;
@@ -223,6 +235,10 @@ void PosterCards::UpdateLayout() {
   m_gapX = dip(L.gapX);
   m_gapY = dip(L.gapY);
 
+  m_iconSizeDip = L.iconSizeDip;
+  m_iconMarginDip = L.iconMarginDip;
+  m_iconGapDip = L.iconGapDip;
+
   m_colW = m_cardW + m_gapX;
   m_rowH = m_cardH + m_gapY;
 
@@ -275,6 +291,8 @@ void PosterCards::UpdateLayout() {
   m_iconsScale = 0.0;
   m_favFilledScaled = wxBitmap();
   m_watchFilledScaled = wxBitmap();
+  m_favOutlineScaled = wxBitmap();
+  m_watchOutlineScaled = wxBitmap();
 
   Refresh(false);
 
@@ -376,18 +394,22 @@ void PosterCards::RenderTile(size_t index) {
     }
   }
 
-  if (item.isFavorite || item.isWatchlist) {
-    EnsureScaledIcons();
+  EnsureScaledIcons();
 
-    const int xIcon = posterW - kIconMarginDip - kIconSizeDip;
-    int yIcon = kIconMarginDip;
-
-    if (item.isFavorite && m_favFilledScaled.IsOk()) {
-      mdc.DrawBitmap(m_favFilledScaled, xIcon, yIcon, true);
-      yIcon += kIconSizeDip + kIconGapDip;
-    }
-    if (item.isWatchlist && m_watchFilledScaled.IsOk())
-      mdc.DrawBitmap(m_watchFilledScaled, xIcon, yIcon, true);
+  const auto [favZone, watchZone] = IconZonesDip(posterW);
+  if (item.isFavorite) {
+    if (m_favFilledScaled.IsOk())
+      mdc.DrawBitmap(m_favFilledScaled, favZone.x, favZone.y, true);
+  } else {
+    if (m_favOutlineScaled.IsOk())
+      mdc.DrawBitmap(m_favOutlineScaled, favZone.x, favZone.y, true);
+  }
+  if (item.isWatchlist) {
+    if (m_watchFilledScaled.IsOk())
+      mdc.DrawBitmap(m_watchFilledScaled, watchZone.x, watchZone.y, true);
+  } else {
+    if (m_watchOutlineScaled.IsOk())
+      mdc.DrawBitmap(m_watchOutlineScaled, watchZone.x, watchZone.y, true);
   }
 
   const int titleY = posterH;
@@ -472,34 +494,20 @@ void PosterCards::OnKeyDownIntercept(wxKeyEvent &evt) {
 
 void PosterCards::OnLeftDClick(wxMouseEvent &evt) {
   bool fav = false;
-  wxRect rect;
-  const int idx = HitTestIndex(evt.GetPosition(), fav, &rect);
+  const int idx = HitTestIndex(evt.GetPosition(), fav, nullptr);
   if (idx < 0 || idx >= static_cast<int>(m_items.size())) {
     evt.Skip();
     return;
   }
 
-  // Ignore dbl-click on fav/watch icon overlays: the 1st LEFT_DOWN already
-  // toggled, the 2nd would toggle back. Activating play here would be
-  // surprising. Same zone math as OnMouseDown.
-  const PosterItem &item = m_items[idx];
-  auto dip = [this](int v) { return wxWindow::FromDIP(v, this); };
-  const int iconSize = dip(kIconSizeDip);
-  const int xIcon = rect.x + rect.width - dip(kIconMarginDip + kIconSizeDip);
-  int yIcon = rect.y + dip(kIconMarginDip);
+  // Ignore dbl-click on fav/watch icon overlays (filled or outline):
+  // the 1st LEFT_DOWN already toggled (or toggles on next press), and
+  // activating play here would be surprising. Same zone math as OnMouseDown.
   const wxPoint pos = evt.GetPosition();
-  if (item.isFavorite) {
-    if (wxRect(xIcon, yIcon, iconSize, iconSize).Contains(pos)) {
-      evt.Skip();
-      return;
-    }
-    yIcon += iconSize + dip(kIconGapDip);
-  }
-  if (item.isWatchlist) {
-    if (wxRect(xIcon, yIcon, iconSize, iconSize).Contains(pos)) {
-      evt.Skip();
-      return;
-    }
+  const auto [favZone, watchZone] = IconZones(CardRectForIndex(idx));
+  if (favZone.Contains(pos) || watchZone.Contains(pos)) {
+    evt.Skip();
+    return;
   }
 
   OnCardActivate(static_cast<size_t>(idx));
@@ -561,62 +569,106 @@ void PosterCards::OnPaint(wxPaintEvent &evt) {
 void PosterCards::EnsureScaledIcons() {
   const double cs = m_contentScale;
   if (m_iconsScale == cs && m_favFilledScaled.IsOk() &&
-      m_watchFilledScaled.IsOk())
+      m_watchFilledScaled.IsOk() && m_favOutlineScaled.IsOk() &&
+      m_watchOutlineScaled.IsOk())
     return;
 
-  auto makeScaled = [cs](const wxBitmap &base, int sizeDip) -> wxBitmap {
-    if (!base.IsOk())
+  const int physSize =
+      std::max(1, static_cast<int>(std::round(m_iconSizeDip * cs)));
+  // Толщина контура: 2 DIP → 2 физ. px на 1×, 4 px на 2×.
+  const int penPhys = std::max(1, static_cast<int>(std::round(2 * cs)));
+
+  auto buildFilled = [&](const wxBitmap &base128) -> wxBitmap {
+    if (!base128.IsOk())
       return wxBitmap();
-    const int phys = std::max(1, static_cast<int>(std::round(sizeDip * cs)));
-    wxImage img = base.ConvertToImage();
+    wxImage img = base128.ConvertToImage();
     if (!img.IsOk())
       return wxBitmap();
-    img.Rescale(phys, phys, wxIMAGE_QUALITY_HIGH);
-    wxBitmap bmp(img);
+    img.Rescale(physSize, physSize, wxIMAGE_QUALITY_HIGH);
+    wxBitmap out(img);
+    out.SetScaleFactor(cs);
+    return out;
+  };
+
+  auto buildOutline = [&](bool fav) -> wxBitmap {
+    // Рисуем outline сразу в целевом размере: rescale 128px-канвы с
+    // pen=2 «схлопывает» контур в <1 физ. px (иконка кажется пустой/
+    // микроскопической).
+    wxBitmap bmp =
+        fav ? CreateOutlineStarIcon(wxSize(physSize, physSize), wxNullColour,
+                                    penPhys)
+            : CreateOutlineBookmarkIcon(wxSize(physSize, physSize),
+                                        wxNullColour, penPhys);
+    if (!bmp.IsOk())
+      return wxBitmap();
     bmp.SetScaleFactor(cs);
     return bmp;
   };
 
-  m_favFilledScaled = makeScaled(m_favFilled, 24);
-  m_watchFilledScaled = makeScaled(m_watchFilled, 24);
+  m_favFilledScaled = buildFilled(m_favFilled);
+  m_watchFilledScaled = buildFilled(m_watchFilled);
+  m_favOutlineScaled = buildOutline(true);
+  m_watchOutlineScaled = buildOutline(false);
   m_iconsScale = cs;
+}
+
+std::pair<wxRect, wxRect>
+PosterCards::IconZonesDip(int cardWidthDip) const {
+  const int xIcon = cardWidthDip - m_iconMarginDip - m_iconSizeDip;
+  const int yFav = m_iconMarginDip;
+  const int yWatch = yFav + m_iconSizeDip + m_iconGapDip;
+  return {wxRect(xIcon, yFav, m_iconSizeDip, m_iconSizeDip),
+          wxRect(xIcon, yWatch, m_iconSizeDip, m_iconSizeDip)};
+}
+
+wxRect PosterCards::CardRectForIndex(int idx) const {
+  if (idx < 0 || m_cols <= 0)
+    return wxRect();
+  const int row = idx / m_cols;
+  const int col = idx % m_cols;
+  const int scrollY = GetScrollY();
+  // Та же формула, что в OnPaint (`m_gridOffsetX + col*m_colW`,
+  // `row*m_rowH`), минус scrollY — переводим в клиентские координаты.
+  return wxRect(m_gridOffsetX + col * m_colW, row * m_rowH - scrollY,
+                m_cardW, m_cardH);
+}
+
+std::pair<wxRect, wxRect>
+PosterCards::IconZones(const wxRect &cardRect) const {
+  // m_layout.cardW — DIP-ширина карточки. cardRect.width всегда равна
+  // FromDIP(m_layout.cardW) для постеров (все карточки одного размера),
+  // поэтому формулу берём в DIP и масштабируем в логические пиксели.
+  const auto [favDip, watchDip] = IconZonesDip(m_layout.cardW);
+  auto toLogical = [this, &cardRect](const wxRect &r) {
+    return wxRect(cardRect.x + FromDIP(r.x), cardRect.y + FromDIP(r.y),
+                  FromDIP(r.width), FromDIP(r.height));
+  };
+  return {toLogical(favDip), toLogical(watchDip)};
 }
 
 void PosterCards::OnMouseDown(wxMouseEvent &evt) {
   bool fav = false;
-  wxRect rect;
-  const int idx = HitTestIndex(evt.GetPosition(), fav, &rect);
+  const int idx = HitTestIndex(evt.GetPosition(), fav, nullptr);
   if (idx < 0 || idx >= static_cast<int>(m_items.size())) {
     CardsBase::OnMouseDown(evt);
     return;
   }
 
   const PosterItem &item = m_items[idx];
-  auto dip = [this](int v) { return wxWindow::FromDIP(v, this); };
-
-  const int iconSize = dip(kIconSizeDip);
-  const int xIcon = rect.x + rect.width - dip(kIconMarginDip + kIconSizeDip);
-  int yIcon = rect.y + dip(kIconMarginDip);
-
   const wxPoint pos = evt.GetPosition();
+  // Не доверяем rect из HitTestIndex: на прокрученных рядах он может
+  // прийти в виртуальных координатах. Считаем клиентский rect сами.
+  const auto [favZone, watchZone] = IconZones(CardRectForIndex(idx));
 
-  if (item.isFavorite) {
-    const wxRect favZone(xIcon, yIcon, iconSize, iconSize);
-    if (favZone.Contains(pos)) {
-      if (m_onFavoriteToggle)
-        m_onFavoriteToggle(item.mediaKey);
-      return;
-    }
-    yIcon += iconSize + dip(kIconGapDip);
+  if (favZone.Contains(pos)) {
+    if (m_onFavoriteToggle)
+      m_onFavoriteToggle(item.mediaKey);
+    return;
   }
-
-  if (item.isWatchlist) {
-    const wxRect watchZone(xIcon, yIcon, iconSize, iconSize);
-    if (watchZone.Contains(pos)) {
-      if (m_onWatchlistToggle)
-        m_onWatchlistToggle(item.mediaKey);
-      return;
-    }
+  if (watchZone.Contains(pos)) {
+    if (m_onWatchlistToggle)
+      m_onWatchlistToggle(item.mediaKey);
+    return;
   }
 
   CardsBase::OnMouseDown(evt);
