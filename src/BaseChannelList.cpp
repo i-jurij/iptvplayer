@@ -878,8 +878,9 @@ void BaseChannelList::OnPendingWatchdog(wxTimerEvent &evt) {
   }
 
   // Простой и прямой retry
-  for (const auto &[key, row] : toRetry) {
+  for (const auto &kv : toRetry) {
     const int id = GetId();
+    const int row = kv.second;
     CallAfterSafeById(id, [id, row]() {
       wxWindow *w = wxWindow::FindWindowById(id);
       if (!w)
@@ -887,7 +888,7 @@ void BaseChannelList::OnPendingWatchdog(wxTimerEvent &evt) {
       auto *self = dynamic_cast<BaseChannelList *>(w);
       if (!self || self->m_closing.load())
         return;
-      if (row < self->m_model->GetCount()) {
+      if (row >= 0 && row < static_cast<int>(self->m_model->GetCount())) {
         self->EnqueueRowLoad(row, true);
       }
     });
