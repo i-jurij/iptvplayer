@@ -405,11 +405,21 @@ void PosterCards::RenderTile(size_t index) {
       mdc.DrawBitmap(m_favOutlineScaled, favZone.x, favZone.y, true);
   }
   if (item.isWatchlist) {
-    if (m_watchFilledScaled.IsOk())
-      mdc.DrawBitmap(m_watchFilledScaled, watchZone.x, watchZone.y, true);
+    if (m_watchFilledScaled.IsOk()) {
+      const int dx = (watchZone.GetWidth() -
+                      m_watchFilledScaled.GetLogicalSize().GetWidth()) /
+                     2;
+      mdc.DrawBitmap(m_watchFilledScaled,
+                     watchZone.x + (dx > 0 ? dx : 0), watchZone.y, true);
+    }
   } else {
-    if (m_watchOutlineScaled.IsOk())
-      mdc.DrawBitmap(m_watchOutlineScaled, watchZone.x, watchZone.y, true);
+    if (m_watchOutlineScaled.IsOk()) {
+      const int dx = (watchZone.GetWidth() -
+                      m_watchOutlineScaled.GetLogicalSize().GetWidth()) /
+                     2;
+      mdc.DrawBitmap(m_watchOutlineScaled,
+                     watchZone.x + (dx > 0 ? dx : 0), watchZone.y, true);
+    }
   }
 
   const int titleY = posterH;
@@ -582,13 +592,13 @@ void PosterCards::EnsureScaledIcons() {
       std::max(2, static_cast<int>(std::round(m_iconSizeDip / 16.0)));
   const int penPhys = std::max(1, static_cast<int>(std::round(penDip * cs)));
 
-  auto buildFilled = [&](const wxBitmap &base128) -> wxBitmap {
+  auto buildFilled = [&](const wxBitmap &base128, int size) -> wxBitmap {
     if (!base128.IsOk())
       return wxBitmap();
     wxImage img = base128.ConvertToImage();
     if (!img.IsOk())
       return wxBitmap();
-    img.Rescale(physSize, physSize, wxIMAGE_QUALITY_HIGH);
+    img.Rescale(size, size, wxIMAGE_QUALITY_HIGH);
     wxBitmap out(img);
     out.SetScaleFactor(cs);
     return out;
@@ -598,10 +608,14 @@ void PosterCards::EnsureScaledIcons() {
     // Рисуем outline сразу в целевом размере: rescale 128px-канвы с
     // pen=2 «схлопывает» контур в <1 физ. px (иконка кажется пустой/
     // микроскопической).
+    // Закладка визуально больше звезды (прямоугольник vs пустые углы),
+    // поэтому уменьшаем её на 20% для балансировки.
+    const int bookmarkSize =
+        static_cast<int>(std::round(physSize * 0.8));
     wxBitmap bmp =
         fav ? CreateOutlineStarIcon(wxSize(physSize, physSize), wxNullColour,
                                     penPhys)
-            : CreateOutlineBookmarkIcon(wxSize(physSize, physSize),
+            : CreateOutlineBookmarkIcon(wxSize(bookmarkSize, bookmarkSize),
                                         wxNullColour, penPhys);
     if (!bmp.IsOk())
       return wxBitmap();
@@ -609,8 +623,10 @@ void PosterCards::EnsureScaledIcons() {
     return bmp;
   };
 
-  m_favFilledScaled = buildFilled(m_favFilled);
-  m_watchFilledScaled = buildFilled(m_watchFilled);
+  m_favFilledScaled = buildFilled(m_favFilled, physSize);
+  m_watchFilledScaled =
+      buildFilled(m_watchFilled,
+                  static_cast<int>(std::round(physSize * 0.8)));
   m_favOutlineScaled = buildOutline(true);
   m_watchOutlineScaled = buildOutline(false);
   m_iconsScale = cs;
