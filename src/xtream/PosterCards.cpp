@@ -40,23 +40,23 @@ PosterLayoutDips ComputePosterLayout(int displayW_Dip) {
     L.posterW = 220;
     L.posterH = 330;
     L.titleFontPt = 10;
-    L.iconSizeDip = 24;
-    L.iconMarginDip = 6;
-    L.iconGapDip = 6;
+    L.iconSizeDip = 36;    // было 24 (~2x, как starSize в каналах)
+    L.iconMarginDip = 8;   // было 6
+    L.iconGapDip = 8;      // было 6
   } else if (displayW_Dip <= 2560) {
     L.posterW = 260;
     L.posterH = 390;
     L.titleFontPt = 11;
-    L.iconSizeDip = 28;
-    L.iconMarginDip = 7;
-    L.iconGapDip = 7;
+    L.iconSizeDip = 42;    // было 28
+    L.iconMarginDip = 10;  // было 7
+    L.iconGapDip = 10;     // было 7
   } else {
     L.posterW = 300;
     L.posterH = 450;
     L.titleFontPt = 12;
-    L.iconSizeDip = 32;
-    L.iconMarginDip = 8;
-    L.iconGapDip = 8;
+    L.iconSizeDip = 48;    // было 32
+    L.iconMarginDip = 12;  // было 8
+    L.iconGapDip = 12;     // было 8
   }
   L.titleH = 40;
   return L;
@@ -575,8 +575,12 @@ void PosterCards::EnsureScaledIcons() {
 
   const int physSize =
       std::max(1, static_cast<int>(std::round(m_iconSizeDip * cs)));
-  // Толщина контура: 2 DIP → 2 физ. px на 1×, 4 px на 2×.
-  const int penPhys = std::max(1, static_cast<int>(std::round(2 * cs)));
+  // Толщина контура пропорционально иконке: ~1/16 её DIP-размера,
+  // минимум 2 DIP. При росте иконки (24→48→56→64) контур утолщается
+  // 2→3→4→4, и визуальная «весомость» outline не падает.
+  const int penDip =
+      std::max(2, static_cast<int>(std::round(m_iconSizeDip / 16.0)));
+  const int penPhys = std::max(1, static_cast<int>(std::round(penDip * cs)));
 
   auto buildFilled = [&](const wxBitmap &base128) -> wxBitmap {
     if (!base128.IsOk())

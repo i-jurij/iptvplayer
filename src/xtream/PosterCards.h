@@ -22,9 +22,9 @@ struct PosterItem {
 class PosterCards : public CardsBase {
 public:
   explicit PosterCards(wxWindow *parent);
-  static constexpr int kIconSizeDip = 24;
-  static constexpr int kIconMarginDip = 6;
-  static constexpr int kIconGapDip = 6;
+  static constexpr int kIconSizeDip = 48;
+  static constexpr int kIconMarginDip = 8;
+  static constexpr int kIconGapDip = 8;
 
   void SetItems(const std::vector<PosterItem> &items);
   void SetItems(std::vector<PosterItem> &&items);
