@@ -22,6 +22,7 @@ add_library(player_xtream OBJECT
 
 target_include_directories(player_xtream PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/player
     ${CMAKE_BINARY_DIR}
 )
 

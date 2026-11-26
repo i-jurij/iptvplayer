@@ -2,6 +2,7 @@
 
 #include "BookmarkIcon.h"
 #include "LogControl.h"
+#include "MainFrame.h"
 #include "StarIcon.h"
 #include "Utils_Platform.h"
 #include "Utils_UI.h"
@@ -13,6 +14,13 @@
 #include <cmath>
 
 namespace {
+
+// True if posters are allowed by current MainFrame settings.
+bool PostersAllowedByOwner(const wxWindow *w) {
+  wxWindow *tlw = wxGetTopLevelParent(const_cast<wxWindow *>(w));
+  const MainFrame *mf = dynamic_cast<const MainFrame *>(tlw);
+  return mf ? mf->AreLogosEnabled() : true;
+}
 
 struct PosterLayoutDips {
   int posterW = 0;
@@ -66,6 +74,12 @@ void PosterCards::SetItems(const std::vector<PosterItem> &items) {
 
 void PosterCards::SetItems(std::vector<PosterItem> &&items) {
   m_items = std::move(items);
+
+  // Sync with MainFrame setting: playlist change/Reset must not
+  // "revive" posters if their display is disabled.
+  m_loadingPaused.store(!PostersAllowedByOwner(this),
+                        std::memory_order_relaxed);
+
   m_requestedPosters.clear();
   RebuildMediaKeyIndex();
 

@@ -2,6 +2,7 @@
 
 #include "LogControl.h"
 #include "LogoCache.h"
+#include "MainFrame.h"
 #include "Utils_Platform.h"
 #include "Utils_UI.h"
 
@@ -21,6 +22,13 @@
 #include <cmath>
 
 namespace {
+
+// True if posters are allowed by current MainFrame settings.
+bool PostersAllowedByOwner(const wxWindow *w) {
+  wxWindow *tlw = wxGetTopLevelParent(const_cast<wxWindow *>(w));
+  const MainFrame *mf = dynamic_cast<const MainFrame *>(tlw);
+  return mf ? mf->AreLogosEnabled() : true;
+}
 
 wxString Str(const std::string &s) { return wxString::FromUTF8(s); }
 
@@ -291,7 +299,8 @@ void VodInfoPanel::ApplyInfoFields(const InfoFields &fields) {
 }
 
 void VodInfoPanel::UpdatePoster() {
-  if (m_posterUrl.empty() || m_playlistName.empty() || m_streamId <= 0) {
+  if (m_posterUrl.empty() || m_playlistName.empty() || m_streamId <= 0 ||
+      !PostersAllowedByOwner(this)) {
     m_poster->SetBitmap(wxBitmap());
     return;
   }
