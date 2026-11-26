@@ -88,6 +88,9 @@ public:
 
   void RemoveChannel(const std::string &name, const std::string &url);
 
+  // Clear all channels from the model.
+  void Clear();
+
 private:
   int m_logoPhysSize = 0;      // физический размер bitmap логотипа (px)
   double m_contentScale = 1.0; // во сколько раз физический больше DIP

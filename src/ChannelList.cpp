@@ -199,8 +199,11 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
   PROFILE_SCOPE("ChannelList::loadChannelsAsync");
   if (m_closing.load())
     return;
-  if (channels.empty())
+  if (channels.empty()) {
+    m_loadVersion.fetch_add(1);
+    m_model->Clear();
     return;
+  }
 
   int topRow = GetTopVisibleRow();
 
@@ -218,8 +221,9 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
   RestoreTopVisibleRow(topRow);
 
   const int winId = GetId();
+  const size_t myVersion = ++m_loadVersion;
 
-  std::thread([winId, channels, playlistName, initialCount]() {
+  std::thread([winId, myVersion, channels, playlistName, initialCount]() {
     try {
       const size_t rawBatch = ComputeBatchSizeForMemory();
       const size_t MAX_BATCH_SAFE = 2000;
@@ -238,11 +242,12 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
         if (batch.size() == batchSize || i == channels.size() - 1) {
           auto copyBatch = batch;
 
-          CallAfterSafeById(winId, [winId, copyBatch = std::move(copyBatch),
+          CallAfterSafeById(winId, [winId, myVersion, copyBatch = std::move(copyBatch),
                                     playlistName, batchSize]() mutable {
             auto *win = wxWindow::FindWindowById(winId);
             auto *chList = dynamic_cast<ChannelList *>(win);
-            if (!chList || chList->m_closing.load())
+            if (!chList || chList->m_closing.load() ||
+                chList->m_loadVersion.load() != myVersion)
               return;
 
             int prevTopRow = chList->GetTopVisibleRow();
@@ -318,10 +323,11 @@ void ChannelList::loadChannelsAsync(const std::vector<Channel> &channels,
         }
       }
 
-      CallAfterSafeById(winId, [winId]() {
+      CallAfterSafeById(winId, [winId, myVersion]() {
         auto *win = wxWindow::FindWindowById(winId);
         auto *chList = dynamic_cast<ChannelList *>(win);
-        if (!chList || chList->m_closing.load())
+        if (!chList || chList->m_closing.load() ||
+            chList->m_loadVersion.load() != myVersion)
           return;
         int topRow = chList->GetTopVisibleRow();
         try {

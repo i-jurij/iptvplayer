@@ -47,4 +47,8 @@ private:
   std::mutex m_bgMutex;
   std::condition_variable m_bgCv;
   size_t m_bgNextIndex{0};
+
+  // Version counter — increments on each loadChannelsAsync.
+  // The append thread checks this; if it changed, abort (old playlist replaced).
+  std::atomic<size_t> m_loadVersion{0};
 };

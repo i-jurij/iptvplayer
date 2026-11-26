@@ -432,3 +432,11 @@ void ChannelDataModel::RemoveChannel(const std::string &name,
   Reset(m_channels.size());
   LOG_DEBUG("ChannelDataModel::RemoveChannel: Reset() done");
 }
+
+void ChannelDataModel::Clear() {
+  m_channels.clear();
+  m_playlistName.clear();
+  ++m_channelsVersion;
+  m_rowKeyCache.clear();
+  Reset(0);
+}

@@ -311,6 +311,8 @@ void BaseChannelList::LoadChannels(const std::vector<Channel> &channels,
     if (ch.getPlaylistName().empty())
       ch.setPlaylistName(playlistName);
 
+  ClearPendingLoads();
+
   m_model->SetChannels(initialBatch, playlistName, physSize, cs);
 
   if (auto *mf = dynamic_cast<MainFrame *>(wxGetTopLevelParent(this))) {
@@ -858,7 +860,7 @@ void BaseChannelList::OnPendingWatchdog(wxTimerEvent &evt) {
     for (auto &kv : m_pendingLogoLoads) {
       uint64_t age = now - kv.second;
       if (age >= kPendingStalledMs) {
-        // NEW: Получай row из маппинга O(1) вместо O(n)
+        // row из маппинга O(1)
         {
           std::lock_guard<std::mutex> lk2(m_keyToRowMutex);
           auto it = m_keyToRow.find(kv.first);
@@ -871,11 +873,11 @@ void BaseChannelList::OnPendingWatchdog(wxTimerEvent &evt) {
 
     for (const auto &[key, row] : toRetry) {
       m_pendingLogoLoads.erase(key);
-      RemoveKeyMapping(key); // NEW: Очисти маппинг
+      RemoveKeyMapping(key); // Очисти маппинг
     }
   }
 
-  // NEW: Простой и прямой retry
+  // Простой и прямой retry
   for (const auto &[key, row] : toRetry) {
     const int id = GetId();
     CallAfterSafeById(id, [id, row]() {
