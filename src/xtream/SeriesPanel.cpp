@@ -380,11 +380,12 @@ void SeriesPanel::OnActivated() {
   Playlist *pl = GetCurrentPlaylist();
   LOG_DEBUG("SeriesPanel::OnActivated: pl=%p isXtream=%d hasSeries=%d "
             "activated=%d cardsNull=%d mediaKey0Empty=%d loading=%d "
-            "categories=%zu currentCat=%d",
+            "categories=%zu currentCat=%d restored=%d level=%d navStack=%zu",
             (void *)pl, pl ? pl->isXtream() : 0, pl ? pl->hasSeries() : 0,
             m_activatedOnce ? 1 : 0, m_cards ? 0 : 1,
             (m_cards && m_cards->GetMediaKey(0).empty()) ? 1 : 0,
-            m_loading ? 1 : 0, m_categoryIds.size(), m_currentCategoryId);
+            m_loading ? 1 : 0, m_categoryIds.size(), m_currentCategoryId,
+            m_restoredState ? 1 : 0, static_cast<int>(m_level), m_navStack.size());
 
   if (!pl || !pl->isXtream() || !pl->hasSeries())
     return;
@@ -394,8 +395,10 @@ void SeriesPanel::OnActivated() {
     m_navStack.clear();
   }
 
-  if (m_cards && !m_cards->GetMediaKey(0).empty())
+  if (m_cards && !m_cards->GetMediaKey(0).empty()) {
+    LOG_DEBUG("OnActivated: cards not empty, returning early");
     return;
+  }
 
   if (m_loading)
     return;
@@ -418,13 +421,46 @@ void SeriesPanel::OnActivated() {
             "categories=%zu currentCat=%d",
             m_categoryIds.size(), m_currentCategoryId);
   if (!m_categoryIds.empty()) {
+    // -1 (Recently Added) и -2 (All series) — валидные ID категорий;
+    // принимаем их наравне с положительными.
     const bool keepCurrent =
-        m_currentCategoryId > 0 &&
+        (m_currentCategoryId == kRecentlyAddedCategoryId ||
+         m_currentCategoryId == kAllCategoryId ||
+         m_currentCategoryId > 0) &&
         std::find(m_categoryIds.begin(), m_categoryIds.end(),
                   m_currentCategoryId) != m_categoryIds.end();
     if (!keepCurrent)
       m_currentCategoryId = m_categoryIds[0];
-    LoadSeriesPage(true);
+
+    // Синхронизируем UI-селектор с m_currentCategoryId (PopulateCategories
+    // всегда ставит 0).
+    for (size_t i = 0; i < m_categoryIds.size(); ++i) {
+      if (m_categoryIds[i] == m_currentCategoryId) {
+        if (m_categoryChoice)
+          m_categoryChoice->SetSelection(static_cast<int>(i));
+        break;
+      }
+    }
+
+    // Загружаем SeriesList данные для корректной навигации Back.
+    // Если состояние восстановлено — не меняем уровень (GoToLevel),
+    // но данные нужны, чтобы Back из Seasons/Episodes не показал пустой список.
+    if (m_restoredState) {
+      // Загружаем данные, но не меняем UI-уровень.
+      switch (m_listMode) {
+      case SeriesListMode::All:
+        LoadSeriesPage(true);
+        break;
+      case SeriesListMode::Favorites:
+        LoadSeriesFavorites();
+        break;
+      case SeriesListMode::Watchlist:
+        LoadSeriesWatchlist();
+        break;
+      }
+    } else {
+      SetSeriesListMode(m_listMode);
+    }
   }
 }
 
@@ -434,6 +470,7 @@ void SeriesPanel::Reset() {
     m_book->ChangeSelection(0);
 
   m_activatedOnce = false;
+  m_restoredState = false;
   m_loading = false;
   m_refreshing = false;
   m_seriesAutoRefreshStarted = false;
@@ -513,6 +550,13 @@ void SeriesPanel::GoToLevel(Level level) {
 }
 
 bool SeriesPanel::GoBack() { return PopAndRestore(); }
+
+void SeriesPanel::GoBackToLevel(Level target) {
+  while (m_level != target && !m_navStack.empty()) {
+    if (!PopAndRestore())
+      break;
+  }
+}
 
 void SeriesPanel::PushCurrentState() {
   SeriesNavState s;
@@ -1080,17 +1124,35 @@ void SeriesPanel::RebuildSeasonsBreadcrumb() {
 
   m_seasonsBreadcrumbSizer->Clear(true);
 
-  auto *nameLabel =
-      new wxStaticText(m_seasonsPage, wxID_ANY, m_currentSeriesName);
-  {
-    wxFont f = nameLabel->GetFont();
+  auto addLbl = [this](const wxString &text, bool bold) -> wxStaticText * {
+    auto *lbl = new wxStaticText(m_seasonsPage, wxID_ANY, text);
+    wxFont f = lbl->GetFont();
     f.SetPointSize(f.GetPointSize() + 2);
-    f.SetWeight(wxFONTWEIGHT_BOLD);
-    nameLabel->SetFont(f);
-  }
-  nameLabel->SetCursor(wxCURSOR_HAND);
-  nameLabel->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &) { GoBack(); });
-  m_seasonsBreadcrumbSizer->Add(nameLabel, 0, wxALIGN_CENTER_VERTICAL);
+    if (bold)
+      f.SetWeight(wxFONTWEIGHT_BOLD);
+    lbl->SetFont(f);
+    return lbl;
+  };
+  auto addSep = [this]() -> wxStaticText * {
+    auto *s = new wxStaticText(m_seasonsPage, wxID_ANY,
+                               wxString::FromUTF8(" \xC2\xB7 "));
+    wxFont f = s->GetFont();
+    f.SetPointSize(f.GetPointSize() + 2);
+    s->SetFont(f);
+    s->SetForegroundColour(
+        wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
+    return s;
+  };
+
+  auto *seriesLbl = addLbl(_U("Series"), false);
+  seriesLbl->SetCursor(wxCURSOR_HAND);
+  seriesLbl->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &) {
+    GoBackToLevel(Level::SeriesList);
+  });
+  m_seasonsBreadcrumbSizer->Add(seriesLbl, 0, wxALIGN_CENTER_VERTICAL);
+  m_seasonsBreadcrumbSizer->Add(addSep(), 0, wxALIGN_CENTER_VERTICAL);
+  m_seasonsBreadcrumbSizer->Add(addLbl(m_currentSeriesName, true), 0,
+                                wxALIGN_CENTER_VERTICAL);
 
   m_seasonsPage->Layout();
 }
@@ -1101,42 +1163,48 @@ void SeriesPanel::RebuildEpisodesBreadcrumb() {
 
   m_episodesBreadcrumbSizer->Clear(true);
 
-  auto *nameLabel =
-      new wxStaticText(m_episodesPage, wxID_ANY, m_currentSeriesName);
-  {
-    wxFont f = nameLabel->GetFont();
+  auto addLbl = [this](const wxString &text, bool bold) -> wxStaticText * {
+    auto *lbl = new wxStaticText(m_episodesPage, wxID_ANY, text);
+    wxFont f = lbl->GetFont();
     f.SetPointSize(f.GetPointSize() + 2);
-    f.SetWeight(wxFONTWEIGHT_BOLD);
-    nameLabel->SetFont(f);
-  }
-  nameLabel->SetCursor(wxCURSOR_HAND);
-  nameLabel->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &) { GoBack(); });
-  m_episodesBreadcrumbSizer->Add(nameLabel, 0, wxALIGN_CENTER_VERTICAL);
+    if (bold)
+      f.SetWeight(wxFONTWEIGHT_BOLD);
+    lbl->SetFont(f);
+    return lbl;
+  };
+  auto addSep = [this]() -> wxStaticText * {
+    auto *s = new wxStaticText(m_episodesPage, wxID_ANY,
+                               wxString::FromUTF8(" \xC2\xB7 "));
+    wxFont f = s->GetFont();
+    f.SetPointSize(f.GetPointSize() + 2);
+    s->SetFont(f);
+    s->SetForegroundColour(
+        wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
+    return s;
+  };
 
-  wxString seasonLabel =
+  auto *seriesLbl = addLbl(_U("Series"), false);
+  seriesLbl->SetCursor(wxCURSOR_HAND);
+  seriesLbl->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &) {
+    GoBackToLevel(Level::SeriesList);
+  });
+  m_episodesBreadcrumbSizer->Add(seriesLbl, 0, wxALIGN_CENTER_VERTICAL);
+  m_episodesBreadcrumbSizer->Add(addSep(), 0, wxALIGN_CENTER_VERTICAL);
+
+  auto *showLbl = addLbl(m_currentSeriesName, true);
+  showLbl->SetCursor(wxCURSOR_HAND);
+  showLbl->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &) {
+    GoBackToLevel(Level::Seasons);
+  });
+  m_episodesBreadcrumbSizer->Add(showLbl, 0, wxALIGN_CENTER_VERTICAL);
+  m_episodesBreadcrumbSizer->Add(addSep(), 0, wxALIGN_CENTER_VERTICAL);
+
+  const wxString seasonLabel =
       (m_currentSeasonNumber == 0)
           ? _U("Specials")
           : wxString::Format(_U("Season %d"), m_currentSeasonNumber);
-
-  auto *sep = new wxStaticText(m_episodesPage, wxID_ANY,
-                               wxString::FromUTF8(" \xC2\xB7 "));
-  {
-    wxFont f = sep->GetFont();
-    f.SetPointSize(f.GetPointSize() + 2);
-    sep->SetFont(f);
-    sep->SetForegroundColour(
-        wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
-  }
-  m_episodesBreadcrumbSizer->Add(sep, 0, wxALIGN_CENTER_VERTICAL);
-
-  auto *seasonText = new wxStaticText(m_episodesPage, wxID_ANY, seasonLabel);
-  {
-    wxFont f = seasonText->GetFont();
-    f.SetPointSize(f.GetPointSize() + 2);
-    f.SetWeight(wxFONTWEIGHT_BOLD);
-    seasonText->SetFont(f);
-  }
-  m_episodesBreadcrumbSizer->Add(seasonText, 0, wxALIGN_CENTER_VERTICAL);
+  m_episodesBreadcrumbSizer->Add(addLbl(seasonLabel, true), 0,
+                                 wxALIGN_CENTER_VERTICAL);
 
   m_episodesPage->Layout();
 }
@@ -1738,13 +1806,31 @@ void SeriesPanel::RestoreNavigationState(int64_t seriesId, int seasonNumber,
   m_currentSeasonNumber = seasonNumber;
 
   const auto seasons = db->GetSeasons(seriesId);
-  if (seasons.empty())
+  if (seasons.empty()) {
+    LOG_WARN("RestoreNavigationState: no seasons for series %lld",
+             static_cast<long long>(seriesId));
     return;
+  }
 
   m_currentSeasons = seasons;
 
   if (level == 0)
     return;
+
+  // Восстановление "прошло": блокируем m_navStack.clear() в OnActivated()
+  // на первой активации, иначе восстановленный стек будет стёрт.
+  m_activatedOnce = true;
+
+  // Синтетический стек, эквивалентный тому, что пушит PushCurrentState()
+  // при обычном drill-down. Нужен, чтобы Back/Esc/крошки работали после
+  // восстановления.
+  m_navStack.clear();
+  {
+    SeriesNavState root;
+    root.level = static_cast<int>(Level::SeriesList);
+    root.categoryId = m_currentCategoryId;
+    m_navStack.push_back(std::move(root));
+  }
 
   PopulateSeasonsCards();
 
@@ -1761,10 +1847,27 @@ void SeriesPanel::RestoreNavigationState(int64_t seriesId, int seasonNumber,
     return;
   }
 
+  {
+    SeriesNavState seasonsState;
+    seasonsState.level = static_cast<int>(Level::Seasons);
+    seasonsState.seriesId = seriesId;
+    seasonsState.seriesName = m_currentSeriesName;
+    seasonsState.seasonNumber = seasonNumber;
+    seasonsState.categoryId = m_currentCategoryId;
+    m_navStack.push_back(std::move(seasonsState));
+  }
+
   m_currentEpisodes = episodes;
   PopulateEpisodesList(seasonNumber);
   RebuildBreadcrumbs();
   GoToLevel(Level::Episodes);
+
+  // Mark successful restoration so OnActivated() doesn't reload
+  // the SeriesList (which would overwrite restored state,
+  // especially for Favorites/Watchlist modes).
+  m_restoredState = true;
+  LOG_INFO("RestoreNavigationState: SUCCESS level=%d navStack.size=%zu",
+           static_cast<int>(m_level), m_navStack.size());
 }
 
 // ---------------------------------------------------------------------------

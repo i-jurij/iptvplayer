@@ -1159,9 +1159,11 @@ void MainFrame::RestoreSeriesContext() {
   m_seriesPanel->SetCurrentCategoryId(savedCatId);
 
   int savedMode = cfg->getInt("last_series_list_mode", 0);
+  if (savedMode < 0 || savedMode > 2) savedMode = 0;
   m_seriesPanel->SetListMode(static_cast<SeriesListMode>(savedMode));
 
   int savedSort = cfg->getInt("last_series_sort_mode", 0);
+  if (savedSort < 0 || savedSort > 3) savedSort = 0;
   m_seriesPanel->SetSortMode(static_cast<SeriesSortMode>(savedSort));
 
   std::string seriesIdStr = cfg->getSetting("last_series_series_id", "0");
@@ -1170,8 +1172,12 @@ void MainFrame::RestoreSeriesContext() {
 
   int savedSeason = cfg->getInt("last_series_season", 0);
   int savedLevel = cfg->getInt("last_series_level", 0);
+  if (savedLevel < 0 || savedLevel > 2) savedLevel = 0;
 
-  if (savedSeriesId > 0) {
+  if (savedSeriesId > 0 && savedLevel > 0) {
     m_seriesPanel->RestoreNavigationState(savedSeriesId, savedSeason, savedLevel);
   }
+
+  // Restore finished — now allow normal saves.
+  m_startupSaveBlocked = false;
 }

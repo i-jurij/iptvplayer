@@ -529,6 +529,7 @@ void MainFrame::SaveStartupContext() {
   cfg->setSetting("last_active_tab", activeTab);
 
   SaveXtreamContext(sel);
+  cfg->saveSettings();
 }
 
 void MainFrame::SaveXtreamContext(int pageIndex) {
@@ -544,6 +545,13 @@ void MainFrame::SaveXtreamContext(int pageIndex) {
                 static_cast<int>(m_currentVodStreamId));
   }
   else if (pageIndex == m_seriesPageIdx && m_seriesPanel) {
+    LOG_INFO("SaveXtreamContext SERIES: catId=%d mode=%d sort=%d seriesId=%lld season=%d level=%d",
+             m_seriesPanel->GetCurrentCategoryId(),
+             static_cast<int>(m_seriesPanel->GetListMode()),
+             static_cast<int>(m_seriesPanel->GetSortMode()),
+             static_cast<long long>(m_seriesPanel->GetCurrentSeriesId()),
+             m_seriesPanel->GetCurrentSeasonNumber(),
+             static_cast<int>(m_seriesPanel->CurrentLevel()));
     cfg->setSetting("last_series_category_id",
                     std::to_string(m_seriesPanel->GetCurrentCategoryId()));
     cfg->setInt("last_series_list_mode", static_cast<int>(m_seriesPanel->GetListMode()));
@@ -583,6 +591,12 @@ void MainFrame::HandleActivePageChanged(int sel) {
 void MainFrame::SavePanelState(int pageIndex) {
   auto *cfg = getConfigManager();
   if (!cfg) return;
+
+  // Block Xtream saves during startup — they would overwrite
+  // the saved config with zeros before RestoreSeriesContext reads it.
+  if (m_startupSaveBlocked && pageIndex != m_channelsPageIdx &&
+      pageIndex != m_favoritesPageIdx)
+    return;
 
   if (pageIndex == m_channelsPageIdx) {
     cfg->setSetting("channels_view_mode", m_startInGrid ? "grid" : "list");

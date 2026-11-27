@@ -600,6 +600,9 @@ private:
 
    // Флаг: нужно ли восстановить Movies/Series контекст при первом входе
    bool m_startupRestorePending = false;
+   // Флаг: блокирует сохранение состояния при первом запуске (до Restore).
+   // Иначе SaveXtreamContext перезапишет конфиг нулями до RestoreSeriesContext.
+   bool m_startupSaveBlocked = true;
 
    wxStaticLine *statusLine = nullptr;
 };

@@ -63,6 +63,7 @@ public:
   Level CurrentLevel() const { return m_level; }
   void GoToLevel(Level level);
   bool GoBack();
+  void GoBackToLevel(Level target);
 
   wxSimplebook *GetBook() const { return m_book; }
 
@@ -171,6 +172,10 @@ private:
   // one-shot auto-refresh per playlist session. Set when
   // OnActivated triggers initial catalog load; reset in Reset().
   bool m_seriesAutoRefreshStarted = false;
+  // Set to true when RestoreNavigationState successfully completes.
+  // Prevents OnActivated() from reloading SeriesList (which would
+  // overwrite restored state, especially for Favorites/Watchlist modes).
+  bool m_restoredState = false;
 
   // Page 1 — Seasons
   wxPanel *m_seasonsPage = nullptr;
