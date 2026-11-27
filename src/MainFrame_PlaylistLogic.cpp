@@ -1177,7 +1177,4 @@ void MainFrame::RestoreSeriesContext() {
   if (savedSeriesId > 0 && savedLevel > 0) {
     m_seriesPanel->RestoreNavigationState(savedSeriesId, savedSeason, savedLevel);
   }
-
-  // Restore finished — now allow normal saves.
-  m_startupSaveBlocked = false;
 }

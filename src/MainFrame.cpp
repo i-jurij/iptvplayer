@@ -193,9 +193,6 @@ MainFrame::MainFrame(Application *app)
         LOG_DEBUG("MainFrame: notebook page changed: prevSel=%d, newSel=%d",
                   prevSel, newSel);
 
-        // Сохранить состояние уходящей панели
-        SavePanelState(prevSel);
-
         evt.Skip();
         HandleActivePageChanged(newSel);
       });
@@ -528,6 +525,15 @@ void MainFrame::SaveStartupContext() {
 
   cfg->setSetting("last_active_tab", activeTab);
 
+  // View mode (grid/list) — сохраняем один раз при закрытии.
+  if (m_notebook) {
+    int sel = m_notebook->GetSelection();
+    if (sel == m_channelsPageIdx)
+      cfg->setSetting("channels_view_mode", m_startInGrid ? "grid" : "list");
+    else if (sel == m_favoritesPageIdx)
+      cfg->setSetting("favorites_view_mode", m_startInGrid ? "grid" : "list");
+  }
+
   SaveXtreamContext(sel);
   cfg->saveSettings();
 }
@@ -586,28 +592,6 @@ void MainFrame::HandleActivePageChanged(int sel) {
     SetStatusText("", 1);
   }
   ToggleHeaderGroup(sel);
-}
-
-void MainFrame::SavePanelState(int pageIndex) {
-  auto *cfg = getConfigManager();
-  if (!cfg) return;
-
-  // Block Xtream saves during startup — they would overwrite
-  // the saved config with zeros before RestoreSeriesContext reads it.
-  if (m_startupSaveBlocked && pageIndex != m_channelsPageIdx &&
-      pageIndex != m_favoritesPageIdx)
-    return;
-
-  if (pageIndex == m_channelsPageIdx) {
-    cfg->setSetting("channels_view_mode", m_startInGrid ? "grid" : "list");
-  }
-  else if (pageIndex == m_favoritesPageIdx) {
-    cfg->setSetting("favorites_view_mode", m_startInGrid ? "grid" : "list");
-  }
-  else {
-    SaveXtreamContext(pageIndex);
-  }
-  cfg->saveSettings();
 }
 
 void MainFrame::RestorePanelState(int pageIndex) {
