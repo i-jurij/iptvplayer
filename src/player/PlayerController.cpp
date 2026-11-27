@@ -162,7 +162,7 @@ void PlayerController::Stop() {
   m_reconcilePending.store(false);
 
   m_backend->Stop();
-  NotifyState(PlayerState::Stopped);
+  //NotifyState(PlayerState::Stopped);
 }
 
 void PlayerController::SetVolume(int volume) {
