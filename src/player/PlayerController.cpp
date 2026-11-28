@@ -3,9 +3,9 @@
 #include "MpvBackend.h"
 
 PlayerController::PlayerController(std::unique_ptr<IPlayerBackend> backend)
-    : m_backend(std::move(backend)), m_reconcileTimer(this),
-      m_reconcilePending(false),
-      m_lastToggleTime(std::chrono::steady_clock::time_point::min()) {
+    : m_reconcileTimer(this), m_reconcilePending(false),
+      m_lastToggleTime(std::chrono::steady_clock::time_point::min()),
+      m_backend(std::move(backend)) {
   // Привязываем обработчик таймера
   m_reconcileTimer.Bind(wxEVT_TIMER, &PlayerController::OnReconcileTimer, this);
   m_reconcilePending.store(false);
@@ -334,7 +334,7 @@ void PlayerController::StartReconcileTimer() {
 }
 
 // Обработчик таймера: опрашиваем backend и корректируем состояние
-void PlayerController::OnReconcileTimer(wxTimerEvent &evt) {
+void PlayerController::OnReconcileTimer([[maybe_unused]] wxTimerEvent &evt) {
   m_reconcilePending.store(false);
 
   if (!m_backend)
