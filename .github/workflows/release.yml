@@ -545,12 +545,14 @@ jobs:
         run: |
           set -euo pipefail
           echo 'SigLevel = Never' >> /etc/pacman.conf
-          echo "[i] SigLevel = Never установлен для compat-сборки (снапшот 2025-10-05)"
+          echo 'DisableDownloadTimeout' >> /etc/pacman.conf
+          echo 'ParallelDownloads = 1' >> /etc/pacman.conf
+          echo "[i] pacman configured for compat snapshot (2025-10-05)"
 
       - name: Install build toolchain
         run: |
           set -euo pipefail
-          pacman -Syu --noconfirm --needed
+          pacman -Sy --noconfirm
           pacman -S --noconfirm --needed \
             base-devel cmake git patchelf wget curl \
             autoconf automake libtool gettext pkgconf \
